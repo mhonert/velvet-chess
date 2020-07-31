@@ -23,3 +23,18 @@ pub const B: i8 = 3;
 pub const R: i8 = 4;
 pub const Q: i8 = 5;
 pub const K: i8 = 6;
+
+const KING_VALUE: i16 = 1500;
+const EG_QUEEN_VALUE: i16 = 991;
+const QUEEN_VALUE: i16 = 1376;
+const EG_ROOK_VALUE: i16 = 568;
+const ROOK_VALUE: i16 = 659;
+const EG_BISHOP_VALUE: i16 = 335;
+const BISHOP_VALUE: i16 = 489;
+const EG_KNIGHT_VALUE: i16 = 267;
+const KNIGHT_VALUE: i16 = 456;
+const EG_PAWN_VALUE: i16 = 107;
+const PAWN_VALUE: i16 = 102;
+
+pub const PIECE_VALUES: [i16; 7] = [0, PAWN_VALUE, KNIGHT_VALUE, BISHOP_VALUE, ROOK_VALUE, QUEEN_VALUE, KING_VALUE];
+pub const EG_PIECE_VALUES: [i16; 7] = [0, EG_PAWN_VALUE, EG_KNIGHT_VALUE, EG_BISHOP_VALUE, EG_ROOK_VALUE, EG_QUEEN_VALUE, KING_VALUE];

@@ -134,8 +134,8 @@ fn read_enpassant(en_passant: &str) -> Option<u8> {
     let col_offset = col_char - b'a';
 
     Some(match row_char {
-        b'3' => BlackBoardPos::PawnLineStart as u8 + col_offset,
-        b'6' => WhiteBoardPos::PawnLineStart as u8 + col_offset,
+        b'3' => WhiteBoardPos::PawnLineStart as u8 + col_offset,
+        b'6' => BlackBoardPos::PawnLineStart as u8 + col_offset,
         _ => panic!("Unexpected en passant row char: {}", row_char),
     })
 }
@@ -300,11 +300,15 @@ mod tests {
 
     #[test]
     fn read_write_black_en_passant() {
-        test_fen("rnbqkbnr/p1pppppp/8/8/Pp6/8/1PPPPPPP/RNBQKBNR w KQkq a3 0 1");
+        test_fen("rnbqkbnr/p1pppppp/8/8/Pp6/8/1PPPPPPP/RNBQKBNR b KQkq a3 0 1");
+        test_fen("rnbqkbnr/p1pppppp/8/8/Pp6/8/1PPPPPPP/RNBQKBNR b KQkq b3 0 1");
+        test_fen("rnbqkbnr/p1pppppp/8/8/Pp6/8/1PPPPPPP/RNBQKBNR b KQkq h3 0 1");
     }
 
     #[test]
     fn read_write_white_en_passant() {
+        test_fen("rnbqkbnr/ppppppp1/8/6Pp/8/8/PPPPPP1P/RNBQKBNR w KQkq a6 0 1");
+        test_fen("rnbqkbnr/p1pppppp/8/8/Pp6/8/1PPPPPPP/RNBQKBNR w KQkq g6 0 1");
         test_fen("rnbqkbnr/ppppppp1/8/6Pp/8/8/PPPPPP1P/RNBQKBNR w KQkq h6 0 1");
     }
 

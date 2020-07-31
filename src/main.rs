@@ -17,19 +17,24 @@
  */
 
 use std::io;
-use std::ops::Index;
 use crate::fen::{START_POS, read_fen};
 
 mod board;
 mod fen;
 mod pieces;
+mod perft;
+mod move_gen;
+mod random;
+mod zobrist;
+mod score_util;
+mod piece_sq_tables;
+mod colors;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const AUTHOR: &str = "Martin Honert";
 
 fn main() {
     println!("Velvet Chess Engine v{}", VERSION);
-    println!("... waiting for UCI commands");
 
     loop {
         let mut line = String::new();
@@ -90,7 +95,9 @@ fn set_position(parts: Vec<&str>) {
     let fen = parse_position_cmd(parts);
 
     let board = read_fen(&fen);
-    println!("Position set, active player: {}", board.active_player())
+    println!("Position set, active player: {}", board.active_player());
+
+    println!("Hash: {}", board.get_hash());
 }
 
 fn parse_position_cmd(parts: Vec<&str>) -> String {
