@@ -16,8 +16,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::board::{Castling, Board, Color, BLACK, WHITE, BlackBoardPos, WhiteBoardPos};
+use crate::board::{Castling, Board, BlackBoardPos, WhiteBoardPos};
 use crate::pieces;
+use crate::colors::{Color, WHITE, BLACK};
 
 pub const START_POS: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
@@ -39,7 +40,7 @@ pub fn read_fen(fen: &str) -> Board {
         None => panic!("Missing castling part in FEN: {}", fen),
     };
 
-    let enpassant_target: Option<u8> = match fen_parts.next() {
+    let enpassant_target: Option<i8> = match fen_parts.next() {
         Some(enpassant) => read_enpassant(enpassant),
         None => panic!("Missing en passant part in FEN: {}", fen),
     };
@@ -119,7 +120,7 @@ fn read_castling(castling: &str) -> u8 {
     state
 }
 
-fn read_enpassant(en_passant: &str) -> Option<u8> {
+fn read_enpassant(en_passant: &str) -> Option<i8> {
     if en_passant == "-" {
         return None;
     }
@@ -131,11 +132,11 @@ fn read_enpassant(en_passant: &str) -> Option<u8> {
     let mut bytes = en_passant.bytes();
     let (col_char, row_char) = (bytes.next().unwrap(), bytes.next().unwrap());
 
-    let col_offset = col_char - b'a';
+    let col_offset = (col_char - b'a') as i8;
 
     Some(match row_char {
-        b'3' => WhiteBoardPos::PawnLineStart as u8 + col_offset,
-        b'6' => BlackBoardPos::PawnLineStart as u8 + col_offset,
+        b'3' => WhiteBoardPos::PawnLineStart as i8 + col_offset,
+        b'6' => BlackBoardPos::PawnLineStart as i8 + col_offset,
         _ => panic!("Unexpected en passant row char: {}", row_char),
     })
 }

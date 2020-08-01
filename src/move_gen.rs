@@ -16,7 +16,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::board::{Board, Color};
+use crate::board::{Board};
+use crate::colors::Color;
 
 pub struct MoveGenerator {
 }
@@ -39,10 +40,10 @@ pub fn decode_piece_id(m: Move) -> u32  {
     m & 0x7
 }
 
-pub fn decode_start_index(m: Move) -> u32  {
-    (m >> 3) & 0x7F
+pub fn decode_start_index(m: Move) -> i32  {
+    ((m >> 3) & 0x7F) as i32
 }
 
-pub fn decode_end_index(m: Move) -> u32  {
-    (m >> 10) & 0x7F
+pub fn decode_end_index(m: Move) -> i32  {
+    ((m >> 10) & 0x7F) as i32
 }

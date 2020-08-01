@@ -21,48 +21,48 @@ use crate::pieces::{P, PIECE_VALUES, EG_PIECE_VALUES, N, B, R, Q, K};
 use crate::colors::{WHITE, BLACK, Color};
 
 pub struct PieceSquareTables {
-    whiteScores: [u32; 64 * 7],
-    blackScores: [u32; 64 * 7],
+    white_scores: [u32; 64 * 7],
+    black_scores: [u32; 64 * 7],
 }
 
 impl PieceSquareTables {
     pub fn new() -> Self {
-        let whitePawns = combine(WHITE, P, PAWN_SCORES, EG_PAWN_SCORES);
-        let blackPawns = combine(BLACK, P, mirrored(PAWN_SCORES), mirrored(EG_PAWN_SCORES));
+        let white_pawns = combine(WHITE, P, PAWN_SCORES, EG_PAWN_SCORES);
+        let black_pawns = combine(BLACK, P, mirror(PAWN_SCORES), mirror(EG_PAWN_SCORES));
 
-        let whiteKnights = combine(WHITE, N, KNIGHT_SCORES, EG_KNIGHT_SCORES);
-        let blackKnights = combine(BLACK, N, mirrored(KNIGHT_SCORES), mirrored(EG_KNIGHT_SCORES));
+        let white_knights = combine(WHITE, N, KNIGHT_SCORES, EG_KNIGHT_SCORES);
+        let black_knights = combine(BLACK, N, mirror(KNIGHT_SCORES), mirror(EG_KNIGHT_SCORES));
 
-        let whiteBishops = combine(WHITE, B, BISHOP_SCORES, EG_BISHOP_SCORES);
-        let blackBishops = combine(BLACK, B, mirrored(BISHOP_SCORES), mirrored(EG_BISHOP_SCORES));
+        let white_bishops = combine(WHITE, B, BISHOP_SCORES, EG_BISHOP_SCORES);
+        let black_bishops = combine(BLACK, B, mirror(BISHOP_SCORES), mirror(EG_BISHOP_SCORES));
 
-        let whiteRooks = combine(WHITE, B, ROOK_SCORES, EG_ROOK_SCORES);
-        let blackRooks = combine(BLACK, B, mirrored(ROOK_SCORES), mirrored(EG_ROOK_SCORES));
+        let white_rooks = combine(WHITE, R, ROOK_SCORES, EG_ROOK_SCORES);
+        let black_rooks = combine(BLACK, R, mirror(ROOK_SCORES), mirror(EG_ROOK_SCORES));
 
-        let whiteQueens = combine(WHITE, B, QUEEN_SCORES, EG_QUEEN_SCORES);
-        let blackQueens = combine(BLACK, B, mirrored(QUEEN_SCORES), mirrored(EG_QUEEN_SCORES));
+        let white_queens = combine(WHITE, Q, QUEEN_SCORES, EG_QUEEN_SCORES);
+        let black_queens = combine(BLACK, Q, mirror(QUEEN_SCORES), mirror(EG_QUEEN_SCORES));
 
-        let whiteKings = combine(WHITE, B, QUEEN_SCORES, EG_QUEEN_SCORES);
-        let blackKings = combine(BLACK, B, mirrored(QUEEN_SCORES), mirrored(EG_QUEEN_SCORES));
+        let white_kings = combine(WHITE, K, KING_SCORES, EG_KING_SCORES);
+        let black_kings = combine(BLACK, K, mirror(KING_SCORES), mirror(EG_KING_SCORES));
 
 
-        let whiteScores: [u32; 64 * 7] = concat(whitePawns, whiteKnights, whiteBishops, whiteRooks, whiteQueens, whiteKings);
-        let blackScores: [u32; 64 * 7] = concat(blackPawns, blackKnights, blackBishops, blackRooks, blackQueens, blackKings);
+        let white_scores: [u32; 64 * 7] = concat(white_pawns, white_knights, white_bishops, white_rooks, white_queens, white_kings);
+        let black_scores: [u32; 64 * 7] = concat(black_pawns, black_knights, black_bishops, black_rooks, black_queens, black_kings);
 
-        PieceSquareTables{whiteScores, blackScores}
+        PieceSquareTables{ white_scores, black_scores }
     }
 
     pub fn get_packed_score(&self, piece: i8, pos: usize) -> u32 {
         if piece < 0 {
-            return self.blackScores[-piece as usize * 64 + pos];
+            return self.black_scores[-piece as usize * 64 + pos];
         }
 
-        self.whiteScores[piece as usize * 64 + pos as usize]
+        self.white_scores[piece as usize * 64 + pos as usize]
     }
 }
 
 fn concat(pawns: [u32; 64], knights: [u32; 64], bishops: [u32; 64], rooks: [u32; 64], queens: [u32; 64], kings: [u32; 64]) -> [u32; 64 * 7] {
-    let mut all: [u32; 64 * 2] = [0; 64 * 2];
+    let all: [u32; 64 * 7] = [0; 64 * 7];
 
     copy(pawns, all, 64);
     copy(knights, all, 64 * 2);
@@ -70,9 +70,11 @@ fn concat(pawns: [u32; 64], knights: [u32; 64], bishops: [u32; 64], rooks: [u32;
     copy(rooks, all, 64 * 4);
     copy(queens, all, 64 * 5);
     copy(kings, all, 64 * 6);
+
+    all
 }
 
-fn copy(source: [u32; 64], mut target: [u32; 64 * 2], start: usize) {
+fn copy(source: [u32; 64], mut target: [u32; 64 * 7], start: usize) {
     for i in 0..64 {
         target[i + start] = source[i]
     }
@@ -92,7 +94,7 @@ fn combine(color: Color, piece: i8, scores: [i16; 64], eg_scores: [i16; 64]) -> 
     combined_scores
 }
 
-fn mirrored(scores: [i16; 64]) -> [i16; 64] {
+fn mirror(scores: [i16; 64]) -> [i16; 64] {
     let mut output: [i16; 64] = scores.clone();
 
     for col in 0..8 {

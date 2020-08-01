@@ -19,6 +19,7 @@
 use std::io;
 use crate::fen::{START_POS, read_fen};
 
+mod bitboard;
 mod board;
 mod fen;
 mod pieces;
@@ -96,8 +97,6 @@ fn set_position(parts: Vec<&str>) {
 
     let board = read_fen(&fen);
     println!("Position set, active player: {}", board.active_player());
-
-    println!("Hash: {}", board.get_hash());
 }
 
 fn parse_position_cmd(parts: Vec<&str>) -> String {

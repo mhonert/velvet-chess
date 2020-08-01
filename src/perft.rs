@@ -24,7 +24,7 @@ use crate::move_gen::{MoveGenerator, decode_piece_id, decode_start_index, decode
 
    Another use for this function is to test the performance of the move generator (see __tests__/perft.performance.ts).
  */
-pub fn perft(move_gen: &MoveGenerator, board: &Board, depth: i32) -> u64 {
+pub fn perft(move_gen: &MoveGenerator, board: &mut Board, depth: i32) -> u64 {
     if depth == 0 {
         return 1
     }
@@ -39,13 +39,13 @@ pub fn perft(move_gen: &MoveGenerator, board: &Board, depth: i32) -> u64 {
         let move_end = decode_end_index(m);
 
         let previous_piece = board.get_item(move_start);
-        // let removed_piece = board.perform_move(target_piece_id, move_start, move_end);
-        //
-        // if !board.is_in_check(active_player) {
-        //     nodes += perft(move_gen, board, depth - 1);
-        // }
-        //
-        // board.undo_move(pre)
+        let removed_piece = board.perform_move(target_piece_id as i8, move_start, move_end);
+
+        if !board.is_in_check(active_player) {
+            nodes += perft(move_gen, board, depth - 1);
+        }
+
+        board.undo_move(previous_piece, move_start, move_end, removed_piece);
     }
 
     return nodes

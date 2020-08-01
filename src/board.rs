@@ -17,24 +17,28 @@
  */
 
 use crate::pieces;
-use crate::pieces::EMPTY;
+use crate::pieces::{EMPTY, R, K, P, N, B, Q};
 use crate::zobrist::Zobrist;
 use crate::colors::{Color, WHITE, BLACK};
 use crate::piece_sq_tables::PieceSquareTables;
 use crate::score_util::{unpack_score, unpack_eg_score};
+use crate::bitboard::{Bitboard, white_left_pawn_attacks, white_right_pawn_attacks, black_left_pawn_attacks, black_right_pawn_attacks};
 
 const MAX_GAME_HALFMOVES: usize = 5898 * 2;
 
 pub struct Board {
+    bb: Bitboard,
     zobrist: Zobrist,
     pst: PieceSquareTables,
     items: [i8; 64],
+    bitboards: [u64; 13],
+    bitboards_all_pieces: [u64; 3],
     hash: u64,
     active_player: Color,
     castling_state: u8,
     enpassant_state: u16,
-    white_king: u8,
-    black_king: u8,
+    white_king: i8,
+    black_king: i8,
     halfmove_clock: u16,
     halfmove_count: u16,
     score: i16,
@@ -48,8 +52,8 @@ pub struct Board {
 }
 
 impl Board {
-    pub fn new(items: &[i8], active_player: Color, castling_state: u8, enpassant_target: Option<u8>,
-               halfmove_clock: u16, fullmove_num: u16, ) -> Self {
+    pub fn new(items: &[i8], active_player: Color, castling_state: u8, enpassant_target: Option<i8>,
+               halfmove_clock: u16, fullmove_num: u16) -> Self {
 
         if items.len() != 64 {
             panic!("Expected a vector with 64 elements, but got {}", items.len() );
@@ -58,9 +62,12 @@ impl Board {
         let halfmove_count = (fullmove_num - 1) * 2 + if active_player == WHITE { 0 } else { 1 };
 
         let mut board = Board {
+            bb: Bitboard::new(),
             zobrist: Zobrist::new(),
             pst: PieceSquareTables::new(),
             items: [0; 64],
+            bitboards: [0; 13],
+            bitboards_all_pieces: [0; 3],
             hash: 0,
             active_player,
             castling_state,
@@ -84,12 +91,18 @@ impl Board {
 
         for i in 0..64 {
             let item = items[i];
-            board.items[i] = item;
+
+            if item != EMPTY {
+                board.add_piece(item.signum(), item.abs(), i);
+            } else {
+                board.items[i] = item;
+
+            }
 
             if item == pieces::K {
-                board.white_king = i as u8;
+                board.white_king = i as i8;
             } else if item == -pieces::K {
-                board.black_king = i as u8;
+                board.black_king = i as i8;
             }
         }
 
@@ -124,14 +137,14 @@ impl Board {
         self.hash ^= self.zobrist.castling[self.castling_state as usize];
     }
 
-    fn set_enpassant(&mut self, pos: u8) {
+    fn set_enpassant(&mut self, pos: i8) {
         let previous_state = self.enpassant_state;
 
         println!("Set en passant: {}", pos);
-        if pos >= WhiteBoardPos::PawnLineStart as u8 {
-            self.enpassant_state = 1 << ((pos - WhiteBoardPos::PawnLineStart as u8) as u16 + 8);
+        if pos >= WhiteBoardPos::PawnLineStart as i8 {
+            self.enpassant_state = 1 << ((pos - WhiteBoardPos::PawnLineStart as i8) as u16 + 8);
         } else {
-            self.enpassant_state = 1 << ((pos - BlackBoardPos::PawnLineStart as u8) as u16);
+            self.enpassant_state = 1 << ((pos - BlackBoardPos::PawnLineStart as i8) as u16);
         };
 
         self.update_hash_for_enpassant(previous_state);
@@ -151,7 +164,7 @@ impl Board {
         }
     }
 
-    pub fn get_item(&self, pos: u32) -> i8 {
+    pub fn get_item(&self, pos: i32) -> i8 {
         self.items[pos as usize]
     }
 
@@ -198,35 +211,235 @@ impl Board {
         // self.hash_code ^= PLAYER_RNG_NUMBER;
     }
 
-    pub fn perform_move(&mut self, target_piece_id: u32, move_start: u32, move_end: u32) -> i32 {
+    pub fn perform_move(&mut self, target_piece_id: i8, move_start: i32, move_end: i32) -> i8 {
         self.store_state();
         self.increase_half_move_count();
 
-        // let own_piece = self.remove_piece(move_start);
+        let own_piece = self.remove_piece(move_start);
+        let color = own_piece.signum();
 
-        0
+        self.clear_en_passant();
 
+        if self.items[move_end as usize] != EMPTY {
+            // Capture move (except en passant)
+            let removed_piece = self.remove_piece(move_end);
+            self.add_piece(color, target_piece_id, move_end as usize);
+
+            self.halfmove_clock = 0;
+
+            if target_piece_id as u8 == K as u8 {
+                self.update_king_pos(color, move_end);
+            }
+
+            return removed_piece.abs();
+        }
+
+        self.add_piece(color, target_piece_id, move_end as usize);
+        if own_piece == P {
+            // Special en passant handling
+            if move_start - move_end == 16 {
+                self.set_enpassant(move_start as i8);
+            } else if move_start - move_end == 7 {
+                self.remove_piece(move_start + WHITE as i32);
+                // update position history
+                return EN_PASSANT;
+            } else if move_start - move_end == 9 {
+                self.remove_piece(move_start - WHITE as i32);
+                // update position history
+                return EN_PASSANT;
+            }
+
+        } else if own_piece == -P {
+            // Special en passant handling
+            if move_start - move_end == -16 {
+                self.set_enpassant(move_start as i8);
+            } else if move_start - move_end == -7 {
+                self.remove_piece(move_start + BLACK as i32);
+                // update position history
+                return EN_PASSANT;
+            } else if move_start - move_end == -9 {
+                self.remove_piece(move_start - BLACK as i32);
+                // update position history
+                return EN_PASSANT;
+            }
+
+        } else if own_piece == K {
+            self.update_king_pos(WHITE, move_end);
+
+            // Special castling handling
+            if move_start - move_end == -2 {
+                self.remove_piece(WhiteBoardPos::KingSideRook as i32);
+                self.add_piece(WHITE, R, WhiteBoardPos::KingStart as usize + 1);
+                self.castling_state |= Castling::WhiteHasCastled as u8;
+
+            } else if move_start - move_end == 2 {
+                self.remove_piece(WhiteBoardPos::QueenSideRook as i32);
+                self.add_piece(WHITE, R, WhiteBoardPos::KingStart as usize - 1);
+                self.castling_state |= Castling::WhiteHasCastled as u8;
+
+            }
+
+        } else if own_piece == -K {
+            self.update_king_pos(BLACK, move_end);
+
+            // Special castling handling
+            if move_start - move_end == -2 {
+                self.remove_piece(BlackBoardPos::KingSideRook as i32);
+                self.add_piece(BLACK, R, BlackBoardPos::KingStart as usize + 1);
+                self.castling_state |= Castling::BlackHasCastled as u8;
+
+            } else if move_start - move_end == 2 {
+                self.remove_piece(BlackBoardPos::QueenSideRook as i32);
+                self.add_piece(BLACK, R, BlackBoardPos::KingStart as usize - 1);
+                self.castling_state |= Castling::BlackHasCastled as u8;
+
+            }
+        }
+
+        // Position history
+
+        EMPTY
     }
 
-    pub fn remove_piece(&mut self, pos: usize) -> i32 {
-        let piece = self.items[pos];
-        self.subtract_piece_score(pos, piece);
+    pub fn undo_move(&mut self, piece: i8, move_start: i32, move_end: i32, removed_piece_id: i8) {
+        // Restore position history
+
+        let color = piece.signum();
+        self.remove_piece_without_inc_update(move_end);
+        self.add_piece_without_inc_update(color, piece, move_start);
+
+        if removed_piece_id == EN_PASSANT {
+            if (move_start - move_end).abs() == 7 {
+                self.add_piece_without_inc_update(-color, P * -color, move_start + color as i32);
+            } else if (move_start - move_end).abs() == 9 {
+                self.add_piece_without_inc_update(-color, P * -color, move_start - color as i32);
+            }
+
+        } else if removed_piece_id != EMPTY {
+            self.add_piece_without_inc_update(-color, removed_piece_id * -color, move_end);
+        }
+
+        if piece == K { // White King
+            self.update_king_pos(WHITE, move_start);
+
+            // Undo Castle?
+            if move_start - move_end == -2 {
+                self.remove_piece_without_inc_update(WhiteBoardPos::KingStart as i32 + 1);
+                self.add_piece_without_inc_update(WHITE, R, WhiteBoardPos::KingSideRook as i32);
+
+            } else if move_start - move_end == 2 {
+                self.remove_piece_without_inc_update(WhiteBoardPos::KingStart as i32 - 1);
+                self.add_piece_without_inc_update(WHITE, R, WhiteBoardPos::QueenSideRook as i32);
+
+            }
+
+        } else if piece == -K { // Black King
+            self.update_king_pos(BLACK, move_start);
+
+            // Undo Castle?
+            if move_start - move_end == -2 {
+                self.remove_piece_without_inc_update(BlackBoardPos::KingStart as i32 + 1);
+                self.add_piece_without_inc_update(BLACK, -R, BlackBoardPos::KingSideRook as i32);
+
+            } else if move_start - move_end == 2 {
+                self.remove_piece_without_inc_update(WhiteBoardPos::KingStart as i32 - 1);
+                self.add_piece_without_inc_update(BLACK, -R, BlackBoardPos::QueenSideRook as i32);
+
+            }
+
+        }
+
+        self.restore_state();
+    }
+
+    fn add_piece_without_inc_update(&mut self, color: Color, piece: i8, pos: i32) {
+        self.items[pos as usize] = piece;
+        self.bitboards[piece as usize + 6] |= 1u64 << pos as u64;
+        self.bitboards_all_pieces[color as usize + 1] |= 1u64 << pos as u64;
+    }
+
+    fn update_king_pos(&mut self, color: Color, pos: i32) {
+        if color == WHITE {
+            self.white_king = pos as i8;
+        } else {
+            self.black_king = pos as i8;
+        }
+    }
+
+    fn add_piece(&mut self, color: Color, piece_id: i8, pos: usize) {
+        let piece = piece_id * color;
+        self.items[pos] = piece;
+
+        self.add_piece_score(piece, pos);
         self.hash ^= self.zobrist.piece_numbers(piece, pos);
+
+        self.bitboards[(piece + 6) as usize] |= 1u64 << pos as u64;
+        self.bitboards_all_pieces[(color + 1) as usize] |= 1u64 << pos as u64;
+    }
+
+    fn add_piece_score(&mut self, piece: i8, pos: usize) {
+        let packed_score = self.pst.get_packed_score(piece, pos);
+
+        self.score += unpack_score(packed_score);
+        self.eg_score += unpack_eg_score(packed_score);
+    }
+
+    fn clear_en_passant(&mut self) {
+        self.enpassant_state = 0;
+    }
+
+    pub fn remove_piece(&mut self, pos: i32) -> i8 {
+        let piece = self.items[pos as usize];
+        self.subtract_piece_score(piece, pos as usize);
+        self.hash ^= self.zobrist.piece_numbers(piece, pos as usize);
 
         let color = piece.signum();
         self.remove(piece, color, pos)
     }
 
-    fn subtract_piece_score(&mut self, pos: usize, piece: i8) {
+    fn subtract_piece_score(&mut self, piece: i8, pos: usize) {
         let packed_score = self.pst.get_packed_score(piece, pos);
 
         self.score -= unpack_score(packed_score);
         self.eg_score -= unpack_eg_score(packed_score);
     }
 
-    fn remove(&mut self, piece: i8, color: Color, pos: usize) -> i32 {
+    fn remove_piece_without_inc_update(&mut self, pos: i32) {
+        let piece = self.items[pos as usize];
+        let color = piece.signum();
+        self.remove(piece, color, pos);
+    }
 
-        0
+    fn remove(&mut self, piece: i8, color: Color, pos: i32) -> i8 {
+        self.bitboards[piece as usize + 6] &= !(1u64 << pos as u64);
+        self.bitboards_all_pieces[color as usize + 1] &= !(1u64 << pos as u64);
+        self.items[pos as usize] = EMPTY;
+
+        if piece == R { // White rook
+            if pos == WhiteBoardPos::QueenSideRook as i32 {
+                self.set_rook_moved(Castling::WhiteQueenSide);
+            } else if pos == WhiteBoardPos::KingSideRook as i32 {
+                self.set_rook_moved(Castling::WhiteKingSide);
+            }
+
+        } else if piece == -R { // Black rook
+            if pos == BlackBoardPos::QueenSideRook as i32 {
+                self.set_rook_moved(Castling::BlackQueenSide);
+            } else if pos == BlackBoardPos::KingSideRook as i32 {
+                self.set_rook_moved(Castling::BlackKingSide);
+            }
+
+        }
+
+        piece
+    }
+
+    fn set_rook_moved(&mut self, castling: Castling) {
+        if self.can_castle(castling) {
+           let previous_state = self.castling_state;
+            self.castling_state ^= castling as u8;
+            self.update_hash_for_castling(previous_state);
+        }
     }
 
     fn store_state(&mut self) {
@@ -240,14 +453,174 @@ impl Board {
         self.eg_score_history[self.history_counter] = self.eg_score;
         self.history_counter += 1;
     }
+
+    fn restore_state(&mut self) {
+        self.halfmove_count -= 1;
+        self.history_counter -= 1;
+
+        self.hash = self.hash_history[self.history_counter];
+        self.score = self.score_history[self.history_counter];
+        self.eg_score = self.eg_score_history[self.history_counter];
+        let state = self.state_history[self.history_counter];
+
+        self.castling_state = (state >> 56) as u8;
+        self.halfmove_clock = ((state >> 32) & 0xFFFF) as u16;
+        self.enpassant_state = (state & 0xFFFF) as u16;
+    }
+
+    fn king_pos(&self, color: Color) -> i32 {
+        if color == WHITE {
+            return self.white_king as i32;
+        }
+
+        self.black_king as i32
+    }
+
+    pub fn is_in_check(&self, color: Color) -> bool {
+        self.is_attacked(-color, self.king_pos(color))
+    }
+
+    pub fn get_all_piece_bitboard(&self, color: Color) -> u64 {
+        self.bitboards_all_pieces[(color + 1) as usize]
+    }
+
+    fn get_occupancy_bitboard(&self) -> u64 {
+        self.get_all_piece_bitboard(WHITE) | self.get_all_piece_bitboard(BLACK)
+    }
+
+    pub fn is_attacked(&self, opponent_color: Color, pos: i32) -> bool {
+        self.find_smallest_attacker(self.get_occupancy_bitboard(), opponent_color, pos) >= 0
+    }
+
+    pub fn get_bitboard(&self, piece: i8) -> u64 {
+        self.bitboards[(piece + 6) as usize]
+    }
+
+    // Returns the position of the smallest attacker or -1 if there is no attacker
+    pub fn find_smallest_attacker(&self, occupied_bb: u64, opp_color: Color, pos: i32) -> i32 {
+        let target_bb = 1 << pos as u64;
+        if opp_color == WHITE {
+            // Check pawns
+            let white_pawns = self.get_bitboard(P) & occupied_bb;
+            if white_left_pawn_attacks(white_pawns) & target_bb  != 0 {
+                return pos + 9;
+            } else if white_right_pawn_attacks(white_pawns) & target_bb != 0 {
+                return pos + 7;
+            }
+
+            // Check knights
+            let knights = self.get_bitboard(N) & occupied_bb;
+            let attacking_knights = knights & self.bb.get_knight_attacks(pos);
+            if attacking_knights != 0 {
+                return attacking_knights.trailing_zeros() as i32;
+            }
+
+            // Check bishops
+            let bishops = self.get_bitboard(B) & occupied_bb;
+            let bishop_attacks = self.bb.get_diagonal_attacks(occupied_bb, pos) | self.bb.get_anti_diagonal_attacks(occupied_bb, pos);
+            let attacking_bishops = bishops & bishop_attacks;
+            if attacking_bishops != 0 {
+                return attacking_bishops.trailing_zeros() as i32;
+            }
+
+            // Check rooks
+            let rooks = self.get_bitboard(R) & occupied_bb;
+            let rook_attacks = self.bb.get_horizontal_attacks(occupied_bb, pos) | self.bb.get_vertical_attacks(occupied_bb, pos);
+            let attacking_rooks = rooks & rook_attacks;
+            if attacking_rooks != 0 {
+                return attacking_rooks.trailing_zeros() as i32;
+            }
+
+            // Check queens
+            let queens = self.get_bitboard(Q) & occupied_bb;
+            println!("Queens: {:b}", queens);
+            let attacking_queens = queens & (rook_attacks | bishop_attacks);
+            println!("Attacking queens: {:b}", attacking_queens);
+            println!("Rook attacks: {:b}", rook_attacks);
+            println!("Bishop attacks: {:b}", bishop_attacks);
+            if attacking_queens != 0 {
+                return attacking_queens.trailing_zeros() as i32;
+            }
+
+            // Check king
+            let king_pos = self.king_pos(WHITE);
+            let attacking_king = self.bb.get_king_attacks(king_pos) & target_bb;
+            if attacking_king != 0 {
+                let king_bb = 1u64 << (king_pos as u64);
+                if (king_bb & occupied_bb) != 0 {
+                    return king_pos;
+                }
+            }
+        } else {
+            // Check pawns
+            let black_pawns = self.get_bitboard(-P) & occupied_bb;
+            if black_left_pawn_attacks(black_pawns) & target_bb  != 0 {
+                return pos - 7;
+            } else if black_right_pawn_attacks(black_pawns) & target_bb != 0 {
+                return pos - 9;
+            }
+
+            // Check knights
+            let knights = self.get_bitboard(-N) & occupied_bb;
+            let attacking_knights = knights & self.bb.get_knight_attacks(pos);
+            if attacking_knights != 0 {
+                return attacking_knights.trailing_zeros() as i32;
+            }
+
+            // Check bishops
+            let bishops = self.get_bitboard(-B) & occupied_bb;
+            let bishop_attacks = self.bb.get_diagonal_attacks(occupied_bb, pos) | self.bb.get_anti_diagonal_attacks(occupied_bb, pos);
+            let attacking_bishops = bishops & bishop_attacks;
+            if attacking_bishops != 0 {
+                return attacking_bishops.trailing_zeros() as i32;
+            }
+
+            // Check rooks
+            let rooks = self.get_bitboard(-R) & occupied_bb;
+            let rook_attacks = self.bb.get_horizontal_attacks(occupied_bb, pos) | self.bb.get_vertical_attacks(occupied_bb, pos);
+            let attacking_rooks = rooks & rook_attacks;
+            if attacking_rooks != 0 {
+                return attacking_rooks.trailing_zeros() as i32;
+            }
+
+            // Check queens
+            let queens = self.get_bitboard(-Q) & occupied_bb;
+            let attacking_queens = queens & (rook_attacks | bishop_attacks);
+            if attacking_queens != 0 {
+                return attacking_queens.trailing_zeros() as i32;
+            }
+
+            // Check king
+            let king_pos = self.king_pos(BLACK);
+            let attacking_king = self.bb.get_king_attacks(king_pos) & target_bb;
+            if attacking_king != 0 {
+                let king_bb = 1u64 << (king_pos as u64);
+                if (king_bb & occupied_bb) != 0 {
+                    return king_pos;
+                }
+            }
+
+        }
+        -1
+    }
+
+    pub fn get_score(&self) -> i32 {
+        ((self.score + self.eg_score) / 2) as i32
+    }
 }
 
+pub const EN_PASSANT: i8 = 1 << 7;
+
 #[repr(u8)]
+#[derive(Clone, Copy)]
 pub enum Castling {
     WhiteKingSide = 1 << 0,
     BlackKingSide = 1 << 1,
     WhiteQueenSide = 1 << 2,
     BlackQueenSide = 1 << 3,
+
+    WhiteHasCastled = 1 << 4,
+    BlackHasCastled = 1 << 5,
 }
 
 #[repr(u8)]
@@ -260,6 +633,8 @@ pub enum WhiteBoardPos {
 
     EnPassantLineStart = 16,
     EnPassantLineEnd = 23,
+
+    KingStart = 60,
 }
 
 #[repr(u8)]
@@ -272,4 +647,226 @@ pub enum BlackBoardPos {
 
     EnPassantLineStart = 40,
     EnPassantLineEnd = 47,
+
+    KingStart = 4,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn update_hash_when_piece_moves() {
+        let items: [i8; 64] = [
+            0,  0,  0, -K,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  K,  0,  0,  0,  0];
+
+        let mut board = Board::new(&items, WHITE, 0, None, 0, 1);
+
+        board.recalculate_hash();
+        let initial_hash = board.hash;
+
+        let removed = board.perform_move(K, 59, 60);
+        let hash_perform_move = board.hash;
+        assert_ne!(initial_hash, hash_perform_move);
+
+        board.undo_move(K, 59, 60, removed);
+        let hash_undo_move = board.hash;
+        assert_eq!(initial_hash, hash_undo_move);
+    }
+
+    #[test]
+    fn incrementally_updates_hash() {
+        let items: [i8; 64] = [
+            0,  0,  0, -K,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  K,  0,  0,  0,  0];
+
+        let mut board = Board::new(&items, WHITE, 0, None, 0, 1);
+        board.recalculate_hash();
+
+        board.add_piece(WHITE, P, 48);
+        board.add_piece(BLACK, R, 1);
+        board.set_rook_moved(Castling::BlackQueenSide);
+        board.increase_half_move_count();
+
+        let hash_incremental = board.hash;
+        board.recalculate_hash();
+        let hash_recalculated = board.hash;
+
+        assert_eq!(hash_incremental, hash_recalculated);
+    }
+
+    #[test]
+    fn find_white_pawn_left_attack() {
+        let items: [i8; 64] = [
+            0,  0,  0, -K,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0, -B,  0,  0,  0,  0,
+            0,  0,  P,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  K,  0,  0,  0,  0,
+        ];
+
+        let board = Board::new(&items, WHITE, 0, None, 0, 1);
+        println!("{}", board.get_occupancy_bitboard());
+        assert_eq!(34, board.find_smallest_attacker(board.get_occupancy_bitboard(), WHITE, 27));
+    }
+
+    #[test]
+    fn find_white_pawn_right_attack() {
+        let items: [i8; 64] = [
+            0,  0,  0, -K,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0, -B,  0,  0,  0,  0,
+            0,  0,  0,  0,  P,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  K,  0,  0,  0,  0,
+        ];
+
+        let board = Board::new(&items, WHITE, 0, None, 0, 1);
+        println!("{}", board.get_occupancy_bitboard());
+        assert_eq!(36, board.find_smallest_attacker(board.get_occupancy_bitboard(), WHITE, 27));
+    }
+
+    #[test]
+    fn find_black_pawn_left_attack() {
+        let items: [i8; 64] = [
+            0,  0,  0, -K,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0, -P,  0,  0,  0,
+            0,  0,  0,  B,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  K,  0,  0,  0,  0,
+        ];
+
+        let board = Board::new(&items, BLACK, 0, None, 0, 1);
+        println!("{}", board.get_occupancy_bitboard());
+        assert_eq!(20, board.find_smallest_attacker(board.get_occupancy_bitboard(), BLACK, 27));
+    }
+
+    #[test]
+    fn find_black_pawn_right_attack() {
+        let items: [i8; 64] = [
+            0,  0,  0, -K,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0, -P,  0,  0,  0,  0,  0,
+            0,  0,  0,  B,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  K,  0,  0,  0,  0,
+        ];
+
+        let board = Board::new(&items, BLACK, 0, None, 0, 1);
+        println!("{}", board.get_occupancy_bitboard());
+        assert_eq!(18, board.find_smallest_attacker(board.get_occupancy_bitboard(), BLACK, 27));
+    }
+
+    #[test]
+    fn find_knight_attack() {
+        let items: [i8; 64] = [
+            0,  0,  0, -K,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0, -B,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  N,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  K,  0,  0,  0,  0,
+        ];
+
+        let board = Board::new(&items, WHITE, 0, None, 0, 1);
+        println!("{}", board.get_occupancy_bitboard());
+        assert_eq!(37, board.find_smallest_attacker(board.get_occupancy_bitboard(), WHITE, 27));
+    }
+
+    #[test]
+    fn find_bishop_attack() {
+        let items: [i8; 64] = [
+            0,  0,  0, -K,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0, -B,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  B,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  K,  0,  0,  0,  0,
+        ];
+
+        let board = Board::new(&items, WHITE, 0, None, 0, 1);
+        println!("{}", board.get_occupancy_bitboard());
+        assert_eq!(45, board.find_smallest_attacker(board.get_occupancy_bitboard(), WHITE, 27));
+    }
+
+    #[test]
+    fn find_rook_attack() {
+        let items: [i8; 64] = [
+            0,  0,  0, -K,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            R,  0,  0, -B,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  K,  0,  0,  0,  0,
+        ];
+
+        let board = Board::new(&items, WHITE, 0, None, 0, 1);
+        println!("{}", board.get_occupancy_bitboard());
+        assert_eq!(24, board.find_smallest_attacker(board.get_occupancy_bitboard(), WHITE, 27));
+    }
+
+    #[test]
+    fn find_queen_attack() {
+        let items: [i8; 64] = [
+            0,  0,  0, -K,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0, -B,  0,  Q,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  K,  0,  0,  0,  0,
+        ];
+
+        let board = Board::new(&items, WHITE, 0, None, 0, 1);
+        println!("{}", board.get_occupancy_bitboard());
+        assert_eq!(29, board.find_smallest_attacker(board.get_occupancy_bitboard(), WHITE, 27));
+    }
+
+    #[test]
+    fn find_king_attack() {
+        let items: [i8; 64] = [
+            0,  0,  0, -K,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0, -B,  0,  0,  0,  0,
+            0,  0,  0,  K,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+        ];
+
+        let board = Board::new(&items, WHITE, 0, None, 0, 1);
+        println!("{}", board.get_occupancy_bitboard());
+        assert_eq!(35, board.find_smallest_attacker(board.get_occupancy_bitboard(), WHITE, 27));
+    }
 }
