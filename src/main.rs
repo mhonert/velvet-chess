@@ -18,7 +18,8 @@
 extern crate velvet;
 
 use velvet::uci;
+use velvet::engine;
 
 fn main() {
-    uci::start_uci_loop();
+    uci::start_uci_loop(&engine::spawn_engine_thread());
 }

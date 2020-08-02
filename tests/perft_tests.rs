@@ -18,7 +18,7 @@
 
 extern crate velvet;
 
-use velvet::fen::read_fen;
+use velvet::fen::{read_fen, create_from_fen};
 use velvet::board::Board;
 use velvet::perft::perft;
 
@@ -84,6 +84,6 @@ fn test_perft_testpos6() {
 
 
 fn perft_for_fen(fen: &str, depth: i32) -> u64 {
-    let mut board = read_fen(fen);
+    let mut board = create_from_fen(fen);
     perft(&mut board, depth)
 }

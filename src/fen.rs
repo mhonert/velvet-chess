@@ -24,7 +24,7 @@ use crate::boardpos::{WhiteBoardPos, BlackBoardPos};
 
 pub const START_POS: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
-pub fn read_fen(fen: &str) -> Board {
+pub fn read_fen(board: &mut Board, fen: &str) {
     let mut fen_parts = fen.split(' ');
 
     let pieces = match fen_parts.next() {
@@ -57,14 +57,16 @@ pub fn read_fen(fen: &str) -> Board {
         None => 0,
     };
 
-    Board::new(
-        &pieces,
-        active_player,
-        castling_state,
-        enpassant_target,
-        halfmove_clock,
-        fullmove_num,
-    )
+    board.set_position(&pieces, active_player, castling_state, enpassant_target,
+                       halfmove_clock, fullmove_num);
+}
+
+pub fn create_from_fen(fen: &str) -> Board {
+    let items: [i8; 64] = [0; 64];
+    let mut board = Board::new(&items, WHITE, 0, None, 0, 1);
+    read_fen(&mut board, fen);
+
+    board
 }
 
 // Black piece IDs go from -6 to -1, white piece IDs from 1 to 6
@@ -326,6 +328,6 @@ mod tests {
     }
 
     fn test_fen(fen: &str) {
-        assert_eq!(write_fen(&read_fen(fen)), fen);
+        assert_eq!(write_fen(&create_from_fen(fen)), fen);
     }
 }

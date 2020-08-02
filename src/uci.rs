@@ -19,12 +19,14 @@
 use std::io;
 use crate::fen::{read_fen, START_POS};
 use std::time::SystemTime;
-use crate::perft::perft;
+use crate::engine::Message;
+use std::sync::mpsc::Sender;
+use std::str::FromStr;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const AUTHOR: &str = "Martin Honert";
 
-pub fn start_uci_loop() {
+pub fn start_uci_loop(tx: &Sender<Message>) {
     println!("Velvet Chess Engine v{}", VERSION);
 
     loop {
@@ -36,27 +38,18 @@ pub fn start_uci_loop() {
         let parts: Vec<&str> = line.split_whitespace().collect();
         for (i, part) in parts.iter().enumerate() {
             match part.to_lowercase().as_str() {
-                "uci" => {
-                    uci();
-                    break;
-                }
+                "uci" =>  uci(),
 
-                "ucinewgame" => {
-                    uci_new_game();
-                    break;
-                }
+                "ucinewgame" => uci_new_game(),
 
-                "isready" => {
-                    is_ready();
-                    break;
-                }
+                "isready" => is_ready(),
 
-                "position" => {
-                    set_position(parts[i + 1..].to_vec());
-                    break;
-                }
+                "position" => set_position(tx, parts[i + 1..].to_vec()),
+
+                "perft" => perft(tx, parts[i + 1..].to_vec()),
 
                 "quit" => {
+                    send_message(tx, Message::Quit());
                     return;
                 }
 
@@ -64,6 +57,16 @@ pub fn start_uci_loop() {
                     // Skip unknown commands
                 }
             }
+        }
+    }
+}
+
+// Sends a message to the engine
+fn send_message(tx: &Sender<Message>, msg: Message) {
+    match tx.send(msg) {
+        Ok(_) => return,
+        Err(err) => {
+            eprintln!("could not send message to engine thread: {}", err);
         }
     }
 }
@@ -83,32 +86,26 @@ fn is_ready() {
     println!("readyok");
 }
 
-fn set_position(parts: Vec<&str>) {
+fn set_position(tx: &Sender<Message>, parts: Vec<&str>) {
     let fen = parse_position_cmd(parts);
+    send_message(tx, Message::SetPosition(fen));
+}
 
-    let mut board = read_fen(&fen);
-    println!("Position set, active player: {}", board.active_player());
-
-    let start = SystemTime::now();
-    let nodes = perft(&mut board, 6);
-
-    let duration = match SystemTime::now().duration_since(start) {
-        Ok(v) => v,
-        Err(e) => panic!("error calculating duration: {:?}", e)
-    };
-
-    println!("Nodes: {}", nodes);
-    println!("Duration: {:?}", duration);
-    let duration_ms = duration.as_millis();
-    if duration_ms > 0 {
-        let nodes_per_sec = nodes * 1000 / duration_ms as u64;
-        println!("Nodes per second: {}", nodes_per_sec);
+fn perft(tx: &Sender<Message>, parts: Vec<&str>) {
+    if parts.len() == 0 {
+        println!("perft cmd: missing depth");
+        return
     }
+
+    match i32::from_str(parts[0]) {
+        Ok(depth) => send_message(tx, Message::Perft(depth)),
+        Err(_) => println!("perft cmd: invalid depth parameter: {}", parts[0])
+    };
 }
 
 fn parse_position_cmd(parts: Vec<&str>) -> String {
     if parts.is_empty() {
-        panic!("position command: missing fen/startpos");
+        eprintln!("position command: missing fen/startpos");
     }
 
     let pos_end = parts.iter().position(|&part| part.to_lowercase().as_str() == "moves").unwrap_or_else(|| parts.len());

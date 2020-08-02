@@ -16,6 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+pub mod engine;
 pub mod uci;
 pub mod perft;
 pub mod board;

@@ -59,8 +59,6 @@ impl Board {
             panic!("Expected a vector with 64 elements, but got {}", items.len());
         }
 
-        let halfmove_count = (fullmove_num - 1) * 2 + if active_player == WHITE { 0 } else { 1 };
-
         let mut board = Board {
             bb: Bitboard::new(),
             zobrist: Zobrist::new(),
@@ -74,7 +72,7 @@ impl Board {
             white_king: 0,
             black_king: 0,
             halfmove_clock,
-            halfmove_count,
+            halfmove_count: 0,
             score: 0,
             eg_score: 0,
             history_counter: 0,
@@ -84,28 +82,49 @@ impl Board {
             eg_score_history: [0; MAX_GAME_HALFMOVES]
         };
 
-        if enpassant_target.is_some() {
-            board.set_enpassant(enpassant_target.unwrap())
+        board.set_position(items, active_player, castling_state, enpassant_target, halfmove_clock, fullmove_num);
+        board
+    }
+
+    pub fn set_position(&mut self, items: &[i8], active_player: Color, castling_state: u8, enpassant_target: Option<i8>, halfmove_clock: u16, fullmove_num: u16) {
+        if items.len() != 64 {
+            panic!("Expected a vector with 64 elements, but got {}", items.len());
         }
+
+        self.halfmove_count = (fullmove_num - 1) * 2 + if active_player == WHITE { 0 } else { 1 };
+        self.halfmove_clock = halfmove_clock;
+        self.hash = 0;
+        self.castling_state = castling_state;
+        self.enpassant_state = 0;
+
+        if enpassant_target.is_some() {
+            self.set_enpassant(enpassant_target.unwrap())
+        }
+
+        self.bitboards = [0; 13];
+        self.bitboards_all_pieces = [0; 3];
+        self.items = [EMPTY; 64];
+        self.history_counter = 0;
+        self.score = 0;
+        self.eg_score = 0;
 
         for i in 0..64 {
             let item = items[i];
 
             if item != EMPTY {
-                board.add_piece(item.signum(), item.abs(), i);
+                self.add_piece(item.signum(), item.abs(), i);
             } else {
-                board.items[i] = item;
+                self.items[i] = item;
             }
 
             if item == pieces::K {
-                board.white_king = i as i8;
+                self.white_king = i as i8;
             } else if item == -pieces::K {
-                board.black_king = i as i8;
+                self.black_king = i as i8;
             }
         }
 
-        board.recalculate_hash();
-        board
+        self.recalculate_hash();
     }
 
     pub fn recalculate_hash(&mut self) {
