@@ -22,6 +22,8 @@ use std::time::SystemTime;
 use crate::engine::Message;
 use std::sync::mpsc::Sender;
 use std::str::FromStr;
+use std::ops::Index;
+use crate::uci_move::UCIMove;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const AUTHOR: &str = "Martin Honert";
@@ -44,9 +46,11 @@ pub fn start_uci_loop(tx: &Sender<Message>) {
 
                 "isready" => is_ready(),
 
-                "position" => set_position(tx, parts[i + 1..].to_vec()),
+                "position" => set_position(tx, &parts[i + 1..].to_vec()),
 
                 "perft" => perft(tx, parts[i + 1..].to_vec()),
+
+                "go" => go(tx, parts[i + 1..].to_vec()),
 
                 "quit" => {
                     send_message(tx, Message::Quit());
@@ -86,9 +90,31 @@ fn is_ready() {
     println!("readyok");
 }
 
-fn set_position(tx: &Sender<Message>, parts: Vec<&str>) {
+fn set_position(tx: &Sender<Message>, parts: &Vec<&str>) {
     let fen = parse_position_cmd(parts);
-    send_message(tx, Message::SetPosition(fen));
+
+    let moves = match parts.iter().position(|&part| part == "moves") {
+        Some(idx) => parse_moves(idx, &parts),
+        Non => Vec::new()
+    };
+
+    send_message(tx, Message::SetPosition(fen, moves));
+}
+
+fn parse_moves(idx: usize, parts: &Vec<&str>) -> Vec<UCIMove> {
+    let mut moves: Vec<UCIMove> = Vec::new();
+
+    for i in (idx + 1)..parts.len() {
+        match UCIMove::from_uci(parts[i]) {
+            Some(m) => moves.push(m),
+            None => {
+                eprintln!("could not parse move notation: {}", parts[i]);
+                return moves
+            }
+        }
+    }
+
+    moves
 }
 
 fn perft(tx: &Sender<Message>, parts: Vec<&str>) {
@@ -103,7 +129,45 @@ fn perft(tx: &Sender<Message>, parts: Vec<&str>) {
     };
 }
 
-fn parse_position_cmd(parts: Vec<&str>) -> String {
+fn go(tx: &Sender<Message>, parts: Vec<&str>) {
+    if parts.len() == 0 {
+        println!("perft cmd: missing depth");
+        return
+    }
+
+    let depth = extract_option(&parts, "depth", 3);
+    let wtime = extract_option(&parts, "wtime", 0);
+    let btime = extract_option(&parts, "btime", 0);
+    let winc = extract_option(&parts, "winc", 0);
+    let binc = extract_option(&parts, "binc", 0);
+    let movetime = extract_option(&parts, "movetime", 0);
+    let movestogo = extract_option(&parts, "movestogo", 40);
+
+    if depth <= 0 {
+        println!("go cmd: invalid depth: {}", depth);
+        return
+    }
+
+    send_message(tx, Message::Go{depth, wtime, btime, winc, binc, movetime, movestogo});
+}
+
+fn extract_option(parts: &Vec<&str>, name: &str, default_value: i32) -> i32 {
+    match parts.iter().position(|&item| item == name) {
+        Some(pos) => {
+           if pos + 1 >= parts.len() {
+               return default_value;
+           }
+
+            match i32::from_str(parts[pos + 1]) {
+                Ok(value) => value,
+                Err(_) => default_value
+            }
+        },
+        None => default_value
+    }
+}
+
+fn parse_position_cmd(parts: &Vec<&str>) -> String {
     if parts.is_empty() {
         eprintln!("position command: missing fen/startpos");
     }
@@ -126,12 +190,12 @@ mod tests {
 
     #[test]
     fn test_parse_position_startpos() {
-        assert_eq!(parse_position_cmd("   startpos moves e1e2  ".split_whitespace().collect()), START_POS);
+        assert_eq!(parse_position_cmd(&"   startpos moves e1e2  ".split_whitespace().collect()), START_POS);
     }
 
     #[test]
     fn test_parse_position_fen() {
         let fen: &str = "r3k1r1/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K1R1 w Qq - 0 1";
-        assert_eq!(parse_position_cmd(format!("   fen \t {}   moves e1e2  ", fen).split_whitespace().collect()), fen);
+        assert_eq!(parse_position_cmd(&format!("   fen \t {}   moves e1e2  ", fen).split_whitespace().collect()), fen);
     }
 }

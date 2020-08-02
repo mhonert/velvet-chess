@@ -21,19 +21,39 @@ use std::sync::mpsc;
 use std::thread;
 use crate::fen::{read_fen, START_POS, create_from_fen};
 use crate::board::Board;
-use std::time::SystemTime;
+use std::time::{SystemTime, Instant};
 use crate::perft::perft;
+use crate::colors::WHITE;
+use std::cmp::max;
+use crate::search::Search;
+use crate::history_heuristics::HistoryHeuristics;
+use crate::move_gen::NO_MOVE;
+use crate::uci_move::UCIMove;
+use crate::pieces::EMPTY;
 
-struct Engine {
-    rx: Receiver<Message>,
-    board: Board,
+pub enum Message {
+    SetPosition(String, Vec<UCIMove>),
+    Go{depth: i32, wtime: i32, btime: i32, winc: i32, binc: i32, movetime: i32, movestogo: i32},
+    Perft(i32),
+    Quit()
 }
+
+pub struct Engine {
+    pub rx: Receiver<Message>,
+    pub board: Board,
+    pub hh: HistoryHeuristics,
+
+    pub starttime: Instant,
+    pub timelimit_ms: i32,
+}
+
+pub const TIMEEXT_MULTIPLIER: i32 = 5;
 
 pub fn spawn_engine_thread() -> Sender<Message> {
     let (tx, rx) = mpsc::channel::<Message>();
 
     thread::spawn(move || {
-        let mut engine = Engine{rx, board: create_from_fen(START_POS)};
+        let mut engine = Engine::new(rx);
         engine.start_loop();
     });
 
@@ -41,6 +61,14 @@ pub fn spawn_engine_thread() -> Sender<Message> {
 }
 
 impl Engine {
+    pub fn new(rx: Receiver<Message>) -> Self {
+        Engine{rx,
+            board: create_from_fen(START_POS),
+            hh: HistoryHeuristics::new(),
+            starttime: Instant::now(),
+            timelimit_ms: 0}
+    }
+
     fn start_loop(&mut self) {
         loop {
             match self.rx.recv() {
@@ -59,9 +87,12 @@ impl Engine {
 
     fn handle_message(&mut self, msg: Message) -> bool {
         match msg {
-            Message::SetPosition(fen) => self.set_position(fen),
+            Message::SetPosition(fen, moves) => self.set_position(fen, moves),
 
             Message::Perft(depth) => self.perft(depth),
+
+            Message::Go{depth, wtime, btime, winc, binc, movetime, movestogo}
+                => self.go(depth, wtime, btime, winc, binc, movetime, movestogo),
 
             Message::Quit() => {
                 return false;
@@ -71,9 +102,39 @@ impl Engine {
         true
     }
 
-    fn set_position(&mut self, fen: String) {
-        read_fen(&mut self.board, &fen);
-        println!("Position set, active player: {}", self.board.active_player());
+    fn go(&mut self, depth: i32, wtime: i32, btime: i32, winc: i32, binc: i32, movetime: i32, movestogo: i32) {
+        self.timelimit_ms = if self.board.active_player() == WHITE {
+            calc_timelimit(movetime, wtime, winc, movestogo)
+        } else {
+            calc_timelimit(movetime, btime, binc, movestogo)
+        };
+
+        let time_left = if self.board.active_player() == WHITE {
+            wtime
+        } else {
+            btime
+        };
+
+        let is_strict_timelimit = movetime != 0 || (time_left - (TIMEEXT_MULTIPLIER * self.timelimit_ms) <= 10);
+        let m = self.find_best_move(depth, is_strict_timelimit);
+        if m == NO_MOVE {
+            println!("bestmove 0000")
+        } else {
+            println!("bestmove {}", UCIMove::from_encoded_move(&self.board, m).to_uci());
+        }
+    }
+
+    fn set_position(&mut self, fen: String, moves: Vec<UCIMove>) {
+        match read_fen(&mut self.board, &fen) {
+            Ok(_) => (),
+            Err(err) => println!("position cmd: {}", err)
+        }
+
+        for m in moves {
+            let color = self.board.active_player();
+            let piece = if m.promotion != EMPTY { m.promotion } else {self.board.get_item(m.start as i32)};
+            self.board.perform_move(piece * color, m.start as i32, m.end as i32);
+        }
     }
 
     fn perft(&mut self, depth: i32) {
@@ -97,10 +158,19 @@ impl Engine {
     }
 }
 
+fn calc_timelimit(movetime: i32, time_left: i32, time_increment: i32, movestogo: i32) -> i32 {
+    if movetime > 0 {
+        return movetime;
+    }
 
-pub enum Message {
-    SetPosition(String),
-    Perft(i32),
-    Quit()
+    let time_for_move = time_left / max(1, movestogo);
+    let time_bonus = time_increment / 2;
+
+    if time_for_move + time_bonus >= time_left {
+        max(0, time_for_move)
+    } else {
+        max(0, time_for_move + time_increment)
+    }
 }
+
 

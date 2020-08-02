@@ -311,6 +311,7 @@ fn is_queenside_castling_valid_for_black(board: &Board, empty_bb: u64) -> bool {
 }
 
 pub type Move = u32;
+pub const NO_MOVE: Move = 0;
 
 fn print_move(m: Move) {
     println!("Move {:?} from {:?} to {:?}", decode_piece_id(m), decode_start_index(m), decode_end_index(m));

@@ -21,31 +21,43 @@ use crate::pieces;
 use crate::colors::{Color, WHITE, BLACK};
 use crate::castling::Castling;
 use crate::boardpos::{WhiteBoardPos, BlackBoardPos};
+use std::error::Error;
+use std::fmt;
 
 pub const START_POS: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
-pub fn read_fen(board: &mut Board, fen: &str) {
+#[derive(Debug)]
+pub struct FenError {
+    msg: String
+}
+
+impl Error for FenError {}
+
+impl fmt::Display for FenError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "FEN error: {}", self.msg)
+    }
+}
+
+pub fn read_fen(board: &mut Board, fen: &str) -> Result<(), FenError> {
     let mut fen_parts = fen.split(' ');
 
-    let pieces = match fen_parts.next() {
-        Some(pieces) => read_pieces(pieces),
-        None => panic!("Missing pieces part in FEN: {}", fen),
+    let pieces = match fen_parts.next().and_then(read_pieces) {
+        Some(pieces) => pieces,
+        None => return Result::Err(FenError{msg: format!("Error in piece part: {}", fen)}),
     };
 
-    let active_player = match fen_parts.next() {
-        Some(color) => read_color(color),
-        None => panic!("Missing color part in FEN: {}", fen),
+    let active_player = match fen_parts.next().and_then(read_color) {
+        Some(color) => color,
+        None => return Result::Err(FenError{msg: format!("Error in active player part: {}", fen)}),
     };
 
-    let castling_state = match fen_parts.next() {
-        Some(castling) => read_castling(castling),
-        None => panic!("Missing castling part in FEN: {}", fen),
+    let castling_state = match fen_parts.next().and_then(read_castling) {
+        Some(castling) => castling,
+        None => return Result::Err(FenError{msg: format!("Error in castling part: {}", fen)}),
     };
 
-    let enpassant_target: Option<i8> = match fen_parts.next() {
-        Some(enpassant) => read_enpassant(enpassant),
-        None => panic!("Missing en passant part in FEN: {}", fen),
-    };
+    let enpassant_target = fen_parts.next().and_then(read_enpassant);
 
     let halfmove_clock: u16 = match fen_parts.next() {
         Some(halfmoves) => halfmoves.parse().unwrap(),
@@ -59,6 +71,8 @@ pub fn read_fen(board: &mut Board, fen: &str) {
 
     board.set_position(&pieces, active_player, castling_state, enpassant_target,
                        halfmove_clock, fullmove_num);
+
+    Result::Ok(())
 }
 
 pub fn create_from_fen(fen: &str) -> Board {
@@ -73,15 +87,16 @@ pub fn create_from_fen(fen: &str) -> Board {
 // add 6 to get the index to the FEN character for the piece:
 const PIECE_FEN_CHARS: &str = "kqrbnp/PNBRQK";
 
-fn read_pieces(piece_placements: &str) -> Vec<i8> {
+fn read_pieces(piece_placements: &str) -> Option<Vec<i8>> {
     let mut pieces: Vec<i8> = Vec::new();
 
     for piece_row in piece_placements.split('/') {
         for piece in piece_row.chars() {
             if piece >= '1' && piece <= '8' {
-                let empty_squares = piece
-                    .to_digit(10)
-                    .unwrap_or_else(|| panic!("Invalid piece number: {}", piece));
+                let empty_squares = match piece.to_digit(10) {
+                    Some(chars) => chars,
+                    None => return None,
+                };
 
                 for _ in 1..=empty_squares {
                     pieces.push(0)
@@ -89,27 +104,26 @@ fn read_pieces(piece_placements: &str) -> Vec<i8> {
                 continue;
             }
 
-            let piece_id = PIECE_FEN_CHARS
-                .find(piece)
-                .unwrap_or_else(|| panic!("Unexpected piece char: {}", piece))
-                as i8
-                - 6;
+            let piece_id = match PIECE_FEN_CHARS.find(piece) {
+                Some(piece) => piece as i8 - 6,
+                None => return None,
+            };
             pieces.push(piece_id);
         }
     }
 
-    pieces
+    Some(pieces)
 }
 
-fn read_color(color: &str) -> Color {
+fn read_color(color: &str) -> Option<Color> {
     match color {
-        "w" => WHITE,
-        "b" => BLACK,
-        _ => panic!("Unexpected color: {}", color),
+        "w" => Some(WHITE),
+        "b" => Some(BLACK),
+        _ => None,
     }
 }
 
-fn read_castling(castling: &str) -> u8 {
+fn read_castling(castling: &str) -> Option<u8> {
     let mut state: u8 = 0;
     for ch in castling.bytes() {
         match ch {
@@ -118,10 +132,10 @@ fn read_castling(castling: &str) -> u8 {
             b'k' => state |= Castling::BlackKingSide as u8,
             b'q' => state |= Castling::BlackQueenSide as u8,
             b'-' => (),
-            _ => panic!("Unexpected castling char: {}", ch),
+            _ => return None
         }
     }
-    state
+    Some(state)
 }
 
 fn read_enpassant(en_passant: &str) -> Option<i8> {
@@ -130,7 +144,7 @@ fn read_enpassant(en_passant: &str) -> Option<i8> {
     }
 
     if en_passant.len() != 2 {
-        panic!("Invalid en passant part: {}", en_passant);
+        return None;
     }
 
     let mut bytes = en_passant.bytes();
@@ -141,7 +155,7 @@ fn read_enpassant(en_passant: &str) -> Option<i8> {
     Some(match row_char {
         b'3' => WhiteBoardPos::PawnLineStart as i8 + col_offset,
         b'6' => BlackBoardPos::PawnLineStart as i8 + col_offset,
-        _ => panic!("Unexpected en passant row char: {}", row_char),
+        _ => return None
     })
 }
 

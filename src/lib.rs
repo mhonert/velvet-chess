@@ -22,6 +22,8 @@ pub mod perft;
 pub mod board;
 pub mod fen;
 
+mod history_heuristics;
+mod search;
 mod bitboard;
 mod pieces;
 mod move_gen;
@@ -32,3 +34,4 @@ mod piece_sq_tables;
 mod colors;
 mod castling;
 mod boardpos;
+mod uci_move;
