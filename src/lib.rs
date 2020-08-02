@@ -15,10 +15,19 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-extern crate velvet;
 
-use velvet::uci;
+pub mod uci;
+pub mod perft;
+pub mod board;
+pub mod fen;
 
-fn main() {
-    uci::start_uci_loop();
-}
+mod bitboard;
+mod pieces;
+mod move_gen;
+mod random;
+mod zobrist;
+mod score_util;
+mod piece_sq_tables;
+mod colors;
+mod castling;
+mod boardpos;

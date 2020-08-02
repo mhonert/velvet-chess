@@ -15,10 +15,32 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-extern crate velvet;
 
-use velvet::uci;
+#[repr(u8)]
+pub enum WhiteBoardPos {
+    KingSideRook = 63,
+    QueenSideRook = 56,
 
-fn main() {
-    uci::start_uci_loop();
+    PawnLineStart = 48,
+    PawnLineEnd = 55,
+
+    EnPassantLineStart = 16,
+    EnPassantLineEnd = 23,
+
+    KingStart = 60,
 }
+
+#[repr(u8)]
+pub enum BlackBoardPos {
+    QueenSideRook = 0,
+    KingSideRook = 7,
+
+    PawnLineStart = 8,
+    PawnLineEnd = 15,
+
+    EnPassantLineStart = 40,
+    EnPassantLineEnd = 47,
+
+    KingStart = 4,
+}
+

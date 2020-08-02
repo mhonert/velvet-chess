@@ -16,15 +16,15 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 use crate::board::{Board};
-use crate::move_gen::{MoveGenerator, decode_piece_id, decode_start_index, decode_end_index};
+use crate::move_gen::{generate_moves, decode_piece_id, decode_start_index, decode_end_index};
 
 /* Perft (performance test, move path enumeration) test helper function to verify the move generator.
    It generates all possible moves up to the specified depth and counts the number of leaf nodes.
    This number can then be compared to precalculated numbers that are known to be correct
 
-   Another use for this function is to test the performance of the move generator (see __tests__/perft.performance.ts).
+   Another use case for this function is to test the performance of the move generator.
  */
-pub fn perft(move_gen: &MoveGenerator, board: &mut Board, depth: i32) -> u64 {
+pub fn perft(board: &mut Board, depth: i32) -> u64 {
     if depth == 0 {
         return 1
     }
@@ -32,7 +32,8 @@ pub fn perft(move_gen: &MoveGenerator, board: &mut Board, depth: i32) -> u64 {
     let mut nodes: u64 = 0;
 
     let active_player = board.active_player();
-    let moves = move_gen.generate_moves(board, active_player);
+    let moves = generate_moves(board, active_player);
+
     for m in moves {
         let target_piece_id = decode_piece_id(m);
         let move_start = decode_start_index(m);
@@ -42,7 +43,7 @@ pub fn perft(move_gen: &MoveGenerator, board: &mut Board, depth: i32) -> u64 {
         let removed_piece = board.perform_move(target_piece_id as i8, move_start, move_end);
 
         if !board.is_in_check(active_player) {
-            nodes += perft(move_gen, board, depth - 1);
+            nodes += perft(board, depth - 1);
         }
 
         board.undo_move(previous_piece, move_start, move_end, removed_piece);

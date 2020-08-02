@@ -16,9 +16,11 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::board::{Castling, Board, BlackBoardPos, WhiteBoardPos};
+use crate::board::{Board};
 use crate::pieces;
 use crate::colors::{Color, WHITE, BLACK};
+use crate::castling::Castling;
+use crate::boardpos::{WhiteBoardPos, BlackBoardPos};
 
 pub const START_POS: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 

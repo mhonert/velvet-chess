@@ -23,18 +23,19 @@ use crate::colors::{Color, WHITE, BLACK};
 use crate::piece_sq_tables::PieceSquareTables;
 use crate::score_util::{unpack_score, unpack_eg_score};
 use crate::bitboard::{Bitboard, white_left_pawn_attacks, white_right_pawn_attacks, black_left_pawn_attacks, black_right_pawn_attacks};
+use crate::castling::Castling;
+use crate::boardpos::{WhiteBoardPos, BlackBoardPos};
 
 const MAX_GAME_HALFMOVES: usize = 5898 * 2;
 
 pub struct Board {
-    bb: Bitboard,
+    pub bb: Bitboard,
     zobrist: Zobrist,
     pst: PieceSquareTables,
     items: [i8; 64],
     bitboards: [u64; 13],
     bitboards_all_pieces: [u64; 3],
     hash: u64,
-    active_player: Color,
     castling_state: u8,
     enpassant_state: u16,
     white_king: i8,
@@ -54,9 +55,8 @@ pub struct Board {
 impl Board {
     pub fn new(items: &[i8], active_player: Color, castling_state: u8, enpassant_target: Option<i8>,
                halfmove_clock: u16, fullmove_num: u16) -> Self {
-
         if items.len() != 64 {
-            panic!("Expected a vector with 64 elements, but got {}", items.len() );
+            panic!("Expected a vector with 64 elements, but got {}", items.len());
         }
 
         let halfmove_count = (fullmove_num - 1) * 2 + if active_player == WHITE { 0 } else { 1 };
@@ -69,7 +69,6 @@ impl Board {
             bitboards: [0; 13],
             bitboards_all_pieces: [0; 3],
             hash: 0,
-            active_player,
             castling_state,
             enpassant_state: 0,
             white_king: 0,
@@ -96,7 +95,6 @@ impl Board {
                 board.add_piece(item.signum(), item.abs(), i);
             } else {
                 board.items[i] = item;
-
             }
 
             if item == pieces::K {
@@ -120,7 +118,7 @@ impl Board {
             }
         }
 
-        if self.active_player == BLACK {
+        if self.active_player() == BLACK {
             self.hash ^= self.zobrist.player
         }
 
@@ -133,14 +131,13 @@ impl Board {
     }
 
     fn update_hash_for_castling(&mut self, previous_castling_state: u8) {
-        self.hash ^= self.zobrist.castling[previous_castling_state as usize];
-        self.hash ^= self.zobrist.castling[self.castling_state as usize];
+        self.hash ^= self.zobrist.castling[previous_castling_state as usize & 0xf];
+        self.hash ^= self.zobrist.castling[self.castling_state as usize & 0xf];
     }
 
     fn set_enpassant(&mut self, pos: i8) {
         let previous_state = self.enpassant_state;
 
-        println!("Set en passant: {}", pos);
         if pos >= WhiteBoardPos::PawnLineStart as i8 {
             self.enpassant_state = 1 << ((pos - WhiteBoardPos::PawnLineStart as i8) as u16 + 8);
         } else {
@@ -158,7 +155,6 @@ impl Board {
             }
 
             if new_state != 0 {
-                println!("New state: {}, tz: {}, lz: {}", new_state, new_state.trailing_zeros(), new_state.leading_zeros());
                 self.hash ^= self.zobrist.en_passant[new_state.trailing_zeros() as usize];
             }
         }
@@ -173,11 +169,19 @@ impl Board {
     }
 
     pub fn active_player(&self) -> Color {
-        self.active_player
+        if (self.halfmove_count & 1) == 0 {
+            WHITE
+        } else {
+            BLACK
+        }
     }
 
     pub fn can_castle(&self, castling: Castling) -> bool {
-        self.castling_state & castling as u8 != 0
+        (self.castling_state & castling as u8) != 0
+    }
+
+    pub fn get_enpassant_state(&self) -> u16 {
+        self.enpassant_state
     }
 
     pub fn can_enpassant(&self, color: Color, location: u8) -> bool {
@@ -208,7 +212,7 @@ impl Board {
         self.halfmove_count += 1;
         self.halfmove_clock += 1;
 
-        // self.hash_code ^= PLAYER_RNG_NUMBER;
+        self.hash ^= self.zobrist.player;
     }
 
     pub fn perform_move(&mut self, target_piece_id: i8, move_start: i32, move_end: i32) -> i8 {
@@ -225,10 +229,16 @@ impl Board {
             let removed_piece = self.remove_piece(move_end);
             self.add_piece(color, target_piece_id, move_end as usize);
 
-            self.halfmove_clock = 0;
+            self.reset_half_move_clock();
 
-            if target_piece_id as u8 == K as u8 {
+            if target_piece_id == K {
                 self.update_king_pos(color, move_end);
+
+                if color == WHITE {
+                    self.set_white_king_moved();
+                } else {
+                    self.set_black_king_moved();
+                }
             }
 
             return removed_piece.abs();
@@ -236,6 +246,8 @@ impl Board {
 
         self.add_piece(color, target_piece_id, move_end as usize);
         if own_piece == P {
+            self.reset_half_move_clock();
+
             // Special en passant handling
             if move_start - move_end == 16 {
                 self.set_enpassant(move_start as i8);
@@ -248,8 +260,9 @@ impl Board {
                 // update position history
                 return EN_PASSANT;
             }
-
         } else if own_piece == -P {
+            self.reset_half_move_clock();
+
             // Special en passant handling
             if move_start - move_end == -16 {
                 self.set_enpassant(move_start as i8);
@@ -262,7 +275,6 @@ impl Board {
                 // update position history
                 return EN_PASSANT;
             }
-
         } else if own_piece == K {
             self.update_king_pos(WHITE, move_end);
 
@@ -270,15 +282,14 @@ impl Board {
             if move_start - move_end == -2 {
                 self.remove_piece(WhiteBoardPos::KingSideRook as i32);
                 self.add_piece(WHITE, R, WhiteBoardPos::KingStart as usize + 1);
-                self.castling_state |= Castling::WhiteHasCastled as u8;
-
+                self.set_white_has_castled();
             } else if move_start - move_end == 2 {
                 self.remove_piece(WhiteBoardPos::QueenSideRook as i32);
                 self.add_piece(WHITE, R, WhiteBoardPos::KingStart as usize - 1);
-                self.castling_state |= Castling::WhiteHasCastled as u8;
-
+                self.set_white_has_castled();
+            } else {
+                self.set_white_king_moved();
             }
-
         } else if own_piece == -K {
             self.update_king_pos(BLACK, move_end);
 
@@ -286,19 +297,58 @@ impl Board {
             if move_start - move_end == -2 {
                 self.remove_piece(BlackBoardPos::KingSideRook as i32);
                 self.add_piece(BLACK, R, BlackBoardPos::KingStart as usize + 1);
-                self.castling_state |= Castling::BlackHasCastled as u8;
-
+                self.set_black_has_castled();
             } else if move_start - move_end == 2 {
                 self.remove_piece(BlackBoardPos::QueenSideRook as i32);
                 self.add_piece(BLACK, R, BlackBoardPos::KingStart as usize - 1);
-                self.castling_state |= Castling::BlackHasCastled as u8;
-
+                self.set_black_has_castled();
+            } else {
+                self.set_black_king_moved();
             }
         }
+
 
         // Position history
 
         EMPTY
+    }
+
+    pub fn reset_half_move_clock(&mut self) {
+        self.halfmove_clock = 0;
+    }
+
+    pub fn set_white_has_castled(&mut self) {
+        let previous_state = self.castling_state;
+        self.castling_state |= Castling::WhiteHasCastled as u8;
+        self.castling_state &= !(Castling::WhiteKingSide as u8);
+        self.castling_state &= !(Castling::WhiteQueenSide as u8);
+        self.update_hash_for_castling(previous_state);
+    }
+
+    pub fn set_black_has_castled(&mut self) {
+        let previous_state = self.castling_state;
+        self.castling_state |= Castling::BlackHasCastled as u8;
+        self.castling_state &= !(Castling::BlackKingSide as u8);
+        self.castling_state &= !(Castling::BlackQueenSide as u8);
+        self.update_hash_for_castling(previous_state);
+    }
+
+    pub fn set_white_king_moved(&mut self) {
+        if self.can_castle(Castling::WhiteKingSide) || self.can_castle(Castling::WhiteQueenSide) {
+            let previous_state = self.castling_state;
+            self.castling_state &= !(Castling::WhiteKingSide as u8);
+            self.castling_state &= !(Castling::WhiteQueenSide as u8);
+            self.update_hash_for_castling(previous_state);
+        }
+    }
+
+    pub fn set_black_king_moved(&mut self) {
+        if self.can_castle(Castling::BlackKingSide) || self.can_castle(Castling::BlackQueenSide) {
+            let previous_state = self.castling_state;
+            self.castling_state &= !(Castling::BlackKingSide as u8);
+            self.castling_state &= !(Castling::BlackQueenSide as u8);
+            self.update_hash_for_castling(previous_state);
+        }
     }
 
     pub fn undo_move(&mut self, piece: i8, move_start: i32, move_end: i32, removed_piece_id: i8) {
@@ -314,7 +364,6 @@ impl Board {
             } else if (move_start - move_end).abs() == 9 {
                 self.add_piece_without_inc_update(-color, P * -color, move_start - color as i32);
             }
-
         } else if removed_piece_id != EMPTY {
             self.add_piece_without_inc_update(-color, removed_piece_id * -color, move_end);
         }
@@ -326,13 +375,10 @@ impl Board {
             if move_start - move_end == -2 {
                 self.remove_piece_without_inc_update(WhiteBoardPos::KingStart as i32 + 1);
                 self.add_piece_without_inc_update(WHITE, R, WhiteBoardPos::KingSideRook as i32);
-
             } else if move_start - move_end == 2 {
                 self.remove_piece_without_inc_update(WhiteBoardPos::KingStart as i32 - 1);
                 self.add_piece_without_inc_update(WHITE, R, WhiteBoardPos::QueenSideRook as i32);
-
             }
-
         } else if piece == -K { // Black King
             self.update_king_pos(BLACK, move_start);
 
@@ -340,13 +386,10 @@ impl Board {
             if move_start - move_end == -2 {
                 self.remove_piece_without_inc_update(BlackBoardPos::KingStart as i32 + 1);
                 self.add_piece_without_inc_update(BLACK, -R, BlackBoardPos::KingSideRook as i32);
-
             } else if move_start - move_end == 2 {
-                self.remove_piece_without_inc_update(WhiteBoardPos::KingStart as i32 - 1);
+                self.remove_piece_without_inc_update(BlackBoardPos::KingStart as i32 - 1);
                 self.add_piece_without_inc_update(BLACK, -R, BlackBoardPos::QueenSideRook as i32);
-
             }
-
         }
 
         self.restore_state();
@@ -354,8 +397,8 @@ impl Board {
 
     fn add_piece_without_inc_update(&mut self, color: Color, piece: i8, pos: i32) {
         self.items[pos as usize] = piece;
-        self.bitboards[piece as usize + 6] |= 1u64 << pos as u64;
-        self.bitboards_all_pieces[color as usize + 1] |= 1u64 << pos as u64;
+        self.bitboards[(piece + 6) as usize] |= 1u64 << pos as u64;
+        self.bitboards_all_pieces[(color + 1) as usize] |= 1u64 << pos as u64;
     }
 
     fn update_king_pos(&mut self, color: Color, pos: i32) {
@@ -366,7 +409,7 @@ impl Board {
         }
     }
 
-    fn add_piece(&mut self, color: Color, piece_id: i8, pos: usize) {
+    pub fn add_piece(&mut self, color: Color, piece_id: i8, pos: usize) {
         let piece = piece_id * color;
         self.items[pos] = piece;
 
@@ -411,32 +454,29 @@ impl Board {
     }
 
     fn remove(&mut self, piece: i8, color: Color, pos: i32) -> i8 {
-        self.bitboards[piece as usize + 6] &= !(1u64 << pos as u64);
-        self.bitboards_all_pieces[color as usize + 1] &= !(1u64 << pos as u64);
+        self.bitboards[(piece + 6) as usize] &= !(1u64 << pos as u64);
+        self.bitboards_all_pieces[(color + 1) as usize] &= !(1u64 << pos as u64);
         self.items[pos as usize] = EMPTY;
 
-        if piece == R { // White rook
+        if piece == R {
             if pos == WhiteBoardPos::QueenSideRook as i32 {
                 self.set_rook_moved(Castling::WhiteQueenSide);
             } else if pos == WhiteBoardPos::KingSideRook as i32 {
                 self.set_rook_moved(Castling::WhiteKingSide);
             }
-
-        } else if piece == -R { // Black rook
+        } else if piece == -R {
             if pos == BlackBoardPos::QueenSideRook as i32 {
                 self.set_rook_moved(Castling::BlackQueenSide);
             } else if pos == BlackBoardPos::KingSideRook as i32 {
                 self.set_rook_moved(Castling::BlackKingSide);
             }
-
         }
-
         piece
     }
 
     fn set_rook_moved(&mut self, castling: Castling) {
         if self.can_castle(castling) {
-           let previous_state = self.castling_state;
+            let previous_state = self.castling_state;
             self.castling_state ^= castling as u8;
             self.update_hash_for_castling(previous_state);
         }
@@ -468,7 +508,7 @@ impl Board {
         self.enpassant_state = (state & 0xFFFF) as u16;
     }
 
-    fn king_pos(&self, color: Color) -> i32 {
+    pub fn king_pos(&self, color: Color) -> i32 {
         if color == WHITE {
             return self.white_king as i32;
         }
@@ -484,7 +524,7 @@ impl Board {
         self.bitboards_all_pieces[(color + 1) as usize]
     }
 
-    fn get_occupancy_bitboard(&self) -> u64 {
+    pub fn get_occupancy_bitboard(&self) -> u64 {
         self.get_all_piece_bitboard(WHITE) | self.get_all_piece_bitboard(BLACK)
     }
 
@@ -533,11 +573,7 @@ impl Board {
 
             // Check queens
             let queens = self.get_bitboard(Q) & occupied_bb;
-            println!("Queens: {:b}", queens);
             let attacking_queens = queens & (rook_attacks | bishop_attacks);
-            println!("Attacking queens: {:b}", attacking_queens);
-            println!("Rook attacks: {:b}", rook_attacks);
-            println!("Bishop attacks: {:b}", bishop_attacks);
             if attacking_queens != 0 {
                 return attacking_queens.trailing_zeros() as i32;
             }
@@ -607,53 +643,24 @@ impl Board {
     pub fn get_score(&self) -> i32 {
         ((self.score + self.eg_score) / 2) as i32
     }
+
+    pub fn is_legal_move(&mut self, color: Color, piece_id: i8, start: i32, end: i32) -> bool {
+        let previous_piece = self.get_item(start);
+        let removed_piece = self.perform_move(piece_id, start, end);
+        let is_legal = !self.is_in_check(color);
+        self.undo_move(previous_piece, start, end, removed_piece);
+        is_legal
+    }
 }
 
 pub const EN_PASSANT: i8 = 1 << 7;
 
-#[repr(u8)]
-#[derive(Clone, Copy)]
-pub enum Castling {
-    WhiteKingSide = 1 << 0,
-    BlackKingSide = 1 << 1,
-    WhiteQueenSide = 1 << 2,
-    BlackQueenSide = 1 << 3,
-
-    WhiteHasCastled = 1 << 4,
-    BlackHasCastled = 1 << 5,
-}
-
-#[repr(u8)]
-pub enum WhiteBoardPos {
-    KingSideRook = 63,
-    QueenSideRook = 56,
-
-    PawnLineStart = 48,
-    PawnLineEnd = 55,
-
-    EnPassantLineStart = 16,
-    EnPassantLineEnd = 23,
-
-    KingStart = 60,
-}
-
-#[repr(u8)]
-pub enum BlackBoardPos {
-    QueenSideRook = 0,
-    KingSideRook = 7,
-
-    PawnLineStart = 8,
-    PawnLineEnd = 15,
-
-    EnPassantLineStart = 40,
-    EnPassantLineEnd = 47,
-
-    KingStart = 4,
-}
+const ALL_CASTLING: u8 = Castling::WhiteKingSide as u8 | Castling::WhiteQueenSide as u8 | Castling::BlackKingSide as u8 | Castling::BlackQueenSide as u8;
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::castling::Castling;
 
     #[test]
     fn update_hash_when_piece_moves() {
@@ -709,6 +716,72 @@ mod tests {
     }
 
     #[test]
+    fn performs_and_undos_white_castling_moves() {
+        let items: [i8; 64] = [
+            -R,  0,  0,  0, -K,  0,  0, -R,
+            -P, -P, -P, -P, -P, -P, -P, -P,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            P,  P,  P,  P,  P,  P,  P,  P,
+            R,  0,  0,  0,  K,  0,  0,  R,
+        ];
+
+        let mut board = Board::new(&items, WHITE, ALL_CASTLING, None, 0, 1);
+
+        let initial_items = board.items.clone();
+        let initial_hash = board.hash;
+        let initial_castling_state = board.castling_state;
+
+        let previous_piece = board.get_item(WhiteBoardPos::KingStart as i32);
+        let removed_piece_id = board.perform_move(K, WhiteBoardPos::KingStart as i32, WhiteBoardPos::KingStart as i32 - 2);
+
+        assert_ne!(&initial_items[..], &board.items[..]);
+        assert_ne!(initial_hash, board.hash);
+        assert_ne!(initial_castling_state, board.castling_state);
+
+        board.undo_move(previous_piece, WhiteBoardPos::KingStart as i32, WhiteBoardPos::KingStart as i32 - 2, removed_piece_id);
+
+        assert_eq!(&initial_items[..], &board.items[..]);
+        assert_eq!(initial_hash, board.hash);
+        assert_eq!(initial_castling_state, board.castling_state);
+    }
+
+    #[test]
+    fn performs_and_undos_black_castling_moves() {
+        let items: [i8; 64] = [
+            -R,  0,  0,  0, -K,  0,  0, -R,
+            -P, -P, -P, -P, -P, -P, -P, -P,
+             0,  0,  0,  0,  0,  0,  0,  0,
+             0,  0,  0,  0,  0,  0,  0,  0,
+             0,  0,  0,  0,  0,  0,  0,  0,
+             0,  0,  0,  0,  0,  0,  0,  0,
+             P,  P,  P,  P,  P,  P,  P,  P,
+             R,  N,  B,  Q,  K,  B,  N,  R,
+        ];
+
+        let mut board = Board::new(&items, BLACK, ALL_CASTLING, None, 0, 1);
+
+        let initial_items = board.items.clone();
+        let initial_hash = board.hash;
+        let initial_castling_state = board.castling_state;
+
+        let previous_piece = board.get_item(BlackBoardPos::KingStart as i32);
+        let removed_piece_id = board.perform_move(K, BlackBoardPos::KingStart as i32, BlackBoardPos::KingStart as i32 - 2);
+
+        assert_ne!(&initial_items[..], &board.items[..]);
+        assert_ne!(initial_hash, board.hash);
+        assert_ne!(initial_castling_state, board.castling_state);
+
+        board.undo_move(previous_piece, BlackBoardPos::KingStart as i32, BlackBoardPos::KingStart as i32 - 2, removed_piece_id);
+
+        assert_eq!(&initial_items[..], &board.items[..]);
+        assert_eq!(initial_hash, board.hash);
+        assert_eq!(initial_castling_state, board.castling_state);
+    }
+
+    #[test]
     fn find_white_pawn_left_attack() {
         let items: [i8; 64] = [
             0,  0,  0, -K,  0,  0,  0,  0,
@@ -722,7 +795,6 @@ mod tests {
         ];
 
         let board = Board::new(&items, WHITE, 0, None, 0, 1);
-        println!("{}", board.get_occupancy_bitboard());
         assert_eq!(34, board.find_smallest_attacker(board.get_occupancy_bitboard(), WHITE, 27));
     }
 
@@ -740,7 +812,6 @@ mod tests {
         ];
 
         let board = Board::new(&items, WHITE, 0, None, 0, 1);
-        println!("{}", board.get_occupancy_bitboard());
         assert_eq!(36, board.find_smallest_attacker(board.get_occupancy_bitboard(), WHITE, 27));
     }
 
@@ -758,7 +829,6 @@ mod tests {
         ];
 
         let board = Board::new(&items, BLACK, 0, None, 0, 1);
-        println!("{}", board.get_occupancy_bitboard());
         assert_eq!(20, board.find_smallest_attacker(board.get_occupancy_bitboard(), BLACK, 27));
     }
 
@@ -776,7 +846,6 @@ mod tests {
         ];
 
         let board = Board::new(&items, BLACK, 0, None, 0, 1);
-        println!("{}", board.get_occupancy_bitboard());
         assert_eq!(18, board.find_smallest_attacker(board.get_occupancy_bitboard(), BLACK, 27));
     }
 
@@ -794,7 +863,6 @@ mod tests {
         ];
 
         let board = Board::new(&items, WHITE, 0, None, 0, 1);
-        println!("{}", board.get_occupancy_bitboard());
         assert_eq!(37, board.find_smallest_attacker(board.get_occupancy_bitboard(), WHITE, 27));
     }
 
@@ -812,7 +880,6 @@ mod tests {
         ];
 
         let board = Board::new(&items, WHITE, 0, None, 0, 1);
-        println!("{}", board.get_occupancy_bitboard());
         assert_eq!(45, board.find_smallest_attacker(board.get_occupancy_bitboard(), WHITE, 27));
     }
 
@@ -830,7 +897,6 @@ mod tests {
         ];
 
         let board = Board::new(&items, WHITE, 0, None, 0, 1);
-        println!("{}", board.get_occupancy_bitboard());
         assert_eq!(24, board.find_smallest_attacker(board.get_occupancy_bitboard(), WHITE, 27));
     }
 
@@ -848,7 +914,6 @@ mod tests {
         ];
 
         let board = Board::new(&items, WHITE, 0, None, 0, 1);
-        println!("{}", board.get_occupancy_bitboard());
         assert_eq!(29, board.find_smallest_attacker(board.get_occupancy_bitboard(), WHITE, 27));
     }
 
@@ -866,7 +931,6 @@ mod tests {
         ];
 
         let board = Board::new(&items, WHITE, 0, None, 0, 1);
-        println!("{}", board.get_occupancy_bitboard());
         assert_eq!(35, board.find_smallest_attacker(board.get_occupancy_bitboard(), WHITE, 27));
     }
 }

@@ -15,10 +15,16 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-extern crate velvet;
 
-use velvet::uci;
+#[repr(u8)]
+#[derive(Clone, Copy)]
+pub enum Castling {
+    WhiteKingSide = 1 << 0,
+    BlackKingSide = 1 << 1,
+    WhiteQueenSide = 1 << 2,
+    BlackQueenSide = 1 << 3,
 
-fn main() {
-    uci::start_uci_loop();
+    WhiteHasCastled = 1 << 4,
+    BlackHasCastled = 1 << 5,
 }
+
