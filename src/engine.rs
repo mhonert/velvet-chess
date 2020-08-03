@@ -16,7 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::sync::mpsc::{Receiver, Sender, RecvError};
+use std::sync::mpsc::{Receiver, Sender};
 use std::sync::mpsc;
 use std::thread;
 use crate::fen::{read_fen, START_POS, create_from_fen};
@@ -30,6 +30,7 @@ use crate::history_heuristics::HistoryHeuristics;
 use crate::move_gen::NO_MOVE;
 use crate::uci_move::UCIMove;
 use crate::pieces::EMPTY;
+use crate::transposition_table::{TranspositionTable, DEFAULT_SIZE_MB};
 
 pub enum Message {
     SetPosition(String, Vec<UCIMove>),
@@ -42,10 +43,21 @@ pub struct Engine {
     pub rx: Receiver<Message>,
     pub board: Board,
     pub hh: HistoryHeuristics,
+    pub tt: TranspositionTable,
 
     pub starttime: Instant,
     pub timelimit_ms: i32,
+
+    pub cancel_possible: bool,
+    pub node_count: u64,
+    pub log_every_second: bool,
+    pub last_log_time: Instant,
+    pub current_depth: i32,
+
+    pub capture_order_scores: [i32; CAPTURE_ORDER_SIZE]
 }
+
+const CAPTURE_ORDER_SIZE: usize = 5 + 5 * 8 + 1;
 
 pub const TIMEEXT_MULTIPLIER: i32 = 5;
 
@@ -65,8 +77,15 @@ impl Engine {
         Engine{rx,
             board: create_from_fen(START_POS),
             hh: HistoryHeuristics::new(),
+            tt: TranspositionTable::new(DEFAULT_SIZE_MB),
             starttime: Instant::now(),
-            timelimit_ms: 0}
+            timelimit_ms: 0,
+            cancel_possible: false,
+            node_count: 0,
+            log_every_second: false,
+            last_log_time: Instant::now(),
+            current_depth: 0,
+            capture_order_scores: calc_capture_order_scores()}
     }
 
     fn start_loop(&mut self) {
@@ -156,6 +175,10 @@ impl Engine {
             println!("Nodes per second: {}", nodes_per_sec);
         }
     }
+
+    pub fn get_capture_order_score(&self, attacker_id: i32, victim_id: i32) -> i32 {
+        self.capture_order_scores[((attacker_id - 1) * 8 + (victim_id - 1)) as usize]
+    }
 }
 
 fn calc_timelimit(movetime: i32, time_left: i32, time_increment: i32, movestogo: i32) -> i32 {
@@ -173,4 +196,17 @@ fn calc_timelimit(movetime: i32, time_left: i32, time_increment: i32, movestogo:
     }
 }
 
+fn calc_capture_order_scores() -> [i32; CAPTURE_ORDER_SIZE] {
+    let mut scores: [i32; CAPTURE_ORDER_SIZE] = [0; CAPTURE_ORDER_SIZE];
+    let mut score: i32 = 0;
+
+    for victim in 0..=5 {
+        for attacker in (0..=5).rev() {
+            scores[(victim + attacker * 8) as usize] = score * 64;
+            score += 1;
+        }
+    }
+
+    scores
+}
 

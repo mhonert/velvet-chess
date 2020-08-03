@@ -17,12 +17,10 @@
  */
 
 use std::io;
-use crate::fen::{read_fen, START_POS};
-use std::time::SystemTime;
+use crate::fen::{START_POS};
 use crate::engine::Message;
 use std::sync::mpsc::Sender;
 use std::str::FromStr;
-use std::ops::Index;
 use crate::uci_move::UCIMove;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -95,7 +93,7 @@ fn set_position(tx: &Sender<Message>, parts: &Vec<&str>) {
 
     let moves = match parts.iter().position(|&part| part == "moves") {
         Some(idx) => parse_moves(idx, &parts),
-        Non => Vec::new()
+        None => Vec::new()
     };
 
     send_message(tx, Message::SetPosition(fen, moves));

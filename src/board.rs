@@ -22,9 +22,10 @@ use crate::zobrist::Zobrist;
 use crate::colors::{Color, WHITE, BLACK};
 use crate::piece_sq_tables::PieceSquareTables;
 use crate::score_util::{unpack_score, unpack_eg_score};
-use crate::bitboard::{Bitboard, white_left_pawn_attacks, white_right_pawn_attacks, black_left_pawn_attacks, black_right_pawn_attacks};
+use crate::bitboard::{Bitboard, white_left_pawn_attacks, white_right_pawn_attacks, black_left_pawn_attacks, black_right_pawn_attacks, LIGHT_COLORED_FIELD_PATTERN, DARK_COLORED_FIELD_PATTERN};
 use crate::castling::Castling;
 use crate::boardpos::{WhiteBoardPos, BlackBoardPos};
+use crate::pos_history::PositionHistory;
 
 const MAX_GAME_HALFMOVES: usize = 5898 * 2;
 
@@ -32,6 +33,7 @@ pub struct Board {
     pub bb: Bitboard,
     zobrist: Zobrist,
     pst: PieceSquareTables,
+    pos_history: PositionHistory,
     items: [i8; 64],
     bitboards: [u64; 13],
     bitboards_all_pieces: [u64; 3],
@@ -63,6 +65,7 @@ impl Board {
             bb: Bitboard::new(),
             zobrist: Zobrist::new(),
             pst: PieceSquareTables::new(),
+            pos_history: PositionHistory::new(),
             items: [0; 64],
             bitboards: [0; 13],
             bitboards_all_pieces: [0; 3],
@@ -260,6 +263,7 @@ impl Board {
                 }
             }
 
+            self.pos_history.push(self.hash);
             return removed_piece.abs();
         }
 
@@ -270,14 +274,17 @@ impl Board {
             // Special en passant handling
             if move_start - move_end == 16 {
                 self.set_enpassant(move_start as i8);
+
             } else if move_start - move_end == 7 {
                 self.remove_piece(move_start + WHITE as i32);
-                // update position history
+                self.pos_history.push(self.hash);
                 return EN_PASSANT;
+
             } else if move_start - move_end == 9 {
                 self.remove_piece(move_start - WHITE as i32);
-                // update position history
+                self.pos_history.push(self.hash);
                 return EN_PASSANT;
+
             }
         } else if own_piece == -P {
             self.reset_half_move_clock();
@@ -285,14 +292,17 @@ impl Board {
             // Special en passant handling
             if move_start - move_end == -16 {
                 self.set_enpassant(move_start as i8);
+
             } else if move_start - move_end == -7 {
                 self.remove_piece(move_start + BLACK as i32);
-                // update position history
+                self.pos_history.push(self.hash);
                 return EN_PASSANT;
+
             } else if move_start - move_end == -9 {
                 self.remove_piece(move_start - BLACK as i32);
-                // update position history
+                self.pos_history.push(self.hash);
                 return EN_PASSANT;
+
             }
         } else if own_piece == K {
             self.update_king_pos(WHITE, move_end);
@@ -326,10 +336,16 @@ impl Board {
             }
         }
 
-
         // Position history
 
+        self.pos_history.push(self.hash);
         EMPTY
+    }
+
+    pub fn perform_null_move(&mut self) {
+        self.store_state();
+        self.increase_half_move_count();
+        self.clear_en_passant();
     }
 
     pub fn reset_half_move_clock(&mut self) {
@@ -371,7 +387,7 @@ impl Board {
     }
 
     pub fn undo_move(&mut self, piece: i8, move_start: i32, move_end: i32, removed_piece_id: i8) {
-        // Restore position history
+        self.pos_history.pop();
 
         let color = piece.signum();
         self.remove_piece_without_inc_update(move_end);
@@ -411,6 +427,10 @@ impl Board {
             }
         }
 
+        self.restore_state();
+    }
+
+    pub fn undo_null_move(&mut self) {
         self.restore_state();
     }
 
@@ -669,6 +689,46 @@ impl Board {
         let is_legal = !self.is_in_check(color);
         self.undo_move(previous_piece, start, end, removed_piece);
         is_legal
+    }
+
+    // Return true, if the engine considers the current position as a draw.
+    // Note: it already considers the first repetition of a position as a draw to stop searching a branch that leads to a draw earlier.
+    pub fn is_engine_draw(&self) -> bool {
+        self.pos_history.is_single_repetition() || self.is_fifty_move_draw() || self.is_insufficient_material_draw()
+    }
+
+    fn is_fifty_move_draw(&self) -> bool {
+        self.halfmove_clock >= 100
+    }
+
+    fn is_insufficient_material_draw(&self) -> bool {
+        match (self.get_all_piece_bitboard(WHITE) | self.get_all_piece_bitboard(BLACK)).count_ones() {
+            2 => true, // K vs K
+
+            3 => {
+                // K vs K+N or K vs K+B
+                let knights_or_bishops = self.get_bitboard(N) | self.get_bitboard(-N) | self.get_bitboard(B) | self.get_bitboard(-B);
+                knights_or_bishops != 0
+            },
+
+            4 => {
+                // Check for K+B vs K+B where bishops are on fields with the same color
+                let white_bishops = self.get_bitboard(B);
+                let black_bishops = self.get_bitboard(-B);
+
+                ((white_bishops & LIGHT_COLORED_FIELD_PATTERN) != 0 && (black_bishops & LIGHT_COLORED_FIELD_PATTERN) != 0)
+                    || ((white_bishops & DARK_COLORED_FIELD_PATTERN) != 0 && (black_bishops & DARK_COLORED_FIELD_PATTERN) != 0)
+            },
+
+            _ => false
+        }
+    }
+
+    pub fn is_pawn_move_close_to_promotion(&self, piece: i8, move_end: i32, moves_left: i32) -> bool {
+        if piece == P {
+            let distance_to_promotion = move_end / 8;
+            if distance_to_promotion <= moves_left && WHITE_P
+        }
     }
 }
 

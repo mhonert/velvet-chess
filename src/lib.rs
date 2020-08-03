@@ -16,22 +16,24 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub mod engine;
-pub mod uci;
-pub mod perft;
 pub mod board;
+pub mod engine;
 pub mod fen;
+pub mod perft;
+pub mod uci;
 
-mod history_heuristics;
-mod search;
 mod bitboard;
-mod pieces;
-mod move_gen;
-mod random;
-mod zobrist;
-mod score_util;
-mod piece_sq_tables;
-mod colors;
-mod castling;
 mod boardpos;
+mod castling;
+mod colors;
+mod history_heuristics;
+mod move_gen;
+mod piece_sq_tables;
+mod pieces;
+mod pos_history;
+mod random;
+mod score_util;
+mod search;
+mod transposition_table;
 mod uci_move;
+mod zobrist;

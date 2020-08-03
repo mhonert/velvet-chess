@@ -18,12 +18,10 @@
 
 use crate::board::{Board};
 use crate::colors::{Color, WHITE, BLACK};
-use crate::pieces::{K, P, Q, R, B, N};
+use crate::pieces::{K, P, Q, R, B, N, EMPTY};
 use crate::boardpos::{BlackBoardPos, WhiteBoardPos};
 use crate::castling::Castling;
 use crate::bitboard::{WHITE_KING_SIDE_CASTLING_BIT_PATTERN, WHITE_QUEEN_SIDE_CASTLING_BIT_PATTERN, BLACK_KING_SIDE_CASTLING_BIT_PATTERN, BLACK_QUEEN_SIDE_CASTLING_BIT_PATTERN, PAWN_DOUBLE_MOVE_LINES};
-use core::fmt;
-use std::fmt::Debug;
 
 pub fn generate_moves(board: &Board, active_player: Color) -> Vec<Move> {
     let mut moves: Vec<Move> = Vec::with_capacity(128);
@@ -81,6 +79,179 @@ pub fn generate_moves(board: &Board, active_player: Color) -> Vec<Move> {
     }
 
     moves
+}
+
+pub fn is_valid_move(board: &mut Board, active_player: Color, m: Move) -> bool {
+    let opponent_bb = board.get_all_piece_bitboard(-active_player);
+    let occupied = opponent_bb | board.get_all_piece_bitboard(active_player);
+    let empty_bb = !occupied;
+
+    let start = decode_start_index(m);
+    let piece = board.get_item(start);
+    if piece == EMPTY || piece.signum() != active_player {
+        return false;
+    }
+
+    let mut moves: Vec<Move> = Vec::with_capacity(27);
+
+    match piece * active_player {
+        P => {
+            if active_player == WHITE {
+                gen_white_pawn_moves(&mut moves, board, opponent_bb, empty_bb);
+            } else {
+                gen_black_pawn_moves(&mut moves, board, opponent_bb, empty_bb);
+            }
+        },
+
+        N => {
+            let attacks = board.bb.get_knight_attacks(start);
+            gen_piece_moves(&mut moves, N, start, attacks, opponent_bb, empty_bb);
+        }
+
+        B => {
+            let attacks = board.bb.get_diagonal_attacks(occupied, start)
+                | board.bb.get_anti_diagonal_attacks(occupied, start);
+            gen_piece_moves(&mut moves, B, start, attacks, opponent_bb, empty_bb);
+        }
+
+        R => {
+            let attacks = board.bb.get_horizontal_attacks(occupied, start)
+                | board.bb.get_vertical_attacks(occupied, start);
+            gen_piece_moves(&mut moves, R, start, attacks, opponent_bb, empty_bb);
+        }
+
+        Q => {
+            let attacks = board.bb.get_horizontal_attacks(occupied, start)
+                | board.bb.get_vertical_attacks(occupied, start)
+                | board.bb.get_diagonal_attacks(occupied, start)
+                | board.bb.get_anti_diagonal_attacks(occupied, start);
+            gen_piece_moves(&mut moves, Q, start, attacks, opponent_bb, empty_bb);
+        }
+
+        K => {
+
+            if active_player == WHITE {
+                gen_white_king_moves(&mut moves, start, board, opponent_bb, empty_bb);
+            } else {
+                gen_black_king_moves(&mut moves, start, board, opponent_bb, empty_bb);
+            }
+
+        }
+
+        _ => {
+            panic!("Unexpected piece ID {}", piece * active_player);
+        }
+    }
+
+    moves.contains(&m)
+}
+
+pub fn has_valid_moves(board: &mut Board, active_player: Color) -> bool {
+    let mut moves: Vec<Move> = Vec::with_capacity(27);
+
+    let opponent_bb = board.get_all_piece_bitboard(-active_player);
+    let occupied = opponent_bb | board.get_all_piece_bitboard(active_player);
+    let empty_bb = !occupied;
+
+    if active_player == WHITE {
+        gen_white_king_moves(&mut moves, board.king_pos(WHITE), board, opponent_bb, empty_bb);
+        if any_moves_allow_check_evasion(&mut board, &mut moves, active_player) {
+            return true;
+        }
+    } else {
+        gen_black_king_moves(&mut moves, board.king_pos(BLACK), board, opponent_bb, empty_bb);
+        if any_moves_allow_check_evasion(&mut board, &mut moves, active_player) {
+            return true;
+        }
+
+    }
+
+    let mut knights = board.get_bitboard(N * active_player);
+    while knights != 0 {
+        let pos = knights.trailing_zeros();
+        knights ^= 1 << pos as u64;
+        let attacks = board.bb.get_knight_attacks(pos as i32);
+        gen_piece_moves(&mut moves, N, pos as i32, attacks, opponent_bb, empty_bb);
+    }
+    if any_moves_allow_check_evasion(&mut board, &mut moves, active_player) {
+        return true;
+    }
+
+    let mut bishops = board.get_bitboard(B * active_player);
+    while bishops != 0 {
+        let pos = bishops.trailing_zeros();
+        bishops ^= 1 << pos as u64;
+        let attacks = board.bb.get_diagonal_attacks(occupied, pos as i32)
+            | board.bb.get_anti_diagonal_attacks(occupied, pos as i32);
+        gen_piece_moves(&mut moves, B, pos as i32, attacks, opponent_bb, empty_bb);
+    }
+    if any_moves_allow_check_evasion(&mut board, &mut moves, active_player) {
+        return true;
+    }
+
+    let mut rooks = board.get_bitboard(R * active_player);
+    while rooks != 0 {
+        let pos = rooks.trailing_zeros();
+        rooks ^= 1 << pos as u64;
+        let attacks = board.bb.get_horizontal_attacks(occupied, pos as i32)
+            | board.bb.get_vertical_attacks(occupied, pos as i32);
+        gen_piece_moves(&mut moves, R, pos as i32, attacks, opponent_bb, empty_bb);
+    }
+    if any_moves_allow_check_evasion(&mut board, &mut moves, active_player) {
+        return true;
+    }
+
+    let mut queens = board.get_bitboard(Q * active_player);
+    while queens != 0 {
+        let pos = queens.trailing_zeros();
+        queens ^= 1 << pos as u64;
+        let attacks = board.bb.get_horizontal_attacks(occupied, pos as i32)
+            | board.bb.get_vertical_attacks(occupied, pos as i32)
+            | board.bb.get_diagonal_attacks(occupied, pos as i32)
+            | board.bb.get_anti_diagonal_attacks(occupied, pos as i32);
+
+        gen_piece_moves(&mut moves, Q, pos as i32, attacks, opponent_bb, empty_bb);
+    }
+    if any_moves_allow_check_evasion(&mut board, &mut moves, active_player) {
+        return true;
+    }
+
+    if active_player == WHITE {
+        gen_white_pawn_moves(&mut moves, board, opponent_bb, empty_bb);
+        if any_moves_allow_check_evasion(&mut board, &mut moves, active_player) {
+            return true;
+        }
+    } else {
+        gen_black_pawn_moves(&mut moves, board, opponent_bb, empty_bb);
+        if any_moves_allow_check_evasion(&mut board, &mut moves, active_player) {
+            return true;
+        }
+
+    }
+    false
+}
+
+fn any_moves_allow_check_evasion(board: &mut Board, moves: &mut Vec<Move>, active_player: Color) -> bool {
+    for &m in moves.iter() {
+        if !move_results_in_check(board, m, active_player) {
+            return true;
+        }
+    }
+    moves.clear();
+    false
+}
+
+fn move_results_in_check(board: &mut Board, m: Move, active_player: Color) -> bool {
+    let piece_id = decode_piece_id(m);
+    let start = decode_start_index(m);
+    let end = decode_end_index(m);
+
+    let previous_piece = board.get_item(start);
+    let move_state = board.perform_move(piece_id as i8, start, end);
+    let check = board.is_in_check(active_player);
+    board.undo_move(previous_piece, start, end, move_state);
+
+    check
 }
 
 fn gen_piece_moves(moves: &mut Vec<Move>, piece: i8, pos: i32, targets: u64, opponent_bb: u64, empty_bb: u64) {

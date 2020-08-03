@@ -18,8 +18,7 @@
 
 use crate::move_gen::{Move, NO_MOVE};
 use crate::colors::{Color, WHITE};
-
-const MAX_DEPTH: usize = 63;
+use crate::transposition_table::MAX_DEPTH;
 
 const HISTORY_SIZE: usize = 2 * 64 * 64;
 
@@ -54,21 +53,21 @@ impl HistoryHeuristics {
         }
     }
 
-    pub fn get_primary_killer(&self, ply: u16) -> Move {
+    pub fn get_primary_killer(&self, ply: i32) -> Move {
         self.primary_killers[ply as usize]
     }
 
-    pub fn get_seconday_killer(&self, ply: u16) -> Move {
+    pub fn get_secondary_killer(&self, ply: i32) -> Move {
         self.secondary_killers[ply as usize]
     }
 
-    pub fn update(&mut self, ply: u16, color: Color, start: i32, end: i32, m: Move) {
+    pub fn update(&mut self, ply: i32, color: Color, start: i32, end: i32, m: Move) {
         let color_offset = if color == WHITE { 0 } else { 64 * 64 };
         self.cut_off_history[(color_offset + start + end * 64) as usize] += 1;
         self.update_killer_moves(ply, m);
     }
 
-    fn update_killer_moves(&mut self, ply: u16, m: Move) {
+    fn update_killer_moves(&mut self, ply: i32, m: Move) {
         let current_primary = self.primary_killers[ply as usize];
         if current_primary == m {
             return;
@@ -97,7 +96,7 @@ impl HistoryHeuristics {
 
     // Returns true, if the history contains sufficient information about the given move, to indicate
     // that it is very unlikely to cause a cut-off during search
-    pub fn has_negative_history(&self, color: Color, depth: i16, start: i32, end: i32) -> bool {
+    pub fn has_negative_history(&self, color: Color, depth: i32, start: i32, end: i32) -> bool {
         let color_offset = if color == WHITE { 0 } else { 64 * 64 };
         let index = (color_offset + start + end * 64) as usize;
 
@@ -106,8 +105,7 @@ impl HistoryHeuristics {
             return false;
         }
 
-        return (self.cut_off_history[index] * 512 / move_count) == 0;
-
+        (self.cut_off_history[index] * 512 / move_count) == 0
     }
 
 
@@ -141,7 +139,7 @@ mod tests {
         hh.update(1, WHITE, 4, 5, move_b);
 
         let primary_killer = hh.get_primary_killer(1);
-        let secondary_killer = hh.get_seconday_killer(1);
+        let secondary_killer = hh.get_secondary_killer(1);
 
         assert_eq!(primary_killer, move_b, "move_b should be the primary killer move");
         assert_eq!(secondary_killer, move_a, "move_a should be the secondary killer move");
