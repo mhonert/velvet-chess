@@ -23,6 +23,7 @@ use crate::castling::Castling;
 use crate::boardpos::{WhiteBoardPos, BlackBoardPos};
 use std::error::Error;
 use std::fmt;
+use std::process::exit;
 
 pub const START_POS: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
@@ -78,9 +79,13 @@ pub fn read_fen(board: &mut Board, fen: &str) -> Result<(), FenError> {
 pub fn create_from_fen(fen: &str) -> Board {
     let items: [i8; 64] = [0; 64];
     let mut board = Board::new(&items, WHITE, 0, None, 0, 1);
-    read_fen(&mut board, fen);
-
-    board
+    match read_fen(&mut board, fen) {
+        Ok(_) => board,
+        Err(e) => {
+            eprintln!("Could not create board from FEN: {}", fen);
+            exit(-1)
+        }
+    }
 }
 
 // Black piece IDs go from -6 to -1, white piece IDs from 1 to 6

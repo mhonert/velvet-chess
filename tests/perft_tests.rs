@@ -18,8 +18,7 @@
 
 extern crate velvet;
 
-use velvet::fen::{read_fen, create_from_fen};
-use velvet::board::Board;
+use velvet::fen::{create_from_fen};
 use velvet::perft::perft;
 
 #[test]

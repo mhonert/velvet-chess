@@ -23,18 +23,18 @@ use crate::transposition_table::MAX_DEPTH;
 const HISTORY_SIZE: usize = 2 * 64 * 64;
 
 pub struct HistoryHeuristics {
-    primary_killers: [Move; MAX_DEPTH],
-    secondary_killers: [Move; MAX_DEPTH],
+    primary_killers: [Move; MAX_DEPTH + 1],
+    secondary_killers: [Move; MAX_DEPTH + 1],
     cut_off_history: [u64; HISTORY_SIZE],
     played_move_history: [u64; HISTORY_SIZE],
-    played_move_thresholds: [u64; MAX_DEPTH],
+    played_move_thresholds: [u64; MAX_DEPTH + 1],
 }
 
 impl HistoryHeuristics {
     pub fn new() -> Self {
         HistoryHeuristics{
-            primary_killers: [NO_MOVE; MAX_DEPTH],
-            secondary_killers: [NO_MOVE; MAX_DEPTH],
+            primary_killers: [NO_MOVE; MAX_DEPTH + 1],
+            secondary_killers: [NO_MOVE; MAX_DEPTH + 1],
             cut_off_history: [0; HISTORY_SIZE],
             played_move_history: [0; HISTORY_SIZE],
             played_move_thresholds: calc_move_thresholds(),
@@ -111,11 +111,11 @@ impl HistoryHeuristics {
 
 }
 
-fn calc_move_thresholds() -> [u64; MAX_DEPTH] {
-    let mut thresholds: [u64; MAX_DEPTH] = [0; MAX_DEPTH];
+fn calc_move_thresholds() -> [u64; MAX_DEPTH + 1] {
+    let mut thresholds: [u64; MAX_DEPTH + 1] = [0; MAX_DEPTH + 1];
     let mut threshold: f32 = 2.0;
 
-    for depth in 0..MAX_DEPTH {
+    for depth in 0..=MAX_DEPTH {
         thresholds[depth] = threshold as u64;
         threshold *= 1.6;
     }

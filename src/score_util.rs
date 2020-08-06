@@ -18,6 +18,12 @@
 
 use crate::move_gen::Move;
 
+pub const MIN_SCORE: i32 = -16383;
+pub const MAX_SCORE: i32 = 16383;
+
+pub const WHITE_MATE_SCORE: i32 = -16000;
+pub const BLACK_MATE_SCORE: i32 = 16000;
+
 pub fn pack_scores(score: i16, eg_score: i16) -> u32 {
     (score as u32) << 16 | ((eg_score as u32) & 0xFFFF)
 }
@@ -56,6 +62,8 @@ pub fn decode_move(m: ScoredMove) -> Move {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::move_gen::encode_move;
+    use crate::pieces::Q;
 
     #[test]
     fn pack_any_scores() {
@@ -98,4 +106,21 @@ mod tests {
         assert_eq!(unpack_eg_score(packed), b);
     }
 
+    #[test]
+    fn scored_move_for_max_score() {
+        let m = encode_move(Q, 2, 63);
+        let scored_move = encode_scored_move(m, MAX_SCORE);
+
+        assert_eq!(m, decode_move(scored_move));
+        assert_eq!(MAX_SCORE, decode_score(scored_move));
+    }
+
+    #[test]
+    fn scored_move_for_min_score() {
+        let m = encode_move(Q, 2, 63);
+        let scored_move = encode_scored_move(m, MIN_SCORE);
+
+        assert_eq!(m, decode_move(scored_move));
+        assert_eq!(MIN_SCORE, decode_score(scored_move));
+    }
 }

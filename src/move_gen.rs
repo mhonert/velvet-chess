@@ -24,7 +24,7 @@ use crate::castling::Castling;
 use crate::bitboard::{WHITE_KING_SIDE_CASTLING_BIT_PATTERN, WHITE_QUEEN_SIDE_CASTLING_BIT_PATTERN, BLACK_KING_SIDE_CASTLING_BIT_PATTERN, BLACK_QUEEN_SIDE_CASTLING_BIT_PATTERN, PAWN_DOUBLE_MOVE_LINES};
 
 pub fn generate_moves(board: &Board, active_player: Color) -> Vec<Move> {
-    let mut moves: Vec<Move> = Vec::with_capacity(128);
+    let mut moves: Vec<Move> = Vec::with_capacity(64);
 
     let opponent_bb = board.get_all_piece_bitboard(-active_player);
     let occupied = opponent_bb | board.get_all_piece_bitboard(active_player);
@@ -76,6 +76,68 @@ pub fn generate_moves(board: &Board, active_player: Color) -> Vec<Move> {
             | board.bb.get_anti_diagonal_attacks(occupied, pos as i32);
 
         gen_piece_moves(&mut moves, Q, pos as i32, attacks, opponent_bb, empty_bb);
+    }
+
+    moves
+}
+
+pub fn generate_capture_moves(board: &Board, active_player: Color) -> Vec<Move> {
+    let mut moves: Vec<Move> = Vec::with_capacity(16);
+
+    let opponent_bb = board.get_all_piece_bitboard(-active_player);
+    let occupied = opponent_bb | board.get_all_piece_bitboard(active_player);
+
+    if active_player == WHITE {
+        gen_white_attack_pawn_moves(&mut moves, board.get_bitboard(P), opponent_bb);
+
+        let king_pos = board.king_pos(WHITE);
+        let king_targets = board.bb.get_king_attacks(king_pos);
+        add_moves(&mut moves, K, king_pos, king_targets & opponent_bb);
+
+    } else {
+        gen_black_attack_pawn_moves(&mut moves, board.get_bitboard(-P), opponent_bb);
+
+        let king_pos = board.king_pos(BLACK);
+        let king_targets = board.bb.get_king_attacks(king_pos);
+        add_moves(&mut moves, K, king_pos, king_targets & opponent_bb);
+    }
+
+    let mut knights = board.get_bitboard(N * active_player);
+    while knights != 0 {
+        let pos = knights.trailing_zeros();
+        knights ^= 1 << pos as u64;
+        let attacks = board.bb.get_knight_attacks(pos as i32);
+        gen_piece_capture_moves(&mut moves, N, pos as i32, attacks, opponent_bb);
+    }
+
+    let mut bishops = board.get_bitboard(B * active_player);
+    while bishops != 0 {
+        let pos = bishops.trailing_zeros();
+        bishops ^= 1 << pos as u64;
+        let attacks = board.bb.get_diagonal_attacks(occupied, pos as i32)
+            | board.bb.get_anti_diagonal_attacks(occupied, pos as i32);
+        gen_piece_capture_moves(&mut moves, B, pos as i32, attacks, opponent_bb);
+    }
+
+    let mut rooks = board.get_bitboard(R * active_player);
+    while rooks != 0 {
+        let pos = rooks.trailing_zeros();
+        rooks ^= 1 << pos as u64;
+        let attacks = board.bb.get_horizontal_attacks(occupied, pos as i32)
+            | board.bb.get_vertical_attacks(occupied, pos as i32);
+        gen_piece_capture_moves(&mut moves, R, pos as i32, attacks, opponent_bb);
+    }
+
+    let mut queens = board.get_bitboard(Q * active_player);
+    while queens != 0 {
+        let pos = queens.trailing_zeros();
+        queens ^= 1 << pos as u64;
+        let attacks = board.bb.get_horizontal_attacks(occupied, pos as i32)
+            | board.bb.get_vertical_attacks(occupied, pos as i32)
+            | board.bb.get_diagonal_attacks(occupied, pos as i32)
+            | board.bb.get_anti_diagonal_attacks(occupied, pos as i32);
+
+        gen_piece_capture_moves(&mut moves, Q, pos as i32, attacks, opponent_bb);
     }
 
     moves
@@ -155,12 +217,12 @@ pub fn has_valid_moves(board: &mut Board, active_player: Color) -> bool {
 
     if active_player == WHITE {
         gen_white_king_moves(&mut moves, board.king_pos(WHITE), board, opponent_bb, empty_bb);
-        if any_moves_allow_check_evasion(&mut board, &mut moves, active_player) {
+        if any_moves_allow_check_evasion(board, &mut moves, active_player) {
             return true;
         }
     } else {
         gen_black_king_moves(&mut moves, board.king_pos(BLACK), board, opponent_bb, empty_bb);
-        if any_moves_allow_check_evasion(&mut board, &mut moves, active_player) {
+        if any_moves_allow_check_evasion(board, &mut moves, active_player) {
             return true;
         }
 
@@ -173,7 +235,7 @@ pub fn has_valid_moves(board: &mut Board, active_player: Color) -> bool {
         let attacks = board.bb.get_knight_attacks(pos as i32);
         gen_piece_moves(&mut moves, N, pos as i32, attacks, opponent_bb, empty_bb);
     }
-    if any_moves_allow_check_evasion(&mut board, &mut moves, active_player) {
+    if any_moves_allow_check_evasion(board, &mut moves, active_player) {
         return true;
     }
 
@@ -185,7 +247,7 @@ pub fn has_valid_moves(board: &mut Board, active_player: Color) -> bool {
             | board.bb.get_anti_diagonal_attacks(occupied, pos as i32);
         gen_piece_moves(&mut moves, B, pos as i32, attacks, opponent_bb, empty_bb);
     }
-    if any_moves_allow_check_evasion(&mut board, &mut moves, active_player) {
+    if any_moves_allow_check_evasion(board, &mut moves, active_player) {
         return true;
     }
 
@@ -197,7 +259,7 @@ pub fn has_valid_moves(board: &mut Board, active_player: Color) -> bool {
             | board.bb.get_vertical_attacks(occupied, pos as i32);
         gen_piece_moves(&mut moves, R, pos as i32, attacks, opponent_bb, empty_bb);
     }
-    if any_moves_allow_check_evasion(&mut board, &mut moves, active_player) {
+    if any_moves_allow_check_evasion(board, &mut moves, active_player) {
         return true;
     }
 
@@ -212,18 +274,18 @@ pub fn has_valid_moves(board: &mut Board, active_player: Color) -> bool {
 
         gen_piece_moves(&mut moves, Q, pos as i32, attacks, opponent_bb, empty_bb);
     }
-    if any_moves_allow_check_evasion(&mut board, &mut moves, active_player) {
+    if any_moves_allow_check_evasion(board, &mut moves, active_player) {
         return true;
     }
 
     if active_player == WHITE {
         gen_white_pawn_moves(&mut moves, board, opponent_bb, empty_bb);
-        if any_moves_allow_check_evasion(&mut board, &mut moves, active_player) {
+        if any_moves_allow_check_evasion(board, &mut moves, active_player) {
             return true;
         }
     } else {
         gen_black_pawn_moves(&mut moves, board, opponent_bb, empty_bb);
-        if any_moves_allow_check_evasion(&mut board, &mut moves, active_player) {
+        if any_moves_allow_check_evasion(board, &mut moves, active_player) {
             return true;
         }
 
@@ -254,12 +316,19 @@ fn move_results_in_check(board: &mut Board, m: Move, active_player: Color) -> bo
     check
 }
 
+#[inline]
 fn gen_piece_moves(moves: &mut Vec<Move>, piece: i8, pos: i32, targets: u64, opponent_bb: u64, empty_bb: u64) {
     // Captures
     add_moves(moves, piece, pos, targets & opponent_bb);
 
     // Normal moves
     add_moves(moves, piece, pos, targets & empty_bb);
+}
+
+#[inline]
+fn gen_piece_capture_moves(moves: &mut Vec<Move>, piece: i8, pos: i32, targets: u64, opponent_bb: u64) {
+    // Captures
+    add_moves(moves, piece, pos, targets & opponent_bb);
 }
 
 fn gen_white_pawn_moves(moves: &mut Vec<Move>, board: &Board, opponent_bb: u64, empty_bb: u64) {
@@ -444,8 +513,9 @@ fn gen_black_king_moves(moves: &mut Vec<Move>, pos: i32, board: &Board, opponent
     }
 }
 
+#[inline]
 fn add_moves(moves: &mut Vec<Move>, piece: i8, pos: i32, target_bb: u64) {
-    let mut bb =  target_bb;
+    let mut bb = target_bb;
     while bb != 0 {
         let end = bb.trailing_zeros();
         bb ^= 1 << (end as u64);

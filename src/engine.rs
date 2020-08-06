@@ -19,24 +19,27 @@
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::mpsc;
 use std::thread;
-use crate::fen::{read_fen, START_POS, create_from_fen};
+use crate::fen::{read_fen, START_POS, create_from_fen, write_fen};
 use crate::board::Board;
 use std::time::{SystemTime, Instant};
 use crate::perft::perft;
-use crate::colors::WHITE;
+use crate::colors::{WHITE, Color};
 use std::cmp::max;
 use crate::search::Search;
 use crate::history_heuristics::HistoryHeuristics;
-use crate::move_gen::NO_MOVE;
+use crate::move_gen::{NO_MOVE, Move, decode_piece_id, decode_start_index, decode_end_index, has_valid_moves};
 use crate::uci_move::UCIMove;
 use crate::pieces::EMPTY;
 use crate::transposition_table::{TranspositionTable, DEFAULT_SIZE_MB};
+use crate::move_sort::SortedMoveGenerator;
 
 pub enum Message {
+    NewGame,
     SetPosition(String, Vec<UCIMove>),
     Go{depth: i32, wtime: i32, btime: i32, winc: i32, binc: i32, movetime: i32, movestogo: i32},
     Perft(i32),
-    Quit()
+    Fen,
+    Quit
 }
 
 pub struct Engine {
@@ -44,6 +47,7 @@ pub struct Engine {
     pub board: Board,
     pub hh: HistoryHeuristics,
     pub tt: TranspositionTable,
+    pub gen: SortedMoveGenerator,
 
     pub starttime: Instant,
     pub timelimit_ms: i32,
@@ -53,11 +57,7 @@ pub struct Engine {
     pub log_every_second: bool,
     pub last_log_time: Instant,
     pub current_depth: i32,
-
-    pub capture_order_scores: [i32; CAPTURE_ORDER_SIZE]
 }
-
-const CAPTURE_ORDER_SIZE: usize = 5 + 5 * 8 + 1;
 
 pub const TIMEEXT_MULTIPLIER: i32 = 5;
 
@@ -73,11 +73,13 @@ pub fn spawn_engine_thread() -> Sender<Message> {
 }
 
 impl Engine {
-    pub fn new(rx: Receiver<Message>) -> Self {
-        Engine{rx,
-            board: create_from_fen(START_POS),
+    pub fn new_from_fen(rx: Receiver<Message>, fen: &str, tt_size_mb: u64) -> Self {
+        Engine {
+            rx,
+            board: create_from_fen(&fen),
             hh: HistoryHeuristics::new(),
-            tt: TranspositionTable::new(DEFAULT_SIZE_MB),
+            tt: TranspositionTable::new(tt_size_mb),
+            gen: SortedMoveGenerator::new(),
             starttime: Instant::now(),
             timelimit_ms: 0,
             cancel_possible: false,
@@ -85,7 +87,11 @@ impl Engine {
             log_every_second: false,
             last_log_time: Instant::now(),
             current_depth: 0,
-            capture_order_scores: calc_capture_order_scores()}
+        }
+    }
+
+    pub fn new(rx: Receiver<Message>) -> Self {
+        Engine::new_from_fen(rx, START_POS, DEFAULT_SIZE_MB)
     }
 
     fn start_loop(&mut self) {
@@ -106,6 +112,8 @@ impl Engine {
 
     fn handle_message(&mut self, msg: Message) -> bool {
         match msg {
+            Message::NewGame => self.reset(),
+
             Message::SetPosition(fen, moves) => self.set_position(fen, moves),
 
             Message::Perft(depth) => self.perft(depth),
@@ -113,7 +121,9 @@ impl Engine {
             Message::Go{depth, wtime, btime, winc, binc, movetime, movestogo}
                 => self.go(depth, wtime, btime, winc, binc, movetime, movestogo),
 
-            Message::Quit() => {
+            Message::Fen => println!("{}", write_fen(&self.board)),
+
+            Message::Quit => {
                 return false;
             }
         }
@@ -151,9 +161,14 @@ impl Engine {
 
         for m in moves {
             let color = self.board.active_player();
-            let piece = if m.promotion != EMPTY { m.promotion } else {self.board.get_item(m.start as i32)};
+            let piece = if m.promotion != EMPTY { m.promotion * color } else {self.board.get_item(m.start as i32)};
             self.board.perform_move(piece * color, m.start as i32, m.end as i32);
         }
+    }
+
+    fn reset(&mut self) {
+        self.tt.clear();
+        self.hh.clear();
     }
 
     fn perft(&mut self, depth: i32) {
@@ -176,8 +191,13 @@ impl Engine {
         }
     }
 
-    pub fn get_capture_order_score(&self, attacker_id: i32, victim_id: i32) -> i32 {
-        self.capture_order_scores[((attacker_id - 1) * 8 + (victim_id - 1)) as usize]
+    pub fn perform_move(&mut self, m: Move) {
+        self.board.perform_move(decode_piece_id(m) as i8, decode_start_index(m), decode_end_index(m));
+        print_move(m);
+    }
+
+    pub fn is_check_mate(&mut self, color: Color) -> bool {
+        is_check_mate(&mut self.board, color)
     }
 }
 
@@ -196,17 +216,15 @@ fn calc_timelimit(movetime: i32, time_left: i32, time_increment: i32, movestogo:
     }
 }
 
-fn calc_capture_order_scores() -> [i32; CAPTURE_ORDER_SIZE] {
-    let mut scores: [i32; CAPTURE_ORDER_SIZE] = [0; CAPTURE_ORDER_SIZE];
-    let mut score: i32 = 0;
-
-    for victim in 0..=5 {
-        for attacker in (0..=5).rev() {
-            scores[(victim + attacker * 8) as usize] = score * 64;
-            score += 1;
-        }
+pub fn is_check_mate(board: &mut Board, player_color: Color) -> bool {
+    if !board.is_in_check(player_color) {
+        return false;
     }
 
-    scores
+    !has_valid_moves(board, player_color)
+}
+
+fn print_move(m: Move) {
+    println!("Move {} from {} to {}", decode_piece_id(m), decode_start_index(m), decode_end_index(m));
 }
 

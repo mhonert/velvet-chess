@@ -100,6 +100,6 @@ mod tests {
         assert!(!history.is_single_repetition());
 
         history.push(1);
-        assert!(history.is_threefold_repetition());
+        assert!(history.is_single_repetition());
     }
 }

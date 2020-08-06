@@ -62,19 +62,19 @@ impl PieceSquareTables {
 }
 
 fn concat(pawns: [u32; 64], knights: [u32; 64], bishops: [u32; 64], rooks: [u32; 64], queens: [u32; 64], kings: [u32; 64]) -> [u32; 64 * 7] {
-    let all: [u32; 64 * 7] = [0; 64 * 7];
+    let mut all: [u32; 64 * 7] = [0; 64 * 7];
 
-    copy(pawns, all, 64);
-    copy(knights, all, 64 * 2);
-    copy(bishops, all, 64 * 3);
-    copy(rooks, all, 64 * 4);
-    copy(queens, all, 64 * 5);
-    copy(kings, all, 64 * 6);
+    copy(pawns, &mut all, 64);
+    copy(knights, &mut all, 64 * 2);
+    copy(bishops, &mut all, 64 * 3);
+    copy(rooks, &mut all, 64 * 4);
+    copy(queens, &mut all, 64 * 5);
+    copy(kings, &mut all, 64 * 6);
 
     all
 }
 
-fn copy(source: [u32; 64], mut target: [u32; 64 * 7], start: usize) {
+fn copy(source: [u32; 64], target: &mut [u32; 64 * 7], start: usize) {
     for i in 0..64 {
         target[i + start] = source[i]
     }

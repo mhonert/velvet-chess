@@ -16,8 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::pieces;
-use crate::pieces::{EMPTY, R, K, P, N, B, Q};
+use crate::pieces::{EMPTY, R, K, P, N, B, Q, PIECE_VALUES};
 use crate::zobrist::Zobrist;
 use crate::colors::{Color, WHITE, BLACK};
 use crate::piece_sq_tables::PieceSquareTables;
@@ -40,8 +39,8 @@ pub struct Board {
     hash: u64,
     castling_state: u8,
     enpassant_state: u16,
-    white_king: i8,
-    black_king: i8,
+    white_king: i32,
+    black_king: i32,
     halfmove_clock: u16,
     halfmove_count: u16,
     score: i16,
@@ -90,6 +89,7 @@ impl Board {
     }
 
     pub fn set_position(&mut self, items: &[i8], active_player: Color, castling_state: u8, enpassant_target: Option<i8>, halfmove_clock: u16, fullmove_num: u16) {
+        self.pos_history.clear();
         if items.len() != 64 {
             panic!("Expected a vector with 64 elements, but got {}", items.len());
         }
@@ -120,10 +120,10 @@ impl Board {
                 self.items[i] = item;
             }
 
-            if item == pieces::K {
-                self.white_king = i as i8;
-            } else if item == -pieces::K {
-                self.black_king = i as i8;
+            if item == K {
+                self.white_king = i as i32;
+            } else if item == -K {
+                self.black_king = i as i32;
             }
         }
 
@@ -254,11 +254,11 @@ impl Board {
             self.reset_half_move_clock();
 
             if target_piece_id == K {
-                self.update_king_pos(color, move_end);
-
                 if color == WHITE {
+                    self.white_king = move_end;
                     self.set_white_king_moved();
                 } else {
+                    self.black_king = move_end;
                     self.set_black_king_moved();
                 }
             }
@@ -305,7 +305,7 @@ impl Board {
 
             }
         } else if own_piece == K {
-            self.update_king_pos(WHITE, move_end);
+            self.white_king = move_end;
 
             // Special castling handling
             if move_start - move_end == -2 {
@@ -320,7 +320,7 @@ impl Board {
                 self.set_white_king_moved();
             }
         } else if own_piece == -K {
-            self.update_king_pos(BLACK, move_end);
+            self.black_king = move_end;
 
             // Special castling handling
             if move_start - move_end == -2 {
@@ -404,7 +404,7 @@ impl Board {
         }
 
         if piece == K { // White King
-            self.update_king_pos(WHITE, move_start);
+            self.white_king = move_start;
 
             // Undo Castle?
             if move_start - move_end == -2 {
@@ -415,7 +415,7 @@ impl Board {
                 self.add_piece_without_inc_update(WHITE, R, WhiteBoardPos::QueenSideRook as i32);
             }
         } else if piece == -K { // Black King
-            self.update_king_pos(BLACK, move_start);
+            self.black_king = move_start;
 
             // Undo Castle?
             if move_start - move_end == -2 {
@@ -438,14 +438,6 @@ impl Board {
         self.items[pos as usize] = piece;
         self.bitboards[(piece + 6) as usize] |= 1u64 << pos as u64;
         self.bitboards_all_pieces[(color + 1) as usize] |= 1u64 << pos as u64;
-    }
-
-    fn update_king_pos(&mut self, color: Color, pos: i32) {
-        if color == WHITE {
-            self.white_king = pos as i8;
-        } else {
-            self.black_king = pos as i8;
-        }
     }
 
     pub fn add_piece(&mut self, color: Color, piece_id: i8, pos: usize) {
@@ -685,9 +677,9 @@ impl Board {
 
     pub fn is_legal_move(&mut self, color: Color, piece_id: i8, start: i32, end: i32) -> bool {
         let previous_piece = self.get_item(start);
-        let removed_piece = self.perform_move(piece_id, start, end);
+        let move_state = self.perform_move(piece_id, start, end);
         let is_legal = !self.is_in_check(color);
-        self.undo_move(previous_piece, start, end, removed_piece);
+        self.undo_move(previous_piece, start, end, move_state);
         is_legal
     }
 
@@ -727,9 +719,62 @@ impl Board {
     pub fn is_pawn_move_close_to_promotion(&self, piece: i8, move_end: i32, moves_left: i32) -> bool {
         if piece == P {
             let distance_to_promotion = move_end / 8;
-            if distance_to_promotion <= moves_left && WHITE_P
+            if distance_to_promotion <= moves_left && (self.bb.get_white_pawn_freepath(move_end) & self.get_all_piece_bitboard(BLACK) == 0) {
+                return true;
+            }
+        } else if piece == -P {
+            let distance_to_promotion = 7 - move_end / 8;
+            if distance_to_promotion <= moves_left && (self.bb.get_black_pawn_freepath(move_end) & self.get_all_piece_bitboard(WHITE) == 0) {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    /* Perform a Static Exchange Evaluation (SEE) to check, whether the net gain of the capture is still positive,
+       after applying all immediate and discovered re-capture attacks.
+
+       Returns:
+       - a positive integer for winning captures
+       - a negative integer for losing captures
+       - a 0 otherwise
+    */
+    pub fn see_score(&mut self, opp_color: Color, from: i32, target: i32, own_piece_id: u32, captured_piece_id: u32) -> i32 {
+        let mut score = PIECE_VALUES[captured_piece_id as usize];
+        let mut occupied = self.get_occupancy_bitboard() & !(1 << from as u64);
+        let mut trophy_piece_score = PIECE_VALUES[own_piece_id as usize];
+
+        loop {
+            // Opponent attack
+            let attacker_pos = self.find_smallest_attacker(occupied, opp_color, target);
+            if attacker_pos < 0 {
+                return score as i32;
+            }
+            score -= trophy_piece_score;
+            trophy_piece_score = PIECE_VALUES[self.get_item(attacker_pos).abs() as usize];
+            if score + trophy_piece_score < 0 {
+                return score as i32;
+            }
+
+            occupied &= !(1 << attacker_pos);
+
+            // Own attack
+            let own_attacker_pos = self.find_smallest_attacker(occupied, -opp_color, target);
+            if own_attacker_pos < 0 {
+                return score as i32;
+            }
+
+            score += trophy_piece_score;
+            trophy_piece_score = PIECE_VALUES[self.get_item(own_attacker_pos).abs() as usize];
+            if score - trophy_piece_score > 0 {
+                return score as i32;
+            }
+
+            occupied &= !(1 << own_attacker_pos);
         }
     }
+
 }
 
 pub const EN_PASSANT: i8 = 1 << 7;
@@ -1011,5 +1056,41 @@ mod tests {
 
         let board = Board::new(&items, WHITE, 0, None, 0, 1);
         assert_eq!(35, board.find_smallest_attacker(board.get_occupancy_bitboard(), WHITE, 27));
+    }
+
+    #[test]
+    fn recognizes_white_in_check() {
+        let items: [i8; 64] = [
+            0,  0,  0, -K,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0, -B,  0,  0,  0,  0,
+            0,  0,  0,  K,  0, -Q,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+        ];
+
+        let board = Board::new(&items, WHITE, 0, None, 0, 1);
+        assert!(board.is_in_check(WHITE));
+        assert!(!board.is_in_check(BLACK));
+    }
+
+    #[test]
+    fn recognizes_black_in_check() {
+        let items: [i8; 64] = [
+            0,  0,  0, -K,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  Q,  0,  0,
+            0,  0,  0, -B,  0,  0,  0,  0,
+            0,  0,  0,  K,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+        ];
+
+        let board = Board::new(&items, WHITE, 0, None, 0, 1);
+        assert!(board.is_in_check(BLACK));
+        assert!(!board.is_in_check(WHITE));
     }
 }

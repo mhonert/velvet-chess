@@ -40,7 +40,9 @@ pub fn start_uci_loop(tx: &Sender<Message>) {
             match part.to_lowercase().as_str() {
                 "uci" =>  uci(),
 
-                "ucinewgame" => uci_new_game(),
+                "fen" => fen(tx),
+
+                "ucinewgame" => uci_new_game(tx),
 
                 "isready" => is_ready(),
 
@@ -51,7 +53,7 @@ pub fn start_uci_loop(tx: &Sender<Message>) {
                 "go" => go(tx, parts[i + 1..].to_vec()),
 
                 "quit" => {
-                    send_message(tx, Message::Quit());
+                    send_message(tx, Message::Quit);
                     return;
                 }
 
@@ -73,7 +75,6 @@ fn send_message(tx: &Sender<Message>, msg: Message) {
     }
 }
 
-
 fn uci() {
     println!("id name Velvet v{}", VERSION);
     println!("id author {}", AUTHOR);
@@ -82,7 +83,9 @@ fn uci() {
     println!("uciok");
 }
 
-fn uci_new_game() {}
+fn uci_new_game(tx: &Sender<Message>) {
+    send_message(tx, Message::NewGame);
+}
 
 fn is_ready() {
     println!("readyok");
@@ -147,6 +150,10 @@ fn go(tx: &Sender<Message>, parts: Vec<&str>) {
     }
 
     send_message(tx, Message::Go{depth, wtime, btime, winc, binc, movetime, movestogo});
+}
+
+fn fen(tx: &Sender<Message>) {
+    send_message(tx, Message::Fen);
 }
 
 fn extract_option(parts: &Vec<&str>, name: &str, default_value: i32) -> i32 {

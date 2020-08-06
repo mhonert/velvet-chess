@@ -28,6 +28,7 @@ mod castling;
 mod colors;
 mod history_heuristics;
 mod move_gen;
+mod move_sort;
 mod piece_sq_tables;
 mod pieces;
 mod pos_history;
