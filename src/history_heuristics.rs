@@ -30,9 +30,15 @@ pub struct HistoryHeuristics {
     played_move_thresholds: [u64; MAX_DEPTH],
 }
 
+impl Default for HistoryHeuristics {
+    fn default() -> Self {
+        HistoryHeuristics::new()
+    }
+}
+
 impl HistoryHeuristics {
     pub fn new() -> Self {
-        HistoryHeuristics {
+        Self {
             primary_killers: [NO_MOVE; MAX_DEPTH],
             secondary_killers: [NO_MOVE; MAX_DEPTH],
             cut_off_history: [0; HISTORY_SIZE],

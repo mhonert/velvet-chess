@@ -41,7 +41,7 @@ impl Bitboard {
         let white_pawn_freepath = create_pawn_free_path_patterns(-1);
         let black_pawn_freepath = create_pawn_free_path_patterns(1);
         let white_king_shield = create_king_shield_patterns(-1);
-        let black_king_shield = create_king_shield_patterns(-1);
+        let black_king_shield = create_king_shield_patterns(1);
         let king_danger_zone = create_king_danger_zone_patterns();
 
         Bitboard {
