@@ -17,7 +17,7 @@
  */
 
 use crate::board::Board;
-use crate::pieces::{P, K, B, R, Q};
+use crate::pieces::{P, N, B, R, Q};
 use crate::castling::Castling;
 use crate::colors::{WHITE, BLACK};
 use crate::bitboard::{black_left_pawn_attacks, black_right_pawn_attacks, white_left_pawn_attacks, white_right_pawn_attacks};
@@ -117,7 +117,7 @@ impl Eval for Board {
 
         // Knights
         let mut white_knight_attacks: u64 = 0;
-        let white_knights = self.get_bitboard(K);
+        let white_knights = self.get_bitboard(N);
         {
             let mut knights = white_knights;
             while knights != 0 {
@@ -142,7 +142,7 @@ impl Eval for Board {
         let mut black_safe_targets = empty_or_white & !white_pawn_attacks;
 
         let mut black_knight_attacks: u64 = 0;
-        let black_knights = self.get_bitboard(-K);
+        let black_knights = self.get_bitboard(-N);
         {
             let mut knights = black_knights;
             while knights != 0 {

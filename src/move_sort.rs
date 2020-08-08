@@ -277,7 +277,7 @@ impl SortedMoves {
             return -active_player as i32 * 4096 + history_score;
         }
 
-        let original_piece_id = board.get_item(start).abs();
+        let original_piece_id = active_player * board.get_item(start);
         let captured_piece_id = captured_piece.abs();
 
         active_player as i32
