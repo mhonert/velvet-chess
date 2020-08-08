@@ -88,6 +88,7 @@ impl TranspositionTable {
         let index = self.calc_index(hash);
 
         let entry = self.entries[index];
+
         if entry != 0
             && (entry & AGE_MASK) as i32 == self.age
             && depth < ((entry >> DEPTH_BITSHIFT) & DEPTH_MASK) as i32

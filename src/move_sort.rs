@@ -17,13 +17,13 @@
  */
 
 use crate::board::Board;
-use crate::colors::{Color, BLACK, WHITE};
+use crate::colors::{Color, WHITE};
 use crate::history_heuristics::HistoryHeuristics;
 use crate::move_gen::{
     decode_end_index, decode_piece_id, decode_start_index, generate_capture_moves, generate_moves,
     Move, NO_MOVE,
 };
-use crate::pieces::{EMPTY, K};
+use crate::pieces::{EMPTY};
 use crate::score_util::{decode_score, encode_scored_move, ScoredMove};
 use std::iter::Iterator;
 
@@ -92,8 +92,7 @@ impl SortedMoves {
 
     pub fn resort(&mut self) {
         if let Some(moves) = self.moves.as_mut() {
-            // sort_by_score_desc(moves);
-            moves.sort_unstable_by(|&a, &b| decode_score(b).cmp(&decode_score(a)))
+            sort_by_score_desc(moves);
         };
     }
 
@@ -152,12 +151,14 @@ impl SortedMoves {
     fn get_next_move(&mut self) -> Option<u32> {
         match &self.moves {
             Some(moves) => {
-                if self.index >= moves.len() {
-                    None
-                } else {
+                while self.index < moves.len() {
                     self.index += 1;
-                    Some(moves[self.index - 1])
+                    let m = moves[self.index - 1];
+                    if m != self.scored_hash_move {
+                        return Some(m);
+                    }
                 }
+                None
             }
 
             None => None,
@@ -237,43 +238,22 @@ impl SortedMoves {
         primary_killer: Move,
         secondary_killer: Move,
     ) {
-        // for i in 0..moves.len() {
-        //     let m  = moves[i];
-        //     let score = if m == primary_killer {
-        //         PRIMARY_KILLER_SCORE_BONUS * active_player as i32
-        //     } else if m == secondary_killer {
-        //         SECONDARY_KILLER_SCORE_BONUS * active_player as i32
-        //     } else {
-        //         self.evaluate_move_score(gen, hh,  board, active_player, m)
-        //     };
-        //     moves[i] = encode_scored_move(m, score);
-        // }
-        //
-        // if active_player == WHITE {
-        //     sort_by_score_desc(moves);
-        // } else {
-        //     sort_by_score_asc(moves);
-        // }
-
-        let mut scored_moves: Vec<ScoredMove> = moves
-            .iter()
-            .map(|&m| {
-                let score = if m == primary_killer {
-                    PRIMARY_KILLER_SCORE_BONUS * active_player as i32
-                } else if m == secondary_killer {
-                    SECONDARY_KILLER_SCORE_BONUS * active_player as i32
-                } else {
-                    self.evaluate_move_score(gen, hh, board, active_player, m)
-                };
-
-                encode_scored_move(m, score)
-            })
-            .collect();
+        for i in 0..moves.len() {
+            let m  = moves[i];
+            let score = if m == primary_killer {
+                PRIMARY_KILLER_SCORE_BONUS * active_player as i32
+            } else if m == secondary_killer {
+                SECONDARY_KILLER_SCORE_BONUS * active_player as i32
+            } else {
+                self.evaluate_move_score(gen, hh,  board, active_player, m)
+            };
+            moves[i] = encode_scored_move(m, score);
+        }
 
         if active_player == WHITE {
-            scored_moves.sort_unstable_by(|&a, &b| decode_score(b).cmp(&decode_score(a)))
+            sort_by_score_desc(moves);
         } else {
-            scored_moves.sort_unstable_by(|&a, &b| decode_score(a).cmp(&decode_score(b)))
+            sort_by_score_asc(moves);
         }
     }
 
@@ -300,23 +280,6 @@ impl SortedMoves {
         let original_piece_id = board.get_item(start).abs();
         let captured_piece_id = captured_piece.abs();
 
-        if original_piece_id == 0 {
-            eprintln!(
-                "Move {}/{} from {} to {}: capture {}",
-                original_piece_id,
-                decode_piece_id(m),
-                start,
-                end,
-                captured_piece_id
-            );
-            println!("{}, {}", board.king_pos(WHITE), board.king_pos(BLACK));
-            for i in 0..64 {
-                if board.get_item(i).abs() == K {
-                    println!("King at {}", i);
-                }
-            }
-        }
-
         active_player as i32
             * gen.get_capture_order_score(original_piece_id as i32, captured_piece_id as i32)
     }
@@ -335,3 +298,42 @@ fn calc_capture_order_scores() -> [i32; CAPTURE_ORDER_SIZE] {
 
     scores
 }
+
+fn sort_by_score_desc(moves: &mut Vec<Move>) {
+    // Basic insertion sort
+    for i in 1..moves.len() {
+        let x = moves[i];
+        let x_score = decode_score(x);
+        let mut j = i as i32 - 1;
+        while j >= 0 {
+            let y = moves[j as usize];
+            if decode_score(y) >= x_score {
+                break;
+            }
+
+            moves[j as usize + 1] = y;
+            j -= 1;
+        }
+        moves[(j + 1) as usize] = x;
+    }
+}
+
+fn sort_by_score_asc(moves: &mut Vec<Move>) {
+    // Basic insertion sort
+    for i in 1..moves.len() {
+        let x = moves[i];
+        let x_score = decode_score(x);
+        let mut j = i as i32 - 1;
+        while j >= 0 {
+            let y = moves[j as usize];
+            if decode_score(y) <= x_score {
+                break;
+            }
+
+            moves[j as usize + 1] = y;
+            j -= 1;
+        }
+        moves[(j + 1) as usize] = x;
+    }
+}
+

@@ -30,6 +30,7 @@ use crate::search::Search;
 use crate::transposition_table::{TranspositionTable, DEFAULT_SIZE_MB};
 use crate::uci_move::UCIMove;
 use std::cmp::max;
+use std::process::exit;
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
@@ -51,6 +52,7 @@ pub enum Message {
     Perft(i32),
     IsReady,
     Fen,
+    Profile,
     Quit,
 }
 
@@ -146,6 +148,8 @@ impl Engine {
 
             Message::Fen => println!("{}", write_fen(&self.board)),
 
+            Message::Profile => self.profile(),
+
             Message::Quit => {
                 return false;
             }
@@ -178,7 +182,9 @@ impl Engine {
 
         let is_strict_timelimit =
             movetime != 0 || (time_left - (TIMEEXT_MULTIPLIER * self.timelimit_ms) <= 10);
+
         let m = self.find_best_move(depth, is_strict_timelimit);
+        self.tt.increase_age();
         if m == NO_MOVE {
             println!("bestmove 0000")
         } else {
@@ -219,7 +225,7 @@ impl Engine {
     fn perft(&mut self, depth: i32) {
         let start = SystemTime::now();
 
-        let nodes = perft(&mut self.tt, &mut self.board, depth);
+        let nodes = perft(&mut self.board, depth);
 
         let duration = match SystemTime::now().duration_since(start) {
             Ok(v) => v,
@@ -248,6 +254,12 @@ impl Engine {
 
     pub fn is_check_mate(&mut self, color: Color) -> bool {
         is_check_mate(&mut self.board, color)
+    }
+
+    pub fn profile(&mut self) {
+        println!("Profiling ...");
+        self.go(10, 500, 500, 0, 0, 500, 2);
+        exit(0);
     }
 }
 

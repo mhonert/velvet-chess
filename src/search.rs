@@ -109,7 +109,7 @@ impl Search for Engine {
         let mut scored_move_count = 0;
 
         // Use iterative deepening, i.e. increase the search depth after each iteration
-        for depth in min(min_depth, 2)..=(MAX_DEPTH as i32) {
+        for depth in min(min_depth, 2)..(MAX_DEPTH as i32) {
             self.current_depth = depth;
 
             let mut best_score: i32 = MIN_SCORE;
@@ -290,7 +290,7 @@ impl Search for Engine {
             }
 
             println!(
-                "info depth {} {}{} pv {}",
+                "info depth {} score {}{} pv {}",
                 depth,
                 get_score_info(best_score),
                 self.get_base_stats(total_duration),
@@ -301,6 +301,7 @@ impl Search for Engine {
 
             if iteration_cancelled || scored_move_count <= 1 {
                 // stop searching, if iteration has been cancelled or there is no valid move or only a single valid move
+
                 break;
             }
 
@@ -386,34 +387,36 @@ impl Search for Engine {
         // Check transposition table
         let hash = self.board.get_hash();
         let tt_entry = self.tt.get_entry(hash);
-        
+
         let mut scored_move = get_scored_move(tt_entry);
-        
+
         if scored_move != NO_MOVE {
-            if get_depth(tt_entry) >= depth {
-                let score = decode_score(scored_move);
-        
-                match get_score_type(tt_entry) {
-                    EXACT => {
-                        return score;
-                    }
-                    UPPER_BOUND => {
-                        if score <= alpha {
-                            return alpha;
-                        }
-                    }
-        
-                    LOWER_BOUND => {
-                        if score >= beta {
-                            return beta;
-                        }
-                    }
-                    _ => (),
-                };
-            }
-        
             // Validate hash move for additional protection against hash collisions
-            if !is_valid_move(&mut self.board, player_color, decode_move(scored_move)) {
+            if get_depth(tt_entry) >= depth {
+                if is_valid_move(&mut self.board, player_color, decode_move(scored_move)) {
+                    let score = decode_score(scored_move);
+
+                    match get_score_type(tt_entry) {
+                        EXACT => {
+                            return score;
+                        }
+                        UPPER_BOUND => {
+                            if score <= alpha {
+                                return alpha;
+                            }
+                        }
+
+                        LOWER_BOUND => {
+                            if score >= beta {
+                                return beta;
+                            }
+                        }
+                        _ => (),
+                    };
+                } else {
+                    scored_move = NO_MOVE;
+                }
+            } else if !is_valid_move(&mut self.board, player_color, decode_move(scored_move)) {
                 scored_move = NO_MOVE;
             }
         }
@@ -480,6 +483,7 @@ impl Search for Engine {
                         depth += 1;
                         nullmove_verification = true;
                         fail_high = false;
+                        evaluated_move_count = 0;
 
                         moves.reset();
                         continue;
@@ -560,7 +564,15 @@ impl Search for Engine {
                             // Reduce futile move
                             reductions = FUTILE_MOVE_REDUCTIONS;
                         }
-                    } else if has_negative_history || self.board.see_score(-player_color, start, end, target_piece_id, EMPTY as u32) < 0 {
+                    } else if has_negative_history
+                        || self.board.see_score(
+                            -player_color,
+                            start,
+                            end,
+                            target_piece_id,
+                            EMPTY as u32,
+                        ) < 0
+                    {
                         // Reduce search depth for moves with negative history or negative SEE score
                         reductions = LOSING_MOVE_REDUCTIONS;
                     }
@@ -585,7 +597,6 @@ impl Search for Engine {
                     self.hh.update_played_moves(player_color, start, end);
                 }
 
-                has_valid_moves = true;
                 evaluated_move_count += 1;
 
                 let a = if evaluated_move_count > 1 {
@@ -758,22 +769,24 @@ impl Search for Engine {
         alpha
     }
 
-    // If a check mate position can be achieved, then earlier check mates should have a better score than later check mates
-    // to prevent unnecessary delays.
-    fn terminal_score(&mut self, active_player: Color, ply: i32) -> i32 {
-        if active_player == WHITE {
-            if self.is_check_mate(WHITE) {
-                return WHITE_MATE_SCORE + ply;
-            } else {
-                return 0; // Stale mate
-            }
-        }
+    fn get_base_stats(&self, duration: Duration) -> String {
+        let duration_micros = duration.as_micros();
+        let nodes_per_second = if duration_micros > 0 {
+            self.node_count as u128 * 1_000_000 / duration_micros
+        } else {
+            0
+        };
 
-        if self.is_check_mate(BLACK) {
-            return BLACK_MATE_SCORE - ply;
+        if nodes_per_second > 0 {
+            format!(
+                " nodes {} nps {} time {}",
+                self.node_count,
+                nodes_per_second,
+                duration_micros / 1000
+            )
+        } else {
+            format!(" nodes {} time {}", self.node_count, duration_micros / 1000)
         }
-
-        0 // Stale mate
     }
 
     fn extract_pv(&mut self, m: Move, depth: i32) -> String {
@@ -811,24 +824,22 @@ impl Search for Engine {
         format!("{}{}", uci_move, followup_uci_moves)
     }
 
-    fn get_base_stats(&self, duration: Duration) -> String {
-        let duration_micros = duration.as_micros();
-        let nodes_per_second = if duration_micros > 0 {
-            self.node_count as u128 * 1_000_000 / duration_micros
-        } else {
-            0
-        };
-
-        if nodes_per_second > 0 {
-            format!(
-                " nodes {} nps {} time {}",
-                self.node_count,
-                nodes_per_second,
-                duration_micros / 1000
-            )
-        } else {
-            format!(" nodes {} time {}", self.node_count, duration_micros / 1000)
+    // If a check mate position can be achieved, then earlier check mates should have a better score than later check mates
+    // to prevent unnecessary delays.
+    fn terminal_score(&mut self, active_player: Color, ply: i32) -> i32 {
+        if active_player == WHITE {
+            if self.is_check_mate(WHITE) {
+                return WHITE_MATE_SCORE + ply;
+            } else {
+                return 0; // Stale mate
+            }
         }
+
+        if self.is_check_mate(BLACK) {
+            return BLACK_MATE_SCORE - ply;
+        }
+
+        0 // Stale mate
     }
 }
 

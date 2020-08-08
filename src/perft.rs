@@ -17,8 +17,6 @@
  */
 use crate::board::Board;
 use crate::move_gen::{decode_end_index, decode_piece_id, decode_start_index, generate_moves};
-use crate::transposition_table::{TranspositionTable, get_scored_move, EXACT, get_depth};
-use crate::score_util::ScoredMove;
 
 /* Perft (performance test, move path enumeration) test helper function to verify the move generator.
   It generates all possible moves up to the specified depth and counts the number of leaf nodes.
@@ -26,14 +24,9 @@ use crate::score_util::ScoredMove;
 
   Another use case for this function is to test the performance of the move generator.
 */
-pub fn perft(tt: &mut TranspositionTable, board: &mut Board, depth: i32) -> u64 {
+pub fn perft(board: &mut Board, depth: i32) -> u64 {
     if depth == 0 {
         return 1;
-    }
-
-    let entry = tt.get_entry(board.get_hash());
-    if entry != 0 && get_depth(entry) == depth {
-        return get_scored_move(entry) as u64;
     }
 
     let mut nodes: u64 = 0;
@@ -50,13 +43,11 @@ pub fn perft(tt: &mut TranspositionTable, board: &mut Board, depth: i32) -> u64 
         let removed_piece = board.perform_move(target_piece_id as i8, move_start, move_end);
 
         if !board.is_in_check(active_player) {
-            nodes += perft(tt, board, depth - 1);
+            nodes += perft(board, depth - 1);
         }
 
         board.undo_move(previous_piece, move_start, move_end, removed_piece);
     }
 
-    tt.write_entry(board.get_hash(), depth, nodes as ScoredMove, EXACT);
-
-    return nodes;
+    nodes
 }

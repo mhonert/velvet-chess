@@ -26,8 +26,8 @@ use crate::random::Random;
 pub struct Zobrist {
     pieces: [u64; 13 * 64],
     pub player: u64,
-    pub en_passant: [u64; 16],
-    pub castling: [u64; 16],
+    en_passant: [u64; 16],
+    castling: [u64; 16],
 }
 
 impl Zobrist {
@@ -61,8 +61,16 @@ impl Zobrist {
         }
     }
 
-    pub fn piece_numbers(&self, piece: i8, pos: usize) -> u64 {
+    pub fn piece_number(&self, piece: i8, pos: usize) -> u64 {
         self.pieces[((piece + 6) as usize) * 64 + pos]
+    }
+
+    pub fn enpassant_number(&self, en_passant_state: u16) -> u64 {
+        self.en_passant[en_passant_state.trailing_zeros() as usize]
+    }
+
+    pub fn castling_number(&self, castling_state: u8) -> u64 {
+        self.castling[castling_state as usize & 0xf]
     }
 }
 

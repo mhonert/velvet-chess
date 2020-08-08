@@ -23,6 +23,8 @@ use crate::uci_move::UCIMove;
 use std::io;
 use std::str::FromStr;
 use std::sync::mpsc::Sender;
+use std::thread::sleep;
+use std::time::Duration;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const AUTHOR: &str = "Martin Honert";
@@ -54,6 +56,11 @@ pub fn start_uci_loop(tx: &Sender<Message>) {
                 "perft" => perft(tx, parts[i + 1..].to_vec()),
 
                 "go" => go(tx, parts[i + 1..].to_vec()),
+
+                "profile" => {
+                    profile(tx);
+                    return;
+                }
 
                 "quit" => {
                     send_message(tx, Message::Quit);
@@ -206,6 +213,11 @@ fn go(tx: &Sender<Message>, parts: Vec<&str>) {
             movestogo,
         },
     );
+}
+
+fn profile(tx: &Sender<Message>) {
+    send_message(tx, Message::Profile);
+    sleep(Duration::from_secs(5));
 }
 
 fn fen(tx: &Sender<Message>) {

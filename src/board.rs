@@ -166,7 +166,7 @@ impl Board {
         for pos in 0..64 {
             let piece = self.items[pos];
             if piece != EMPTY {
-                self.hash ^= self.zobrist.piece_numbers(piece, pos);
+                self.hash ^= self.zobrist.piece_number(piece, pos);
             }
         }
 
@@ -180,8 +180,8 @@ impl Board {
     }
 
     fn update_hash_for_castling(&mut self, previous_castling_state: u8) {
-        self.hash ^= self.zobrist.castling[previous_castling_state as usize & 0xf];
-        self.hash ^= self.zobrist.castling[self.castling_state as usize & 0xf];
+        self.hash ^= self.zobrist.castling_number(previous_castling_state);
+        self.hash ^= self.zobrist.castling_number(self.castling_state);
     }
 
     fn set_enpassant(&mut self, pos: i8) {
@@ -200,11 +200,11 @@ impl Board {
         let new_state = self.enpassant_state;
         if previous_state != new_state {
             if previous_state != 0 {
-                self.hash ^= self.zobrist.en_passant[previous_state.trailing_zeros() as usize];
+                self.hash ^= self.zobrist.enpassant_number(previous_state);
             }
 
             if new_state != 0 {
-                self.hash ^= self.zobrist.en_passant[new_state.trailing_zeros() as usize];
+                self.hash ^= self.zobrist.enpassant_number(new_state);
             }
         }
     }
@@ -472,7 +472,7 @@ impl Board {
         self.items[pos] = piece;
 
         self.add_piece_score(piece, pos);
-        self.hash ^= self.zobrist.piece_numbers(piece, pos);
+        self.hash ^= self.zobrist.piece_number(piece, pos);
 
         self.bitboards[(piece + 6) as usize] |= 1u64 << pos as u64;
         self.bitboards_all_pieces[(color + 1) as usize] |= 1u64 << pos as u64;
@@ -497,7 +497,7 @@ impl Board {
     pub fn remove_piece(&mut self, pos: i32) -> i8 {
         let piece = self.items[pos as usize];
         self.subtract_piece_score(piece, pos as usize);
-        self.hash ^= self.zobrist.piece_numbers(piece, pos as usize);
+        self.hash ^= self.zobrist.piece_number(piece, pos as usize);
 
         let color = piece.signum();
         self.remove(piece, color, pos)
@@ -1277,9 +1277,17 @@ mod tests {
 
         board.set_enpassant(51);
 
-        assert_ne!(initial_hash, board.get_hash(), "hash must be different if en passant flag is set");
+        assert_ne!(
+            initial_hash,
+            board.get_hash(),
+            "hash must be different if en passant flag is set"
+        );
 
         board.clear_en_passant();
-        assert_eq!(initial_hash, board.get_hash(), "hash must be eq to initial hash if en passant flag is cleared");
+        assert_eq!(
+            initial_hash,
+            board.get_hash(),
+            "hash must be eq to initial hash if en passant flag is cleared"
+        );
     }
 }
