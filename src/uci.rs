@@ -16,12 +16,13 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::io;
-use crate::fen::{START_POS};
 use crate::engine::Message;
-use std::sync::mpsc::Sender;
-use std::str::FromStr;
+use crate::fen::START_POS;
+use crate::transposition_table::{DEFAULT_SIZE_MB, MAX_HASH_SIZE_MB};
 use crate::uci_move::UCIMove;
+use std::io;
+use std::str::FromStr;
+use std::sync::mpsc::Sender;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const AUTHOR: &str = "Martin Honert";
@@ -38,15 +39,17 @@ pub fn start_uci_loop(tx: &Sender<Message>) {
         let parts: Vec<&str> = line.split_whitespace().collect();
         for (i, part) in parts.iter().enumerate() {
             match part.to_lowercase().as_str() {
-                "uci" =>  uci(),
+                "uci" => uci(),
 
                 "fen" => fen(tx),
 
                 "ucinewgame" => uci_new_game(tx),
 
-                "isready" => is_ready(),
+                "isready" => is_ready(tx),
 
                 "position" => set_position(tx, &parts[i + 1..].to_vec()),
+
+                "setoption" => set_option(tx, &parts[i + 1..].to_vec()),
 
                 "perft" => perft(tx, parts[i + 1..].to_vec()),
 
@@ -79,6 +82,10 @@ fn uci() {
     println!("id name Velvet v{}", VERSION);
     println!("id author {}", AUTHOR);
     println!("option name UCI_EngineAbout type string default Velvet Chess Engine (https://github.com/mhonert/velvet-chess)");
+    println!(
+        "option name Hash type spin default {} min 1 max {}",
+        DEFAULT_SIZE_MB, MAX_HASH_SIZE_MB
+    );
 
     println!("uciok");
 }
@@ -87,8 +94,8 @@ fn uci_new_game(tx: &Sender<Message>) {
     send_message(tx, Message::NewGame);
 }
 
-fn is_ready() {
-    println!("readyok");
+fn is_ready(tx: &Sender<Message>) {
+    send_message(tx, Message::IsReady);
 }
 
 fn set_position(tx: &Sender<Message>, parts: &Vec<&str>) {
@@ -96,10 +103,48 @@ fn set_position(tx: &Sender<Message>, parts: &Vec<&str>) {
 
     let moves = match parts.iter().position(|&part| part == "moves") {
         Some(idx) => parse_moves(idx, &parts),
-        None => Vec::new()
+        None => Vec::new(),
     };
 
     send_message(tx, Message::SetPosition(fen, moves));
+}
+
+fn set_option(tx: &Sender<Message>, parts: &Vec<&str>) {
+    if parts.len() < 4 {
+        println!("Missing parameters for setoption");
+        return;
+    }
+
+    if parts[0] != "name" {
+        println!("Missing 'name' in setoption");
+        return;
+    }
+
+    let name = parts[1].to_ascii_lowercase();
+    if parts[2] != "value" {
+        println!("Missing 'value' in setoption");
+        return;
+    }
+
+    let value = parts[3];
+
+    if name == "hash" {
+        let size_mb = match i32::from_str(value) {
+            Ok(size) => size,
+            Err(_) => {
+                println!("Invalid hash size: {}", value);
+                return;
+            }
+        };
+
+        if size_mb < 1 || size_mb > MAX_HASH_SIZE_MB {
+            println!("Invalid hash size: {}", size_mb);
+            return;
+        }
+
+        send_message(tx, Message::SetTranspositionTableSize(size_mb));
+        return;
+    }
 }
 
 fn parse_moves(idx: usize, parts: &Vec<&str>) -> Vec<UCIMove> {
@@ -110,7 +155,7 @@ fn parse_moves(idx: usize, parts: &Vec<&str>) -> Vec<UCIMove> {
             Some(m) => moves.push(m),
             None => {
                 eprintln!("could not parse move notation: {}", parts[i]);
-                return moves
+                return moves;
             }
         }
     }
@@ -121,19 +166,19 @@ fn parse_moves(idx: usize, parts: &Vec<&str>) -> Vec<UCIMove> {
 fn perft(tx: &Sender<Message>, parts: Vec<&str>) {
     if parts.len() == 0 {
         println!("perft cmd: missing depth");
-        return
+        return;
     }
 
     match i32::from_str(parts[0]) {
         Ok(depth) => send_message(tx, Message::Perft(depth)),
-        Err(_) => println!("perft cmd: invalid depth parameter: {}", parts[0])
+        Err(_) => println!("perft cmd: invalid depth parameter: {}", parts[0]),
     };
 }
 
 fn go(tx: &Sender<Message>, parts: Vec<&str>) {
     if parts.len() == 0 {
         println!("perft cmd: missing depth");
-        return
+        return;
     }
 
     let depth = extract_option(&parts, "depth", 3);
@@ -146,10 +191,21 @@ fn go(tx: &Sender<Message>, parts: Vec<&str>) {
 
     if depth <= 0 {
         println!("go cmd: invalid depth: {}", depth);
-        return
+        return;
     }
 
-    send_message(tx, Message::Go{depth, wtime, btime, winc, binc, movetime, movestogo});
+    send_message(
+        tx,
+        Message::Go {
+            depth,
+            wtime,
+            btime,
+            winc,
+            binc,
+            movetime,
+            movestogo,
+        },
+    );
 }
 
 fn fen(tx: &Sender<Message>) {
@@ -159,16 +215,16 @@ fn fen(tx: &Sender<Message>) {
 fn extract_option(parts: &Vec<&str>, name: &str, default_value: i32) -> i32 {
     match parts.iter().position(|&item| item == name) {
         Some(pos) => {
-           if pos + 1 >= parts.len() {
-               return default_value;
-           }
+            if pos + 1 >= parts.len() {
+                return default_value;
+            }
 
             match i32::from_str(parts[pos + 1]) {
                 Ok(value) => value,
-                Err(_) => default_value
+                Err(_) => default_value,
             }
-        },
-        None => default_value
+        }
+        None => default_value,
     }
 }
 
@@ -177,7 +233,10 @@ fn parse_position_cmd(parts: &Vec<&str>) -> String {
         eprintln!("position command: missing fen/startpos");
     }
 
-    let pos_end = parts.iter().position(|&part| part.to_lowercase().as_str() == "moves").unwrap_or_else(|| parts.len());
+    let pos_end = parts
+        .iter()
+        .position(|&part| part.to_lowercase().as_str() == "moves")
+        .unwrap_or_else(|| parts.len());
 
     let pos_option = parts[1..pos_end].join(" ");
 
@@ -195,12 +254,22 @@ mod tests {
 
     #[test]
     fn test_parse_position_startpos() {
-        assert_eq!(parse_position_cmd(&"   startpos moves e1e2  ".split_whitespace().collect()), START_POS);
+        assert_eq!(
+            parse_position_cmd(&"   startpos moves e1e2  ".split_whitespace().collect()),
+            START_POS
+        );
     }
 
     #[test]
     fn test_parse_position_fen() {
         let fen: &str = "r3k1r1/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K1R1 w Qq - 0 1";
-        assert_eq!(parse_position_cmd(&format!("   fen \t {}   moves e1e2  ", fen).split_whitespace().collect()), fen);
+        assert_eq!(
+            parse_position_cmd(
+                &format!("   fen \t {}   moves e1e2  ", fen)
+                    .split_whitespace()
+                    .collect()
+            ),
+            fen
+        );
     }
 }

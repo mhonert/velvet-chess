@@ -16,11 +16,11 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::board::{Board};
-use crate::pieces;
-use crate::colors::{Color, WHITE, BLACK};
+use crate::board::Board;
+use crate::boardpos::{BlackBoardPos, WhiteBoardPos};
 use crate::castling::Castling;
-use crate::boardpos::{WhiteBoardPos, BlackBoardPos};
+use crate::colors::{Color, BLACK, WHITE};
+use crate::pieces;
 use std::error::Error;
 use std::fmt;
 use std::process::exit;
@@ -29,7 +29,7 @@ pub const START_POS: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq 
 
 #[derive(Debug)]
 pub struct FenError {
-    msg: String
+    msg: String,
 }
 
 impl Error for FenError {}
@@ -45,17 +45,29 @@ pub fn read_fen(board: &mut Board, fen: &str) -> Result<(), FenError> {
 
     let pieces = match fen_parts.next().and_then(read_pieces) {
         Some(pieces) => pieces,
-        None => return Result::Err(FenError{msg: format!("Error in piece part: {}", fen)}),
+        None => {
+            return Result::Err(FenError {
+                msg: format!("Error in piece part: {}", fen),
+            })
+        }
     };
 
     let active_player = match fen_parts.next().and_then(read_color) {
         Some(color) => color,
-        None => return Result::Err(FenError{msg: format!("Error in active player part: {}", fen)}),
+        None => {
+            return Result::Err(FenError {
+                msg: format!("Error in active player part: {}", fen),
+            })
+        }
     };
 
     let castling_state = match fen_parts.next().and_then(read_castling) {
         Some(castling) => castling,
-        None => return Result::Err(FenError{msg: format!("Error in castling part: {}", fen)}),
+        None => {
+            return Result::Err(FenError {
+                msg: format!("Error in castling part: {}", fen),
+            })
+        }
     };
 
     let enpassant_target = fen_parts.next().and_then(read_enpassant);
@@ -70,8 +82,14 @@ pub fn read_fen(board: &mut Board, fen: &str) -> Result<(), FenError> {
         None => 0,
     };
 
-    board.set_position(&pieces, active_player, castling_state, enpassant_target,
-                       halfmove_clock, fullmove_num);
+    board.set_position(
+        &pieces,
+        active_player,
+        castling_state,
+        enpassant_target,
+        halfmove_clock,
+        fullmove_num,
+    );
 
     Result::Ok(())
 }
@@ -81,7 +99,7 @@ pub fn create_from_fen(fen: &str) -> Board {
     let mut board = Board::new(&items, WHITE, 0, None, 0, 1);
     match read_fen(&mut board, fen) {
         Ok(_) => board,
-        Err(e) => {
+        Err(_) => {
             eprintln!("Could not create board from FEN: {}", fen);
             exit(-1)
         }
@@ -137,7 +155,7 @@ fn read_castling(castling: &str) -> Option<u8> {
             b'k' => state |= Castling::BlackKingSide as u8,
             b'q' => state |= Castling::BlackQueenSide as u8,
             b'-' => (),
-            _ => return None
+            _ => return None,
         }
     }
     Some(state)
@@ -160,7 +178,7 @@ fn read_enpassant(en_passant: &str) -> Option<i8> {
     Some(match row_char {
         b'3' => WhiteBoardPos::PawnLineStart as i8 + col_offset,
         b'6' => BlackBoardPos::PawnLineStart as i8 + col_offset,
-        _ => return None
+        _ => return None,
     })
 }
 

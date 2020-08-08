@@ -20,12 +20,14 @@ const MULTIPLIER: u64 = 6364136223846793005;
 const INCREMENT: u64 = 1442695040888963407;
 
 pub struct Random {
-    state: u64
+    state: u64,
 }
 
 impl Random {
     pub fn new() -> Self {
-        Random{state: 0x4d595df4d0f33173}
+        Random {
+            state: 0x4d595df4d0f33173,
+        }
     }
 
     fn rand32(&mut self) -> u32 {
@@ -52,7 +54,7 @@ mod tests {
         let mut number_counts: [i32; 6] = [0, 0, 0, 0, 0, 0];
         let iterations = 1_000_000;
 
-        for i in 0..iterations {
+        for _ in 0..iterations {
             let number = (rnd.rand64() % 6) as i32;
             number_counts[number as usize] += 1;
         }

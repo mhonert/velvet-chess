@@ -16,11 +16,10 @@
 
 use crate::score_util::ScoredMove;
 
-pub const MAX_HASH_SIZE_MB: i32 = 768;
+pub const MAX_HASH_SIZE_MB: i32 = 4096;
 
 // Transposition table entry
 // Bits 63 - 23: 41 highest bits of the hash
-const HASHCHECK_BITSIZE: i32 = 41;
 const HASHCHECK_MASK: u64 = 0b1111111111111111111111111111111111111111100000000000000000000000;
 
 // Bits 22 - 17: Depth
@@ -39,7 +38,6 @@ const SCORE_TYPE_MASK: u64 = 0b11;
 // Bits 14 - 0: Age
 const AGE_MASK: u64 = 0b111111111111111;
 
-
 pub const DEFAULT_SIZE_MB: u64 = 32;
 const PER_ENTRY_BYTE_SIZE: u64 = 8 + 4;
 
@@ -47,7 +45,7 @@ pub struct TranspositionTable {
     index_mask: u64,
     entries: Vec<u64>,
     moves: Vec<ScoredMove>,
-    age: i32
+    age: i32,
 }
 
 impl TranspositionTable {
@@ -56,7 +54,7 @@ impl TranspositionTable {
             index_mask: 0,
             entries: Vec::new(),
             moves: Vec::new(),
-            age: 0
+            age: 0,
         };
 
         tt.resize(size_mb, true);
@@ -70,11 +68,15 @@ impl TranspositionTable {
         let entry_count = size_bytes / PER_ENTRY_BYTE_SIZE;
         let index_bit_count = 31 - (entry_count as u32 | 1).leading_zeros();
 
-        let size = 1u64 << index_bit_count;
-        if initialize || size as usize != self.entries.len() {
-            self.index_mask = size - 1;
-            self.entries.resize(size_bytes as usize, 0);
-            self.moves.resize(size_bytes as usize, 0);
+        let size = (1u64 << index_bit_count) as usize;
+        if initialize || size != self.entries.len() {
+            self.index_mask = (size as u64) - 1;
+
+            self.entries.resize(size, 0);
+            self.moves.resize(size, 0);
+
+            self.entries.shrink_to_fit();
+            self.moves.shrink_to_fit();
         }
     }
 
@@ -86,7 +88,10 @@ impl TranspositionTable {
         let index = self.calc_index(hash);
 
         let entry = self.entries[index];
-        if entry != 0 && (entry & AGE_MASK) as i32 == self.age && depth < ((entry >> DEPTH_BITSHIFT) & DEPTH_MASK) as i32 {
+        if entry != 0
+            && (entry & AGE_MASK) as i32 == self.age
+            && depth < ((entry >> DEPTH_BITSHIFT) & DEPTH_MASK) as i32
+        {
             return;
         }
 
@@ -105,7 +110,11 @@ impl TranspositionTable {
         let entry = self.entries[index];
         let age_diff = self.age - (entry & AGE_MASK) as i32;
 
-        if entry == 0 || age_diff < 0 || age_diff > 1 || (entry & HASHCHECK_MASK) != (hash & HASHCHECK_MASK) {
+        if entry == 0
+            || age_diff < 0
+            || age_diff > 1
+            || (entry & HASHCHECK_MASK) != (hash & HASHCHECK_MASK)
+        {
             return 0;
         }
 
@@ -141,7 +150,7 @@ pub fn get_score_type(entry: u64) -> u8 {
 mod tests {
     use super::*;
     use crate::move_gen::encode_move;
-    use crate::score_util::{encode_scored_move, decode_score};
+    use crate::score_util::{decode_score, encode_scored_move};
 
     #[test]
     fn writes_entry() {

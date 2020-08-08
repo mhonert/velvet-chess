@@ -41,7 +41,6 @@ pub type ScoredMove = u32;
 pub fn encode_scored_move(m: Move, score: i32) -> ScoredMove {
     if score < 0 {
         (m | 0x80000000 | ((-score as u32) << 17)) as ScoredMove
-
     } else {
         (m | ((score as u32) << 17)) as ScoredMove
     }
@@ -94,7 +93,6 @@ mod tests {
         assert_eq!(unpack_score(packed), a);
         assert_eq!(unpack_eg_score(packed), b);
     }
-
 
     #[test]
     fn pack_zero_val_scores() {

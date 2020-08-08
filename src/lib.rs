@@ -35,6 +35,6 @@ mod pos_history;
 mod random;
 mod score_util;
 mod search;
-mod transposition_table;
+pub mod transposition_table;
 mod uci_move;
 mod zobrist;

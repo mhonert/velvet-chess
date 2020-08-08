@@ -27,4 +27,3 @@ pub enum Castling {
     WhiteHasCastled = 1 << 4,
     BlackHasCastled = 1 << 5,
 }
-

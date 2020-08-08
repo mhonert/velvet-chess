@@ -18,12 +18,15 @@
 
 pub struct PositionHistory {
     positions: [u64; 1024],
-    index: usize
+    index: usize,
 }
 
 impl PositionHistory {
     pub fn new() -> Self {
-        PositionHistory{positions: [0; 1024], index: 0}
+        PositionHistory {
+            positions: [0; 1024],
+            index: 0,
+        }
     }
 
     pub fn push(&mut self, hash: u64) {
@@ -33,26 +36,6 @@ impl PositionHistory {
 
     pub fn pop(&mut self) {
         self.index -= 1;
-    }
-
-    pub fn is_threefold_repetition(&self) -> bool {
-        if self.index <= 2 {
-            return false;
-        }
-
-        let hash = self.positions[self.index - 1];
-
-        let mut count: i32 = 0;
-        for i in 0..self.index - 1 {
-            if self.positions[i] == hash {
-                count += 1;
-                if count == 2 {
-                    return true;
-                }
-            }
-        }
-
-        false
     }
 
     pub fn is_single_repetition(&self) -> bool {
@@ -78,17 +61,6 @@ impl PositionHistory {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn detects_threefold_repetition() {
-        let mut history = PositionHistory::new();
-        history.push(1);
-        history.push(1);
-        assert!(!history.is_threefold_repetition());
-
-        history.push(1);
-        assert!(history.is_threefold_repetition());
-    }
 
     #[test]
     fn detects_single_repetition() {

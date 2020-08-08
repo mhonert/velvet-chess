@@ -22,7 +22,6 @@ pub enum WhiteBoardPos {
     QueenSideRook = 56,
 
     PawnLineStart = 48,
-    PawnLineEnd = 55,
 
     EnPassantLineStart = 16,
     EnPassantLineEnd = 23,
@@ -36,11 +35,9 @@ pub enum BlackBoardPos {
     KingSideRook = 7,
 
     PawnLineStart = 8,
-    PawnLineEnd = 15,
 
     EnPassantLineStart = 40,
     EnPassantLineEnd = 47,
 
     KingStart = 4,
 }
-

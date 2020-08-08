@@ -16,19 +16,18 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-
 // Random numbers to be used for calculating Zobrist hashes for board positions (see https://www.chessprogramming.org/Zobrist_Hashing):
 
 // Note: the incremental calculation of the Zobrist hashes takes place in the Board class (see board.rs), so
 // the unit tests for the hash calculation can be found in the board.rs file as well
 
-use crate::random::{Random};
+use crate::random::Random;
 
 pub struct Zobrist {
     pieces: [u64; 13 * 64],
     pub player: u64,
     pub en_passant: [u64; 16],
-    pub castling: [u64; 16]
+    pub castling: [u64; 16],
 }
 
 impl Zobrist {
@@ -54,12 +53,16 @@ impl Zobrist {
             castling[i] = random.rand64();
         }
 
-
-        Zobrist{ pieces, player, en_passant, castling }
+        Zobrist {
+            pieces,
+            player,
+            en_passant,
+            castling,
+        }
     }
-    
+
     pub fn piece_numbers(&self, piece: i8, pos: usize) -> u64 {
-        self.pieces[((piece + 6) as usize) * 64 + pos] 
+        self.pieces[((piece + 6) as usize) * 64 + pos]
     }
 }
 

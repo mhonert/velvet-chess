@@ -16,24 +16,39 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::engine::{Engine, is_check_mate};
-use std::time::{Instant, Duration};
-use crate::move_gen::{generate_moves, decode_piece_id, decode_start_index, decode_end_index, Move, NO_MOVE, is_valid_move, has_valid_moves};
-use crate::colors::{Color, WHITE, BLACK};
+use crate::board::EN_PASSANT;
+use crate::colors::{Color, BLACK, WHITE};
+use crate::engine::Engine;
+use crate::move_gen::{
+    decode_end_index, decode_piece_id, decode_start_index, is_valid_move, Move, NO_MOVE,
+};
+use crate::move_sort::SortedMoveGenerator;
 use crate::pieces::EMPTY;
-use std::cmp::{min, max};
+use crate::score_util::{
+    decode_move, decode_score, encode_scored_move, ScoredMove, BLACK_MATE_SCORE, MAX_SCORE,
+    MIN_SCORE, WHITE_MATE_SCORE,
+};
+use crate::transposition_table::{
+    get_depth, get_score_type, get_scored_move, EXACT, LOWER_BOUND, MAX_DEPTH, UPPER_BOUND,
+};
 use crate::uci_move::UCIMove;
-use crate::transposition_table::{MAX_DEPTH, get_scored_move, get_depth, get_score_type, EXACT, UPPER_BOUND, LOWER_BOUND};
-use crate::score_util::{ScoredMove, decode_move, encode_scored_move, decode_score, MIN_SCORE, MAX_SCORE, BLACK_MATE_SCORE, WHITE_MATE_SCORE};
-use crate::board::{EN_PASSANT, Board};
-use crate::move_sort::{SortedMoveGenerator};
-use crate::fen::write_fen;
+use std::cmp::{max, min};
+use std::time::{Duration, Instant};
 
 pub trait Search {
     fn find_best_move(&mut self, min_depth: i32, is_strict_timelimit: bool) -> Move;
 
-    fn rec_find_best_move(&mut self, alpha: i32, beta: i32, player_color: Color, depth: i32, ply: i32, nullmove_performed: bool,
-                          nullmove_verification: bool, is_in_check: bool) -> i32;
+    fn rec_find_best_move(
+        &mut self,
+        alpha: i32,
+        beta: i32,
+        player_color: Color,
+        depth: i32,
+        ply: i32,
+        nullmove_performed: bool,
+        nullmove_verification: bool,
+        is_in_check: bool,
+    ) -> i32;
 
     fn quiescence_search(&mut self, player_color: Color, alpha: i32, beta: i32, ply: i32) -> i32;
 
@@ -65,7 +80,6 @@ const TIMEEXT_SCORE_FLUCTUATION_REDUCTIONS: i32 = 90; // reduction percentage pe
 const RAZOR_MARGIN: i32 = 130;
 
 impl Search for Engine {
-
     fn find_best_move(&mut self, min_depth: i32, is_strict_timelimit: bool) -> Move {
         let mut alpha = MIN_SCORE;
         let mut beta = MAX_SCORE;
@@ -92,27 +106,30 @@ impl Search for Engine {
 
         let player_color = self.board.active_player();
 
+        let mut scored_move_count = 0;
+
         // Use iterative deepening, i.e. increase the search depth after each iteration
         for depth in min(min_depth, 2)..=(MAX_DEPTH as i32) {
+            self.current_depth = depth;
+
             let mut best_score: i32 = MIN_SCORE;
-            let mut scored_moves = 0;
 
             let previous_alpha = alpha;
             let previous_beta = beta;
 
             let iteration_start_time = Instant::now();
 
-            let mut best_move: Move = 0;
+            let mut best_move: Move = NO_MOVE;
 
             let mut a = -beta; // Search principal variation node with full window
-
-            let mut evaluated_move_count = 0;
 
             let mut iteration_cancelled = false;
 
             let mut move_num = 0;
 
-            while let Some(scored_move) = moves.next_legal_move(&self.gen, &self.hh, &mut self.board) {
+            while let Some(scored_move) =
+                moves.next_legal_move(&self.gen, &self.hh, &mut self.board)
+            {
                 move_num += 1;
 
                 let m = decode_move(scored_move);
@@ -124,10 +141,12 @@ impl Search for Engine {
                     if total_duration.as_millis() >= 1000 {
                         self.log_every_second = true;
                         self.last_log_time = now;
-                        self.current_depth = depth;
                         let uci_move = UCIMove::from_encoded_move(&self.board, m).to_uci();
                         let base_stats = self.get_base_stats(total_duration);
-                        println!("info depth {}{} currmove {} currmovenumber {}", depth, base_stats, uci_move, move_num);
+                        println!(
+                            "info depth {}{} currmove {} currmovenumber {}",
+                            depth, base_stats, uci_move, move_num
+                        );
                     }
                 }
 
@@ -141,25 +160,44 @@ impl Search for Engine {
                 let gives_check = self.board.is_in_check(-player_color);
 
                 // Use principal variation search
-                let mut result = self.rec_find_best_move(a, -alpha, -player_color, depth - 1, 1, false, true, gives_check);
+                let mut result = self.rec_find_best_move(
+                    a,
+                    -alpha,
+                    -player_color,
+                    depth - 1,
+                    1,
+                    false,
+                    true,
+                    gives_check,
+                );
                 if result == CANCEL_SEARCH {
                     iteration_cancelled = true;
                 } else {
-
                     // Repeat search if it falls outside the window
                     if -result > alpha && -result < beta {
-                        result = self.rec_find_best_move(-beta, -alpha, -player_color, depth - 1, 1, false, true, gives_check);
+                        result = self.rec_find_best_move(
+                            -beta,
+                            -alpha,
+                            -player_color,
+                            depth - 1,
+                            1,
+                            false,
+                            true,
+                            gives_check,
+                        );
                         if result == CANCEL_SEARCH {
                             iteration_cancelled = true;
                         }
                     }
                 }
 
-                self.board.undo_move(previous_piece, start, end, removed_piece_id);
+                self.board
+                    .undo_move(previous_piece, start, end, removed_piece_id);
 
                 if iteration_cancelled {
                     if best_move != NO_MOVE && previous_best_move != NO_MOVE {
-                        score_fluctuations = score_fluctuations * 100 / TIMEEXT_SCORE_FLUCTUATION_REDUCTIONS;
+                        score_fluctuations =
+                            score_fluctuations * 100 / TIMEEXT_SCORE_FLUCTUATION_REDUCTIONS;
                         score_fluctuations += (best_score - previous_best_score).abs();
 
                         if best_score.abs() >= (BLACK_MATE_SCORE - MAX_DEPTH as i32) {
@@ -170,8 +208,15 @@ impl Search for Engine {
 
                     if !is_strict_timelimit
                         && !already_extended_timelimit
-                        && should_extend_timelimit(best_move, best_score, previous_best_move, previous_best_score, score_fluctuations, fluctuation_count) {
-
+                        && should_extend_timelimit(
+                            best_move,
+                            best_score,
+                            previous_best_move,
+                            previous_best_score,
+                            score_fluctuations,
+                            fluctuation_count,
+                        )
+                    {
                         already_extended_timelimit = true;
                         self.timelimit_ms *= TIMEEXT_MULTIPLIER;
 
@@ -189,15 +234,19 @@ impl Search for Engine {
 
                     if self.log_every_second {
                         let pv = self.extract_pv(best_move, depth - 1);
-                        println!("info depth {} score {} pv {}", depth, get_score_info(best_score), pv)
+                        println!(
+                            "info depth {} score {} pv {}",
+                            depth,
+                            get_score_info(best_score),
+                            pv
+                        )
                     }
                 }
 
-                evaluated_move_count += 1;
                 a = -(alpha + 1); // Search all other moves (after principal variation) with a zero window
 
                 moves.update_move(encode_scored_move(m, score));
-                scored_moves += 1;
+                scored_move_count += 1;
             }
 
             let current_time = Instant::now();
@@ -207,18 +256,29 @@ impl Search for Engine {
 
             if !iteration_cancelled {
                 if previous_best_move != NO_MOVE {
-                    let mut score_fluctuations = score_fluctuations * 100 / TIMEEXT_SCORE_FLUCTUATION_REDUCTIONS;
+                    score_fluctuations =
+                        score_fluctuations * 100 / TIMEEXT_SCORE_FLUCTUATION_REDUCTIONS;
                     score_fluctuations += (best_score - previous_best_score).abs();
                     fluctuation_count += 1;
                 }
 
                 self.cancel_possible = depth >= min_depth;
-                if self.cancel_possible && (remaining_time <= (iteration_duration.as_millis() as i32 * 2)) {
+                if self.cancel_possible
+                    && (remaining_time <= (iteration_duration.as_millis() as i32 * 2))
+                {
                     // Not enough time left for another iteration
 
-                    if is_strict_timelimit && already_extended_timelimit
-                        || !should_extend_timelimit(best_move, best_score, previous_best_move,
-                                                    previous_best_score, score_fluctuations, fluctuation_count) {
+                    if is_strict_timelimit
+                        || already_extended_timelimit
+                        || !should_extend_timelimit(
+                            best_move,
+                            best_score,
+                            previous_best_move,
+                            previous_best_score,
+                            score_fluctuations,
+                            fluctuation_count,
+                        )
+                    {
                         iteration_cancelled = true;
                     }
                 }
@@ -229,15 +289,18 @@ impl Search for Engine {
                 best_score = previous_best_score;
             }
 
-            println!("info depth {} {}{} pv {}",
-                     depth, get_score_info(best_score),
-                     self.get_base_stats(total_duration),
-                     self.extract_pv(best_move, depth - 1));
+            println!(
+                "info depth {} {}{} pv {}",
+                depth,
+                get_score_info(best_score),
+                self.get_base_stats(total_duration),
+                self.extract_pv(best_move, depth - 1)
+            );
 
             current_best_move = encode_scored_move(best_move, best_score);
 
-            if iteration_cancelled || scored_moves <= 1 {
-                // stop searching, if iteration has been cancelled, there is no valid move or only a single valid move
+            if iteration_cancelled || scored_move_count <= 1 {
+                // stop searching, if iteration has been cancelled or there is no valid move or only a single valid move
                 break;
             }
 
@@ -251,13 +314,29 @@ impl Search for Engine {
             moves.resort();
         }
 
+        if scored_move_count == 0 {
+            return encode_scored_move(
+                NO_MOVE,
+                self.terminal_score(player_color, 0) * player_color as i32,
+            );
+        }
+
         current_best_move
     }
 
     // Recursively calls itself with alternating player colors to
     // find the best possible move in response to the current board position.
-    fn rec_find_best_move(&mut self, mut alpha: i32, beta: i32, player_color: Color, mut depth: i32, ply: i32, nullmove_performed: bool,
-                          mut nullmove_verification: bool, is_in_check: bool) -> i32 {
+    fn rec_find_best_move(
+        &mut self,
+        mut alpha: i32,
+        beta: i32,
+        player_color: Color,
+        mut depth: i32,
+        ply: i32,
+        nullmove_performed: bool,
+        mut nullmove_verification: bool,
+        is_in_check: bool,
+    ) -> i32 {
         if self.node_count & 1023 == 0 && self.cancel_possible {
             let current_time = Instant::now();
             let total_duration = current_time.duration_since(self.starttime);
@@ -266,10 +345,13 @@ impl Search for Engine {
                 return CANCEL_SEARCH;
             }
 
-            if depth > 3 && self.log_every_second && current_time.duration_since(self.last_log_time).as_millis() >= 1000 {
+            if depth > 3
+                && self.log_every_second
+                && current_time.duration_since(self.last_log_time).as_millis() >= 1000
+            {
                 self.last_log_time = current_time;
                 let base_stats = self.get_base_stats(total_duration);
-                println!("info depth {}{}", depth, base_stats);
+                println!("info depth {}{}", self.current_depth, base_stats);
             }
         }
 
@@ -287,7 +369,9 @@ impl Search for Engine {
             } else {
                 depth += 1;
             }
-        } else if depth == 1 && (self.board.get_score() * player_color as i32) < alpha - RAZOR_MARGIN {
+        } else if depth == 1
+            && (self.board.get_score() * player_color as i32) < alpha - RAZOR_MARGIN
+        {
             // Directly jump to quiescence search, if current position score is below a certain threshold
             depth = 0;
         }
@@ -302,40 +386,35 @@ impl Search for Engine {
         // Check transposition table
         let hash = self.board.get_hash();
         let tt_entry = self.tt.get_entry(hash);
-
+        
         let mut scored_move = get_scored_move(tt_entry);
-
-        let mut m = NO_MOVE;
-
+        
         if scored_move != NO_MOVE {
             if get_depth(tt_entry) >= depth {
                 let score = decode_score(scored_move);
-
+        
                 match get_score_type(tt_entry) {
                     EXACT => {
                         return score;
-                    },
+                    }
                     UPPER_BOUND => {
                         if score <= alpha {
                             return alpha;
                         }
-                    },
-
+                    }
+        
                     LOWER_BOUND => {
                         if score >= beta {
                             return beta;
                         }
-                    },
-                    _ => ()
+                    }
+                    _ => (),
                 };
             }
-
-            m = decode_move(scored_move);
-
+        
             // Validate hash move for additional protection against hash collisions
-            if m == NO_MOVE || !is_valid_move(&mut self.board, player_color, m) {
+            if !is_valid_move(&mut self.board, player_color, decode_move(scored_move)) {
                 scored_move = NO_MOVE;
-                m = NO_MOVE;
             }
         }
 
@@ -344,7 +423,16 @@ impl Search for Engine {
         // Null move pruning
         if !is_pv && !nullmove_performed && depth > 2 && !is_in_check {
             self.board.perform_null_move();
-            let result = self.rec_find_best_move(-beta, -beta + 1, -player_color, depth - 4, ply + 1, true, false, false);
+            let result = self.rec_find_best_move(
+                -beta,
+                -beta + 1,
+                -player_color,
+                depth - 4,
+                ply + 1,
+                true,
+                false,
+                false,
+            );
             self.board.undo_null_move();
             if result == CANCEL_SEARCH {
                 return CANCEL_SEARCH;
@@ -363,7 +451,8 @@ impl Search for Engine {
         let primary_killer = self.hh.get_primary_killer(ply);
         let secondary_killer = self.hh.get_secondary_killer(ply);
 
-        let mut moves = SortedMoveGenerator::gen_moves(scored_move, primary_killer, secondary_killer);
+        let mut moves =
+            SortedMoveGenerator::gen_moves(scored_move, primary_killer, secondary_killer);
 
         let mut best_move = NO_MOVE;
         let mut best_score = MIN_SCORE;
@@ -377,11 +466,10 @@ impl Search for Engine {
         let mut allow_futile_move_pruning = false;
         let mut prune_low_score = 0;
         if !is_pv && depth <= 4 {
-            prune_low_score = self.board.get_score() * player_color as i32 + depth * FUTILITY_MARGIN_MULTIPLIER;
+            prune_low_score =
+                self.board.get_score() * player_color as i32 + depth * FUTILITY_MARGIN_MULTIPLIER;
             allow_futile_move_pruning = prune_low_score <= alpha;
         }
-
-        let mut gives_check = false;
 
         loop {
             scored_move = match moves.next_move(&self.gen, &self.hh, &mut self.board) {
@@ -395,7 +483,6 @@ impl Search for Engine {
 
                         moves.reset();
                         continue;
-
                     } else {
                         // Last move has been evaluated
                         break;
@@ -403,7 +490,7 @@ impl Search for Engine {
                 }
             };
 
-            m = decode_move(scored_move);
+            let m = decode_move(scored_move);
 
             let target_piece_id = decode_piece_id(m);
             let start = decode_start_index(m);
@@ -416,24 +503,53 @@ impl Search for Engine {
             let mut skip = self.board.is_in_check(player_color); // skip if move would put own king in check
 
             let mut reductions = 0;
+            let mut gives_check = false;
 
             if !skip {
                 has_valid_moves = true;
                 gives_check = self.board.is_in_check(-player_color);
-
                 if removed_piece_id == EMPTY {
-                    let has_negative_history = self.hh.has_negative_history(player_color, depth, start, end);
+                    let has_negative_history =
+                        self.hh
+                            .has_negative_history(player_color, depth, start, end);
                     let own_moves_left = (depth + 1) / 2;
-                    if !gives_check && allow_reductions && evaluated_move_count > LMR_THRESHOLD
-                        && !self.board.is_pawn_move_close_to_promotion(previous_piece, end, own_moves_left - 1) {
+                    if !gives_check
+                        && allow_reductions
+                        && evaluated_move_count > LMR_THRESHOLD
+                        && !self.board.is_pawn_move_close_to_promotion(
+                            previous_piece,
+                            end,
+                            own_moves_left - 1,
+                        )
+                    {
                         // Reduce search depth for late moves (i.e. after trying the most promising moves)
                         reductions = LMR_REDUCTIONS;
-                        if has_negative_history || self.board.see_score(-player_color, start, end, target_piece_id, EMPTY as u32) < 0 {
+                        if has_negative_history
+                            || self.board.see_score(
+                                -player_color,
+                                start,
+                                end,
+                                target_piece_id,
+                                EMPTY as u32,
+                            ) < 0
+                        {
                             // Reduce more, if move has negative history or SEE score
                             reductions += 1;
                         }
-                    } else if !gives_check && allow_futile_move_pruning && target_piece_id as i8 == previous_piece.abs() {
-                        if own_moves_left <= 1 || (has_negative_history && self.board.see_score(-player_color, start, end, target_piece_id, EMPTY as u32) < 0) {
+                    } else if !gives_check
+                        && allow_futile_move_pruning
+                        && target_piece_id as i8 == previous_piece.abs()
+                    {
+                        if own_moves_left <= 1
+                            || (has_negative_history
+                                && self.board.see_score(
+                                    -player_color,
+                                    start,
+                                    end,
+                                    target_piece_id,
+                                    EMPTY as u32,
+                                ) < 0)
+                        {
                             // Prune futile move
                             skip = true;
                             if prune_low_score > best_score {
@@ -448,7 +564,15 @@ impl Search for Engine {
                         // Reduce search depth for moves with negative history or negative SEE score
                         reductions = LOSING_MOVE_REDUCTIONS;
                     }
-                } else if removed_piece_id <= previous_piece.abs() && self.board.see_score(-player_color, start, end, target_piece_id, removed_piece_id as u32) < 0 {
+                } else if removed_piece_id <= previous_piece.abs()
+                    && self.board.see_score(
+                        -player_color,
+                        start,
+                        end,
+                        target_piece_id,
+                        removed_piece_id as u32,
+                    ) < 0
+                {
                     // Reduce search depth for moves with negative capture moves with negative SEE score
                     reductions = LOSING_MOVE_REDUCTIONS;
                 }
@@ -456,7 +580,6 @@ impl Search for Engine {
 
             if skip {
                 self.board.undo_move(previous_piece, start, end, move_state);
-
             } else {
                 if removed_piece_id == EMPTY {
                     self.hh.update_played_moves(player_color, start, end);
@@ -465,8 +588,21 @@ impl Search for Engine {
                 has_valid_moves = true;
                 evaluated_move_count += 1;
 
-                let a = if evaluated_move_count > 1 { -(alpha + 1) } else { -beta };
-                let mut result = self.rec_find_best_move(a, -alpha, -player_color, depth - reductions - 1, ply + 1, false, nullmove_verification, gives_check);
+                let a = if evaluated_move_count > 1 {
+                    -(alpha + 1)
+                } else {
+                    -beta
+                };
+                let mut result = self.rec_find_best_move(
+                    a,
+                    -alpha,
+                    -player_color,
+                    depth - reductions - 1,
+                    ply + 1,
+                    false,
+                    nullmove_verification,
+                    gives_check,
+                );
                 if result == CANCEL_SEARCH {
                     self.board.undo_move(previous_piece, start, end, move_state);
                     return CANCEL_SEARCH;
@@ -474,7 +610,16 @@ impl Search for Engine {
 
                 if -result > alpha && (-result < beta || reductions > 0) {
                     // Repeat search without reduction and with full window
-                    result = self.rec_find_best_move(-beta, -alpha, -player_color, depth - 1, ply + 1, false, nullmove_verification, gives_check);
+                    result = self.rec_find_best_move(
+                        -beta,
+                        -alpha,
+                        -player_color,
+                        depth - 1,
+                        ply + 1,
+                        false,
+                        nullmove_verification,
+                        gives_check,
+                    );
                     if result == CANCEL_SEARCH {
                         self.board.undo_move(previous_piece, start, end, move_state);
                         return CANCEL_SEARCH;
@@ -495,7 +640,12 @@ impl Search for Engine {
                     }
 
                     if alpha >= beta {
-                        self.tt.write_entry(hash, depth, encode_scored_move(best_move, best_score), LOWER_BOUND);
+                        self.tt.write_entry(
+                            hash,
+                            depth,
+                            encode_scored_move(best_move, best_score),
+                            LOWER_BOUND,
+                        );
 
                         if removed_piece_id == EMPTY {
                             self.hh.update(ply, player_color, start, end, best_move);
@@ -517,12 +667,23 @@ impl Search for Engine {
             return 0;
         }
 
-        self.tt.write_entry(hash, depth, encode_scored_move(best_move, best_score), score_type);
+        self.tt.write_entry(
+            hash,
+            depth,
+            encode_scored_move(best_move, best_score),
+            score_type,
+        );
 
         best_score
     }
 
-    fn quiescence_search(&mut self, active_player: Color, mut alpha: i32,  beta: i32, ply: i32) -> i32 {
+    fn quiescence_search(
+        &mut self,
+        active_player: Color,
+        mut alpha: i32,
+        beta: i32,
+        ply: i32,
+    ) -> i32 {
         self.node_count += 1;
 
         if self.board.is_engine_draw() {
@@ -551,7 +712,8 @@ impl Search for Engine {
 
         let mut threshold = alpha - position_score - QS_SEE_THRESHOLD;
 
-        while let Some(scored_move) = moves.next_capture_move(&self.gen, &self.hh, &mut self.board) {
+        while let Some(scored_move) = moves.next_capture_move(&self.gen, &self.hh, &mut self.board)
+        {
             let m = decode_move(scored_move);
             let target_piece_id = decode_piece_id(m);
             let start = decode_start_index(m);
@@ -561,7 +723,14 @@ impl Search for Engine {
             let captured_piece_id = self.board.get_item(end).abs();
 
             // skip capture moves with a SEE score below the given threshold
-            if self.board.see_score(-active_player, start, end, previous_piece_id as u32, captured_piece_id as u32) <= threshold {
+            if self.board.see_score(
+                -active_player,
+                start,
+                end,
+                previous_piece_id as u32,
+                captured_piece_id as u32,
+            ) <= threshold
+            {
                 continue;
             }
 
@@ -584,7 +753,6 @@ impl Search for Engine {
                 alpha = score;
                 threshold = alpha - position_score - QS_SEE_THRESHOLD;
             }
-
         }
 
         alpha
@@ -622,40 +790,65 @@ impl Search for Engine {
         let removed_piece_id = self.board.perform_move(target_piece_id as i8, start, end);
 
         let entry = self.tt.get_entry(self.board.get_hash());
-        let next_move = if entry != 0 { decode_move(get_scored_move(entry)) } else { NO_MOVE };
+        let next_move = if entry != 0 {
+            decode_move(get_scored_move(entry))
+        } else {
+            NO_MOVE
+        };
 
         let active_player = self.board.active_player();
-        let is_valid_followup_move = next_move != NO_MOVE && is_valid_move(&mut self.board, active_player, next_move);
+        let is_valid_followup_move =
+            next_move != NO_MOVE && is_valid_move(&mut self.board, active_player, next_move);
         let followup_uci_moves = if is_valid_followup_move {
             format!(" {}", self.extract_pv(next_move, depth - 1))
         } else {
             String::from("")
         };
 
-        self.board.undo_move(previous_piece, start, end, removed_piece_id);
+        self.board
+            .undo_move(previous_piece, start, end, removed_piece_id);
 
         format!("{}{}", uci_move, followup_uci_moves)
     }
 
     fn get_base_stats(&self, duration: Duration) -> String {
         let duration_micros = duration.as_micros();
-        let nodes_per_second = if duration_micros > 0 {  self.node_count as u128 * 1_000_000 / duration_micros } else { 0 };
+        let nodes_per_second = if duration_micros > 0 {
+            self.node_count as u128 * 1_000_000 / duration_micros
+        } else {
+            0
+        };
 
         if nodes_per_second > 0 {
-            format!(" nodes {} nps {} time {}", self.node_count, nodes_per_second, duration_micros / 1000)
+            format!(
+                " nodes {} nps {} time {}",
+                self.node_count,
+                nodes_per_second,
+                duration_micros / 1000
+            )
         } else {
             format!(" nodes {} time {}", self.node_count, duration_micros / 1000)
         }
     }
-
 }
 
-fn should_extend_timelimit(new_move: Move, new_score: i32, previous_move: Move, previous_score: i32, score_fluctuations: i32, fluctuation_count: i32) -> bool {
+fn should_extend_timelimit(
+    new_move: Move,
+    new_score: i32,
+    previous_move: Move,
+    previous_score: i32,
+    score_fluctuations: i32,
+    fluctuation_count: i32,
+) -> bool {
     if previous_move == 0 || new_move == 0 {
         return false;
     }
 
-    let avg_fluctuations = if fluctuation_count > 0 { score_fluctuations / fluctuation_count } else { 0 };
+    let avg_fluctuations = if fluctuation_count > 0 {
+        score_fluctuations / fluctuation_count
+    } else {
+        0
+    };
 
     new_move != previous_move
         || (new_score - previous_score).abs() >= TIMEEXT_SCORE_CHANGE_THRESHOLD
@@ -663,7 +856,7 @@ fn should_extend_timelimit(new_move: Move, new_score: i32, previous_move: Move, 
 }
 
 fn get_score_info(score: i32) -> String {
-    if score <= WHITE_MATE_SCORE + MAX_DEPTH as i32{
+    if score <= WHITE_MATE_SCORE + MAX_DEPTH as i32 {
         return format!("mate {}", (WHITE_MATE_SCORE - score - 1) / 2);
     } else if score >= BLACK_MATE_SCORE - MAX_DEPTH as i32 {
         return format!("mate {}", (BLACK_MATE_SCORE - score + 1) / 2);
@@ -672,17 +865,18 @@ fn get_score_info(score: i32) -> String {
     format!("cp {}", score)
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pieces::{Q, K, B, R};
-    use std::sync::mpsc;
+    use crate::board::Board;
     use crate::engine::Message;
-    use std::sync::mpsc::Receiver;
+    use crate::fen::write_fen;
+    use crate::pieces::{K, R};
+    use std::sync::mpsc;
 
     #[test]
     fn finds_mate_in_one() {
+        #[rustfmt::skip]
         let items: [i8; 64] = [
             0,  0,  0,  0,  K,  0,  0,  0,
            -R,  0,  0,  0,  0,  0,  0,  0,
@@ -709,6 +903,7 @@ mod tests {
 
     #[test]
     fn finds_mate_in_two() {
+        #[rustfmt::skip]
         let items: [i8; 64] = [
             0,  0,  0,  0, -K,  0,  0,  0,
             0,  0,  0,  0,  0,  0,  0,  0,

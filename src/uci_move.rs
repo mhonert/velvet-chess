@@ -17,18 +17,22 @@
  */
 
 use crate::board::Board;
-use crate::move_gen::{Move, decode_piece_id, decode_start_index, decode_end_index};
-use crate::pieces::{N, B, R, Q, EMPTY};
+use crate::move_gen::{decode_end_index, decode_piece_id, decode_start_index, Move};
+use crate::pieces::{B, EMPTY, N, Q, R};
 
 pub struct UCIMove {
     pub start: i8,
     pub end: i8,
-    pub promotion: i8
+    pub promotion: i8,
 }
 
 impl UCIMove {
     pub fn new(start: i8, end: i8, promotion: i8) -> Self {
-        UCIMove{start, end, promotion}
+        UCIMove {
+            start,
+            end,
+            promotion,
+        }
     }
 
     pub fn from_encoded_move(board: &Board, m: Move) -> Self {
@@ -37,9 +41,17 @@ impl UCIMove {
         let end = decode_end_index(m) as i8;
 
         let current_piece = board.get_item(start as i32).abs();
-        let promotion = if target_piece != current_piece { target_piece } else { EMPTY };
+        let promotion = if target_piece != current_piece {
+            target_piece
+        } else {
+            EMPTY
+        };
 
-        UCIMove{start, end, promotion}
+        UCIMove {
+            start,
+            end,
+            promotion,
+        }
     }
 
     pub fn from_uci(uci: &str) -> Option<Self> {
@@ -65,14 +77,18 @@ impl UCIMove {
                 b'n' => N,
                 _ => {
                     eprintln!("Invalid promotion piece in UCI notation: {}", uci);
-                    return None
+                    return None;
                 }
             }
         } else {
             EMPTY
         };
 
-        Some(UCIMove{start, end, promotion})
+        Some(UCIMove {
+            start,
+            end,
+            promotion,
+        })
     }
 
     pub fn to_uci(&self) -> String {
@@ -105,7 +121,7 @@ fn uci_col(col: i8) -> char {
         5 => 'f',
         6 => 'g',
         7 => 'h',
-        _ => ' '
+        _ => ' ',
     }
 }
 
@@ -119,7 +135,7 @@ fn uci_row(row: i8) -> char {
         5 => '3',
         6 => '2',
         7 => '1',
-        _ => ' '
+        _ => ' ',
     }
 }
 
@@ -129,7 +145,7 @@ fn uci_promotion(promotion: i8) -> char {
         R => 'r',
         B => 'b',
         N => 'n',
-        _ => ' '
+        _ => ' ',
     }
 }
 
@@ -137,19 +153,19 @@ fn uci_promotion(promotion: i8) -> char {
 mod tests {
     use super::*;
 
-    # [test]
+    #[test]
     fn write_standard_move() {
         let m = UCIMove::new(52, 36, EMPTY);
         assert_eq!("e2e4", m.to_uci());
     }
 
-    # [test]
+    #[test]
     fn write_promotion_move() {
         let m = UCIMove::new(8, 0, Q);
         assert_eq!("a7a8q", m.to_uci());
     }
 
-    # [test]
+    #[test]
     fn read_standard_move() {
         let m = UCIMove::from_uci("e2e4").unwrap();
         assert_eq!(52, m.start);
@@ -157,7 +173,7 @@ mod tests {
         assert_eq!(EMPTY, m.promotion);
     }
 
-    # [test]
+    #[test]
     fn read_promotion_move() {
         let m = UCIMove::from_uci("a7a8q").unwrap();
         assert_eq!(8, m.start);

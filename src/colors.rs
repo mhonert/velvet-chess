@@ -20,4 +20,3 @@ pub type Color = i8;
 
 pub const WHITE: Color = 1;
 pub const BLACK: Color = -1;
-

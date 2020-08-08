@@ -16,7 +16,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::bitboard::Direction::{NorthWest, NorthEast, SouthEast, South, SouthWest, West, North, East};
+use crate::bitboard::Direction::{
+    East, North, NorthEast, NorthWest, South, SouthEast, SouthWest, West,
+};
 
 pub struct Bitboard {
     knight_attacks: [u64; 64],
@@ -28,13 +30,21 @@ pub struct Bitboard {
 
 impl Bitboard {
     pub fn new() -> Self {
-        let knight_attacks = calculate_single_move_patterns([21, 19, 12, 8, -12, -21, -19, -8].to_vec());
-        let king_attacks = calculate_single_move_patterns([1, 10, -1, -10, 9, 11, -9, -11].to_vec());
+        let knight_attacks =
+            calculate_single_move_patterns([21, 19, 12, 8, -12, -21, -19, -8].to_vec());
+        let king_attacks =
+            calculate_single_move_patterns([1, 10, -1, -10, 9, 11, -9, -11].to_vec());
         let ray_attacks = calculate_ray_attacks();
         let white_pawn_freepath = create_pawn_free_path_patterns(-1);
         let black_pawn_freepath = create_pawn_free_path_patterns(1);
 
-        Bitboard{ knight_attacks, king_attacks, ray_attacks, white_pawn_freepath, black_pawn_freepath }
+        Bitboard {
+            knight_attacks,
+            king_attacks,
+            ray_attacks,
+            white_pawn_freepath,
+            black_pawn_freepath,
+        }
     }
 
     pub fn get_knight_attacks(&self, pos: i32) -> u64 {
@@ -70,23 +80,23 @@ impl Bitboard {
     }
 
     pub fn get_diagonal_attacks(&self, occupied: u64, pos: i32) -> u64 {
-        self.get_positive_ray_attacks(occupied, Direction::NorthEast, pos) |
-            self.get_negative_ray_attacks(occupied, Direction::SouthWest, pos)
+        self.get_positive_ray_attacks(occupied, Direction::NorthEast, pos)
+            | self.get_negative_ray_attacks(occupied, Direction::SouthWest, pos)
     }
 
     pub fn get_anti_diagonal_attacks(&self, occupied: u64, pos: i32) -> u64 {
-        self.get_positive_ray_attacks(occupied, Direction::NorthWest, pos) |
-            self.get_negative_ray_attacks(occupied, Direction::SouthEast, pos)
+        self.get_positive_ray_attacks(occupied, Direction::NorthWest, pos)
+            | self.get_negative_ray_attacks(occupied, Direction::SouthEast, pos)
     }
 
     pub fn get_horizontal_attacks(&self, occupied: u64, pos: i32) -> u64 {
-        self.get_positive_ray_attacks(occupied, Direction::West, pos) |
-            self.get_negative_ray_attacks(occupied, Direction::East, pos)
+        self.get_positive_ray_attacks(occupied, Direction::West, pos)
+            | self.get_negative_ray_attacks(occupied, Direction::East, pos)
     }
 
     pub fn get_vertical_attacks(&self, occupied: u64, pos: i32) -> u64 {
-        self.get_positive_ray_attacks(occupied, Direction::North, pos) |
-            self.get_negative_ray_attacks(occupied, Direction::South, pos)
+        self.get_positive_ray_attacks(occupied, Direction::North, pos)
+            | self.get_negative_ray_attacks(occupied, Direction::South, pos)
     }
 
     pub fn get_white_pawn_freepath(&self, pos: i32) -> u64 {
@@ -132,16 +142,24 @@ enum Direction {
     SouthEast = 4,
     South = 5,
     SouthWest = 6,
-    West = 7
+    West = 7,
 }
 
 pub const MAX_FIELD_DISTANCE: i32 = 7; // maximum distance between two fields on the board
 
-const DIRECTIONS: [usize; 8] = [NorthWest as usize, North as usize, NorthEast as usize,
-    East as usize, SouthEast as usize, South as usize, SouthWest as usize, West as usize];
+const DIRECTIONS: [usize; 8] = [
+    NorthWest as usize,
+    North as usize,
+    NorthEast as usize,
+    East as usize,
+    SouthEast as usize,
+    South as usize,
+    SouthWest as usize,
+    West as usize,
+];
 
-const DIRECTION_COL_OFFSET: [i32; 8] = [-1,  0, 1, 1, 1,  0, -1, -1];
-const DIRECTION_ROW_OFFSET: [i32; 8] = [-1, -1, -1,  0, 1, 1, 1,  0];
+const DIRECTION_COL_OFFSET: [i32; 8] = [-1, 0, 1, 1, 1, 0, -1, -1];
+const DIRECTION_ROW_OFFSET: [i32; 8] = [-1, -1, -1, 0, 1, 1, 1, 0];
 
 fn calculate_ray_attacks() -> [u64; 65 * 8] {
     let mut patterns: [u64; 65 * 8] = [0; 65 * 8];
@@ -177,18 +195,10 @@ fn calculate_ray_attacks() -> [u64; 65 * 8] {
 
 fn is_border(pos: i32) -> bool {
     if pos < 21 || pos > 98 {
-        return true
+        return true;
     }
 
-    pos % 10 == 0 || pos %10 == 9
-}
-
-pub fn black_pawn_attacks(pawns: u64) -> u64 {
-    black_left_pawn_attacks(pawns) | black_right_pawn_attacks(pawns)
-}
-
-pub fn white_pawn_attacks(pawns: u64) -> u64 {
-    white_left_pawn_attacks(pawns) | white_right_pawn_attacks(pawns)
+    pos % 10 == 0 || pos % 10 == 9
 }
 
 pub fn white_left_pawn_attacks(pawns: u64) -> u64 {
@@ -208,20 +218,28 @@ pub fn black_right_pawn_attacks(pawns: u64) -> u64 {
 }
 
 // Patterns to check, whether the fields between king and rook are empty
-pub const WHITE_KING_SIDE_CASTLING_BIT_PATTERN: u64 = 0b01100000_00000000_00000000_00000000_00000000_00000000_00000000_00000000;
-pub const WHITE_QUEEN_SIDE_CASTLING_BIT_PATTERN: u64 = 0b00001110_00000000_00000000_00000000_00000000_00000000_00000000_00000000;
+pub const WHITE_KING_SIDE_CASTLING_BIT_PATTERN: u64 =
+    0b01100000_00000000_00000000_00000000_00000000_00000000_00000000_00000000;
+pub const WHITE_QUEEN_SIDE_CASTLING_BIT_PATTERN: u64 =
+    0b00001110_00000000_00000000_00000000_00000000_00000000_00000000_00000000;
 
-pub const BLACK_KING_SIDE_CASTLING_BIT_PATTERN: u64 = 0b00000000_00000000_00000000_00000000_00000000_00000000_00000000_01100000;
-pub const BLACK_QUEEN_SIDE_CASTLING_BIT_PATTERN: u64 = 0b00000000_00000000_00000000_00000000_00000000_00000000_00000000_00001110;
+pub const BLACK_KING_SIDE_CASTLING_BIT_PATTERN: u64 =
+    0b00000000_00000000_00000000_00000000_00000000_00000000_00000000_01100000;
+pub const BLACK_QUEEN_SIDE_CASTLING_BIT_PATTERN: u64 =
+    0b00000000_00000000_00000000_00000000_00000000_00000000_00000000_00001110;
 
 // Positions where pawns may move two squares
-pub const PAWN_DOUBLE_MOVE_LINES: [u64; 3] = [0b0000000000000000000000000000000000000000111111110000000000000000,
-                                              0,
-                                              0b0000000000000000111111110000000000000000000000000000000000000000];
+pub const PAWN_DOUBLE_MOVE_LINES: [u64; 3] = [
+    0b0000000000000000000000000000000000000000111111110000000000000000,
+    0,
+    0b0000000000000000111111110000000000000000000000000000000000000000,
+];
 
 // Patterns to check, whether a piece is on a light or dark field
-pub const LIGHT_COLORED_FIELD_PATTERN: u64 = 0b01010101_01010101_01010101_01010101_01010101_01010101_01010101_01010101;
-pub const DARK_COLORED_FIELD_PATTERN: u64 = 0b10101010_10101010_10101010_10101010_10101010_10101010_10101010_10101010;
+pub const LIGHT_COLORED_FIELD_PATTERN: u64 =
+    0b01010101_01010101_01010101_01010101_01010101_01010101_01010101_01010101;
+pub const DARK_COLORED_FIELD_PATTERN: u64 =
+    0b10101010_10101010_10101010_10101010_10101010_10101010_10101010_10101010;
 
 // Patterns to check, whether the path in front of the pawn is free (i.e. not blocked by opponent pieces)
 fn create_pawn_free_path_patterns(direction: i32) -> [u64; 64] {
@@ -240,4 +258,3 @@ fn create_pawn_free_path_patterns(direction: i32) -> [u64; 64] {
 
     patterns
 }
-

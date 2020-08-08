@@ -16,25 +16,25 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::move_gen::{Move, NO_MOVE};
 use crate::colors::{Color, WHITE};
+use crate::move_gen::{Move, NO_MOVE};
 use crate::transposition_table::MAX_DEPTH;
 
 const HISTORY_SIZE: usize = 2 * 64 * 64;
 
 pub struct HistoryHeuristics {
-    primary_killers: [Move; MAX_DEPTH + 1],
-    secondary_killers: [Move; MAX_DEPTH + 1],
+    primary_killers: [Move; MAX_DEPTH],
+    secondary_killers: [Move; MAX_DEPTH],
     cut_off_history: [u64; HISTORY_SIZE],
     played_move_history: [u64; HISTORY_SIZE],
-    played_move_thresholds: [u64; MAX_DEPTH + 1],
+    played_move_thresholds: [u64; MAX_DEPTH],
 }
 
 impl HistoryHeuristics {
     pub fn new() -> Self {
-        HistoryHeuristics{
-            primary_killers: [NO_MOVE; MAX_DEPTH + 1],
-            secondary_killers: [NO_MOVE; MAX_DEPTH + 1],
+        HistoryHeuristics {
+            primary_killers: [NO_MOVE; MAX_DEPTH],
+            secondary_killers: [NO_MOVE; MAX_DEPTH],
             cut_off_history: [0; HISTORY_SIZE],
             played_move_history: [0; HISTORY_SIZE],
             played_move_thresholds: calc_move_thresholds(),
@@ -107,15 +107,13 @@ impl HistoryHeuristics {
 
         (self.cut_off_history[index] * 512 / move_count) == 0
     }
-
-
 }
 
-fn calc_move_thresholds() -> [u64; MAX_DEPTH + 1] {
-    let mut thresholds: [u64; MAX_DEPTH + 1] = [0; MAX_DEPTH + 1];
+fn calc_move_thresholds() -> [u64; MAX_DEPTH] {
+    let mut thresholds: [u64; MAX_DEPTH] = [0; MAX_DEPTH];
     let mut threshold: f32 = 2.0;
 
-    for depth in 0..=MAX_DEPTH {
+    for depth in 0..MAX_DEPTH {
         thresholds[depth] = threshold as u64;
         threshold *= 1.6;
     }
@@ -129,7 +127,7 @@ mod tests {
     use crate::move_gen::encode_move;
     use crate::pieces::{Q, R};
 
-    # [test]
+    #[test]
     fn updates_killer_moves() {
         let mut hh = HistoryHeuristics::new();
 
@@ -141,8 +139,13 @@ mod tests {
         let primary_killer = hh.get_primary_killer(1);
         let secondary_killer = hh.get_secondary_killer(1);
 
-        assert_eq!(primary_killer, move_b, "move_b should be the primary killer move");
-        assert_eq!(secondary_killer, move_a, "move_a should be the secondary killer move");
+        assert_eq!(
+            primary_killer, move_b,
+            "move_b should be the primary killer move"
+        );
+        assert_eq!(
+            secondary_killer, move_a,
+            "move_a should be the secondary killer move"
+        );
     }
-
 }

@@ -16,30 +16,42 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::sync::mpsc::{Receiver, Sender};
-use std::sync::mpsc;
-use std::thread;
-use crate::fen::{read_fen, START_POS, create_from_fen, write_fen};
 use crate::board::Board;
-use std::time::{SystemTime, Instant};
-use crate::perft::perft;
-use crate::colors::{WHITE, Color};
-use std::cmp::max;
-use crate::search::Search;
+use crate::colors::{Color, WHITE};
+use crate::fen::{create_from_fen, read_fen, write_fen, START_POS};
 use crate::history_heuristics::HistoryHeuristics;
-use crate::move_gen::{NO_MOVE, Move, decode_piece_id, decode_start_index, decode_end_index, has_valid_moves};
-use crate::uci_move::UCIMove;
-use crate::pieces::EMPTY;
-use crate::transposition_table::{TranspositionTable, DEFAULT_SIZE_MB};
+use crate::move_gen::{
+    decode_end_index, decode_piece_id, decode_start_index, has_valid_moves, Move, NO_MOVE,
+};
 use crate::move_sort::SortedMoveGenerator;
+use crate::perft::perft;
+use crate::pieces::EMPTY;
+use crate::search::Search;
+use crate::transposition_table::{TranspositionTable, DEFAULT_SIZE_MB};
+use crate::uci_move::UCIMove;
+use std::cmp::max;
+use std::sync::mpsc;
+use std::sync::mpsc::{Receiver, Sender};
+use std::thread;
+use std::time::{Instant, SystemTime};
 
 pub enum Message {
     NewGame,
     SetPosition(String, Vec<UCIMove>),
-    Go{depth: i32, wtime: i32, btime: i32, winc: i32, binc: i32, movetime: i32, movestogo: i32},
+    SetTranspositionTableSize(i32),
+    Go {
+        depth: i32,
+        wtime: i32,
+        btime: i32,
+        winc: i32,
+        binc: i32,
+        movetime: i32,
+        movestogo: i32,
+    },
     Perft(i32),
+    IsReady,
     Fen,
-    Quit
+    Quit,
 }
 
 pub struct Engine {
@@ -101,7 +113,7 @@ impl Engine {
                     if !self.handle_message(msg) {
                         return;
                     }
-                },
+                }
                 Err(err) => {
                     println!("Engine communication error: {:?}", err);
                     return;
@@ -116,10 +128,21 @@ impl Engine {
 
             Message::SetPosition(fen, moves) => self.set_position(fen, moves),
 
+            Message::SetTranspositionTableSize(size_mb) => self.set_tt_size(size_mb),
+
             Message::Perft(depth) => self.perft(depth),
 
-            Message::Go{depth, wtime, btime, winc, binc, movetime, movestogo}
-                => self.go(depth, wtime, btime, winc, binc, movetime, movestogo),
+            Message::IsReady => println!("readyok"),
+
+            Message::Go {
+                depth,
+                wtime,
+                btime,
+                winc,
+                binc,
+                movetime,
+                movestogo,
+            } => self.go(depth, wtime, btime, winc, binc, movetime, movestogo),
 
             Message::Fen => println!("{}", write_fen(&self.board)),
 
@@ -131,7 +154,16 @@ impl Engine {
         true
     }
 
-    fn go(&mut self, depth: i32, wtime: i32, btime: i32, winc: i32, binc: i32, movetime: i32, movestogo: i32) {
+    fn go(
+        &mut self,
+        depth: i32,
+        wtime: i32,
+        btime: i32,
+        winc: i32,
+        binc: i32,
+        movetime: i32,
+        movestogo: i32,
+    ) {
         self.timelimit_ms = if self.board.active_player() == WHITE {
             calc_timelimit(movetime, wtime, winc, movestogo)
         } else {
@@ -144,26 +176,39 @@ impl Engine {
             btime
         };
 
-        let is_strict_timelimit = movetime != 0 || (time_left - (TIMEEXT_MULTIPLIER * self.timelimit_ms) <= 10);
+        let is_strict_timelimit =
+            movetime != 0 || (time_left - (TIMEEXT_MULTIPLIER * self.timelimit_ms) <= 10);
         let m = self.find_best_move(depth, is_strict_timelimit);
         if m == NO_MOVE {
             println!("bestmove 0000")
         } else {
-            println!("bestmove {}", UCIMove::from_encoded_move(&self.board, m).to_uci());
+            println!(
+                "bestmove {}",
+                UCIMove::from_encoded_move(&self.board, m).to_uci()
+            );
         }
     }
 
     fn set_position(&mut self, fen: String, moves: Vec<UCIMove>) {
         match read_fen(&mut self.board, &fen) {
             Ok(_) => (),
-            Err(err) => println!("position cmd: {}", err)
+            Err(err) => println!("position cmd: {}", err),
         }
 
         for m in moves {
             let color = self.board.active_player();
-            let piece = if m.promotion != EMPTY { m.promotion * color } else {self.board.get_item(m.start as i32)};
-            self.board.perform_move(piece * color, m.start as i32, m.end as i32);
+            let piece = if m.promotion != EMPTY {
+                m.promotion * color
+            } else {
+                self.board.get_item(m.start as i32)
+            };
+            self.board
+                .perform_move(piece * color, m.start as i32, m.end as i32);
         }
+    }
+
+    fn set_tt_size(&mut self, size_mb: i32) {
+        self.tt.resize(size_mb as u64, false);
     }
 
     fn reset(&mut self) {
@@ -174,11 +219,11 @@ impl Engine {
     fn perft(&mut self, depth: i32) {
         let start = SystemTime::now();
 
-        let nodes = perft(&mut self.board, depth);
+        let nodes = perft(&mut self.tt, &mut self.board, depth);
 
         let duration = match SystemTime::now().duration_since(start) {
             Ok(v) => v,
-            Err(e) => panic!("error calculating duration: {:?}", e)
+            Err(e) => panic!("error calculating duration: {:?}", e),
         };
 
         println!("Nodes: {}", nodes);
@@ -189,10 +234,15 @@ impl Engine {
             let nodes_per_sec = nodes * 1_000_000 / duration_micro as u64;
             println!("Nodes per second: {}", nodes_per_sec);
         }
+        self.tt.clear();
     }
 
     pub fn perform_move(&mut self, m: Move) {
-        self.board.perform_move(decode_piece_id(m) as i8, decode_start_index(m), decode_end_index(m));
+        self.board.perform_move(
+            decode_piece_id(m) as i8,
+            decode_start_index(m),
+            decode_end_index(m),
+        );
         print_move(m);
     }
 
@@ -225,6 +275,10 @@ pub fn is_check_mate(board: &mut Board, player_color: Color) -> bool {
 }
 
 fn print_move(m: Move) {
-    println!("Move {} from {} to {}", decode_piece_id(m), decode_start_index(m), decode_end_index(m));
+    println!(
+        "Move {} from {} to {}",
+        decode_piece_id(m),
+        decode_start_index(m),
+        decode_end_index(m)
+    );
 }
-

@@ -18,8 +18,9 @@
 
 extern crate velvet;
 
-use velvet::fen::{create_from_fen};
+use velvet::fen::create_from_fen;
 use velvet::perft::perft;
+use velvet::transposition_table::TranspositionTable;
 
 #[test]
 fn test_perft_startpos() {
@@ -81,8 +82,8 @@ fn test_perft_testpos6() {
     assert_eq!(89890, perft_for_fen(fen, 3));
 }
 
-
 fn perft_for_fen(fen: &str, depth: i32) -> u64 {
     let mut board = create_from_fen(fen);
-    perft(&mut board, depth)
+    let mut tt = TranspositionTable::new(4);
+    perft(&mut tt, &mut board, depth)
 }
