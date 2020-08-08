@@ -26,6 +26,7 @@ mod bitboard;
 mod boardpos;
 mod castling;
 mod colors;
+mod eval;
 mod history_heuristics;
 mod move_gen;
 mod move_sort;

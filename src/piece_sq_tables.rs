@@ -18,7 +18,7 @@
 
 use crate::colors::{Color, BLACK, WHITE};
 use crate::pieces::{B, EG_PIECE_VALUES, K, N, P, PIECE_VALUES, Q, R};
-use crate::score_util::pack_scores;
+use crate::score_util::{pack_scores};
 
 pub struct PieceSquareTables {
     white_scores: [u32; 64 * 7],

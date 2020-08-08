@@ -34,6 +34,7 @@ use crate::transposition_table::{
 use crate::uci_move::UCIMove;
 use std::cmp::{max, min};
 use std::time::{Duration, Instant};
+use crate::eval::Eval;
 
 pub trait Search {
     fn find_best_move(&mut self, min_depth: i32, is_strict_timelimit: bool) -> Move;

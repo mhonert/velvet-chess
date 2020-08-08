@@ -26,6 +26,9 @@ pub struct Bitboard {
     ray_attacks: [u64; 65 * 8],
     white_pawn_freepath: [u64; 64],
     black_pawn_freepath: [u64; 64],
+    white_king_shield: [u64; 64],
+    black_king_shield: [u64; 64],
+    king_danger_zone: [u64; 64],
 }
 
 impl Bitboard {
@@ -37,6 +40,9 @@ impl Bitboard {
         let ray_attacks = calculate_ray_attacks();
         let white_pawn_freepath = create_pawn_free_path_patterns(-1);
         let black_pawn_freepath = create_pawn_free_path_patterns(1);
+        let white_king_shield = create_king_shield_patterns(-1);
+        let black_king_shield = create_king_shield_patterns(-1);
+        let king_danger_zone = create_king_danger_zone_patterns();
 
         Bitboard {
             knight_attacks,
@@ -44,6 +50,9 @@ impl Bitboard {
             ray_attacks,
             white_pawn_freepath,
             black_pawn_freepath,
+            white_king_shield,
+            black_king_shield,
+            king_danger_zone,
         }
     }
 
@@ -53,6 +62,18 @@ impl Bitboard {
 
     pub fn get_king_attacks(&self, pos: i32) -> u64 {
         self.king_attacks[pos as usize]
+    }
+
+    pub fn get_white_king_shield(&self, pos: i32) -> u64 {
+        self.white_king_shield[pos as usize]
+    }
+
+    pub fn get_black_king_shield(&self, pos: i32) -> u64 {
+        self.black_king_shield[pos as usize]
+    }
+
+    pub fn get_king_danger_zone(&self, pos: i32) -> u64 {
+        self.king_danger_zone[pos as usize]
     }
 
     fn get_positive_ray_attacks(&self, occupied: u64, dir: Direction, pos: i32) -> u64 {
@@ -252,6 +273,73 @@ fn create_pawn_free_path_patterns(direction: i32) -> [u64; 64] {
         while row >= 1 && row <= 6 {
             row += direction;
             pattern |= 1 << ((row * 8 + col) as u64);
+        }
+        patterns[pos as usize] = pattern;
+    }
+
+    patterns
+}
+
+// Pawn shield in front of king
+fn create_king_shield_patterns(direction: i32) -> [u64; 64] {
+    let mut patterns: [u64; 64] = [0; 64];
+
+    for pos in 0..64 {
+        let row = pos / 8;
+        let col = pos & 7;
+        let mut pattern: u64 = 0;
+
+        for distance in 1..=2 {
+            let shield_row = row + direction * distance;
+            if shield_row < 0 || shield_row > 7 { // Outside board
+                continue;
+            }
+
+            let front_pawn_pos = shield_row * 8 + col;
+            pattern |= 1 << front_pawn_pos as u64;
+            if col > 0 {
+                let front_west_pawn_pos = shield_row * 8 + col - 1;
+                pattern |= 1 << front_west_pawn_pos as u64;
+
+            }
+
+            if col < 7 {
+                let front_east_pawn_pos = shield_row * 8 + col + 1;
+                pattern |= 1 << front_east_pawn_pos as u64;
+            }
+        }
+        patterns[pos as usize] = pattern;
+    }
+
+    patterns
+}
+
+const KING_DANGER_ZONE_SIZE: i32 = 2;
+
+// King danger zone patterns
+fn create_king_danger_zone_patterns() -> [u64; 64] {
+    let mut patterns: [u64; 64] = [0; 64];
+
+    for pos in 0..64 {
+        let row = pos / 8;
+        let col = pos & 7;
+        let mut pattern: u64 = 0;
+
+        for row_offset in -KING_DANGER_ZONE_SIZE..=KING_DANGER_ZONE_SIZE {
+            let zone_row = row + row_offset;
+            if zone_row < 0 || zone_row > 7 { // Outside board
+                continue;
+            }
+
+            for col_offset in -KING_DANGER_ZONE_SIZE..=KING_DANGER_ZONE_SIZE {
+                let zone_col = col + col_offset;
+                if zone_col < 0 || zone_col > 7 { // Outside board
+                    continue;
+                }
+
+                let pattern_pos = zone_row * 8 + zone_col;
+                pattern |= 1 << pattern_pos as u64;
+            }
         }
         patterns[pos as usize] = pattern;
     }

@@ -42,12 +42,12 @@ pub struct Board {
     hash: u64,
     castling_state: u8,
     enpassant_state: u16,
-    white_king: i32,
-    black_king: i32,
+    pub white_king: i32,
+    pub black_king: i32,
     halfmove_clock: u16,
     halfmove_count: u16,
-    score: i16,
-    eg_score: i16,
+    pub score: i16,
+    pub eg_score: i16,
 
     history_counter: usize,
     state_history: [u64; MAX_GAME_HALFMOVES],
@@ -227,6 +227,14 @@ impl Board {
 
     pub fn can_castle(&self, castling: Castling) -> bool {
         (self.castling_state & castling as u8) != 0
+    }
+
+    pub fn has_white_castled(&self) -> bool {
+        (self.castling_state & Castling::WhiteHasCastled as u8) != 0
+    }
+
+    pub fn has_black_castled(&self) -> bool {
+        (self.castling_state & Castling::BlackHasCastled as u8) != 0
     }
 
     pub fn get_enpassant_state(&self) -> u16 {
@@ -704,11 +712,6 @@ impl Board {
             }
         }
         -1
-    }
-
-    pub fn get_score(&self) -> i32 {
-        // ((self.score + self.eg_score) / 2) as i32
-        self.score as i32
     }
 
     pub fn is_legal_move(&mut self, color: Color, piece_id: i8, start: i32, end: i32) -> bool {
