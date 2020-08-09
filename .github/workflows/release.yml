@@ -46,14 +46,14 @@ jobs:
           RUSTFLAGS: "-Ctarget-feature=+bmi,+popcnt,+lzcnt -Cinline-threshold=450"
         run: |
           cargo build --release
-          Rename-Item .\target\release\velvet.exe .\target\release\velvet-windows-x86_64-modern.exe
+          mv .\target\release\velvet.exe .\target\release\velvet-windows-x86_64-modern.exe
 
       - name: Build x86_64-vintage
         env:
           RUSTFLAGS: "-Ctarget-feature=+popcnt -Cinline-threshold=450"
         run: |
           cargo build --release
-          Rename-Item .\target\release\velvet.exe .\target\release\velvet-windows-x86_64-vintage.exe
+          mv .\target\release\velvet.exe .\target\release\velvet-windows-x86_64-vintage.exe
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v2
@@ -63,6 +63,7 @@ jobs:
 
   release:
     if: github.repository == 'mhonert/velvet-chess'
+    needs: [build-linux, build-windows]
     name: Publish release
     runs-on: ubuntu-latest
     steps:
