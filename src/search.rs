@@ -161,15 +161,12 @@ impl Search for Engine {
 
                 let gives_check = self.board.is_in_check(-player_color);
 
-                // Apply late move reductions
-                let reduced_depth = if depth > 7 && best_move != NO_MOVE && move_num > LMR_THRESHOLD { depth - 1 } else { depth };
-
                 // Use principal variation search
                 let mut result = self.rec_find_best_move(
                     a,
                     -alpha,
                     -player_color,
-                    reduced_depth - 1,
+                    depth - 1,
                     1,
                     false,
                     true,
