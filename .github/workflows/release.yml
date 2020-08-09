@@ -1,0 +1,98 @@
+name: Release
+
+on:
+  push:
+    tags: "v*"
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Build x86_64-modern
+        env:
+          RUSTFLAGS: "-Ctarget-feature=+bmi,+popcnt,+lzcnt -Cinline-threshold=450"
+        run: |
+          cargo build --release
+          strip target/release/velvet
+          mv target/release/velvet target/release/velvet-linux-x86_64-modern
+
+      - name: Build x86_64-vintage
+        env:
+          RUSTFLAGS: "-Ctarget-feature=+popcnt -Cinline-threshold=450"
+        run: |
+          cargo build --release
+          strip target/release/velvet
+          mv target/release/velvet target/release/velvet-linux-x86_64-vintage
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v2
+        with:
+          name: velvet-linux
+          path: target/release/velvet*
+
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Build x86_64-modern
+        env:
+          RUSTFLAGS: "-Ctarget-feature=+bmi,+popcnt,+lzcnt -Cinline-threshold=450"
+        run: |
+          cargo build --release
+          Rename-Item .\target\release\velvet.exe .\target\release\velvet-windows-x86_64-modern.exe
+
+      - name: Build x86_64-vintage
+        env:
+          RUSTFLAGS: "-Ctarget-feature=+popcnt -Cinline-threshold=450"
+        run: |
+          cargo build --release
+          Rename-Item .\target\release\velvet.exe .\target\release\velvet-windows-x86_64-vintage.exe
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v2
+        with:
+          name: velvet-windows
+          path: target/release/velvet*
+
+  release:
+    if: github.repository == 'mhonert/velvet-chess'
+    name: Publish release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - uses: actions/download-artifact@v2
+        with:
+          name: velvet-linux
+
+      - uses: actions/download-artifact@v2
+        with:
+          name: velvet-windows
+
+      - name: Create Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          pushd artifacts
+          tag_name="${GITHUB_REF##*/}"
+          mv velvet-windows-x86_64-modern.exe velvet-${tag_name}-windows-x86_64-modern.exe
+          mv velvet-windows-x86_64-vintage.exe velvet-${tag_name}-windows-x86_64-vintage.exe
+          mv velvet-linux-x86_64-modern velvet-${tag_name}-linux-x86_64-modern
+          mv velvet-linux-x86_64-vintage velvet-${tag_name}-linux-x86_64-vintage
+          sha256sum velvet-* > checksums.txt
+          echo "$tag_name" > release_description.txt
+          cat release_notes.md >> release_description.txt
+          hub release create -a "checksums.txt#Checksums" \
+                             -a "velvet-${tag_name}-windows-x86_64-modern.exe" \
+                             -a "velvet-${tag_name}-windows-x86_64-vintage.exe" \
+                             -a "velvet-${tag_name}-linux-x86_64-modern" \
+                             -a "velvet-${tag_name}-linux-x86_64-vintage" \
+                             -F release_description.txt "$tag_name"
