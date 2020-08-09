@@ -14,7 +14,7 @@ jobs:
 
       - name: Build x86_64-modern
         env:
-          RUSTFLAGS: "-Ctarget-feature=+bmi,+popcnt,+lzcnt -Cinline-threshold=450"
+          RUSTFLAGS: "-Ctarget-feature=+bmi,+popcnt,+lzcnt -Cinline-threshold=600"
         run: |
           cargo build --release
           strip target/release/velvet
@@ -22,7 +22,7 @@ jobs:
 
       - name: Build x86_64-vintage
         env:
-          RUSTFLAGS: "-Ctarget-feature=+popcnt -Cinline-threshold=450"
+          RUSTFLAGS: "-Ctarget-feature=+popcnt -Cinline-threshold=600"
         run: |
           cargo build --release
           strip target/release/velvet
@@ -43,14 +43,14 @@ jobs:
 
       - name: Build x86_64-modern
         env:
-          RUSTFLAGS: "-Ctarget-feature=+bmi,+popcnt,+lzcnt -Cinline-threshold=450"
+          RUSTFLAGS: "-Ctarget-feature=+crt-static,+bmi,+popcnt,+lzcnt -Cinline-threshold=600"
         run: |
           cargo build --release
           mv .\target\release\velvet.exe .\target\release\velvet-windows-x86_64-modern.exe
 
       - name: Build x86_64-vintage
         env:
-          RUSTFLAGS: "-Ctarget-feature=+popcnt -Cinline-threshold=450"
+          RUSTFLAGS: "-Ctarget-feature=+crt-static,+popcnt -Cinline-threshold=600"
         run: |
           cargo build --release
           mv .\target\release\velvet.exe .\target\release\velvet-windows-x86_64-vintage.exe
