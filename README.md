@@ -4,9 +4,7 @@
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
 **Velvet Chess Engine** is a UCI chess engine written in [Rust](https://www.rust-lang.org).
-
-It is based upon my previous chess engine [Wasabi](https://github.com/mhonert/chess).
-
+> It is based upon my previous web-based engine Wasabi, which can be played [**here**](https://mhonert.github.io/chess).
 
 ### License
 This project is licensed under the GNU General Public License - see the [LICENSE](LICENSE) for details.
