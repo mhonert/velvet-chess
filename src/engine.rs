@@ -32,7 +32,7 @@ use crate::uci_move::UCIMove;
 use std::cmp::max;
 use std::process::exit;
 use std::sync::mpsc;
-use std::sync::mpsc::{Receiver, Sender};
+use std::sync::mpsc::{Receiver, Sender, TryRecvError};
 use std::thread;
 use std::time::{Instant, SystemTime};
 
@@ -51,6 +51,7 @@ pub enum Message {
     },
     Perft(i32),
     IsReady,
+    Stop,
     Fen,
     Profile,
     Quit,
@@ -71,6 +72,8 @@ pub struct Engine {
     pub log_every_second: bool,
     pub last_log_time: Instant,
     pub current_depth: i32,
+
+    pub is_stopped: bool,
 }
 
 pub const TIMEEXT_MULTIPLIER: i32 = 5;
@@ -101,6 +104,7 @@ impl Engine {
             log_every_second: false,
             last_log_time: Instant::now(),
             current_depth: 0,
+            is_stopped: false,
         }
     }
 
@@ -153,6 +157,8 @@ impl Engine {
             Message::Quit => {
                 return false;
             }
+
+            Message::Stop => ()
         }
 
         true
@@ -174,14 +180,14 @@ impl Engine {
             calc_timelimit(movetime, btime, binc, movestogo)
         };
 
-        let time_left = if self.board.active_player() == WHITE {
-            wtime
+        let time_left = max(0, if self.board.active_player() == WHITE {
+            wtime - 20
         } else {
-            btime
-        };
+            btime - 20
+        });
 
         let is_strict_timelimit =
-            movetime != 0 || (time_left - (TIMEEXT_MULTIPLIER * self.timelimit_ms) <= 10);
+            movetime != 0 || (time_left - (TIMEEXT_MULTIPLIER * self.timelimit_ms) <= 20);
 
         let m = self.find_best_move(depth, is_strict_timelimit);
         self.tt.increase_age();
@@ -249,7 +255,6 @@ impl Engine {
             decode_start_index(m),
             decode_end_index(m),
         );
-        print_move(m);
     }
 
     pub fn is_check_mate(&mut self, color: Color) -> bool {
@@ -260,6 +265,34 @@ impl Engine {
         println!("Profiling ...");
         self.go(10, 500, 500, 0, 0, 500, 2);
         exit(0);
+    }
+
+    pub fn is_search_stopped(&self) -> bool {
+        match self.rx.try_recv() {
+            Ok(msg) => {
+                match msg {
+                    Message::IsReady => println!("readyok"),
+
+                    Message::Stop => {
+                        return true;
+                    }
+
+                    _ => ()
+                }
+            },
+
+            Err(e) => {
+                match e {
+                    TryRecvError::Empty => (),
+                    TryRecvError::Disconnected => {
+                        eprintln!("Error communicating with UCI thread: {}", e);
+                        return true;
+                    }
+                }
+            }
+        }
+
+        false
     }
 }
 
@@ -284,13 +317,4 @@ pub fn is_check_mate(board: &mut Board, player_color: Color) -> bool {
     }
 
     !has_valid_moves(board, player_color)
-}
-
-fn print_move(m: Move) {
-    println!(
-        "Move {} from {} to {}",
-        decode_piece_id(m),
-        decode_start_index(m),
-        decode_end_index(m)
-    );
 }

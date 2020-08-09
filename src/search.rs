@@ -94,6 +94,7 @@ impl Search for Engine {
         self.cancel_possible = false;
         self.node_count = 0;
         self.log_every_second = false;
+        self.is_stopped = false;
 
         let mut current_best_move: ScoredMove = NO_MOVE;
 
@@ -160,12 +161,15 @@ impl Search for Engine {
 
                 let gives_check = self.board.is_in_check(-player_color);
 
+                // Apply late move reductions
+                let reduced_depth = if depth > 7 && best_move != NO_MOVE && move_num > LMR_THRESHOLD { depth - 1 } else { depth };
+
                 // Use principal variation search
                 let mut result = self.rec_find_best_move(
                     a,
                     -alpha,
                     -player_color,
-                    depth - 1,
+                    reduced_depth - 1,
                     1,
                     false,
                     true,
@@ -208,6 +212,7 @@ impl Search for Engine {
                     }
 
                     if !is_strict_timelimit
+                        && !self.is_stopped
                         && !already_extended_timelimit
                         && should_extend_timelimit(
                             best_move,
@@ -240,7 +245,12 @@ impl Search for Engine {
                             depth,
                             get_score_info(best_score),
                             pv
-                        )
+                        );
+
+                        if self.is_search_stopped() {
+                            self.is_stopped = true;
+                            iteration_cancelled = true;
+                        }
                     }
                 }
 
@@ -342,8 +352,12 @@ impl Search for Engine {
         if self.node_count & 1023 == 0 && self.cancel_possible {
             let current_time = Instant::now();
             let total_duration = current_time.duration_since(self.starttime);
-            if total_duration.as_millis() as i32 >= self.timelimit_ms {
-                // Cancel search if the time limit has been reached or exceeded
+            if total_duration.as_millis() as i32 >= self.timelimit_ms{
+                // Cancel search if the time limit has been reached
+                return CANCEL_SEARCH;
+
+            } else if self.is_search_stopped() {
+                self.is_stopped = true;
                 return CANCEL_SEARCH;
             }
 

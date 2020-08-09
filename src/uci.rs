@@ -41,21 +41,15 @@ pub fn start_uci_loop(tx: &Sender<Message>) {
         let parts: Vec<&str> = line.split_whitespace().collect();
         for (i, part) in parts.iter().enumerate() {
             match part.to_lowercase().as_str() {
-                "uci" => uci(),
-
                 "fen" => fen(tx),
 
-                "ucinewgame" => uci_new_game(tx),
+                "go" => go(tx, parts[i + 1..].to_vec()),
 
                 "isready" => is_ready(tx),
 
-                "position" => set_position(tx, &parts[i + 1..].to_vec()),
-
-                "setoption" => set_option(tx, &parts[i + 1..].to_vec()),
-
                 "perft" => perft(tx, parts[i + 1..].to_vec()),
 
-                "go" => go(tx, parts[i + 1..].to_vec()),
+                "position" => set_position(tx, &parts[i + 1..].to_vec()),
 
                 "profile" => {
                     profile(tx);
@@ -66,6 +60,14 @@ pub fn start_uci_loop(tx: &Sender<Message>) {
                     send_message(tx, Message::Quit);
                     return;
                 }
+
+                "setoption" => set_option(tx, &parts[i + 1..].to_vec()),
+
+                "stop" => send_message(tx, Message::Stop),
+
+                "uci" => uci(),
+
+                "ucinewgame" => uci_new_game(tx),
 
                 _ => {
                     // Skip unknown commands
@@ -183,8 +185,24 @@ fn perft(tx: &Sender<Message>, parts: Vec<&str>) {
 }
 
 fn go(tx: &Sender<Message>, parts: Vec<&str>) {
-    if parts.len() == 0 {
+    if parts.is_empty() {
         println!("perft cmd: missing depth");
+        return;
+    }
+
+    if parts.contains(&"infinite") {
+        send_message(
+            tx,
+            Message::Go {
+                depth: 3,
+                wtime: 0,
+                btime: 0,
+                winc: 0,
+                binc: 0,
+                movetime: i32::max_value(),
+                movestogo: 1,
+            }
+        );
         return;
     }
 

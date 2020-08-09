@@ -2,7 +2,9 @@
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
-**Velvet Chess Engine** is a rewrite of my previous engine [Wasabi](https://github.com/mhonert/chess) in Rust.
+**Velvet Chess Engine** is a UCI chess engine written in [Rust](https://www.rust-lang.org).
+
+It is based upon my previous chess engine [Wasabi](https://github.com/mhonert/chess).
 
 
 ### License
