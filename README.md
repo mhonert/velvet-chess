@@ -1,5 +1,6 @@
 ## :chess_pawn: Velvet Chess Engine
 
+![Release](https://img.shields.io/github/v/release/mhonert/velvet-chess)
 ![Test](https://img.shields.io/github/workflow/status/mhonert/velvet-chess/Test?label=Test&logo=github)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
