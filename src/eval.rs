@@ -343,7 +343,7 @@ impl Eval for Board {
             }
         }
 
-        // Passed white pawn bonus
+        // Passed black pawn bonus
         pawns = black_pawns;
         while pawns != 0 {
             let pos = pawns.trailing_zeros();

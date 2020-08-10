@@ -19,6 +19,7 @@
 use crate::colors::{Color, WHITE};
 use crate::move_gen::{Move, NO_MOVE};
 use crate::transposition_table::MAX_DEPTH;
+use std::mem::swap;
 
 const HISTORY_SIZE: usize = 2 * 64 * 64;
 
@@ -79,8 +80,13 @@ impl HistoryHeuristics {
             return;
         }
 
-        self.primary_killers[ply as usize] = m;
-        self.secondary_killers[ply as usize] = current_primary;
+        let current_secondary = self.secondary_killers[ply as usize];
+        if current_secondary == m {
+            swap(&mut self.primary_killers[ply as usize], &mut self.secondary_killers[ply as usize]);
+            return;
+        }
+
+        self.secondary_killers[ply as usize] = m;
     }
 
     pub fn update_played_moves(&mut self, color: Color, start: i32, end: i32) {

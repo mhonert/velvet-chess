@@ -132,11 +132,10 @@ impl SortedMoves {
     pub fn next_capture_move(
         &mut self,
         gen: &SortedMoveGenerator,
-        hh: &HistoryHeuristics,
         board: &mut Board,
     ) -> Option<ScoredMove> {
         if self.moves == None {
-            self.moves = Some(self.gen_capture_moves(gen, hh, board));
+            self.moves = Some(self.gen_capture_moves(gen, board));
         }
 
         self.get_next_move()
@@ -211,20 +210,11 @@ impl SortedMoves {
     fn gen_capture_moves(
         &self,
         gen: &SortedMoveGenerator,
-        hh: &HistoryHeuristics,
         board: &Board,
     ) -> Vec<ScoredMove> {
         let active_player = board.active_player();
         let mut moves = generate_capture_moves(board, active_player);
-        self.sort_by_score(
-            gen,
-            hh,
-            board,
-            &mut moves,
-            active_player,
-            self.primary_killer,
-            self.secondary_killer,
-        );
+        self.sort_captures_by_score(gen, board, &mut moves, active_player);
         moves
     }
 
@@ -238,16 +228,34 @@ impl SortedMoves {
         primary_killer: Move,
         secondary_killer: Move,
     ) {
-        for i in 0..moves.len() {
-            let m  = moves[i];
-            let score = if m == primary_killer {
+        for m in moves.iter_mut() {
+            let score = if *m == primary_killer {
                 PRIMARY_KILLER_SCORE_BONUS * active_player as i32
-            } else if m == secondary_killer {
+            } else if *m == secondary_killer {
                 SECONDARY_KILLER_SCORE_BONUS * active_player as i32
             } else {
-                self.evaluate_move_score(gen, hh,  board, active_player, m)
+                self.evaluate_move_score(gen, hh,  board, active_player, *m)
             };
-            moves[i] = encode_scored_move(m, score);
+            *m = encode_scored_move(*m, score);
+        }
+
+        if active_player == WHITE {
+            sort_by_score_desc(moves);
+        } else {
+            sort_by_score_asc(moves);
+        }
+    }
+
+    fn sort_captures_by_score(
+        &self,
+        gen: &SortedMoveGenerator,
+        board: &Board,
+        moves: &mut Vec<Move>,
+        active_player: Color
+    ) {
+        for m in moves.iter_mut() {
+            let score = self.evaluate_capture_move_score(gen, board, active_player, *m);
+            *m = encode_scored_move(*m, score);
         }
 
         if active_player == WHITE {
@@ -276,6 +284,24 @@ impl SortedMoves {
                 hh.get_history_score(active_player, start, end) * active_player as i32;
             return -active_player as i32 * 4096 + history_score;
         }
+
+        let original_piece_id = active_player * board.get_item(start);
+        let captured_piece_id = captured_piece.abs();
+
+        active_player as i32
+            * gen.get_capture_order_score(original_piece_id as i32, captured_piece_id as i32)
+    }
+
+    fn evaluate_capture_move_score(
+        &self,
+        gen: &SortedMoveGenerator,
+        board: &Board,
+        active_player: Color,
+        m: Move,
+    ) -> i32 {
+        let start = decode_start_index(m);
+        let end = decode_end_index(m);
+        let captured_piece = board.get_item(end);
 
         let original_piece_id = active_player * board.get_item(start);
         let captured_piece_id = captured_piece.abs();

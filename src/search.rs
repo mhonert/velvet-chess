@@ -735,7 +735,7 @@ impl Search for Engine {
 
         let mut threshold = alpha - position_score - QS_SEE_THRESHOLD;
 
-        while let Some(scored_move) = moves.next_capture_move(&self.gen, &self.hh, &mut self.board)
+        while let Some(scored_move) = moves.next_capture_move(&self.gen, &mut self.board)
         {
             let m = decode_move(scored_move);
             let target_piece_id = decode_piece_id(m);

@@ -86,16 +86,16 @@ jobs:
           ls -l
           chmod +x velvet-linux-x86_64-modern
           chmod +x velvet-linux-x86_64-vintage
-          mv velvet-windows-x86_64-modern.exe velvet-${tag_name}-windows-x86_64-modern.exe
-          mv velvet-windows-x86_64-vintage.exe velvet-${tag_name}-windows-x86_64-vintage.exe
-          mv velvet-linux-x86_64-modern velvet-${tag_name}-linux-x86_64-modern
-          mv velvet-linux-x86_64-vintage velvet-${tag_name}-linux-x86_64-vintage
+          mv velvet-windows-x86_64-modern.exe velvet-${tag_name}-x86_64-modern.exe
+          mv velvet-windows-x86_64-vintage.exe velvet-${tag_name}-x86_64-vintage.exe
+          mv velvet-linux-x86_64-modern velvet-${tag_name}-x86_64-modern
+          mv velvet-linux-x86_64-vintage velvet-${tag_name}-x86_64-vintage
           sha256sum velvet-* > checksums.txt
           echo "$tag_name" > release_description.txt
           cat artifacts/release_notes.md >> release_description.txt
           hub release create -a "checksums.txt#Checksums" \
-                             -a "velvet-${tag_name}-windows-x86_64-modern.exe" \
-                             -a "velvet-${tag_name}-windows-x86_64-vintage.exe" \
-                             -a "velvet-${tag_name}-linux-x86_64-modern" \
-                             -a "velvet-${tag_name}-linux-x86_64-vintage" \
+                             -a "velvet-${tag_name}-x86_64-modern.exe#Velvet - Windows (x86_64 modern)" \
+                             -a "velvet-${tag_name}-x86_64-vintage.exe#Velvet - Windows (x86_64 vintage)" \
+                             -a "velvet-${tag_name}-x86_64-modern#Velvet - Linux (x86_64 modern)" \
+                             -a "velvet-${tag_name}-x86_64-vintage#Velvet - Linux (x86_64 vintage)" \
                              -F release_description.txt "$tag_name"

@@ -180,14 +180,14 @@ impl Engine {
             calc_timelimit(movetime, btime, binc, movestogo)
         };
 
-        let time_left = max(0, if self.board.active_player() == WHITE {
-            wtime - 20
+        let time_left = if self.board.active_player() == WHITE {
+            wtime
         } else {
-            btime - 20
-        });
+            btime
+        };
 
         let is_strict_timelimit =
-            movetime != 0 || (time_left - (TIMEEXT_MULTIPLIER * self.timelimit_ms) <= 20);
+            movetime != 0 || (time_left - (TIMEEXT_MULTIPLIER * self.timelimit_ms) <= 20) || movestogo == 1;
 
         let m = self.find_best_move(depth, is_strict_timelimit);
         self.tt.increase_age();
@@ -298,16 +298,16 @@ impl Engine {
 
 fn calc_timelimit(movetime: i32, time_left: i32, time_increment: i32, movestogo: i32) -> i32 {
     if movetime > 0 {
-        return movetime;
+        return max(0, movetime - 20);
     }
 
     let time_for_move = time_left / max(1, movestogo);
-    let time_bonus = time_increment / 2;
+    let time_bonus = if movestogo > 1 { time_increment / 2 } else { 0 };
 
     if time_for_move + time_bonus >= time_left {
-        max(0, time_for_move)
+        max(0, time_for_move - 20)
     } else {
-        max(0, time_for_move + time_increment)
+        max(0, time_for_move + time_increment - 20)
     }
 }
 
