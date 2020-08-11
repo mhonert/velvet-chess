@@ -16,7 +16,6 @@ jobs:
         env:
           RUSTFLAGS: "-Ctarget-feature=+bmi,+popcnt,+lzcnt -Cinline-threshold=600"
         run: |
-          rm -rf target
           cargo build --release
           strip target/release/velvet
           mv target/release/velvet velvet-linux-x86_64-modern
@@ -56,7 +55,6 @@ jobs:
         env:
           RUSTFLAGS: "-Ctarget-feature=+crt-static,+bmi,+popcnt,+lzcnt -Cinline-threshold=600"
         run: |
-          rm target -r -fo
           cargo build --release
           mv .\target\release\velvet.exe velvet-windows-x86_64-modern.exe
 
