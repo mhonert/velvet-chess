@@ -16,31 +16,34 @@ jobs:
         env:
           RUSTFLAGS: "-Ctarget-feature=+bmi,+popcnt,+lzcnt -Cinline-threshold=600"
         run: |
+          rm -rf target
           cargo build --release
           strip target/release/velvet
-          mv target/release/velvet target/release/velvet-linux-x86_64-modern
+          mv target/release/velvet velvet-linux-x86_64-modern
 
       - name: Build x86_64-popcnt
         env:
           RUSTFLAGS: "-Ctarget-feature=+popcnt -Cinline-threshold=600"
         run: |
+          rm -rf target
           cargo build --release
           strip target/release/velvet
-          mv target/release/velvet target/release/velvet-linux-x86_64-popcnt
+          mv target/release/velvet velvet-linux-x86_64-popcnt
 
       - name: Build x86_64-vintage
         env:
           RUSTFLAGS: "-Cinline-threshold=600"
         run: |
+          rm -rf target
           cargo build --release
           strip target/release/velvet
-          mv target/release/velvet target/release/velvet-linux-x86_64-vintage
+          mv target/release/velvet velvet-linux-x86_64-vintage
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v2
         with:
           name: velvet-linux
-          path: target/release/velvet*
+          path: target/release/velvet-*
 
   build-windows:
     runs-on: windows-latest
@@ -53,28 +56,31 @@ jobs:
         env:
           RUSTFLAGS: "-Ctarget-feature=+crt-static,+bmi,+popcnt,+lzcnt -Cinline-threshold=600"
         run: |
+          rm target -r -fo
           cargo build --release
-          mv .\target\release\velvet.exe .\target\release\velvet-windows-x86_64-modern.exe
+          mv .\target\release\velvet.exe velvet-windows-x86_64-modern.exe
 
       - name: Build x86_64-popcnt
         env:
           RUSTFLAGS: "-Ctarget-feature=+crt-static,+popcnt -Cinline-threshold=600"
         run: |
+          rm target -r -fo
           cargo build --release
-          mv .\target\release\velvet.exe .\target\release\velvet-windows-x86_64-popcnt.exe
+          mv .\target\release\velvet.exe velvet-windows-x86_64-popcnt.exe
 
       - name: Build x86_64-vintage
         env:
           RUSTFLAGS: "-Ctarget-feature=+crt-static -Cinline-threshold=600"
         run: |
+          rm target -r -fo
           cargo build --release
-          mv .\target\release\velvet.exe .\target\release\velvet-windows-x86_64-vintage.exe
+          mv .\target\release\velvet.exe velvet-windows-x86_64-vintage.exe
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v2
         with:
           name: velvet-windows
-          path: target/release/velvet*
+          path: velvet*.exe
 
   release:
     if: github.repository == 'mhonert/velvet-chess'
