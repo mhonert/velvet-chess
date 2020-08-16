@@ -16,19 +16,17 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::bitboard::Direction::{
-    East, North, NorthEast, NorthWest, South, SouthEast, SouthWest, West,
-};
+use crate::bitboard::Direction::{Horizontal, AntiDiagonal, Vertical, Diagonal};
 
 pub struct Bitboard {
     knight_attacks: [u64; 64],
     king_attacks: [u64; 64],
-    ray_attacks: [u64; 65 * 8],
     white_pawn_freepath: [u64; 64],
     black_pawn_freepath: [u64; 64],
     white_king_shield: [u64; 64],
     black_king_shield: [u64; 64],
     king_danger_zone: [u64; 64],
+    line_masks: [LinePatterns; 64 * 4]
 }
 
 impl Bitboard {
@@ -37,22 +35,24 @@ impl Bitboard {
             calculate_single_move_patterns([21, 19, 12, 8, -12, -21, -19, -8].to_vec());
         let king_attacks =
             calculate_single_move_patterns([1, 10, -1, -10, 9, 11, -9, -11].to_vec());
-        let ray_attacks = calculate_ray_attacks();
         let white_pawn_freepath = create_pawn_free_path_patterns(-1);
         let black_pawn_freepath = create_pawn_free_path_patterns(1);
         let white_king_shield = create_king_shield_patterns(-1);
         let black_king_shield = create_king_shield_patterns(1);
         let king_danger_zone = create_king_danger_zone_patterns();
 
+        let line_masks = calc_line_patterns();
+
         Bitboard {
             knight_attacks,
             king_attacks,
-            ray_attacks,
+            // ray_attacks,
             white_pawn_freepath,
             black_pawn_freepath,
             white_king_shield,
             black_king_shield,
             king_danger_zone,
+            line_masks
         }
     }
 
@@ -76,48 +76,24 @@ impl Bitboard {
         self.king_danger_zone[pos as usize]
     }
 
-    fn get_positive_ray_attacks(&self, occupied: u64, dir: Direction, pos: i32) -> u64 {
-        let dir_offset = dir as usize * 65;
-        let mut attacks = self.ray_attacks[dir_offset + pos as usize];
-        let blocker = attacks & occupied;
-
-        if blocker == 0 {
-            return attacks;
-        }
-
-        let first_blocker_pos = 63 - blocker.leading_zeros();
-        attacks ^= self.ray_attacks[dir_offset + first_blocker_pos as usize];
-        attacks
-    }
-
-    fn get_negative_ray_attacks(&self, occupied: u64, dir: Direction, pos: i32) -> u64 {
-        let dir_offset = dir as usize * 65;
-        let mut attacks = self.ray_attacks[dir_offset + pos as usize];
-        let blocker = attacks & occupied;
-
-        let first_blocker_pos = blocker.trailing_zeros();
-        attacks ^= self.ray_attacks[dir_offset + first_blocker_pos as usize];
-        attacks
-    }
-
+    #[inline]
     pub fn get_diagonal_attacks(&self, occupied: u64, pos: i32) -> u64 {
-        self.get_positive_ray_attacks(occupied, Direction::NorthEast, pos)
-            | self.get_negative_ray_attacks(occupied, Direction::SouthWest, pos)
+        get_line_attacks(occupied, &self.line_masks[pos as usize + (Diagonal as usize * 64)])
     }
 
+    #[inline]
     pub fn get_anti_diagonal_attacks(&self, occupied: u64, pos: i32) -> u64 {
-        self.get_positive_ray_attacks(occupied, Direction::NorthWest, pos)
-            | self.get_negative_ray_attacks(occupied, Direction::SouthEast, pos)
+        get_line_attacks(occupied, &self.line_masks[pos as usize + (AntiDiagonal as usize * 64)])
     }
 
+    #[inline]
     pub fn get_horizontal_attacks(&self, occupied: u64, pos: i32) -> u64 {
-        self.get_positive_ray_attacks(occupied, Direction::West, pos)
-            | self.get_negative_ray_attacks(occupied, Direction::East, pos)
+        get_line_attacks(occupied, &self.line_masks[pos as usize + (Horizontal as usize * 64)])
     }
 
+    #[inline]
     pub fn get_vertical_attacks(&self, occupied: u64, pos: i32) -> u64 {
-        self.get_positive_ray_attacks(occupied, Direction::North, pos)
-            | self.get_negative_ray_attacks(occupied, Direction::South, pos)
+        get_line_attacks(occupied, &self.line_masks[pos as usize + (Vertical as usize * 64)])
     }
 
     pub fn get_white_pawn_freepath(&self, pos: i32) -> u64 {
@@ -129,6 +105,7 @@ impl Bitboard {
     }
 }
 
+// Calculate move patterns for pieces which can only move to one target field per direction (king and knight)
 fn calculate_single_move_patterns(directions: Vec<i32>) -> [u64; 64] {
     let mut patterns: [u64; 64] = [0; 64];
     let mut index: usize = 0;
@@ -154,64 +131,84 @@ fn calculate_single_move_patterns(directions: Vec<i32>) -> [u64; 64] {
     patterns
 }
 
+
+// Patterns for line movers (Bishop, Rook, Queen)
 #[repr(usize)]
 enum Direction {
-    NorthWest = 0,
-    North = 1,
-    NorthEast = 2,
-    East = 3,
-    SouthEast = 4,
-    South = 5,
-    SouthWest = 6,
-    West = 7,
+    Horizontal = 0,
+    Vertical = 1,
+    Diagonal = 2,
+    AntiDiagonal = 3,
 }
 
 pub const MAX_FIELD_DISTANCE: i32 = 7; // maximum distance between two fields on the board
 
-const DIRECTIONS: [usize; 8] = [
-    NorthWest as usize,
-    North as usize,
-    NorthEast as usize,
-    East as usize,
-    SouthEast as usize,
-    South as usize,
-    SouthWest as usize,
-    West as usize,
+const DIRECTIONS: [usize; 4] = [
+    Horizontal as usize,
+    Vertical as usize,
+    Diagonal as usize,
+    AntiDiagonal as usize,
 ];
 
-const DIRECTION_COL_OFFSET: [i32; 8] = [-1, 0, 1, 1, 1, 0, -1, -1];
-const DIRECTION_ROW_OFFSET: [i32; 8] = [-1, -1, -1, 0, 1, 1, 1, 0];
+#[derive(Copy, Clone)]
+struct LinePatterns {
+    lower: u64,
+    upper: u64,
+    combined: u64
+}
 
-fn calculate_ray_attacks() -> [u64; 65 * 8] {
-    let mut patterns: [u64; 65 * 8] = [0; 65 * 8];
+#[inline]
+fn get_line_attacks(occupied: u64, patterns: &LinePatterns) -> u64 {
+    // Uses the obstruction difference algorithm to determine line attacks
+    // see the chess programming Wiki for a detailed explanation: https://www.chessprogramming.org/Obstruction_Difference
+    let lower = patterns.lower & occupied;
+    let upper = patterns.upper & occupied;
+    let ms1b = 0x8000000000000000 >> ((lower | 1).leading_zeros() as u64);
+    let ls1b = upper & upper.wrapping_neg();
+    let odiff = ls1b.wrapping_shl(1).wrapping_sub(ms1b);
+    patterns.combined & odiff
+}
+
+
+const DIRECTION_COL_OFFSET: [i32; 4] = [-1, 0, 1, -1];
+const DIRECTION_ROW_OFFSET: [i32; 4] = [0, -1, -1, -1];
+
+fn calc_line_patterns() -> [LinePatterns; 64 * 4] {
+    let mut patterns: [LinePatterns; 64 * 4] = [LinePatterns{lower: 0, upper: 0, combined: 0}; 64 * 4];
 
     let mut index = 0;
     for dir in DIRECTIONS.iter() {
         for pos in 0..64 {
-            let mut col = pos % 8;
-            let mut row = pos / 8;
-
-            let mut attack_bitboard: u64 = 0;
-
-            for _ in 1..=MAX_FIELD_DISTANCE {
-                col += DIRECTION_COL_OFFSET[*dir];
-                row += DIRECTION_ROW_OFFSET[*dir];
-
-                if col < 0 || col > 7 || row < 0 || row > 7 {
-                    break;
-                }
-
-                let pattern_index = row * 8 + col;
-                attack_bitboard |= 1 << pattern_index as u64;
-            }
-            patterns[index] = attack_bitboard;
+            let lower = calc_pattern(pos, DIRECTION_COL_OFFSET[*dir], DIRECTION_ROW_OFFSET[*dir]);
+            let upper = calc_pattern(pos, -DIRECTION_COL_OFFSET[*dir], -DIRECTION_ROW_OFFSET[*dir]);
+            let combined = upper | lower;
+            patterns[index] = LinePatterns{lower, upper, combined};
             index += 1;
         }
-        patterns[index] = 0;
-        index += 1;
     }
 
     patterns
+}
+
+fn calc_pattern(pos: i32, dir_col: i32, dir_row: i32) -> u64 {
+    let mut col = pos % 8;
+    let mut row = pos / 8;
+
+    let mut pattern: u64 = 0;
+
+    for _ in 1..=MAX_FIELD_DISTANCE {
+        col += dir_col;
+        row += dir_row;
+
+        if col < 0 || col > 7 || row < 0 || row > 7 {
+            break;
+        }
+
+        let pattern_index = row * 8 + col;
+        pattern |= 1 << pattern_index as u64;
+    }
+
+    pattern
 }
 
 fn is_border(pos: i32) -> bool {
@@ -221,6 +218,8 @@ fn is_border(pos: i32) -> bool {
 
     pos % 10 == 0 || pos % 10 == 9
 }
+
+// Pawn attack move patterns
 
 pub fn white_left_pawn_attacks(pawns: u64) -> u64 {
     (pawns & 0xfefefefefefefefe) >> 9 // mask right column
