@@ -220,10 +220,14 @@ def run_pass(config: Config, k: float, engines: List[Engine], test_positions: Li
         worker_id = 1
         for batch in make_batches(test_positions, config.concurrent_workers):
             engine = engines[worker_id - 1]
-            futures.append(executor.submit(run_engine, engine, worker_id, config.tuning_options, batch))
+            futures.append(executor.submit(run_engine, engine, config.tuning_options, batch))
             worker_id += 1
 
         for future in as_completed(futures):
+            if future.exception():
+                log.exception("Worker was cancelled", future.exception())
+                sys.exit("Worker was cancelled")
+
             if future.cancelled():
                 sys.exit("Worker was cancelled - possible engine bug? try enabling the debug_log output and re-run the tuner")
 

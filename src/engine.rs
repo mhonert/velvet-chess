@@ -35,6 +35,7 @@ use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender, TryRecvError};
 use std::thread;
 use std::time::{Instant, SystemTime};
+use crate::eval::Eval;
 
 pub enum Message {
     NewGame,
@@ -52,8 +53,11 @@ pub enum Message {
     Perft(i32),
     IsReady,
     Stop,
+    Eval(Vec<String>),
     Fen,
     Profile,
+    SetOption(String, i32),
+    SetArrayOption(String, i32, i32),
     Quit,
 }
 
@@ -150,9 +154,15 @@ impl Engine {
                 movestogo,
             } => self.go(depth, wtime, btime, winc, binc, movetime, movestogo),
 
+            Message::Eval(fens) => self.eval(fens),
+
             Message::Fen => println!("{}", write_fen(&self.board)),
 
             Message::Profile => self.profile(),
+
+            Message::SetOption(name, value) => self.set_option(name, value),
+
+            Message::SetArrayOption(name, index, value) => self.set_array_option(name, index, value),
 
             Message::Quit => {
                 return false;
@@ -219,6 +229,27 @@ impl Engine {
         }
     }
 
+    fn eval(&mut self, fens: Vec<String>) {
+        let mut is_first = true;
+
+        print!("scores ");
+        for fen in fens {
+            match read_fen(&mut self.board, fen.as_str()) {
+                Ok(_) => (),
+                Err(err) => println!("eval cmd: {}", err),
+            }
+
+            if !is_first {
+                print!(";")
+            } else {
+                is_first = false;
+            }
+
+            print!("{}", self.board.get_score());
+        }
+        println!();
+    }
+
     fn set_tt_size(&mut self, size_mb: i32) {
         self.tt.resize(size_mb as u64, false);
     }
@@ -265,6 +296,22 @@ impl Engine {
         println!("Profiling ...");
         self.go(10, 500, 500, 0, 0, 500, 2);
         exit(0);
+    }
+
+    fn set_option(&mut self, name: String, value: i32) {
+        eprintln!("Unknown option: {} - {}", name, value);
+    }
+
+    fn set_array_option(&mut self, name: String, index: i32, value: i32) {
+        if name == "passedpawnbonus" {
+            self.board.options.set_passed_pawns(index, value);
+        } else if name == "passedpawnkingdefensebonus" {
+            self.board.options.set_passed_pawn_king_defense_bonus(index, value);
+        } else if name == "passedpawnkingattackedpenalty" {
+            self.board.options.set_passed_pawn_king_attacked_penalty(index, value);
+        } else {
+            eprintln!("Unknown option: {}", name);
+        }
     }
 
     pub fn is_search_stopped(&self) -> bool {

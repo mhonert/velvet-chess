@@ -28,11 +28,13 @@ use crate::pieces::{B, EMPTY, K, N, P, PIECE_VALUES, Q, R};
 use crate::pos_history::PositionHistory;
 use crate::score_util::{unpack_eg_score, unpack_score};
 use crate::zobrist::Zobrist;
+use crate::eval_options::EvalOptions;
 
 const MAX_GAME_HALFMOVES: usize = 5898 * 2;
 
 pub struct Board {
     pub bb: Bitboard,
+    pub options: EvalOptions,
     zobrist: Zobrist,
     pst: PieceSquareTables,
     pos_history: PositionHistory,
@@ -74,6 +76,7 @@ impl Board {
 
         let mut board = Board {
             bb: Bitboard::new(),
+            options: EvalOptions::new(),
             zobrist: Zobrist::new(),
             pst: PieceSquareTables::new(),
             pos_history: PositionHistory::new(),

@@ -27,6 +27,7 @@ mod boardpos;
 mod castling;
 mod colors;
 mod eval;
+mod eval_options;
 mod history_heuristics;
 mod move_gen;
 mod move_sort;

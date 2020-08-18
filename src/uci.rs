@@ -41,6 +41,8 @@ pub fn start_uci_loop(tx: &Sender<Message>) {
         let parts: Vec<&str> = line.split_whitespace().collect();
         for (i, part) in parts.iter().enumerate() {
             match part.to_lowercase().as_str() {
+                "eval" => eval(tx, parts[i + 1..].to_vec()),
+
                 "fen" => fen(tx),
 
                 "go" => go(tx, parts[i + 1..].to_vec()),
@@ -153,7 +155,51 @@ fn set_option(tx: &Sender<Message>, parts: &Vec<&str>) {
 
         send_message(tx, Message::SetTranspositionTableSize(size_mb));
         return;
+
+    } else if name.starts_with("passedpawnbonus") {
+        set_array_option_value(tx, "passedpawnbonus",  &name, value);
+
+    } else if name.starts_with("passedpawnkingdefensebonus") {
+        set_array_option_value(tx, "passedpawnkingdefensebonus",  &name, value);
+
+    } else if name.starts_with("passedpawnkingattackedpenalty") {
+        set_array_option_value(tx, "passedpawnkingattackedpenalty",  &name, value);
+
+    } else if name == "passedpawnthreshold" {
+        set_option_value(tx, "passedpawnthreshold", value);
     }
+}
+
+fn set_option_value(tx: &Sender<Message>, name: &str, value_str: &str) {
+    let value = match i32::from_str(value_str) {
+        Ok(value) => value,
+        Err(_) => {
+            println!("Invalid int value: {}", value_str);
+            return;
+        }
+    };
+
+    send_message(tx, Message::SetOption(String::from(name), value));
+}
+
+fn set_array_option_value(tx: &Sender<Message>, name: &str, name_with_index: &str, value_str: &str) {
+    let index = match i32::from_str(&name_with_index[name.len()..]) {
+        Ok(index) => index,
+        Err(_) => {
+            println!("Invalid index: {}", name_with_index);
+            return;
+        }
+    };
+
+    let value = match i32::from_str(value_str) {
+        Ok(value) => value,
+        Err(_) => {
+            println!("Invalid int value: {}", value_str);
+            return;
+        }
+    };
+
+    send_message(tx, Message::SetArrayOption(String::from(name), index, value));
 }
 
 fn parse_moves(idx: usize, parts: &Vec<&str>) -> Vec<UCIMove> {
@@ -173,7 +219,7 @@ fn parse_moves(idx: usize, parts: &Vec<&str>) -> Vec<UCIMove> {
 }
 
 fn perft(tx: &Sender<Message>, parts: Vec<&str>) {
-    if parts.len() == 0 {
+    if parts.is_empty() {
         println!("perft cmd: missing depth");
         return;
     }
@@ -231,6 +277,18 @@ fn go(tx: &Sender<Message>, parts: Vec<&str>) {
             movestogo,
         },
     );
+}
+
+fn eval(tx: &Sender<Message>, parts: Vec<&str>) {
+    if parts.is_empty() {
+        println!("eval cmd: missing fen positions");
+        return;
+    }
+
+    let fens_str: String = parts.join(" ");
+    let fens: Vec<String> = fens_str.split(';').map(String::from).collect();
+
+    send_message(tx, Message::Eval(fens));
 }
 
 fn profile(tx: &Sender<Message>) {

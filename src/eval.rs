@@ -21,6 +21,7 @@ use crate::pieces::{P, N, B, R, Q};
 use crate::castling::Castling;
 use crate::colors::{WHITE, BLACK};
 use crate::bitboard::{black_left_pawn_attacks, black_right_pawn_attacks, white_left_pawn_attacks, white_right_pawn_attacks};
+use std::cmp::{max};
 
 pub trait Eval {
     fn get_score(&self) -> i32;
@@ -28,7 +29,8 @@ pub trait Eval {
 
 // Evaluation constants
 const DOUBLED_PAWN_PENALTY: i32 = 17;
-const PASSED_PAWN_BONUS: i32 = 22;
+
+const PASSED_PAWN_THRESHOLD: u32 = 4;
 
 const KING_SHIELD_BONUS: i32 = 20;
 
@@ -281,6 +283,66 @@ impl Eval for Board {
             }
         }
 
+        // Passed white pawn bonus
+        let pawn_blockers = black_pieces | white_pawns;
+        let mut pawns = white_pawns;
+        while pawns != 0 {
+            let pos = pawns.trailing_zeros();
+            pawns ^= 1 << pos as u64; // unset bit
+
+            let distance_to_promotion = pos / 8;
+            if distance_to_promotion <= PASSED_PAWN_THRESHOLD
+                && (self.bb.get_white_pawn_freepath(pos as i32) & pawn_blockers) == 0 { // unblocked
+
+                let col = pos & 7;
+                if (col == 0 || (self.bb.get_white_pawn_freepath(pos as i32 - 1) & black_pawns == 0))
+                    && (col == 7 || (self.bb.get_white_pawn_freepath(pos as i32 + 1) & black_pawns == 0)) {
+                    // Unguarded by enemy pawns
+                    let bonus = self.options.get_passed_pawn_bonus(distance_to_promotion - 1);
+                    score += bonus;
+                    eg_score += bonus;
+
+                    let own_king_distance = max((self.white_king / 8 - pos as i32 / 8).abs(),
+                                                     (self.white_king % 8 - pos as i32 % 8).abs());
+
+                    eg_score += self.options.get_passed_pawn_king_defense_bonus(own_king_distance);
+
+                    let opponent_king_distance = max((self.black_king / 8 - pos as i32 / 8).abs(),
+                                                     (self.black_king % 8 - pos as i32 % 8).abs());
+                    eg_score -= self.options.get_passed_pawn_king_attacked_penalty(opponent_king_distance);
+                }
+            }
+        }
+
+        // Passed black pawn bonus
+        let pawn_blockers = white_pieces | black_pawns;
+        pawns = black_pawns;
+        while pawns != 0 {
+            let pos = pawns.trailing_zeros();
+            pawns ^= 1 << pos as u64; // unset bit
+            let distance_to_promotion = 7 - pos / 8;
+            if distance_to_promotion <= PASSED_PAWN_THRESHOLD
+                && (self.bb.get_black_pawn_freepath(pos as i32) & pawn_blockers) == 0 {
+                let col = pos & 7;
+                if (col == 0 || (self.bb.get_black_pawn_freepath(pos as i32 - 1) & white_pawns == 0))
+                    && (col == 7 || (self.bb.get_black_pawn_freepath(pos as i32 + 1) & white_pawns == 0)) {
+                    // Unguarded by enemy pawns
+                    let bonus = self.options.get_passed_pawn_bonus(distance_to_promotion - 1);
+                    score -= bonus;
+                    eg_score -= bonus;
+
+                    let own_king_distance = max((self.black_king / 8 - pos as i32 / 8).abs(),
+                                                (self.black_king % 8 - pos as i32 % 8).abs());
+
+                    eg_score -= self.options.get_passed_pawn_king_defense_bonus(own_king_distance);
+
+                    let opponent_king_distance = max((self.white_king / 8 - pos as i32 / 8).abs(),
+                                                     (self.white_king % 8 - pos as i32 % 8).abs());
+                    eg_score += self.options.get_passed_pawn_king_attacked_penalty(opponent_king_distance);
+                }
+            }
+        }
+
         // Interpolate between opening/mid-game score and end game score for a smooth eval score transition
         let pawn_count: i32 = (white_pawns | black_pawns).count_ones() as i32;
         let pieces_except_king_count: i32 = (white_pieces | black_pieces).count_ones() as i32 - 2; // -2 for two kings
@@ -320,50 +382,6 @@ impl Eval for Board {
             white_king_threat += 3;
         }
         interpolated_score -= KING_DANGER_PIECE_PENALTY[white_king_threat as usize];
-
-        // Passed white pawn bonus
-        let mut pawns = white_pawns;
-        while pawns != 0 {
-            let pos = pawns.trailing_zeros();
-            pawns ^= 1 << pos as u64; // unset bit
-            let distance_to_promotion = pos / 8;
-            if distance_to_promotion <= 4 && (self.bb.get_white_pawn_freepath(pos as i32) & black_pieces) == 0 {
-                let col = pos & 7;
-                if col == 0 || (self.bb.get_white_pawn_freepath(pos as i32 - 1) & black_pawns == 0) {
-                    let reversed_distance = 5 - distance_to_promotion as i32;
-                    interpolated_score += reversed_distance * PASSED_PAWN_BONUS;
-
-                    if col == 7 || (self.bb.get_white_pawn_freepath(pos as i32 + 1) & black_pawns == 0) {
-                        interpolated_score += (1 << reversed_distance) + reversed_distance;
-                    }
-                } else if col == 7 || (self.bb.get_white_pawn_freepath(pos as i32 + 1) & black_pawns == 0) {
-                    let reversed_distance = 5 - distance_to_promotion as i32;
-                    interpolated_score += reversed_distance * PASSED_PAWN_BONUS;
-                }
-            }
-        }
-
-        // Passed black pawn bonus
-        pawns = black_pawns;
-        while pawns != 0 {
-            let pos = pawns.trailing_zeros();
-            pawns ^= 1 << pos as u64; // unset bit
-            let distance_to_promotion = 7 - pos / 8;
-            if distance_to_promotion <= 4 && (self.bb.get_black_pawn_freepath(pos as i32) & white_pieces) == 0 {
-                let col = pos & 7;
-                if col == 0 || (self.bb.get_black_pawn_freepath(pos as i32 - 1) & white_pawns == 0) {
-                    let reversed_distance = 5 - distance_to_promotion as i32;
-                    interpolated_score -= reversed_distance * PASSED_PAWN_BONUS;
-
-                    if col == 7 || (self.bb.get_black_pawn_freepath(pos as i32 + 1) & white_pawns == 0) {
-                        interpolated_score -= (1 << reversed_distance) + reversed_distance;
-                    }
-                } else if col == 7 || (self.bb.get_black_pawn_freepath(pos as i32 + 1) & white_pawns == 0) {
-                    let reversed_distance = 5 - distance_to_promotion as i32;
-                    interpolated_score -= reversed_distance * PASSED_PAWN_BONUS;
-                }
-            }
-        }
 
         interpolated_score
     }

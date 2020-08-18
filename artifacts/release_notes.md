@@ -4,6 +4,7 @@ This is the initial release of the Velvet Chess Engine :sparkles:
 
 ## Changes
 - Replaced *classical* line attack generation with obstruction difference algorithm
+- Improved passed pawn evaluation
 
 ## Installation
 - Download the suitable executable for your platform (Linux or Windows) and CPU generation
