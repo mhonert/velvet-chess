@@ -292,25 +292,22 @@ impl Eval for Board {
 
             let distance_to_promotion = pos / 8;
             if distance_to_promotion <= PASSED_PAWN_THRESHOLD
-                && (self.bb.get_white_pawn_freepath(pos as i32) & pawn_blockers) == 0 { // unblocked
+                && (self.bb.get_white_pawn_freepath(pos as i32) & pawn_blockers) == 0
+                && (self.bb.get_white_pawn_freesides(pos as i32) & black_pawns) == 0 {
 
-                let col = pos & 7;
-                if (col == 0 || (self.bb.get_white_pawn_freepath(pos as i32 - 1) & black_pawns == 0))
-                    && (col == 7 || (self.bb.get_white_pawn_freepath(pos as i32 + 1) & black_pawns == 0)) {
-                    // Unguarded by enemy pawns
-                    let bonus = self.options.get_passed_pawn_bonus(distance_to_promotion - 1);
-                    score += bonus;
-                    eg_score += bonus;
+                // Not blocked and unguarded by enemy pawns
+                let bonus = self.options.get_passed_pawn_bonus(distance_to_promotion - 1);
+                score += bonus;
+                eg_score += bonus;
 
-                    let own_king_distance = max((self.white_king / 8 - pos as i32 / 8).abs(),
-                                                     (self.white_king % 8 - pos as i32 % 8).abs());
+                let own_king_distance = max((self.white_king / 8 - pos as i32 / 8).abs(),
+                                            (self.white_king % 8 - pos as i32 % 8).abs());
 
-                    eg_score += self.options.get_passed_pawn_king_defense_bonus(own_king_distance);
+                eg_score += self.options.get_passed_pawn_king_defense_bonus(own_king_distance);
 
-                    let opponent_king_distance = max((self.black_king / 8 - pos as i32 / 8).abs(),
-                                                     (self.black_king % 8 - pos as i32 % 8).abs());
-                    eg_score -= self.options.get_passed_pawn_king_attacked_penalty(opponent_king_distance);
-                }
+                let opponent_king_distance = max((self.black_king / 8 - pos as i32 / 8).abs(),
+                                                 (self.black_king % 8 - pos as i32 % 8).abs());
+                eg_score -= self.options.get_passed_pawn_king_attacked_penalty(opponent_king_distance);
             }
         }
 
@@ -322,24 +319,22 @@ impl Eval for Board {
             pawns ^= 1 << pos as u64; // unset bit
             let distance_to_promotion = 7 - pos / 8;
             if distance_to_promotion <= PASSED_PAWN_THRESHOLD
-                && (self.bb.get_black_pawn_freepath(pos as i32) & pawn_blockers) == 0 {
-                let col = pos & 7;
-                if (col == 0 || (self.bb.get_black_pawn_freepath(pos as i32 - 1) & white_pawns == 0))
-                    && (col == 7 || (self.bb.get_black_pawn_freepath(pos as i32 + 1) & white_pawns == 0)) {
-                    // Unguarded by enemy pawns
-                    let bonus = self.options.get_passed_pawn_bonus(distance_to_promotion - 1);
-                    score -= bonus;
-                    eg_score -= bonus;
+                && (self.bb.get_black_pawn_freepath(pos as i32) & pawn_blockers) == 0
+                && (self.bb.get_black_pawn_freesides(pos as i32) & white_pawns) == 0 {
 
-                    let own_king_distance = max((self.black_king / 8 - pos as i32 / 8).abs(),
-                                                (self.black_king % 8 - pos as i32 % 8).abs());
+                // Not blocked and unguarded by enemy pawns
+                let bonus = self.options.get_passed_pawn_bonus(distance_to_promotion - 1);
+                score -= bonus;
+                eg_score -= bonus;
 
-                    eg_score -= self.options.get_passed_pawn_king_defense_bonus(own_king_distance);
+                let own_king_distance = max((self.black_king / 8 - pos as i32 / 8).abs(),
+                                            (self.black_king % 8 - pos as i32 % 8).abs());
 
-                    let opponent_king_distance = max((self.white_king / 8 - pos as i32 / 8).abs(),
-                                                     (self.white_king % 8 - pos as i32 % 8).abs());
-                    eg_score += self.options.get_passed_pawn_king_attacked_penalty(opponent_king_distance);
-                }
+                eg_score -= self.options.get_passed_pawn_king_defense_bonus(own_king_distance);
+
+                let opponent_king_distance = max((self.white_king / 8 - pos as i32 / 8).abs(),
+                                                 (self.white_king % 8 - pos as i32 % 8).abs());
+                eg_score += self.options.get_passed_pawn_king_attacked_penalty(opponent_king_distance);
             }
         }
 

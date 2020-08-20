@@ -23,6 +23,8 @@ pub struct Bitboard {
     king_attacks: [u64; 64],
     white_pawn_freepath: [u64; 64],
     black_pawn_freepath: [u64; 64],
+    white_pawn_freesides: [u64; 64],
+    black_pawn_freesides: [u64; 64],
     white_king_shield: [u64; 64],
     black_king_shield: [u64; 64],
     king_danger_zone: [u64; 64],
@@ -37,6 +39,8 @@ impl Bitboard {
             calculate_single_move_patterns([1, 10, -1, -10, 9, 11, -9, -11].to_vec());
         let white_pawn_freepath = create_pawn_free_path_patterns(-1);
         let black_pawn_freepath = create_pawn_free_path_patterns(1);
+        let white_pawn_freesides = create_pawn_free_sides_patterns(-1);
+        let black_pawn_freesides = create_pawn_free_sides_patterns(1);
         let white_king_shield = create_king_shield_patterns(-1);
         let black_king_shield = create_king_shield_patterns(1);
         let king_danger_zone = create_king_danger_zone_patterns();
@@ -46,9 +50,10 @@ impl Bitboard {
         Bitboard {
             knight_attacks,
             king_attacks,
-            // ray_attacks,
             white_pawn_freepath,
             black_pawn_freepath,
+            white_pawn_freesides,
+            black_pawn_freesides,
             white_king_shield,
             black_king_shield,
             king_danger_zone,
@@ -102,6 +107,14 @@ impl Bitboard {
 
     pub fn get_black_pawn_freepath(&self, pos: i32) -> u64 {
         self.black_pawn_freepath[pos as usize]
+    }
+
+    pub fn get_white_pawn_freesides(&self, pos: i32) -> u64 {
+        self.white_pawn_freesides[pos as usize]
+    }
+
+    pub fn get_black_pawn_freesides(&self, pos: i32) -> u64 {
+        self.black_pawn_freesides[pos as usize]
     }
 }
 
@@ -272,6 +285,30 @@ fn create_pawn_free_path_patterns(direction: i32) -> [u64; 64] {
         while row >= 1 && row <= 6 {
             row += direction;
             pattern |= 1 << ((row * 8 + col) as u64);
+        }
+        patterns[pos as usize] = pattern;
+    }
+
+    patterns
+}
+
+// Patterns to check, whether the sides of the path in front of the pawn is free (i.e. not controlled by opponent pawns)
+fn create_pawn_free_sides_patterns(direction: i32) -> [u64; 64] {
+    let mut patterns: [u64; 64] = [0; 64];
+    for pos in 0..64 {
+        let mut row = pos / 8;
+        let col = pos & 7;
+        let mut pattern: u64 = 0;
+
+        while row >= 1 && row <= 6 {
+            row += direction;
+            if col - 1 >= 0 {
+                pattern |= 1 << ((row * 8 + (col - 1)) as u64);
+            }
+
+            if col + 1 < 8 {
+                pattern |= 1 << ((row * 8 + (col + 1)) as u64);
+            }
         }
         patterns[pos as usize] = pattern;
     }
