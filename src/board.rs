@@ -769,25 +769,22 @@ impl Board {
     pub fn is_pawn_move_close_to_promotion(
         &self,
         piece: i8,
-        move_end: i32,
+        pos: i32,
         moves_left: i32,
+        blockers: u64,
+        opp_pawns: u64
     ) -> bool {
         if piece == P {
-            let distance_to_promotion = move_end / 8;
-            if distance_to_promotion <= moves_left
-                && (self.bb.get_white_pawn_freepath(move_end) & self.get_all_piece_bitboard(BLACK)
-                    == 0)
-            {
-                return true;
-            }
+            let distance_to_promotion = pos / 8;
+            return distance_to_promotion <= moves_left
+                && (self.bb.get_white_pawn_freepath(pos as i32) & blockers) == 0
+                && (self.bb.get_white_pawn_freesides(pos as i32) & opp_pawns) == 0;
+
         } else if piece == -P {
-            let distance_to_promotion = 7 - move_end / 8;
-            if distance_to_promotion <= moves_left
-                && (self.bb.get_black_pawn_freepath(move_end) & self.get_all_piece_bitboard(WHITE)
-                    == 0)
-            {
-                return true;
-            }
+            let distance_to_promotion = 7 - pos / 8;
+            return distance_to_promotion <= moves_left
+                && (self.bb.get_black_pawn_freepath(pos as i32) & blockers) == 0
+                && (self.bb.get_black_pawn_freesides(pos as i32) & opp_pawns) == 0;
         }
 
         false
