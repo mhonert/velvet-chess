@@ -342,6 +342,11 @@ impl Eval for Board {
         let pawn_count: i32 = (white_pawns | black_pawns).count_ones() as i32;
         let pieces_except_king_count: i32 = (white_pieces | black_pieces).count_ones() as i32 - 2; // -2 for two kings
 
+        // Material difference relative to total piece count
+        if pieces_except_king_count > 0 {
+            score += self.score as i32 / pieces_except_king_count;
+        }
+
         let white_queen_phase_score = if white_queens != 0 { QUEEN_PHASE_VALUE } else { 0 };
         let black_queen_phase_score = if black_queens != 0 { QUEEN_PHASE_VALUE } else { 0 };
         let queen_phase_score: i32 = white_queen_phase_score + black_queen_phase_score;
