@@ -338,7 +338,7 @@ impl Search for Engine {
     fn rec_find_best_move(
         &mut self,
         mut alpha: i32,
-        beta: i32,
+        mut beta: i32,
         player_color: Color,
         mut depth: i32,
         ply: i32,
@@ -406,25 +406,32 @@ impl Search for Engine {
             // Validate hash move for additional protection against hash collisions
             if get_depth(tt_entry) >= depth {
                 if is_valid_move(&mut self.board, player_color, decode_move(scored_move)) {
-                    let score = decode_score(scored_move);
+                    let score = adjust_score_from_tt(decode_score(scored_move), ply);
 
                     match get_score_type(tt_entry) {
                         EXACT => {
                             return score;
                         }
                         UPPER_BOUND => {
-                            if score <= alpha {
-                                return alpha;
+                            if score < beta {
+                                beta = score;
+                                if alpha >= beta {
+                                    return beta;
+                                }
                             }
                         }
 
                         LOWER_BOUND => {
-                            if score >= beta {
-                                return beta;
+                            if score > alpha {
+                                alpha = score;
+                                if alpha >= beta {
+                                    return alpha;
+                                }
                             }
                         }
                         _ => (),
                     };
+
                 } else {
                     scored_move = NO_MOVE;
                 }
@@ -670,7 +677,7 @@ impl Search for Engine {
                         self.tt.write_entry(
                             hash,
                             depth,
-                            encode_scored_move(best_move, best_score),
+                            encode_scored_move(best_move, adjust_score_for_tt(best_score)),
                             LOWER_BOUND,
                         );
 
@@ -697,7 +704,7 @@ impl Search for Engine {
         self.tt.write_entry(
             hash,
             depth,
-            encode_scored_move(best_move, best_score),
+            encode_scored_move(best_move, adjust_score_for_tt(best_score)),
             score_type,
         );
 
@@ -890,6 +897,26 @@ fn get_score_info(score: i32) -> String {
     }
 
     format!("cp {}", score)
+}
+
+fn adjust_score_for_tt(score: i32) -> i32 {
+    if score >= BLACK_MATE_SCORE - MAX_DEPTH as i32 {
+        return BLACK_MATE_SCORE;
+    } else if score <= WHITE_MATE_SCORE + MAX_DEPTH as i32 {
+        return WHITE_MATE_SCORE;
+    }
+
+    score
+}
+
+fn adjust_score_from_tt(score: i32, ply: i32) -> i32 {
+    if score == BLACK_MATE_SCORE {
+        return score - ply;
+    } else if score == WHITE_MATE_SCORE {
+       return score + ply;
+    }
+
+    score
 }
 
 #[cfg(test)]
