@@ -108,7 +108,7 @@ impl Engine {
             log_every_second: false,
             last_log_time: Instant::now(),
             current_depth: 0,
-            is_stopped: false,
+            is_stopped: false
         }
     }
 

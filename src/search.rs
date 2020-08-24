@@ -23,7 +23,7 @@ use crate::move_gen::{
     decode_end_index, decode_piece_id, decode_start_index, is_valid_move, Move, NO_MOVE,
 };
 use crate::move_sort::SortedMoveGenerator;
-use crate::pieces::{EMPTY, P};
+use crate::pieces::{EMPTY, P, K};
 use crate::score_util::{
     decode_move, decode_score, encode_scored_move, ScoredMove, BLACK_MATE_SCORE, MAX_SCORE,
     MIN_SCORE, WHITE_MATE_SCORE,
@@ -58,6 +58,8 @@ pub trait Search {
     fn extract_pv(&mut self, m: Move, depth: i32) -> String;
 
     fn terminal_score(&mut self, active_player: Color, ply: i32) -> i32;
+
+    fn is_likely_valid_move(&self, active_player: Color, m: Move) -> bool;
 }
 
 const CANCEL_SEARCH: i32 = i32::max_value() - 1;
@@ -338,7 +340,7 @@ impl Search for Engine {
     fn rec_find_best_move(
         &mut self,
         mut alpha: i32,
-        mut beta: i32,
+        beta: i32,
         player_color: Color,
         mut depth: i32,
         ply: i32,
@@ -403,41 +405,40 @@ impl Search for Engine {
         let mut scored_move = get_scored_move(tt_entry);
 
         if scored_move != NO_MOVE {
-            // Validate hash move for additional protection against hash collisions
-            if get_depth(tt_entry) >= depth {
-                if is_valid_move(&mut self.board, player_color, decode_move(scored_move)) {
-                    let score = adjust_score_from_tt(decode_score(scored_move), ply);
 
-                    match get_score_type(tt_entry) {
-                        EXACT => {
+            let mut can_use_hash_score = get_depth(tt_entry) >= depth;
+            // Validate hash move for additional protection against hash collisions
+            let m = decode_move(scored_move);
+            if !self.is_likely_valid_move(player_color, m) {
+                scored_move = NO_MOVE;
+                can_use_hash_score = false;
+            }
+
+            if can_use_hash_score {
+                let score = adjust_score_from_tt(decode_score(scored_move), ply);
+
+                match get_score_type(tt_entry) {
+                    EXACT => {
+                        return score;
+                    }
+                    UPPER_BOUND => {
+                        if score <= alpha {
                             return score;
                         }
-                        UPPER_BOUND => {
-                            if score < beta {
-                                beta = score;
-                                if alpha >= beta {
-                                    return beta;
-                                }
+                    }
+
+                    LOWER_BOUND => {
+                        if score > alpha {
+                            alpha = score;
+                            if alpha >= beta {
+                                return score;
                             }
                         }
-
-                        LOWER_BOUND => {
-                            if score > alpha {
-                                alpha = score;
-                                if alpha >= beta {
-                                    return alpha;
-                                }
-                            }
-                        }
-                        _ => (),
-                    };
-
-                } else {
-                    scored_move = NO_MOVE;
-                }
-            } else if !is_valid_move(&mut self.board, player_color, decode_move(scored_move)) {
-                scored_move = NO_MOVE;
+                    }
+                    _ => (),
+                };
             }
+
         }
 
         let mut fail_high = false;
@@ -580,7 +581,6 @@ impl Search for Engine {
                             // Prune futile move
                             skip = true;
                             if prune_low_score > best_score {
-                                best_move = NO_MOVE;
                                 best_score = prune_low_score; // remember score with added margin for cases when all moves are pruned
                             }
                         } else {
@@ -709,6 +709,27 @@ impl Search for Engine {
         );
 
         best_score
+    }
+
+    fn is_likely_valid_move(&self, active_player: Color, m: Move) -> bool {
+        let start = decode_start_index(m);
+        let end = decode_end_index(m);
+        let previous_piece = self.board.get_item(start);
+
+        if previous_piece.signum() != active_player {
+            return false;
+        }
+
+        let removed_piece = self.board.get_item(end);
+        if removed_piece == EMPTY {
+            return true;
+        }
+
+        if removed_piece == K || removed_piece == -K {
+            return false;
+        }
+
+        removed_piece.signum() == -active_player
     }
 
     fn quiescence_search(
