@@ -20,7 +20,7 @@ use crate::board::EN_PASSANT;
 use crate::colors::{Color, BLACK, WHITE};
 use crate::engine::Engine;
 use crate::move_gen::{
-    decode_end_index, decode_piece_id, decode_start_index, is_valid_move, Move, NO_MOVE,
+    decode_end_index, decode_piece_id, decode_start_index, Move, NO_MOVE,
 };
 use crate::move_sort::SortedMoveGenerator;
 use crate::pieces::{EMPTY, P, K};
@@ -46,8 +46,7 @@ pub trait Search {
         player_color: Color,
         depth: i32,
         ply: i32,
-        nullmove_performed: bool,
-        nullmove_verification: bool,
+        null_move_performed: bool,
         is_in_check: bool,
     ) -> i32;
 
@@ -95,6 +94,7 @@ impl Search for Engine {
 
         self.cancel_possible = false;
         self.node_count = 0;
+        self.next_check_node_count = 10000;
         self.log_every_second = false;
         self.is_stopped = false;
 
@@ -171,7 +171,6 @@ impl Search for Engine {
                     depth - 1,
                     1,
                     false,
-                    true,
                     gives_check,
                 );
                 if result == CANCEL_SEARCH {
@@ -186,7 +185,6 @@ impl Search for Engine {
                             depth - 1,
                             1,
                             false,
-                            true,
                             gives_check,
                         );
                         if result == CANCEL_SEARCH {
@@ -344,20 +342,22 @@ impl Search for Engine {
         player_color: Color,
         mut depth: i32,
         ply: i32,
-        nullmove_performed: bool,
-        mut nullmove_verification: bool,
+        null_move_performed: bool,
         is_in_check: bool,
     ) -> i32 {
-        if self.node_count & 1023 == 0 && self.cancel_possible {
+        if self.node_count >= self.next_check_node_count {
+            self.next_check_node_count = self.node_count + 10000;
             let current_time = Instant::now();
             let total_duration = current_time.duration_since(self.starttime);
-            if total_duration.as_millis() as i32 >= self.timelimit_ms{
-                // Cancel search if the time limit has been reached
-                return CANCEL_SEARCH;
 
-            } else if self.is_search_stopped() {
-                self.is_stopped = true;
-                return CANCEL_SEARCH;
+            if self.cancel_possible {
+                if total_duration.as_millis() as i32 >= self.timelimit_ms {
+                    // Cancel search if the time limit has been reached
+                    return CANCEL_SEARCH;
+                } else if self.is_search_stopped() {
+                    self.is_stopped = true;
+                    return CANCEL_SEARCH;
+                }
             }
 
             if depth > 3
@@ -443,17 +443,18 @@ impl Search for Engine {
 
         let mut fail_high = false;
 
-        // Null move pruning
-        if !is_pv && !nullmove_performed && depth > 2 && !is_in_check {
+        // Null move reductions
+        let original_depth = depth;
+        if !is_pv && !null_move_performed && depth > 3 && !is_in_check {
+            let r = if depth > 6 { 4 } else { 3 };
             self.board.perform_null_move();
             let result = self.rec_find_best_move(
                 -beta,
                 -beta + 1,
                 -player_color,
-                depth - 4,
+                depth - r - 1,
                 ply + 1,
                 true,
-                false,
                 false,
             );
             self.board.undo_null_move();
@@ -461,12 +462,11 @@ impl Search for Engine {
                 return CANCEL_SEARCH;
             }
             if -result >= beta {
-                if nullmove_verification {
-                    depth -= 1;
-                    nullmove_verification = false;
-                    fail_high = true;
-                } else {
-                    return -result;
+                depth -= 4;
+                fail_high = true;
+
+                if depth <= 0 {
+                    return self.quiescence_search(player_color, alpha, beta, ply);
                 }
             }
         }
@@ -502,9 +502,8 @@ impl Search for Engine {
                 Some(scored_move) => scored_move,
                 None => {
                     if fail_high && has_valid_moves {
-                        // research required, because a Zugzwang position was detected (fail-high report by null search, but no found cutoff)
-                        depth += 1;
-                        nullmove_verification = true;
+                        // research required, because a fail-high was reported by null search, but no cutoff was found during reduced search
+                        depth = original_depth;
                         fail_high = false;
                         evaluated_move_count = 0;
 
@@ -634,7 +633,6 @@ impl Search for Engine {
                     depth - reductions - 1,
                     ply + 1,
                     false,
-                    nullmove_verification,
                     gives_check,
                 );
                 if result == CANCEL_SEARCH {
@@ -651,7 +649,6 @@ impl Search for Engine {
                         depth - 1,
                         ply + 1,
                         false,
-                        nullmove_verification,
                         gives_check,
                     );
                     if result == CANCEL_SEARCH {
@@ -709,27 +706,6 @@ impl Search for Engine {
         );
 
         best_score
-    }
-
-    fn is_likely_valid_move(&self, active_player: Color, m: Move) -> bool {
-        let start = decode_start_index(m);
-        let end = decode_end_index(m);
-        let previous_piece = self.board.get_item(start);
-
-        if previous_piece.signum() != active_player {
-            return false;
-        }
-
-        let removed_piece = self.board.get_item(end);
-        if removed_piece == EMPTY {
-            return true;
-        }
-
-        if removed_piece == K || removed_piece == -K {
-            return false;
-        }
-
-        removed_piece.signum() == -active_player
     }
 
     fn quiescence_search(
@@ -854,8 +830,7 @@ impl Search for Engine {
         };
 
         let active_player = self.board.active_player();
-        let is_valid_followup_move =
-            next_move != NO_MOVE && is_valid_move(&mut self.board, active_player, next_move);
+        let is_valid_followup_move = next_move != NO_MOVE && self.is_likely_valid_move(active_player, next_move);
         let followup_uci_moves = if is_valid_followup_move {
             format!(" {}", self.extract_pv(next_move, depth - 1))
         } else {
@@ -884,6 +859,27 @@ impl Search for Engine {
         }
 
         0 // Stale mate
+    }
+
+    fn is_likely_valid_move(&self, active_player: Color, m: Move) -> bool {
+        let start = decode_start_index(m);
+        let end = decode_end_index(m);
+        let previous_piece = self.board.get_item(start);
+
+        if previous_piece.signum() != active_player {
+            return false;
+        }
+
+        let removed_piece = self.board.get_item(end);
+        if removed_piece == EMPTY {
+            return true;
+        }
+
+        if removed_piece == K || removed_piece == -K {
+            return false;
+        }
+
+        removed_piece.signum() == -active_player
     }
 }
 

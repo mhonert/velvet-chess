@@ -25,7 +25,7 @@ use crate::board::Board;
 use crate::boardpos::{BlackBoardPos, WhiteBoardPos};
 use crate::castling::Castling;
 use crate::colors::{Color, BLACK, WHITE};
-use crate::pieces::{B, EMPTY, K, N, P, Q, R};
+use crate::pieces::{B, K, N, P, Q, R};
 
 pub fn generate_moves(board: &Board, active_player: Color) -> Vec<Move> {
     let mut moves: Vec<Move> = Vec::with_capacity(64);
@@ -154,69 +154,6 @@ pub fn generate_capture_moves(board: &Board, active_player: Color) -> Vec<Move> 
     }
 
     moves
-}
-
-pub fn is_valid_move(board: &mut Board, active_player: Color, m: Move) -> bool {
-    let opponent_bb = board.get_all_piece_bitboard(-active_player);
-    let occupied = opponent_bb | board.get_all_piece_bitboard(active_player);
-    let empty_bb = !occupied;
-
-    let start = decode_start_index(m);
-    let piece = board.get_item(start);
-    if piece == EMPTY || piece.signum() != active_player {
-        return false;
-    }
-
-    let mut moves: Vec<Move> = Vec::with_capacity(27);
-
-    match piece * active_player {
-        P => {
-            if active_player == WHITE {
-                gen_white_pawn_moves(&mut moves, board, opponent_bb, empty_bb);
-            } else {
-                gen_black_pawn_moves(&mut moves, board, opponent_bb, empty_bb);
-            }
-        }
-
-        N => {
-            let attacks = board.bb.get_knight_attacks(start);
-            gen_piece_moves(&mut moves, N, start, attacks, opponent_bb, empty_bb);
-        }
-
-        B => {
-            let attacks = board.bb.get_diagonal_attacks(occupied, start)
-                | board.bb.get_anti_diagonal_attacks(occupied, start);
-            gen_piece_moves(&mut moves, B, start, attacks, opponent_bb, empty_bb);
-        }
-
-        R => {
-            let attacks = board.bb.get_horizontal_attacks(occupied, start)
-                | board.bb.get_vertical_attacks(occupied, start);
-            gen_piece_moves(&mut moves, R, start, attacks, opponent_bb, empty_bb);
-        }
-
-        Q => {
-            let attacks = board.bb.get_horizontal_attacks(occupied, start)
-                | board.bb.get_vertical_attacks(occupied, start)
-                | board.bb.get_diagonal_attacks(occupied, start)
-                | board.bb.get_anti_diagonal_attacks(occupied, start);
-            gen_piece_moves(&mut moves, Q, start, attacks, opponent_bb, empty_bb);
-        }
-
-        K => {
-            if active_player == WHITE {
-                gen_white_king_moves(&mut moves, start, board, opponent_bb, empty_bb);
-            } else {
-                gen_black_king_moves(&mut moves, start, board, opponent_bb, empty_bb);
-            }
-        }
-
-        _ => {
-            panic!("Unexpected piece ID {}", piece * active_player);
-        }
-    }
-
-    moves.contains(&m)
 }
 
 pub fn has_valid_moves(board: &mut Board, active_player: Color) -> bool {
