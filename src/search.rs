@@ -392,7 +392,7 @@ impl Search for Engine {
         }
 
         // Quiescence search
-        if depth <= 0 {
+        if depth <= 0 || ply >= MAX_DEPTH as i32 {
             return self.quiescence_search(player_color, alpha, beta, ply);
         }
 

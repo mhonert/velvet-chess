@@ -22,21 +22,21 @@ pub const MAX_HASH_SIZE_MB: i32 = 4096;
 // Bits 63 - 23: 41 highest bits of the hash
 const HASHCHECK_MASK: u64 = 0b1111111111111111111111111111111111111111100000000000000000000000;
 
-// Bits 22 - 17: Depth
-pub const MAX_DEPTH: usize = 63;
-const DEPTH_BITSHIFT: i32 = 17;
-const DEPTH_MASK: u64 = 0b111111;
+// Bits 22 - 15: Depth
+pub const MAX_DEPTH: usize = 255;
+const DEPTH_BITSHIFT: i32 = 15;
+const DEPTH_MASK: u64 = 0b11111111;
 
-// Bits 16 - 15: Score Type
+// Bits 14 - 13: Score Type
 pub const EXACT: u8 = 0;
 pub const UPPER_BOUND: u8 = 1;
 pub const LOWER_BOUND: u8 = 2;
 
-const SCORE_TYPE_BITSHIFT: u32 = 15;
+const SCORE_TYPE_BITSHIFT: u32 = 13;
 const SCORE_TYPE_MASK: u64 = 0b11;
 
-// Bits 14 - 0: Age
-const AGE_MASK: u64 = 0b111111111111111;
+// Bits 12 - 0: Age
+const AGE_MASK: u64 = 0b1111111111111;
 
 pub const DEFAULT_SIZE_MB: u64 = 32;
 const PER_ENTRY_BYTE_SIZE: u64 = 8 + 4;
