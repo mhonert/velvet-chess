@@ -441,6 +441,11 @@ impl Search for Engine {
 
         }
 
+        // Reduce nodes without hash move from transposition table
+        if !is_pv && scored_move == NO_MOVE && depth > 7 {
+            depth -= 1;
+        }
+
         let mut fail_high = false;
 
         // Null move reductions
