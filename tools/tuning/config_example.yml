@@ -5,6 +5,8 @@ options:
   debug_log: false
   test_positions_file: fen/quiet.fen
   concurrency: 8
+  tune:  # Options to tune during the next run
+    - QueenValue
 
 tuning:
   - name: QueenValue

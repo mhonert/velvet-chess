@@ -16,27 +16,4 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub const EMPTY: i8 = 0;
-pub const P: i8 = 1;
-pub const N: i8 = 2;
-pub const B: i8 = 3;
-pub const R: i8 = 4;
-pub const Q: i8 = 5;
-pub const K: i8 = 6;
-
-const KING_VALUE: i16 = 1500;
-const QUEEN_VALUE: i16 = 1000;
-const ROOK_VALUE: i16 = 525;
-const BISHOP_VALUE: i16 = 350;
-const KNIGHT_VALUE: i16 = 350;
-const PAWN_VALUE: i16 = 100;
-
-pub const PIECE_VALUES: [i16; 7] = [
-    0,
-    PAWN_VALUE,
-    KNIGHT_VALUE,
-    BISHOP_VALUE,
-    ROOK_VALUE,
-    QUEEN_VALUE,
-    KING_VALUE,
-];
+// Auto-generated file (see tools/tuning/gencode.py)

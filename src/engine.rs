@@ -79,6 +79,8 @@ pub struct Engine {
     pub current_depth: i32,
 
     pub is_stopped: bool,
+
+    options_modified: bool,
 }
 
 pub const TIMEEXT_MULTIPLIER: i32 = 5;
@@ -110,7 +112,8 @@ impl Engine {
             last_log_time: Instant::now(),
             next_check_node_count: 0,
             current_depth: 0,
-            is_stopped: false
+            is_stopped: false,
+            options_modified: false
         }
     }
 
@@ -144,7 +147,9 @@ impl Engine {
 
             Message::Perft(depth) => self.perft(depth),
 
-            Message::IsReady => println!("readyok"),
+            Message::IsReady => {
+                self.is_ready();
+            },
 
             Message::Go {
                 depth,
@@ -162,9 +167,15 @@ impl Engine {
 
             Message::Profile => self.profile(),
 
-            Message::SetOption(name, value) => self.set_option(name, value),
+            Message::SetOption(name, value) => {
+                self.board.options.set_option(name, value);
+                self.options_modified = true;
+            },
 
-            Message::SetArrayOption(name, index, value) => self.set_array_option(name, index, value),
+            Message::SetArrayOption(name, index, value) => {
+                self.board.options.set_array_option(name, index as usize, value);
+                self.options_modified = true;
+            },
 
             Message::Quit => {
                 return false;
@@ -211,6 +222,14 @@ impl Engine {
                 UCIMove::from_encoded_move(&self.board, m).to_uci()
             );
         }
+    }
+
+    fn is_ready(&mut self) {
+        if self.options_modified {
+            self.options_modified = false;
+            self.board.pst.recalculate(&self.board.options);
+        }
+        println!("readyok")
     }
 
     fn set_position(&mut self, fen: String, moves: Vec<UCIMove>) {
@@ -298,22 +317,6 @@ impl Engine {
         println!("Profiling ...");
         self.go(10, 500, 500, 0, 0, 500, 2);
         exit(0);
-    }
-
-    fn set_option(&mut self, name: String, value: i32) {
-        eprintln!("Unknown option: {} - {}", name, value);
-    }
-
-    fn set_array_option(&mut self, name: String, index: i32, value: i32) {
-        if name == "passedpawnbonus" {
-            self.board.options.set_passed_pawns(index, value);
-        } else if name == "passedpawnkingdefensebonus" {
-            self.board.options.set_passed_pawn_king_defense_bonus(index, value);
-        } else if name == "passedpawnkingattackedpenalty" {
-            self.board.options.set_passed_pawn_king_attacked_penalty(index, value);
-        } else {
-            eprintln!("Unknown option: {}", name);
-        }
     }
 
     pub fn is_search_stopped(&self) -> bool {

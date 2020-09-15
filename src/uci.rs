@@ -25,6 +25,7 @@ use std::str::FromStr;
 use std::sync::mpsc::Sender;
 use std::thread::sleep;
 use std::time::Duration;
+use crate::options::parse_set_option;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const AUTHOR: &str = "Martin Honert";
@@ -154,52 +155,11 @@ fn set_option(tx: &Sender<Message>, parts: &Vec<&str>) {
         }
 
         send_message(tx, Message::SetTranspositionTableSize(size_mb));
-        return;
 
-    } else if name.starts_with("passedpawnbonus") {
-        set_array_option_value(tx, "passedpawnbonus",  &name, value);
+    } else {
+        parse_set_option(tx, &name, value);
 
-    } else if name.starts_with("passedpawnkingdefensebonus") {
-        set_array_option_value(tx, "passedpawnkingdefensebonus",  &name, value);
-
-    } else if name.starts_with("passedpawnkingattackedpenalty") {
-        set_array_option_value(tx, "passedpawnkingattackedpenalty",  &name, value);
-
-    } else if name == "passedpawnthreshold" {
-        set_option_value(tx, "passedpawnthreshold", value);
     }
-}
-
-fn set_option_value(tx: &Sender<Message>, name: &str, value_str: &str) {
-    let value = match i32::from_str(value_str) {
-        Ok(value) => value,
-        Err(_) => {
-            println!("Invalid int value: {}", value_str);
-            return;
-        }
-    };
-
-    send_message(tx, Message::SetOption(String::from(name), value));
-}
-
-fn set_array_option_value(tx: &Sender<Message>, name: &str, name_with_index: &str, value_str: &str) {
-    let index = match i32::from_str(&name_with_index[name.len()..]) {
-        Ok(index) => index,
-        Err(_) => {
-            println!("Invalid index: {}", name_with_index);
-            return;
-        }
-    };
-
-    let value = match i32::from_str(value_str) {
-        Ok(value) => value,
-        Err(_) => {
-            println!("Invalid int value: {}", value_str);
-            return;
-        }
-    };
-
-    send_message(tx, Message::SetArrayOption(String::from(name), index, value));
 }
 
 fn parse_moves(idx: usize, parts: &Vec<&str>) -> Vec<UCIMove> {

@@ -27,30 +27,7 @@ pub trait Eval {
     fn get_score(&self) -> i32;
 }
 
-// Evaluation constants
-const DOUBLED_PAWN_PENALTY: i32 = 17;
-
 const PASSED_PAWN_THRESHOLD: u32 = 4;
-
-const KING_SHIELD_BONUS: i32 = 20;
-
-const CASTLING_BONUS: i32 = 28;
-const LOST_QUEENSIDE_CASTLING_PENALTY: i32 = 24;
-const LOST_KINGSIDE_CASTLING_PENALTY: i32 = 39;
-
-const KING_DANGER_PIECE_PENALTY: [i32; 16] = [ 0, -3, -3, 8, 25, 52, 95, 168, 258, 320, 1200, 1200, 1200, 1200, 1200, 1200 ];
-
-const PAWN_COVER_BONUS: i32 = 12;
-
-const KNIGHT_MOB_BONUS: [i32; 9] = [ -9, 3, 10, 11, 20, 22, 29, 29, 55 ];
-const BISHOP_MOB_BONUS: [i32; 14] = [ -2, 6, 14, 19, 22, 24, 29, 30, 35, 32, 49, 105, 73, 56 ];
-const ROOK_MOB_BONUS: [i32; 15] = [ -13, -10, -6, -1, 2, 9, 14, 23, 29, 36, 59, 64, 52, 62, 57 ];
-const QUEEN_MOB_BONUS: [i32; 28] = [ -2, -6, 0, 3, 11, 13, 15, 17, 20, 28, 28, 35, 51, 42, 50, 62, 99, 105, 102, 159, 100, 122, 131, 131, 115, 64, 75, 61 ];
-
-const EG_KNIGHT_MOB_BONUS: [i32; 9] = [ -65, -27, -2, 9, 13, 23, 20, 25, 4 ];
-const EG_BISHOP_MOB_BONUS: [i32; 14] = [ -46, -16, 1, 9, 16, 24, 27, 25, 30, 29, 20, 11, 35, 22 ];
-const EG_ROOK_MOB_BONUS: [i32; 15] = [ -72, -31, -8, 2, 15, 25, 28, 31, 35, 37, 36, 41, 50, 48, 45 ];
-const EG_QUEEN_MOB_BONUS: [i32; 28] = [ -77, -7, -18, 11, 4, 35, 42, 61, 70, 66, 85, 87, 85, 100, 108, 109, 98, 86, 109, 95, 123, 121, 118, 129, 127, 128, 159, 123 ];
 
 const BASE_PIECE_PHASE_VALUE: i32 = 2;
 const PAWN_PHASE_VALUE: i32 = -1; // relative to the base piece value
@@ -71,32 +48,32 @@ impl Eval for Board {
         let white_king_shield = (white_pawns & self.bb.get_white_king_shield(self.white_king)).count_ones() as i32;
         let black_king_shield = (black_pawns & self.bb.get_black_king_shield(self.black_king)).count_ones() as i32;
 
-        score += white_king_shield * KING_SHIELD_BONUS;
-        score -= black_king_shield * KING_SHIELD_BONUS;
+        score += white_king_shield * self.options.get_king_shield_bonus();
+        score -= black_king_shield * self.options.get_king_shield_bonus();
 
         // Castling
         if self.has_white_castled() {
-            score += CASTLING_BONUS
+            score += self.options.get_castling_bonus();
         } else {
             if !self.can_castle(Castling::WhiteQueenSide) {
-                score -= LOST_QUEENSIDE_CASTLING_PENALTY;
+                score -= self.options.get_lost_queenside_castling_penalty()
             }
 
             if !self.can_castle(Castling::WhiteKingSide) {
-                score -= LOST_KINGSIDE_CASTLING_PENALTY;
+                score -= self.options.get_lost_kingside_castling_penalty();
 
             }
         }
 
         if self.has_black_castled() {
-            score -= CASTLING_BONUS
+            score -= self.options.get_castling_bonus();
         } else {
             if !self.can_castle(Castling::BlackQueenSide) {
-                score += LOST_QUEENSIDE_CASTLING_PENALTY;
+                score += self.options.get_lost_queenside_castling_penalty()
             }
 
             if !self.can_castle(Castling::BlackKingSide) {
-                score += LOST_KINGSIDE_CASTLING_PENALTY;
+                score += self.options.get_lost_kingside_castling_penalty();
 
             }
         }
@@ -130,8 +107,8 @@ impl Eval for Board {
                 white_knight_attacks |= possible_moves;
 
                 let move_count = (possible_moves & white_safe_targets).count_ones();
-                score += KNIGHT_MOB_BONUS[move_count as usize];
-                eg_score += EG_KNIGHT_MOB_BONUS[move_count as usize];
+                score += self.options.get_knight_mob_bonus(move_count as usize);
+                eg_score += self.options.get_eg_knight_mob_bonus(move_count as usize);
 
                 if possible_moves & black_king_danger_zone != 0 {
                     black_king_threat += 1
@@ -155,8 +132,8 @@ impl Eval for Board {
                 black_knight_attacks |= possible_moves;
 
                 let move_count = (possible_moves & black_safe_targets).count_ones();
-                score -= KNIGHT_MOB_BONUS[move_count as usize];
-                eg_score -= EG_KNIGHT_MOB_BONUS[move_count as usize];
+                score -= self.options.get_knight_mob_bonus(move_count as usize);
+                eg_score -= self.options.get_eg_knight_mob_bonus(move_count as usize);
 
                 if possible_moves & white_king_danger_zone != 0 {
                     white_king_threat += 1
@@ -178,8 +155,8 @@ impl Eval for Board {
             let possible_moves = self.bb.get_diagonal_attacks(occupied, pos as i32) | self.bb.get_anti_diagonal_attacks(occupied, pos as i32);
             white_bishop_attacks |= possible_moves;
             let move_count = (possible_moves & white_safe_targets).count_ones();
-            score += BISHOP_MOB_BONUS[move_count as usize];
-            eg_score += EG_BISHOP_MOB_BONUS[move_count as usize];
+            score += self.options.get_bishop_mob_bonus(move_count as usize);
+            eg_score += self.options.get_eg_bishop_mob_bonus(move_count as usize);
 
             if possible_moves & black_king_danger_zone != 0 {
                 black_king_threat += 1;
@@ -195,8 +172,8 @@ impl Eval for Board {
             let possible_moves = self.bb.get_diagonal_attacks(occupied, pos as i32) | self.bb.get_anti_diagonal_attacks(occupied, pos as i32);
             black_bishop_attacks |= possible_moves;
             let move_count = (possible_moves & black_safe_targets).count_ones();
-            score -= BISHOP_MOB_BONUS[move_count as usize];
-            eg_score -= EG_BISHOP_MOB_BONUS[move_count as usize];
+            score -= self.options.get_bishop_mob_bonus(move_count as usize);
+            eg_score -= self.options.get_eg_bishop_mob_bonus(move_count as usize);
 
             if possible_moves & white_king_danger_zone != 0 {
                 white_king_threat += 1;
@@ -216,8 +193,8 @@ impl Eval for Board {
             let possible_moves = self.bb.get_horizontal_attacks(occupied, pos as i32) | self.bb.get_vertical_attacks(occupied, pos as i32);
             white_rook_attacks |= possible_moves;
             let move_count = (possible_moves & white_safe_targets).count_ones();
-            score += ROOK_MOB_BONUS[move_count as usize];
-            eg_score += EG_ROOK_MOB_BONUS[move_count as usize];
+            score += self.options.get_rook_mob_bonus(move_count as usize);
+            eg_score += self.options.get_eg_rook_mob_bonus(move_count as usize);
 
             if possible_moves & black_king_danger_zone != 0 {
                 black_king_threat += 1;
@@ -233,8 +210,8 @@ impl Eval for Board {
             let possible_moves = self.bb.get_horizontal_attacks(occupied, pos as i32) | self.bb.get_vertical_attacks(occupied, pos as i32);
             black_rook_attacks |= possible_moves;
             let move_count = (possible_moves & black_safe_targets).count_ones();
-            score -= ROOK_MOB_BONUS[move_count as usize];
-            eg_score -= EG_ROOK_MOB_BONUS[move_count as usize];
+            score -= self.options.get_rook_mob_bonus(move_count as usize);
+            eg_score -= self.options.get_eg_rook_mob_bonus(move_count as usize);
 
             if possible_moves & white_king_danger_zone != 0 {
                 white_king_threat += 1;
@@ -256,8 +233,8 @@ impl Eval for Board {
                 | self.bb.get_anti_diagonal_attacks(occupied, pos as i32);
 
             let move_count = (possible_moves & white_safe_targets).count_ones();
-            score += QUEEN_MOB_BONUS[move_count as usize];
-            eg_score += EG_QUEEN_MOB_BONUS[move_count as usize];
+            score += self.options.get_queen_mob_bonus(move_count as usize);
+            eg_score += self.options.get_eg_queen_mob_bonus(move_count as usize);
 
             if possible_moves & black_king_danger_zone != 0 {
                 black_king_threat += 1;
@@ -275,8 +252,8 @@ impl Eval for Board {
                 | self.bb.get_anti_diagonal_attacks(occupied, pos as i32);
 
             let move_count = (possible_moves & black_safe_targets).count_ones();
-            score -= QUEEN_MOB_BONUS[move_count as usize];
-            eg_score -= EG_QUEEN_MOB_BONUS[move_count as usize];
+            score -= self.options.get_queen_mob_bonus(move_count as usize);
+            eg_score -= self.options.get_eg_queen_mob_bonus(move_count as usize);
 
             if possible_moves & white_king_danger_zone != 0 {
                 white_king_threat += 1;
@@ -296,18 +273,18 @@ impl Eval for Board {
                 && (self.bb.get_white_pawn_freesides(pos as i32) & black_pawns) == 0 {
 
                 // Not blocked and unguarded by enemy pawns
-                let bonus = self.options.get_passed_pawn_bonus(distance_to_promotion - 1);
-                score += bonus;
-                eg_score += bonus;
+                score += self.options.get_passed_pawn_bonus((distance_to_promotion - 1) as usize);
+                eg_score += self.options.get_eg_passed_pawn_bonus((distance_to_promotion - 1) as usize);
 
+                // Passed pawn - king distance
                 let own_king_distance = max((self.white_king / 8 - pos as i32 / 8).abs(),
                                             (self.white_king % 8 - pos as i32 % 8).abs());
 
-                eg_score += self.options.get_passed_pawn_king_defense_bonus(own_king_distance);
+                eg_score += self.options.get_passed_pawn_king_defense_bonus(own_king_distance as usize);
 
                 let opponent_king_distance = max((self.black_king / 8 - pos as i32 / 8).abs(),
                                                  (self.black_king % 8 - pos as i32 % 8).abs());
-                eg_score -= self.options.get_passed_pawn_king_attacked_penalty(opponent_king_distance);
+                eg_score -= self.options.get_passed_pawn_king_attacked_penalty(opponent_king_distance as usize);
             }
         }
 
@@ -323,23 +300,22 @@ impl Eval for Board {
                 && (self.bb.get_black_pawn_freesides(pos as i32) & white_pawns) == 0 {
 
                 // Not blocked and unguarded by enemy pawns
-                let bonus = self.options.get_passed_pawn_bonus(distance_to_promotion - 1);
-                score -= bonus;
-                eg_score -= bonus;
+                score -= self.options.get_passed_pawn_bonus((distance_to_promotion - 1) as usize);
+                eg_score -= self.options.get_eg_passed_pawn_bonus((distance_to_promotion - 1) as usize);
 
+                // Passed pawn - king distance
                 let own_king_distance = max((self.black_king / 8 - pos as i32 / 8).abs(),
                                             (self.black_king % 8 - pos as i32 % 8).abs());
 
-                eg_score -= self.options.get_passed_pawn_king_defense_bonus(own_king_distance);
+                eg_score -= self.options.get_passed_pawn_king_defense_bonus(own_king_distance as usize);
 
                 let opponent_king_distance = max((self.white_king / 8 - pos as i32 / 8).abs(),
                                                  (self.white_king % 8 - pos as i32 % 8).abs());
-                eg_score += self.options.get_passed_pawn_king_attacked_penalty(opponent_king_distance);
+                eg_score += self.options.get_passed_pawn_king_attacked_penalty(opponent_king_distance as usize);
             }
         }
 
         // Interpolate between opening/mid-game score and end game score for a smooth eval score transition
-        let pawn_count: i32 = (white_pawns | black_pawns).count_ones() as i32;
         let pieces_except_king_count: i32 = (white_pieces | black_pieces).count_ones() as i32 - 2; // -2 for two kings
 
         // Material difference relative to total piece count
@@ -350,6 +326,7 @@ impl Eval for Board {
         let white_queen_phase_score = if white_queens != 0 { QUEEN_PHASE_VALUE } else { 0 };
         let black_queen_phase_score = if black_queens != 0 { QUEEN_PHASE_VALUE } else { 0 };
         let queen_phase_score: i32 = white_queen_phase_score + black_queen_phase_score;
+        let pawn_count: i32 = (white_pawns | black_pawns).count_ones() as i32;
 
         let phase: i32 = pawn_count * PAWN_PHASE_VALUE + pieces_except_king_count * BASE_PIECE_PHASE_VALUE + queen_phase_score;
         let eg_phase: i32 = MAX_PHASE - phase;
@@ -360,14 +337,14 @@ impl Eval for Board {
 
         // Pawn cover bonus
         let white_pawns_and_knights = white_pawns | white_knights;
-        interpolated_score += (white_pawns_and_knights & white_pawn_attacks).count_ones() as i32 * PAWN_COVER_BONUS;
+        interpolated_score += (white_pawns_and_knights & white_pawn_attacks).count_ones() as i32 * self.options.get_pawn_cover_bonus();
 
         let black_pawns_and_knights = black_pawns | black_knights;
-        interpolated_score -= (black_pawns_and_knights & black_pawn_attacks).count_ones() as i32 * PAWN_COVER_BONUS;
+        interpolated_score -= (black_pawns_and_knights & black_pawn_attacks).count_ones() as i32 * self.options.get_pawn_cover_bonus();
 
         // Doubled pawn penalty
-        interpolated_score -= calc_doubled_pawn_penalty(white_pawns);
-        interpolated_score += calc_doubled_pawn_penalty(black_pawns);
+        interpolated_score -= calc_doubled_pawn_penalty(white_pawns, self.options.get_doubled_pawn_penalty());
+        interpolated_score += calc_doubled_pawn_penalty(black_pawns, self.options.get_doubled_pawn_penalty());
 
         // King threat (uses king threat values from mobility evaluation)
         black_king_threat += (white_pawn_attacks & black_king_danger_zone).count_ones() / 2;
@@ -376,22 +353,23 @@ impl Eval for Board {
         if white_queens & black_king_danger_zone != 0 {
             black_king_threat += 3;
         }
-        interpolated_score += KING_DANGER_PIECE_PENALTY[black_king_threat as usize];
+        interpolated_score += self.options.get_king_danger_piece_penalty(black_king_threat as usize);
 
         if black_queens & white_king_danger_zone != 0 {
             white_king_threat += 3;
         }
-        interpolated_score -= KING_DANGER_PIECE_PENALTY[white_king_threat as usize];
+        interpolated_score -= self.options.get_king_danger_piece_penalty(white_king_threat as usize);
 
         interpolated_score
     }
 }
 
-fn calc_doubled_pawn_penalty(pawns: u64) -> i32 {
+#[inline]
+fn calc_doubled_pawn_penalty(pawns: u64, penalty: i32) -> i32 {
     let doubled = (pawns & pawns.rotate_right(8))
         | pawns & pawns.rotate_right(16)
         | pawns & pawns.rotate_right(24)
         | pawns & pawns.rotate_right(32);
 
-    doubled.count_ones() as i32 * DOUBLED_PAWN_PENALTY
+    doubled.count_ones() as i32 * penalty
 }

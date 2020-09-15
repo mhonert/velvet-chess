@@ -23,20 +23,19 @@ use crate::bitboard::{
 use crate::boardpos::{BlackBoardPos, WhiteBoardPos};
 use crate::castling::Castling;
 use crate::colors::{Color, BLACK, WHITE};
-use crate::piece_sq_tables::PieceSquareTables;
 use crate::pieces::{B, EMPTY, K, N, P, PIECE_VALUES, Q, R};
 use crate::pos_history::PositionHistory;
 use crate::score_util::{unpack_eg_score, unpack_score};
 use crate::zobrist::Zobrist;
-use crate::eval_options::EvalOptions;
+use crate::options::{Options, PieceSquareTables};
 
 const MAX_GAME_HALFMOVES: usize = 5898 * 2;
 
 pub struct Board {
     pub bb: Bitboard,
-    pub options: EvalOptions,
+    pub options: Options,
     zobrist: Zobrist,
-    pst: PieceSquareTables,
+    pub pst: PieceSquareTables,
     pos_history: PositionHistory,
     items: [i8; 64],
     bitboards: [u64; 13],
@@ -74,11 +73,14 @@ impl Board {
             );
         }
 
+        let options = Options::new();
+        let pst = PieceSquareTables::new(&options);
+
         let mut board = Board {
             bb: Bitboard::new(),
-            options: EvalOptions::new(),
+            options,
             zobrist: Zobrist::new(),
-            pst: PieceSquareTables::new(),
+            pst,
             pos_history: PositionHistory::new(),
             items: [0; 64],
             bitboards: [0; 13],
