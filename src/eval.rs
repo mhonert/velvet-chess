@@ -222,41 +222,47 @@ impl Eval for Board {
         black_safe_targets &= !white_rook_attacks;
 
         // Queens
-        let mut white_queens = self.get_bitboard(Q);
-        while white_queens != 0 {
-            let pos = white_queens.trailing_zeros();
-            white_queens ^= 1 << pos as u64;  // unset bit
+        let white_queens = self.get_bitboard(Q);
+        {
+            let mut queens = white_queens;
+            while queens != 0 {
+                let pos = queens.trailing_zeros();
+                queens ^= 1 << pos as u64;  // unset bit
 
-            let possible_moves = self.bb.get_horizontal_attacks(occupied, pos as i32)
-                | self.bb.get_vertical_attacks(occupied, pos as i32)
-                | self.bb.get_diagonal_attacks(occupied, pos as i32)
-                | self.bb.get_anti_diagonal_attacks(occupied, pos as i32);
+                let possible_moves = self.bb.get_horizontal_attacks(occupied, pos as i32)
+                    | self.bb.get_vertical_attacks(occupied, pos as i32)
+                    | self.bb.get_diagonal_attacks(occupied, pos as i32)
+                    | self.bb.get_anti_diagonal_attacks(occupied, pos as i32);
 
-            let move_count = (possible_moves & white_safe_targets).count_ones();
-            score += self.options.get_queen_mob_bonus(move_count as usize);
-            eg_score += self.options.get_eg_queen_mob_bonus(move_count as usize);
+                let move_count = (possible_moves & white_safe_targets).count_ones();
+                score += self.options.get_queen_mob_bonus(move_count as usize);
+                eg_score += self.options.get_eg_queen_mob_bonus(move_count as usize);
 
-            if possible_moves & black_king_danger_zone != 0 {
-                black_king_threat += 1;
+                if possible_moves & black_king_danger_zone != 0 {
+                    black_king_threat += 1;
+                }
             }
         }
 
-        let mut black_queens = self.get_bitboard(-Q);
-        while black_queens != 0 {
-            let pos = black_queens.trailing_zeros();
-            black_queens ^= 1 << pos as u64;  // unset bit
+        let black_queens = self.get_bitboard(-Q);
+        {
+            let mut queens = black_queens;
+            while queens != 0 {
+                let pos = queens.trailing_zeros();
+                queens ^= 1 << pos as u64;  // unset bit
 
-            let possible_moves = self.bb.get_horizontal_attacks(occupied, pos as i32)
-                | self.bb.get_vertical_attacks(occupied, pos as i32)
-                | self.bb.get_diagonal_attacks(occupied, pos as i32)
-                | self.bb.get_anti_diagonal_attacks(occupied, pos as i32);
+                let possible_moves = self.bb.get_horizontal_attacks(occupied, pos as i32)
+                    | self.bb.get_vertical_attacks(occupied, pos as i32)
+                    | self.bb.get_diagonal_attacks(occupied, pos as i32)
+                    | self.bb.get_anti_diagonal_attacks(occupied, pos as i32);
 
-            let move_count = (possible_moves & black_safe_targets).count_ones();
-            score -= self.options.get_queen_mob_bonus(move_count as usize);
-            eg_score -= self.options.get_eg_queen_mob_bonus(move_count as usize);
+                let move_count = (possible_moves & black_safe_targets).count_ones();
+                score -= self.options.get_queen_mob_bonus(move_count as usize);
+                eg_score -= self.options.get_eg_queen_mob_bonus(move_count as usize);
 
-            if possible_moves & white_king_danger_zone != 0 {
-                white_king_threat += 1;
+                if possible_moves & white_king_danger_zone != 0 {
+                    white_king_threat += 1;
+                }
             }
         }
 
@@ -350,14 +356,8 @@ impl Eval for Board {
         black_king_threat += (white_pawn_attacks & black_king_danger_zone).count_ones() / 2;
         white_king_threat += (black_pawn_attacks & white_king_danger_zone).count_ones() / 2;
 
-        if white_queens & black_king_danger_zone != 0 {
-            black_king_threat += 3;
-        }
         interpolated_score += self.options.get_king_danger_piece_penalty(black_king_threat as usize);
 
-        if black_queens & white_king_danger_zone != 0 {
-            white_king_threat += 3;
-        }
         interpolated_score -= self.options.get_king_danger_piece_penalty(white_king_threat as usize);
 
         interpolated_score

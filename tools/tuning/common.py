@@ -29,6 +29,7 @@ class TuningOption:
     is_part: bool = False
     orig_name: str = ""
     minimum: Optional[int] = None
+    maximum: Optional[int] = None
     steps: int = 1
     direction: int = 1
     improvement: float = 0
@@ -51,10 +52,10 @@ class TuningOption:
         self.fails += 1
         self.value = prev_value  # Restore previous value
         self.has_improved = False
-        # if self.fails == 1:
-        self.improvement /= 100
-        # else:
-        #     self.improvement = 0
+        if self.fails == 1:
+            self.improvement /= 100
+        else:
+            self.improvement = 0
 
         self.history.clear()
         self.steps = 1
@@ -65,7 +66,7 @@ class TuningOption:
 
         steps = self.history[-1] * (len(self.history) - 1) / self.history[0]
 
-        self.steps = min(1000, max(1, int(steps)))
+        self.steps = min(100, max(1, int(steps)))
         log.debug("%s: %f", self.name, self.steps)
 
 
@@ -125,7 +126,7 @@ class Config:
                             self.tuning_options.append(option)
 
                     else:
-                        option = TuningOption(t["name"], int(value), [])
+                        option = TuningOption(t["name"], int(value), [], False, None, t.get("min", None), t.get("max", None))
                         self.tuning_options.append(option)
 
             if skip_excluded_options and len(included_options) > 0:

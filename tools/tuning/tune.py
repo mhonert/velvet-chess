@@ -220,6 +220,13 @@ def create_option_tuner(run_test: Callable[[List[TestPosition]], float]):
 
         for _ in range(2):
             option.value = prev_value + option.steps * option.direction
+            if option.minimum is not None:
+                if option.value < option.minimum:
+                    option.value = option.minimum
+            if option.maximum is not None:
+                if option.value > option.maximum:
+                    option.value = option.maximum
+
             err = run_test(test_positions)
             diff = best_err - err
 
@@ -335,7 +342,7 @@ def main():
             if len(improvements) > 10:
                 improvements = improvements[1:]
 
-                if improvement < 0.0000000005 and avg_improvement < 0.00000000005:
+                if improvement == 0 and avg_improvement < 0.000000000005:
                     low_improvements += 1
                 else:
                     low_improvements = 0
