@@ -88,8 +88,8 @@ impl Eval for Board {
         let black_pawn_attacks = black_left_pawn_attacks(black_pawns) | black_right_pawn_attacks(black_pawns);
         let mut white_safe_targets = empty_or_black & !black_pawn_attacks;
 
-        let mut white_king_threat = 0;
-        let mut black_king_threat = 0;
+        let mut threat_to_white_king = 0;
+        let mut threat_to_black_king = 0;
 
         let black_king_danger_zone = self.bb.get_king_danger_zone(self.black_king);
         let white_king_danger_zone = self.bb.get_king_danger_zone(self.white_king);
@@ -111,7 +111,7 @@ impl Eval for Board {
                 eg_score += self.options.get_eg_knight_mob_bonus(move_count as usize);
 
                 if possible_moves & black_king_danger_zone != 0 {
-                    black_king_threat += 1
+                    threat_to_black_king += self.options.get_knight_king_threat();
                 }
             }
         }
@@ -136,7 +136,7 @@ impl Eval for Board {
                 eg_score -= self.options.get_eg_knight_mob_bonus(move_count as usize);
 
                 if possible_moves & white_king_danger_zone != 0 {
-                    white_king_threat += 1
+                    threat_to_white_king += self.options.get_knight_king_threat();
                 }
             }
         }
@@ -159,7 +159,7 @@ impl Eval for Board {
             eg_score += self.options.get_eg_bishop_mob_bonus(move_count as usize);
 
             if possible_moves & black_king_danger_zone != 0 {
-                black_king_threat += 1;
+                threat_to_black_king += self.options.get_bishop_king_threat();
             }
         }
 
@@ -176,7 +176,7 @@ impl Eval for Board {
             eg_score -= self.options.get_eg_bishop_mob_bonus(move_count as usize);
 
             if possible_moves & white_king_danger_zone != 0 {
-                white_king_threat += 1;
+                threat_to_white_king += self.options.get_bishop_king_threat();
             }
         }
 
@@ -197,7 +197,7 @@ impl Eval for Board {
             eg_score += self.options.get_eg_rook_mob_bonus(move_count as usize);
 
             if possible_moves & black_king_danger_zone != 0 {
-                black_king_threat += 1;
+                threat_to_black_king += self.options.get_rook_king_threat();
             }
         }
 
@@ -214,7 +214,7 @@ impl Eval for Board {
             eg_score -= self.options.get_eg_rook_mob_bonus(move_count as usize);
 
             if possible_moves & white_king_danger_zone != 0 {
-                white_king_threat += 1;
+                threat_to_white_king += self.options.get_rook_king_threat();
             }
         }
 
@@ -223,11 +223,13 @@ impl Eval for Board {
 
         // Queens
         let white_queens = self.get_bitboard(Q);
+        let mut white_close_queen_count = 0;
         {
             let mut queens = white_queens;
             while queens != 0 {
                 let pos = queens.trailing_zeros();
-                queens ^= 1 << pos as u64;  // unset bit
+                let pos_mask = 1 << pos as u64;
+                queens ^= pos_mask;  // unset bit
 
                 let possible_moves = self.bb.get_horizontal_attacks(occupied, pos as i32)
                     | self.bb.get_vertical_attacks(occupied, pos as i32)
@@ -239,17 +241,23 @@ impl Eval for Board {
                 eg_score += self.options.get_eg_queen_mob_bonus(move_count as usize);
 
                 if possible_moves & black_king_danger_zone != 0 {
-                    black_king_threat += 1;
+                    threat_to_black_king += self.options.get_queen_king_threat();
+
+                    if pos_mask & black_king_danger_zone != 0 {
+                        white_close_queen_count += 1;
+                    }
                 }
             }
         }
 
         let black_queens = self.get_bitboard(-Q);
+        let mut black_close_queen_count = 0;
         {
             let mut queens = black_queens;
             while queens != 0 {
                 let pos = queens.trailing_zeros();
-                queens ^= 1 << pos as u64;  // unset bit
+                let pos_mask = 1 << pos as u64;
+                queens ^= pos_mask;  // unset bit
 
                 let possible_moves = self.bb.get_horizontal_attacks(occupied, pos as i32)
                     | self.bb.get_vertical_attacks(occupied, pos as i32)
@@ -261,7 +269,11 @@ impl Eval for Board {
                 eg_score -= self.options.get_eg_queen_mob_bonus(move_count as usize);
 
                 if possible_moves & white_king_danger_zone != 0 {
-                    white_king_threat += 1;
+                    threat_to_white_king += self.options.get_queen_king_threat();
+
+                    if pos_mask & white_king_danger_zone != 0 {
+                        black_close_queen_count += 1;
+                    }
                 }
             }
         }
@@ -353,12 +365,24 @@ impl Eval for Board {
         interpolated_score += calc_doubled_pawn_penalty(black_pawns, self.options.get_doubled_pawn_penalty());
 
         // King threat (uses king threat values from mobility evaluation)
-        black_king_threat += (white_pawn_attacks & black_king_danger_zone).count_ones() / 2;
-        white_king_threat += (black_pawn_attacks & white_king_danger_zone).count_ones() / 2;
+        threat_to_black_king += (white_pawns & black_king_danger_zone).count_ones() as i32 / 2;
+        threat_to_white_king += (black_pawns & white_king_danger_zone).count_ones() as i32 / 2;
 
-        interpolated_score += self.options.get_king_danger_piece_penalty(black_king_threat as usize);
+        if threat_to_black_king > 0 {
+            if white_close_queen_count > 0 {
+                interpolated_score += self.options.get_close_queen_king_danger_piece_penalty((threat_to_black_king - self.options.get_queen_king_threat()) as usize) * white_close_queen_count;
+            } else {
+                interpolated_score += self.options.get_king_danger_piece_penalty(threat_to_black_king as usize);
+            }
+        }
 
-        interpolated_score -= self.options.get_king_danger_piece_penalty(white_king_threat as usize);
+        if threat_to_white_king > 0 {
+            if black_close_queen_count > 0 {
+                interpolated_score -= self.options.get_close_queen_king_danger_piece_penalty((threat_to_white_king - self.options.get_queen_king_threat()) as usize) * black_close_queen_count;
+            } else {
+                interpolated_score -= self.options.get_king_danger_piece_penalty(threat_to_white_king as usize);
+            }
+        }
 
         interpolated_score
     }

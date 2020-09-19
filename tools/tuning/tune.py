@@ -215,11 +215,11 @@ def create_pass_runner(config: Config, tuning_options: List[TuningOption], k: fl
 
 
 def create_option_tuner(run_test: Callable[[List[TestPosition]], float]):
-    def run(best_err: float, option: TuningOption, test_positions: List[TestPosition]):
+    def run(best_err: float, resolution: int, option: TuningOption, test_positions: List[TestPosition]):
         prev_value = option.value
 
         for _ in range(2):
-            option.value = prev_value + option.steps * option.direction
+            option.value = (prev_value // resolution + option.steps * option.direction) * resolution
             if option.minimum is not None:
                 if option.value < option.minimum:
                     option.value = option.minimum
@@ -276,12 +276,28 @@ def main():
 
     try:
         best_options = copy.deepcopy(config.tuning_options)
+
+        resolution = config.starting_resolution
+
+        adjust_values = True
+
+        while adjust_values:
+            adjust_values = False
+            for _, option in enumerate(best_options):
+                new_value = option.value // resolution
+                if new_value * resolution != option.value:
+                    log.info("Increase starting resolution")
+                    resolution //= 10
+                    if resolution < 10:
+                        resolution = 1
+                    adjust_values = True
+                    break
+
         run_test = create_pass_runner(config, best_options, K, engines)
         tune_option = create_option_tuner(run_test)
 
         tick = time()
 
-        index = 0
         improvements = []
 
         iterations = 0
@@ -299,6 +315,7 @@ def main():
         option_count = len(config.tuning_options)
         log.info("Starting error: %f", init_err)
         log.info("Tuning %d options", option_count)
+        log.info("Start with resolution %d", resolution)
 
         while low_improvements < option_count:
             iterations += 1
@@ -314,7 +331,7 @@ def main():
 
                 option.iteration = iterations
                 option.has_improved = False
-                new_local_best_err = tune_option(local_best_err, option, test_positions)
+                new_local_best_err = tune_option(local_best_err, resolution, option, test_positions)
                 if new_local_best_err < local_best_err:
                     local_best_err = new_local_best_err
                     if not is_first_iteration:
@@ -342,10 +359,17 @@ def main():
             if len(improvements) > 10:
                 improvements = improvements[1:]
 
-                if improvement == 0 and avg_improvement < 0.000000000005:
-                    low_improvements += 1
-                else:
-                    low_improvements = 0
+            if improvement == 0:
+                if resolution > 1:
+                    resolution //= 10
+                    if resolution < 10:
+                        resolution = 1
+
+                    log.info("Continue with resolution %d", resolution)
+
+                low_improvements += 1
+            else:
+                low_improvements = 0
 
         log.info("Avg. error before tuning: %f", init_err)
         log.info("Avg. error after tuning : %f", local_best_err)

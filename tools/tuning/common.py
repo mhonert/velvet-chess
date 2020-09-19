@@ -66,7 +66,7 @@ class TuningOption:
 
         steps = self.history[-1] * (len(self.history) - 1) / self.history[0]
 
-        self.steps = min(100, max(1, int(steps)))
+        self.steps = min(5, max(1, int(steps)))
         log.debug("%s: %f", self.name, self.steps)
 
 
@@ -83,6 +83,7 @@ class Config:
     debug_log: bool
     test_positions_file: str
     concurrent_workers: int
+    starting_resolution: int
     tuning_options: List[TuningOption]
 
     def __init__(self, config_file: str, skip_excluded_options = True):
@@ -109,6 +110,8 @@ class Config:
         if self.concurrent_workers >= os.cpu_count():
             log.warning("Configured 'options > concurrency' to be >= the number of logical CPU cores")
             log.info("It is recommended to set concurrency to the number of physical CPU cores - 1")
+
+        self.starting_resolution = int(options.get("starting_resolution", 1))
 
         included_options = set(options.get("tune", []))
 

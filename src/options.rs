@@ -30,11 +30,17 @@ const LOST_KINGSIDE_CASTLING_PENALTY: i32 = 51;
 const DOUBLED_PAWN_PENALTY: i32 = 18;
 const KING_SHIELD_BONUS: i32 = 12;
 const PAWN_COVER_BONUS: i32 = 12;
-const EG_PASSED_PAWN_BONUS: [i32; 4] = [186, 149, 71, 21];
+const KING_THREAT_MULTIPLIER: i32 = 1;
+const KNIGHT_KING_THREAT: i32 = 1;
+const BISHOP_KING_THREAT: i32 = 1;
+const ROOK_KING_THREAT: i32 = 2;
+const QUEEN_KING_THREAT: i32 = 2;
+const EG_PASSED_PAWN_BONUS: [i32; 4] = [187, 151, 71, 23];
 const PASSED_PAWN_BONUS: [i32; 4] = [32, 18, 8, 3];
-const PASSED_PAWN_KING_DEFENSE_BONUS: [i32; 8] = [0, 69, 50, 21, 10, 6, 7, 2];
-const PASSED_PAWN_KING_ATTACKED_PENALTY: [i32; 8] = [0, 100, 69, 31, 9, 0, 0, 1];
-const KING_DANGER_PIECE_PENALTY: [i32; 16] = [0, -4, -3, 9, 27, 46, 79, 116, 1914, 1773, 1773, 1773, 1773, 1773, 1773, 1773];
+const PASSED_PAWN_KING_DEFENSE_BONUS: [i32; 8] = [0, 68, 49, 23, 11, 10, 8, 3];
+const PASSED_PAWN_KING_ATTACKED_PENALTY: [i32; 8] = [0, 100, 68, 32, 13, 0, 0, 3];
+const CLOSE_QUEEN_KING_DANGER_PIECE_PENALTY: [i32; 16] = [9, 65, 97, 179, 173, 209, 384, -96, 0, 0, 0, 0, 0, 0, 0, 0];
+const KING_DANGER_PIECE_PENALTY: [i32; 16] = [0, -4, -4, 0, 12, 26, 48, 89, 141, 183, 838, 1000, 0, 0, 0, 0];
 const EG_KNIGHT_MOB_BONUS: [i32; 9] = [-121, -75, -56, -42, -43, -25, -26, -27, -54];
 const EG_BISHOP_MOB_BONUS: [i32; 14] = [-71, -35, -25, -17, -11, -8, -3, -8, -7, -8, -18, -33, 3, -30];
 const EG_ROOK_MOB_BONUS: [i32; 15] = [-85, -46, -8, -2, 12, 24, 28, 29, 33, 32, 30, 41, 49, 49, 44];
@@ -43,7 +49,7 @@ const KNIGHT_MOB_BONUS: [i32; 9] = [-35, -22, -13, -11, -1, 0, 5, 7, 46];
 const BISHOP_MOB_BONUS: [i32; 14] = [-9, 2, 13, 18, 21, 27, 30, 32, 39, 35, 48, 113, 35, 83];
 const ROOK_MOB_BONUS: [i32; 15] = [-24, -16, -14, -6, -4, 3, 10, 20, 28, 41, 66, 57, 54, 58, 41];
 const QUEEN_MOB_BONUS: [i32; 28] = [-12, -17, -12, -9, -1, 3, 3, 6, 8, 14, 13, 11, 31, 29, 44, 52, 114, 95, 160, 126, 92, 50, 262, 130, 359, 159, 111, 8];
-const EG_PAWN_PST: [i32; 64] = [0, 0, 0, 0, 0, 0, 0, 0, 74, 70, 79, 27, 63, 19, 73, 104, 43, 50, 28, 9, -9, -5, 31, 37, 23, 8, 0, -28, -20, -9, 10, 8, 7, 4, -16, -27, -26, -17, -3, -4, -9, 0, -13, -3, -1, -5, -12, -15, 3, -2, 5, 3, 15, -1, -7, -15, 0, 0, 0, 0, 0, 0, 0, 0];
+const EG_PAWN_PST: [i32; 64] = [0, 0, 0, 0, 0, 0, 0, 0, 83, 81, 98, 35, 73, 29, 90, 119, 36, 42, 19, 2, -18, -12, 24, 32, 20, 7, -3, -28, -20, -12, 8, 8, 7, 4, -16, -27, -26, -17, -3, -4, -9, 0, -13, -3, -1, -5, -12, -15, 3, -2, 5, 3, 15, -1, -7, -15, 0, 0, 0, 0, 0, 0, 0, 0];
 const PAWN_PST: [i32; 64] = [0, 0, 0, 0, 0, 0, 0, 0, 122, 113, 25, 120, 88, 167, 67, 4, 6, -1, 28, 19, 70, 91, 38, -3, -21, 3, -6, 24, 19, 15, 2, -18, -25, -14, -6, 7, 16, 2, -6, -31, -24, -17, -15, -23, -14, -12, 12, -19, -21, 1, -16, -15, -12, 19, 31, -16, 0, 0, 0, 0, 0, 0, 0, 0];
 const EG_KNIGHT_PST: [i32; 64] = [3, -33, -6, -19, -41, -3, -75, -53, -1, 5, -64, -6, -12, -39, -23, -37, -18, -36, 7, 2, -20, -27, -32, -48, -10, -6, 19, 10, 16, -2, 5, -16, -5, -21, 10, 17, 9, 12, 2, -6, -19, -8, -17, 8, -2, -9, -32, -6, -50, -32, -22, -21, -11, -31, -16, -44, -19, -42, -19, -3, -17, -12, -23, -61];
 const KNIGHT_PST: [i32; 64] = [-198, -74, -21, -48, 67, -130, -3, -143, -101, -62, 84, 6, -3, 42, -5, -45, -49, 31, -4, 17, 62, 99, 47, 38, -10, 5, -8, 41, 19, 56, 9, 24, -10, 6, 6, 2, 19, 12, 11, -5, -25, -14, 6, 4, 17, 10, 19, -19, -5, -13, 0, 22, 22, 28, 1, 7, -81, 0, -26, -8, 17, -3, -1, 2];
@@ -107,6 +113,36 @@ impl Options {
         PAWN_COVER_BONUS
     }
 
+
+    #[inline]
+    pub fn get_king_threat_multiplier(&self) -> i32 {
+        KING_THREAT_MULTIPLIER
+    }
+
+
+    #[inline]
+    pub fn get_knight_king_threat(&self) -> i32 {
+        KNIGHT_KING_THREAT
+    }
+
+
+    #[inline]
+    pub fn get_bishop_king_threat(&self) -> i32 {
+        BISHOP_KING_THREAT
+    }
+
+
+    #[inline]
+    pub fn get_rook_king_threat(&self) -> i32 {
+        ROOK_KING_THREAT
+    }
+
+
+    #[inline]
+    pub fn get_queen_king_threat(&self) -> i32 {
+        QUEEN_KING_THREAT
+    }
+
     #[inline]
     pub fn get_eg_passed_pawn_bonus(&self, index: usize) -> i32 {
         EG_PASSED_PAWN_BONUS[index]
@@ -125,6 +161,11 @@ impl Options {
     #[inline]
     pub fn get_passed_pawn_king_attacked_penalty(&self, index: usize) -> i32 {
         PASSED_PAWN_KING_ATTACKED_PENALTY[index]
+    }
+    
+    #[inline]
+    pub fn get_close_queen_king_danger_piece_penalty(&self, index: usize) -> i32 {
+        CLOSE_QUEEN_KING_DANGER_PIECE_PENALTY[index]
     }
     
     #[inline]
