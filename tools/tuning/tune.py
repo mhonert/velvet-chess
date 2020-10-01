@@ -23,7 +23,7 @@ from time import time
 import sys
 from typing import List, Callable
 import copy
-from random import shuffle, randint
+from random import randint
 from common import TuningOption, Config
 
 
@@ -62,10 +62,12 @@ class Engine:
     def __init__(self, engine_cmd):
         self.process = subprocess.Popen([engine_cmd], bufsize=1, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                         stderr=subprocess.STDOUT, universal_newlines=True)
+        self.is_prepared = False
 
     def stop(self):
         log.debug("Stopping engine instance")
-        self.process.communicate("quit\n", timeout=2)
+        # self.process.communicate("quit\n", timeout=2)
+        self.send_command("quit")
 
         self.process.kill()
         self.process.communicate()
@@ -86,8 +88,23 @@ def run_engine(engine: Engine, tuning_options: List[TuningOption], test_position
     results = []
 
     try:
-        engine.send_command("uci")
-        engine.wait_for_command("uciok")
+
+        if not engine.is_prepared:
+            engine.send_command("uci")
+            engine.wait_for_command("uciok")
+
+            engine.is_prepared = True
+            for chunk in make_chunks(test_positions, 512):
+                fens = "prepare_eval "
+                is_first = True
+                for pos in chunk:
+                    if not is_first:
+                        fens += ";"
+                    fens += pos.fen
+                    is_first = False
+
+                engine.send_command(fens)
+                engine.wait_for_command("prepared")
 
         for option in tuning_options:
             engine.send_command("setoption name {} value {}".format(option.name, option.value))
@@ -95,31 +112,21 @@ def run_engine(engine: Engine, tuning_options: List[TuningOption], test_position
         engine.send_command("isready")
         engine.wait_for_command("readyok")
 
-        for chunk in make_chunks(test_positions, 256):
-            fens = "eval "
-            is_first = True
-            for pos in chunk:
-                if not is_first:
-                    fens += ";"
-                fens += pos.fen
-                is_first = False
+        engine.send_command("eval")
+        result = engine.wait_for_command("scores")
 
-            engine.send_command(fens)
+        scores = [int(score) for score in result[len("scores "):].split(";")]
+        assert len(scores) == len(test_positions)
 
-            result = engine.wait_for_command("scores")
-
-            scores = [int(score) for score in result[len("scores "):].split(";")]
-            assert len(scores) == len(chunk)
-
-            for i in range(len(scores)):
-                chunk[i].score = scores[i]
+        for i in range(len(scores)):
+            test_positions[i].score = scores[i]
 
     except subprocess.TimeoutExpired as error:
         engine.stop()
         raise error
 
     except Exception as error:
-        log.error(str(error))
+        log.error("An error occured: %s", str(error))
 
     return results
 
@@ -143,6 +150,7 @@ def run_pass(config: Config, tuning_options: List[TuningOption], k: float, engin
 
     log.debug("Starting pass")
 
+    # tick1 = time()
     with ThreadPoolExecutor(max_workers=config.concurrent_workers) as executor:
         worker_id = 1
         for batch in make_batches(test_positions, config.concurrent_workers):
@@ -159,8 +167,11 @@ def run_pass(config: Config, tuning_options: List[TuningOption], k: float, engin
                 sys.exit("Worker was cancelled - possible engine bug? try enabling the debug_log output and re-run the tuner")
 
     log.debug("Pass completed")
+    # log.info("Calc evals duration: %.2fs", time() - tick1)
 
+    # tick2 = time()
     e = calc_avg_error(k, test_positions)
+    # log.info("Calc avg error duration: %.2fs", time() - tick2)
 
     return e
 
@@ -198,15 +209,6 @@ def write_options(options: List[TuningOption]):
         yaml.dump(results, file, default_flow_style=None, indent=2, sort_keys=False)
 
 
-def roll_testpositions(all: List[TestPosition], start: int, window_size: int) -> (int, List[TestPosition]):
-    sub_set = all[start:(start + window_size)]
-    missing_len = window_size - len(sub_set)
-    if missing_len > 0:
-        sub_set += all[0:missing_len]
-        return missing_len // 4, sub_set
-    return (start + window_size // 5 + randint(0, window_size // 10)) % len(all), sub_set
-
-
 def create_pass_runner(config: Config, tuning_options: List[TuningOption], k: float, engines: List[Engine]):
     def run(test_positions: List[TestPosition]):
         return run_pass(config, tuning_options, k, engines, test_positions)
@@ -238,7 +240,7 @@ def create_option_tuner(run_test: Callable[[List[TestPosition]], float]):
             else:
                 option.not_improved(prev_value)
                 option.improvement = -1.0
-                break
+                # break
 
             option.direction *= -1
 
@@ -259,9 +261,6 @@ def main():
     all_test_positions = read_fens(config.test_positions_file)
 
     log.info("Read %i test positions", len(all_test_positions))
-
-    log.info("Shuffling test positions ...")
-    shuffle(all_test_positions)
 
     # Start multiple engines
     log.info("Starting engines ...")
@@ -302,12 +301,9 @@ def main():
 
         iterations = 0
 
-        # window_size = 720 * 1000
-
         low_improvements = 0
         is_first_iteration = True
 
-        # (index, test_positions) = roll_testpositions(all_test_positions, index, window_size)
         test_positions = all_test_positions
         local_best_err = run_test(test_positions)
         init_err = local_best_err
@@ -317,12 +313,8 @@ def main():
         log.info("Tuning %d options", option_count)
         log.info("Start with resolution %d", resolution)
 
-        while low_improvements < option_count:
+        while low_improvements <= 3 or resolution > 1:
             iterations += 1
-            # if iterations % 20 == 0:
-            #     # shuffle(all_test_positions)
-            #     (index, test_positions) = roll_testpositions(all_test_positions, index, window_size)
-            #     local_best_err = run_test(test_positions)
 
             write_options(config.tuning_options)
 

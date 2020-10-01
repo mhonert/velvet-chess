@@ -42,8 +42,10 @@ pub fn start_uci_loop(tx: &Sender<Message>) {
         let parts: Vec<&str> = line.split_whitespace().collect();
         for (i, part) in parts.iter().enumerate() {
             match part.to_lowercase().as_str() {
-                "eval" => eval(tx, parts[i + 1..].to_vec()),
+                "prepare_eval" => prepare_eval(tx, parts[i + 1..].to_vec()),
 
+                "eval" => eval(tx),
+                
                 "fen" => fen(tx),
 
                 "go" => go(tx, parts[i + 1..].to_vec()),
@@ -239,16 +241,20 @@ fn go(tx: &Sender<Message>, parts: Vec<&str>) {
     );
 }
 
-fn eval(tx: &Sender<Message>, parts: Vec<&str>) {
+fn prepare_eval(tx: &Sender<Message>, parts: Vec<&str>) {
     if parts.is_empty() {
-        println!("eval cmd: missing fen positions");
+        println!("prepare_eval cmd: missing fen positions");
         return;
     }
 
     let fens_str: String = parts.join(" ");
     let fens: Vec<String> = fens_str.split(';').map(String::from).collect();
 
-    send_message(tx, Message::Eval(fens));
+    send_message(tx, Message::PrepareEval(fens));
+}
+
+fn eval(tx: &Sender<Message>) {
+    send_message(tx, Message::Eval);
 }
 
 fn profile(tx: &Sender<Message>) {

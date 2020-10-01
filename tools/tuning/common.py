@@ -66,7 +66,7 @@ class TuningOption:
 
         steps = self.history[-1] * (len(self.history) - 1) / self.history[0]
 
-        self.steps = min(5, max(1, int(steps)))
+        self.steps = min(10, max(1, int(steps)))
         log.debug("%s: %f", self.name, self.steps)
 
 

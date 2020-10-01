@@ -88,7 +88,7 @@ pub fn read_fen(board: &mut Board, fen: &str) -> Result<(), FenError> {
         castling_state,
         enpassant_target,
         halfmove_clock,
-        fullmove_num,
+        fullmove_num
     );
 
     Result::Ok(())

@@ -18,6 +18,7 @@
 
 pub mod board;
 pub mod engine;
+pub mod eval;
 pub mod fen;
 pub mod perft;
 pub mod uci;
@@ -26,7 +27,6 @@ mod bitboard;
 mod boardpos;
 mod castling;
 mod colors;
-mod eval;
 mod options;
 mod history_heuristics;
 mod move_gen;

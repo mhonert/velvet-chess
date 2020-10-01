@@ -184,6 +184,37 @@ impl Board {
         self.update_hash_for_enpassant(0);
     }
 
+    pub fn eval_set_position(&mut self,
+                             items: &[i8],
+                             halfmove_count: u16,
+                             castling_state: u8) {
+        self.score = 0;
+        self.eg_score = 0;
+        self.halfmove_count = halfmove_count;
+        self.castling_state = castling_state;
+        self.bitboards_all_pieces = [0; 3];
+        self.bitboards = [0; 13];
+
+        for pos in 0..64 {
+            let piece = items[pos];
+            self.items[pos] = EMPTY;
+            if piece != EMPTY {
+                self.add_piece_without_inc_update(piece.signum(), piece, pos as i32);
+                self.add_piece_score(piece, pos);
+
+                if piece == K {
+                    self.white_king = pos as i32;
+                } else if piece == -K {
+                    self.black_king = pos as i32;
+                }
+            }
+        }
+    }
+
+    pub fn get_castling_state(&self) -> u8 {
+        self.castling_state
+    }
+
     fn update_hash_for_castling(&mut self, previous_castling_state: u8) {
         self.hash ^= self.zobrist.castling_number(previous_castling_state);
         self.hash ^= self.zobrist.castling_number(self.castling_state);

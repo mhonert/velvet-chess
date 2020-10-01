@@ -53,12 +53,25 @@ pub enum Message {
     Perft(i32),
     IsReady,
     Stop,
-    Eval(Vec<String>),
+    PrepareEval(Vec<String>),
+    Eval,
     Fen,
     Profile,
     SetOption(String, i32),
     SetArrayOption(String, i32, i32),
     Quit,
+}
+
+pub struct EvalBoardPos {
+    pieces: [i8; 64],
+    halfmove_count: u16,
+    castling_state: u8,
+}
+
+impl EvalBoardPos {
+    pub fn apply(&self, board: &mut Board) {
+        board.eval_set_position(&self.pieces, self.halfmove_count, self.castling_state);
+    }
 }
 
 pub struct Engine {
@@ -81,6 +94,8 @@ pub struct Engine {
     pub is_stopped: bool,
 
     options_modified: bool,
+
+    test_positions: Vec<EvalBoardPos>
 }
 
 pub const TIMEEXT_MULTIPLIER: i32 = 5;
@@ -113,7 +128,8 @@ impl Engine {
             next_check_node_count: 0,
             current_depth: 0,
             is_stopped: false,
-            options_modified: false
+            options_modified: false,
+            test_positions: Vec::new()
         }
     }
 
@@ -161,7 +177,9 @@ impl Engine {
                 movestogo,
             } => self.go(depth, wtime, btime, winc, binc, movetime, movestogo),
 
-            Message::Eval(fens) => self.eval(fens),
+            Message::PrepareEval(fens) => self.prepare_eval(fens),
+
+            Message::Eval => self.eval(),
 
             Message::Fen => println!("{}", write_fen(&self.board)),
 
@@ -250,25 +268,44 @@ impl Engine {
         }
     }
 
-    fn eval(&mut self, fens: Vec<String>) {
-        let mut is_first = true;
-
-        print!("scores ");
+    fn prepare_eval(&mut self, fens: Vec<String>) {
         for fen in fens {
-            match read_fen(&mut self.board, fen.as_str()) {
+            match read_fen(&mut self.board, &fen) {
                 Ok(_) => (),
-                Err(err) => println!("eval cmd: {}", err),
+                Err(err) => println!("position cmd: {}", err),
             }
 
+            let mut pieces: [i8; 64] = [0; 64];
+            for i in 0..64 {
+                pieces[i] = self.board.get_item(i as i32);
+            }
+
+            self.test_positions.push(EvalBoardPos{
+                pieces,
+                halfmove_count: self.board.fullmove_count(),
+                castling_state: self.board.get_castling_state()
+            });
+        }
+        println!("prepared")
+    }
+
+    fn eval(&mut self) {
+        print!("scores ");
+
+        let mut is_first = true;
+        for pos in self.test_positions.iter() {
             if !is_first {
                 print!(";")
             } else {
                 is_first = false;
             }
 
+            pos.apply(&mut self.board);
+
             print!("{}", self.board.get_score());
         }
         println!();
+
     }
 
     fn set_tt_size(&mut self, size_mb: i32) {
