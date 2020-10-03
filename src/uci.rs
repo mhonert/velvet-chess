@@ -44,7 +44,7 @@ pub fn start_uci_loop(tx: &Sender<Message>) {
             match part.to_lowercase().as_str() {
                 "prepare_eval" => prepare_eval(tx, parts[i + 1..].to_vec()),
 
-                "eval" => eval(tx),
+                "eval" => eval(tx, parts[i + 1]),
                 
                 "fen" => fen(tx),
 
@@ -248,13 +248,32 @@ fn prepare_eval(tx: &Sender<Message>, parts: Vec<&str>) {
     }
 
     let fens_str: String = parts.join(" ");
-    let fens: Vec<String> = fens_str.split(';').map(String::from).collect();
+    let fens_with_result: Vec<(String, f64)> = fens_str.split(';').filter(|&s| !s.is_empty()).map(extract_fen_result).collect();
 
-    send_message(tx, Message::PrepareEval(fens));
+    send_message(tx, Message::PrepareEval(fens_with_result));
 }
 
-fn eval(tx: &Sender<Message>) {
-    send_message(tx, Message::Eval);
+fn extract_fen_result(s: &str) -> (String, f64) {
+    let pair: Vec<&str> = s.split(':').collect();
+    if pair.len() != 2 {
+        panic!("prepare_eval expects a list of 'FEN:result' pairs, separated by ;")
+    }
+    let fen = String::from(pair[0]);
+    let result = match f64::from_str(pair[1]) {
+        Ok(r) => r,
+        Err(e) => panic!("Could not parse result: {}", e)
+    };
+
+    (fen, result)
+}
+
+fn eval(tx: &Sender<Message>, k_str: &str) {
+    let k = match f64::from_str(k_str) {
+        Ok(k) => k,
+        Err(e) => panic!("Could not parse K {}: {}", k_str, e)
+    };
+
+    send_message(tx, Message::Eval(k));
 }
 
 fn profile(tx: &Sender<Message>) {

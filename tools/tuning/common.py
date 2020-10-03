@@ -84,6 +84,7 @@ class Config:
     test_positions_file: str
     concurrent_workers: int
     starting_resolution: int
+    k: float
     tuning_options: List[TuningOption]
 
     def __init__(self, config_file: str, skip_excluded_options = True):

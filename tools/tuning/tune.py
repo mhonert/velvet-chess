@@ -21,18 +21,14 @@ import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from time import time
 import sys
-from typing import List, Callable
+from typing import List
 import copy
-from random import randint
 from common import TuningOption, Config
 
 
 # Uses "Texel's Tuning Method" for tuning evaluation parameters
 # see https://www.chessprogramming.org/Texel%27s_Tuning_Method for a detailed description of the method
 
-
-# Scaling factor (calculated for Velvet Chess engine)
-K = 1.342224
 
 @dataclass
 class TestPosition:
@@ -63,6 +59,7 @@ class Engine:
         self.process = subprocess.Popen([engine_cmd], bufsize=1, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                         stderr=subprocess.STDOUT, universal_newlines=True)
         self.is_prepared = False
+        self.test_positions = []
 
     def stop(self):
         log.debug("Stopping engine instance")
@@ -73,7 +70,7 @@ class Engine:
         self.process.communicate()
 
     def send_command(self, cmd):
-        log.debug(">>> " + cmd)
+        # log.debug(">>> " + cmd)
         self.process.stdin.write(cmd + "\n")
 
     def wait_for_command(self, cmd):
@@ -84,9 +81,7 @@ class Engine:
                 return line
 
 
-def run_engine(engine: Engine, tuning_options: List[TuningOption], test_positions: List[TestPosition]):
-    results = []
-
+def run_engine(k: float, engine: Engine, tuning_options: List[TuningOption]) -> (int, float):
     try:
 
         if not engine.is_prepared:
@@ -94,14 +89,15 @@ def run_engine(engine: Engine, tuning_options: List[TuningOption], test_position
             engine.wait_for_command("uciok")
 
             engine.is_prepared = True
-            for chunk in make_chunks(test_positions, 512):
+            is_first = True
+            for chunk in make_chunks(engine.test_positions, 512):
                 fens = "prepare_eval "
-                is_first = True
                 for pos in chunk:
                     if not is_first:
                         fens += ";"
-                    fens += pos.fen
-                    is_first = False
+                    else:
+                        is_first = False
+                    fens += pos.fen + ":" + str(pos.result)
 
                 engine.send_command(fens)
                 engine.wait_for_command("prepared")
@@ -112,23 +108,17 @@ def run_engine(engine: Engine, tuning_options: List[TuningOption], test_position
         engine.send_command("isready")
         engine.wait_for_command("readyok")
 
-        engine.send_command("eval")
-        result = engine.wait_for_command("scores")
+        engine.send_command("eval " + str(k))
+        result = engine.wait_for_command("result")
 
-        scores = [int(score) for score in result[len("scores "):].split(";")]
-        assert len(scores) == len(test_positions)
+        [pos_str, error_str] = result[len("result "):].split(":")
 
-        for i in range(len(scores)):
-            test_positions[i].score = scores[i]
-
-    except subprocess.TimeoutExpired as error:
-        engine.stop()
-        raise error
+        return int(pos_str), float(error_str)
 
     except Exception as error:
-        log.error("An error occured: %s", str(error))
-
-    return results
+        engine.stop()
+        log.error("Error occured during eval calculation", error)
+        raise error
 
 
 # Split list of test positions into "batch_count" batches
@@ -145,19 +135,18 @@ def make_chunks(positions: List[TestPosition], chunk_size: int) -> List[List[Tes
         yield positions[i:min(i + chunk_size, max_length)]
 
 
-def run_pass(config: Config, tuning_options: List[TuningOption], k: float, engines: List[Engine], test_positions: List[TestPosition]) -> float:
+def run_pass(config: Config, tuning_options: List[TuningOption], engines: List[Engine]) -> float:
     futures = []
 
     log.debug("Starting pass")
 
-    # tick1 = time()
+    tick1 = time()
     with ThreadPoolExecutor(max_workers=config.concurrent_workers) as executor:
-        worker_id = 1
-        for batch in make_batches(test_positions, config.concurrent_workers):
-            engine = engines[worker_id - 1]
-            futures.append(executor.submit(run_engine, engine, tuning_options, batch))
-            worker_id += 1
+        for engine in engines:
+            futures.append(executor.submit(run_engine, config.k, engine, tuning_options))
 
+        errors = .0
+        positions = 0
         for future in as_completed(futures):
             if future.exception():
                 log.exception("Worker was cancelled", future.exception())
@@ -166,14 +155,18 @@ def run_pass(config: Config, tuning_options: List[TuningOption], k: float, engin
             if future.cancelled():
                 sys.exit("Worker was cancelled - possible engine bug? try enabling the debug_log output and re-run the tuner")
 
+            (p, e) = future.result()
+            errors += e
+            positions += p
+
     log.debug("Pass completed")
-    # log.info("Calc evals duration: %.2fs", time() - tick1)
+    log.debug("Calc evals duration: %.2fs", time() - tick1)
 
     # tick2 = time()
-    e = calc_avg_error(k, test_positions)
+    # e = calc_avg_error(k, test_positions)
     # log.info("Calc avg error duration: %.2fs", time() - tick2)
 
-    return e
+    return errors / float(positions)
 
 
 def calc_avg_error(k: float, positions: List[TestPosition]) -> float:
@@ -209,44 +202,34 @@ def write_options(options: List[TuningOption]):
         yaml.dump(results, file, default_flow_style=None, indent=2, sort_keys=False)
 
 
-def create_pass_runner(config: Config, tuning_options: List[TuningOption], k: float, engines: List[Engine]):
-    def run(test_positions: List[TestPosition]):
-        return run_pass(config, tuning_options, k, engines, test_positions)
+def tune_option(config: Config, tuning_options: List[TuningOption], engines: List[Engine], best_err: float, resolution: int, option: TuningOption):
+    prev_value = option.value
 
-    return run
+    for _ in range(2):
+        option.value = (prev_value // resolution + option.steps * option.direction) * resolution
+        if option.minimum is not None:
+            if option.value < option.minimum:
+                option.value = option.minimum
+        if option.maximum is not None:
+            if option.value > option.maximum:
+                option.value = option.maximum
 
+        err = run_pass(config, tuning_options, engines)
+        diff = best_err - err
 
-def create_option_tuner(run_test: Callable[[List[TestPosition]], float]):
-    def run(best_err: float, resolution: int, option: TuningOption, test_positions: List[TestPosition]):
-        prev_value = option.value
+        if diff > 0:
+            option.improved(prev_value, diff)
+            return err
+        elif diff < 0:
+            option.not_improved(prev_value)
+        else:
+            option.not_improved(prev_value)
+            option.improvement = -1.0
+            # break
 
-        for _ in range(2):
-            option.value = (prev_value // resolution + option.steps * option.direction) * resolution
-            if option.minimum is not None:
-                if option.value < option.minimum:
-                    option.value = option.minimum
-            if option.maximum is not None:
-                if option.value > option.maximum:
-                    option.value = option.maximum
+        option.direction *= -1
 
-            err = run_test(test_positions)
-            diff = best_err - err
-
-            if diff > 0:
-                option.improved(prev_value, diff)
-                return err
-            elif diff < 0:
-                option.not_improved(prev_value)
-            else:
-                option.not_improved(prev_value)
-                option.improvement = -1.0
-                # break
-
-            option.direction *= -1
-
-        return best_err
-
-    return run
+    return best_err
 
 
 def main():
@@ -257,6 +240,12 @@ def main():
         log.getLogger().setLevel(log.DEBUG)
     log.info("- use %i concurrent engine processes", config.concurrent_workers)
 
+    # Scaling factor (calculated for Velvet Chess engine)
+    # K = 1.342224
+    # K = 0.6
+
+    config.k = 0.9
+
     log.info("Reading test positions ...")
     all_test_positions = read_fens(config.test_positions_file)
 
@@ -265,9 +254,11 @@ def main():
     # Start multiple engines
     log.info("Starting engines ...")
     engines = []
-    for i in range(config.concurrent_workers + 1):
+
+    for batch in make_batches(all_test_positions, config.concurrent_workers):
         engine = Engine(config.engine_cmd)
         engines.append(engine)
+        engine.test_positions = batch
 
     index_by_name = {}
     for index, option in enumerate(config.tuning_options):
@@ -292,9 +283,6 @@ def main():
                     adjust_values = True
                     break
 
-        run_test = create_pass_runner(config, best_options, K, engines)
-        tune_option = create_option_tuner(run_test)
-
         tick = time()
 
         improvements = []
@@ -304,8 +292,24 @@ def main():
         low_improvements = 0
         is_first_iteration = True
 
-        test_positions = all_test_positions
-        local_best_err = run_test(test_positions)
+        local_best_err = run_pass(config, best_options, engines)
+
+        # Calculate K (scaling factor)
+        # last_e = 10000000.0
+        # k = 0.5
+        # for step in [0.1, 0.01, 0.001, 0.0001, 0.00001, 0.000001, 0.0000001]:
+        #     while True:
+        #         config.k = k
+        #         e = run_pass(config, best_options, engines)
+        #         if e > last_e:
+        #             k -= step
+        #             break
+        #         log.info("k = %.8f -> e = %.8f", k, e)
+        #         last_e = e
+        #         k += step
+        #
+        # return
+        #
         init_err = local_best_err
 
         option_count = len(config.tuning_options)
@@ -323,7 +327,7 @@ def main():
 
                 option.iteration = iterations
                 option.has_improved = False
-                new_local_best_err = tune_option(local_best_err, resolution, option, test_positions)
+                new_local_best_err = tune_option(config, best_options, engines, local_best_err, resolution, option)
                 if new_local_best_err < local_best_err:
                     local_best_err = new_local_best_err
                     if not is_first_iteration:

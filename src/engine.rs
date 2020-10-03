@@ -36,6 +36,7 @@ use std::sync::mpsc::{Receiver, Sender, TryRecvError};
 use std::thread;
 use std::time::{Instant, SystemTime};
 use crate::eval::Eval;
+use crate::score_util::{MIN_SCORE, MAX_SCORE};
 
 pub enum Message {
     NewGame,
@@ -53,8 +54,8 @@ pub enum Message {
     Perft(i32),
     IsReady,
     Stop,
-    PrepareEval(Vec<String>),
-    Eval,
+    PrepareEval(Vec<(String, f64)>),
+    Eval(f64),
     Fen,
     Profile,
     SetOption(String, i32),
@@ -62,7 +63,9 @@ pub enum Message {
     Quit,
 }
 
+#[derive(Copy, Clone)]
 pub struct EvalBoardPos {
+    result: f64,
     pieces: [i8; 64],
     halfmove_count: u16,
     castling_state: u8,
@@ -179,7 +182,7 @@ impl Engine {
 
             Message::PrepareEval(fens) => self.prepare_eval(fens),
 
-            Message::Eval => self.eval(),
+            Message::Eval(k) => self.eval(k),
 
             Message::Fen => println!("{}", write_fen(&self.board)),
 
@@ -268,12 +271,13 @@ impl Engine {
         }
     }
 
-    fn prepare_eval(&mut self, fens: Vec<String>) {
-        for fen in fens {
+    fn prepare_eval(&mut self, fens_with_result: Vec<(String, f64)>) {
+        for (fen, result) in fens_with_result {
             match read_fen(&mut self.board, &fen) {
                 Ok(_) => (),
-                Err(err) => println!("position cmd: {}", err),
+                Err(err) => println!("prepare_eval cmd: {}", err),
             }
+
 
             let mut pieces: [i8; 64] = [0; 64];
             for i in 0..64 {
@@ -281,31 +285,34 @@ impl Engine {
             }
 
             self.test_positions.push(EvalBoardPos{
+                result,
                 pieces,
                 halfmove_count: self.board.fullmove_count(),
-                castling_state: self.board.get_castling_state()
+                castling_state: self.board.get_castling_state(),
             });
         }
         println!("prepared")
     }
 
-    fn eval(&mut self) {
-        print!("scores ");
+    fn eval(&mut self, k: f64) {
 
-        let mut is_first = true;
-        for pos in self.test_positions.iter() {
-            if !is_first {
-                print!(";")
-            } else {
-                is_first = false;
-            }
-
+        let mut errors: f64 = 0.0;
+        let k_div = k / 400.0;
+        for pos in self.test_positions.to_vec().iter() {
             pos.apply(&mut self.board);
+            let score = if self.board.is_in_check(self.board.active_player()) || self.board.is_in_check(-self.board.active_player()) {
+                self.board.get_score()
+            } else {
+                self.board.get_score()
+                // self.quiescence_search(self.board.active_player(), MIN_SCORE, MAX_SCORE, 0) * self.board.active_player() as i32
+            };
 
-            print!("{}", self.board.get_score());
+            let win_probability = 1.0 / (1.0 + 10.0f64.powf(-(score as f64) * k_div));
+            let error = pos.result - win_probability;
+            errors += error * error;
         }
-        println!();
 
+        println!("result {}:{}", self.test_positions.len(), errors);
     }
 
     fn set_tt_size(&mut self, size_mb: i32) {
