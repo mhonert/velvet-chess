@@ -155,8 +155,6 @@ impl Eval for Board {
         white_safe_targets &= !black_knight_attacks;
         black_safe_targets &= !white_knight_attacks;
 
-        // let white_kt_occupied = !empty_board & !black_king_danger_zone;
-        // let black_kt_occupied = !empty_board & !white_king_danger_zone;
         let occupied = !empty_board;
 
         // Bishops
@@ -252,11 +250,8 @@ impl Eval for Board {
         black_safe_targets &= !white_rook_attacks;
 
         // Queens
-        // let mut white_close_queen_count = 0;
         let mut white_queen_threats = 0;
         {
-            // let dia_occupied = white_kt_occupied & !white_queens & !white_bishops;
-            // let orth_occupied = white_kt_occupied & !white_queens & !white_rooks;
             let mut queens = white_queens;
             while queens != 0 {
                 let pos = queens.trailing_zeros();
@@ -285,8 +280,6 @@ impl Eval for Board {
 
         let mut black_queen_threats = 0;
         {
-            // let dia_occupied = black_kt_occupied & !black_queens & !black_bishops;
-            // let orth_occupied = black_kt_occupied & !black_queens & !black_rooks;
             let mut queens = black_queens;
             while queens != 0 {
                 let pos = queens.trailing_zeros();
