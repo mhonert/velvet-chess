@@ -18,600 +18,380 @@
 
 // Auto-generated file (see tools/tuning/gencode.py)
 
-use std::cmp::max;
 use std::sync::mpsc::Sender;
 use crate::engine::Message;
-use std::str::FromStr;
 use crate::colors::{Color, BLACK, WHITE};
 use crate::pieces::{B, K, N, P, PIECE_VALUES, Q, R};
 use crate::score_util::{pack_scores};
 
-pub struct Options {
-    castling_bonus: i32,
-    lost_queenside_castling_penalty: i32,
-    lost_kingside_castling_penalty: i32,
-    doubled_pawn_penalty: i32,
-    king_shield_bonus: i32,
-    pawn_cover_bonus: i32,
-    knight_king_threat: i32,
-    bishop_king_threat: i32,
-    rook_king_threat: i32,
-    queen_king_threat: i32,
-    eg_passed_pawn_bonus: [i32; 4],
-    passed_pawn_bonus: [i32; 4],
-    passed_pawn_king_defense_bonus: [i32; 8],
-    passed_pawn_king_attacked_penalty: [i32; 8],
-    king_danger_piece_penalty: [i32; 16],
-    king_threat_adjustment: [i32; 128],
-    eg_knight_mob_bonus: [i32; 9],
-    eg_bishop_mob_bonus: [i32; 14],
-    eg_rook_mob_bonus: [i32; 15],
-    eg_queen_mob_bonus: [i32; 28],
-    knight_mob_bonus: [i32; 9],
-    bishop_mob_bonus: [i32; 14],
-    rook_mob_bonus: [i32; 15],
-    queen_mob_bonus: [i32; 28],
-    eg_pawn_pst: [i32; 64],
-    pawn_pst: [i32; 64],
-    eg_knight_pst: [i32; 64],
-    knight_pst: [i32; 64],
-    eg_bishop_pst: [i32; 64],
-    bishop_pst: [i32; 64],
-    eg_rook_pst: [i32; 64],
-    rook_pst: [i32; 64],
-    eg_queen_pst: [i32; 64],
-    queen_pst: [i32; 64],
-    eg_king_pst: [i32; 64],
-    king_pst: [i32; 64],
-}
-
+const FUTILITY_MARGIN_MULTIPLIER: i32 = 51;
+const QS_SEE_THRESHOLD: i32 = 104;
+const QS_PRUNE_MARGIN: i32 = 989;
+const TIMEEXT_SCORE_CHANGE_THRESHOLD: i32 = 80;
+const TIMEEXT_SCORE_FLUCTUATION_THRESHOLD: i32 = 130;
+const TIMEEXT_SCORE_FLUCTUATION_REDUCTIONS: i32 = 90;
+const RAZOR_MARGIN: i32 = 130;
+const QUEEN_KING_THREAT: i32 = 3;
+const ROOK_KING_THREAT: i32 = 2;
+const BISHOP_KING_THREAT: i32 = 1;
+const KNIGHT_KING_THREAT: i32 = 1;
+const CASTLING_BONUS: i32 = 28;
+const LOST_QUEENSIDE_CASTLING_PENALTY: i32 = 24;
+const LOST_KINGSIDE_CASTLING_PENALTY: i32 = 51;
+const DOUBLED_PAWN_PENALTY: i32 = 22;
+const KING_SHIELD_BONUS: i32 = 17;
+const PAWN_COVER_BONUS: i32 = 8;
+const EG_PASSED_PAWN_BONUS: [i32; 4] = [115, 97, 56, 10];
+const PASSED_PAWN_BONUS: [i32; 4] = [2, 23, 10, 0];
+const PASSED_PAWN_KING_DEFENSE_BONUS: [i32; 8] = [3, 95, 72, 45, 27, 21, 31, 23];
+const PASSED_PAWN_KING_ATTACKED_PENALTY: [i32; 8] = [5, 100, 60, 34, 18, 0, 0, 4];
+const KING_DANGER_PIECE_PENALTY: [i32; 20] = [0, 0, 5, 1, 11, 21, 34, 61, 75, 111, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170];
+const KING_THREAT_ADJUSTMENT: [i32; 128] = [0, 1, 0, 0, -16, -12, -9, 4, 10, 16, 21, 25, -10, -6, -6, -8, -4, -7, -7, -6, -1, 4, 11, 20, 5, 6, 4, 5, -5, 3, 4, 15, 2, -7, -3, 4, -3, 7, 19, 36, -4, -7, 8, 20, -10, 10, 31, 44, -10, -9, 1, 11, -7, 10, 34, 57, -9, 2, 8, 19, -18, 6, 45, 77, 12, 10, 13, 32, 46, 45, 67, 90, 26, 31, 31, 56, 47, 79, 69, 192, 23, 27, 42, 63, 54, 61, 93, 107, 48, 40, 74, 82, 37, 112, 94, 219, -299, 188, 505, 501, 113, 619, 4, -19, 0, 380, 1, 532, 0, -4, 12, -9, 0, -1, 0, 0, 551, 1, 0, 0, 0, 625, 421, 1, 15, 0, 0, 1];
+const EG_KNIGHT_MOB_BONUS: [i32; 9] = [-111, -71, -46, -40, -35, -25, -29, -34, -45];
+const EG_BISHOP_MOB_BONUS: [i32; 14] = [-73, -47, -36, -27, -22, -16, -12, -10, -11, -11, -16, -22, -19, -33];
+const EG_ROOK_MOB_BONUS: [i32; 15] = [-47, -20, -14, -9, -1, 2, 6, 5, 9, 11, 16, 23, 25, 28, 6];
+const EG_QUEEN_MOB_BONUS: [i32; 28] = [-104, -51, -26, -13, -6, 0, 5, 11, 13, 10, 10, 11, 11, 3, -3, -12, -9, -10, -16, -2, -3, 13, 5, 15, 7, -5, -8, -23];
+const KNIGHT_MOB_BONUS: [i32; 9] = [-45, -24, -17, -9, -4, -2, 3, 8, 20];
+const BISHOP_MOB_BONUS: [i32; 14] = [-7, -1, 7, 12, 19, 24, 27, 27, 32, 35, 46, 64, 64, 108];
+const ROOK_MOB_BONUS: [i32; 15] = [-17, -17, -15, -11, -11, -4, 2, 11, 17, 26, 31, 31, 29, 30, 82];
+const QUEEN_MOB_BONUS: [i32; 28] = [-20, -14, -10, -7, -4, -2, 1, 2, 5, 10, 13, 16, 19, 28, 36, 51, 50, 58, 72, 52, 56, 23, 31, 9, 31, 27, 13, 16];
+const EG_PAWN_PST: [i32; 64] = [1, 0, 0, 5, 0, 0, -4, 0, 36, 63, 61, 23, 43, 39, 94, 79, 27, 31, 11, 8, -3, 3, 12, 17, 16, 10, 1, -18, -20, -16, 5, -9, 6, 7, -15, -22, -24, -17, -6, -16, -3, -3, -10, -10, -13, -7, -14, -18, 2, 7, -7, 3, -1, -10, -14, -17, -9, 0, 1, 0, 0, 0, 0, 0];
+const PAWN_PST: [i32; 64] = [1, -2, 0, 1, -5, 0, 0, 0, 152, 124, 123, 110, 63, 38, -33, -46, 2, 10, 44, 30, 30, 40, 54, 3, -24, -15, -18, -6, 9, 2, -9, -10, -29, -23, -15, -14, -3, -3, -11, -27, -29, -24, -26, -18, -12, -24, 1, -26, -23, -19, -17, -27, -12, 9, 21, -22, 4, -6, -1, 0, 0, 0, 0, 0];
+const EG_KNIGHT_PST: [i32; 64] = [-14, -43, -35, -61, -44, -46, -57, -69, -20, -11, -19, -16, -21, -55, -43, -35, -13, -25, -1, -11, -29, -36, -46, -40, -21, -9, -2, -8, -4, -10, -10, -41, -17, -16, -3, -2, -2, -1, -20, -18, -36, -21, -25, -13, -17, -26, -32, -27, -56, -30, -37, -34, -27, -29, -20, -23, -90, -36, -28, -36, -28, -40, -40, -64];
+const KNIGHT_PST: [i32; 64] = [-117, -4, 2, 58, 42, 22, -48, -136, -59, -46, -11, -2, 21, 36, 11, -69, -48, -1, -17, 12, 47, 81, 22, 2, -7, -21, -8, 29, 4, 25, -11, 28, -15, -18, -3, -7, 2, -7, 2, -8, -34, -26, -11, -6, 5, -6, -7, -24, -23, -23, -15, 8, 1, -4, -16, -8, -18, -12, -31, -3, -12, 2, -6, -26];
+const EG_BISHOP_PST: [i32; 64] = [-9, -7, -11, -17, -11, -27, -16, -22, 24, -6, -9, -12, -4, -26, -13, -33, -9, -10, -15, -20, -22, -35, -23, -27, -14, -18, -9, -23, -15, -23, -17, -22, -23, -15, -18, -19, -23, -15, -18, -38, -21, -23, -14, -26, -13, -25, -28, -25, -39, -33, -45, -25, -28, -35, -31, -59, -39, -41, -27, -26, -33, -29, -45, -54];
+const BISHOP_PST: [i32; 64] = [-25, -21, -32, -16, -31, 12, -10, -19, -95, -40, -30, -26, -30, 11, -24, -6, -22, 2, -15, 5, 17, 79, 26, 25, -19, 5, -7, 37, 15, 15, 9, -6, -9, -8, 14, 28, 19, 5, -8, 17, -3, 14, 8, 22, 22, 18, 14, 9, 16, 13, 27, 10, 23, 30, 32, 25, -10, 27, 11, -3, 10, 11, 15, 12];
+const EG_ROOK_PST: [i32; 64] = [-23, 1, 12, 14, 17, 25, 8, -6, 15, 21, 9, 10, 18, 5, 10, 3, 21, 9, 14, 10, 6, 3, 1, -2, 19, 20, 16, 10, 9, 8, 4, 4, 19, 18, 20, 15, 14, 18, 6, 11, -2, 3, 6, 5, -2, 0, -11, -10, -16, -9, -4, -10, -11, -16, -13, -34, -9, -16, -6, -13, -12, -8, -15, -9];
+const ROOK_PST: [i32; 64] = [43, 19, 11, 8, 6, -2, 42, 44, -10, -9, 35, 36, 5, 47, 29, 20, -18, 19, 13, 23, 30, 41, 55, 20, -26, -13, -1, 13, -2, 6, 13, -12, -42, -36, -25, -19, -28, -37, -14, -52, -36, -32, -26, -29, -22, -23, -2, -34, -34, -27, -21, -15, -18, -4, -10, -19, -11, -3, 1, 7, 4, 6, 4, -27];
+const EG_QUEEN_PST: [i32; 64] = [-5, -4, 8, 10, -6, 16, 7, 9, 66, 74, 45, 48, 61, 11, 71, 30, 17, 38, 65, 33, 50, 9, 28, 5, 23, 32, 48, 41, 47, 41, 63, 30, 10, 43, 32, 33, 43, 33, 23, 11, 1, 6, 5, 2, -1, 7, 9, -9, -5, 0, -4, -28, -17, -62, -52, -52, -56, -16, -36, -11, -46, -48, -70, -79];
+const QUEEN_PST: [i32; 64] = [15, 27, 14, 22, 8, -1, 19, 37, -79, -82, -18, -19, -57, 2, -58, -10, -31, -27, -44, -3, 2, 28, 3, -5, -31, -19, -30, -10, -9, -2, -20, -3, -13, -36, -14, -6, -20, -10, 5, -1, -15, -4, -3, -5, 2, 10, 9, 5, -7, -7, 5, 13, 16, 35, 12, 13, 20, -4, 16, 23, 21, 10, 19, 10];
+const EG_KING_PST: [i32; 64] = [-232, -127, -99, -78, -55, -64, -82, -141, -64, -40, -53, -32, -25, -16, -14, -36, -41, -5, -11, -10, -7, -3, 1, -26, -50, -13, -4, 7, 5, -1, 4, -26, -35, -7, 5, 15, 21, 18, 10, 1, -24, -6, 5, 15, 22, 14, 7, -1, -23, 6, 9, 14, 15, 13, -1, -14, -12, -20, -2, 10, 0, 8, -31, -38];
+const KING_PST: [i32; 64] = [368, 329, 272, 206, 124, 219, 261, 80, 105, 114, 199, 105, 110, 104, 139, 80, 96, 69, 112, 116, 130, 119, 98, 95, 106, 96, 105, 88, 115, 137, 83, 73, 66, 53, 61, 54, 45, 39, 15, -37, -7, 10, 18, 14, 5, 9, -4, -34, 2, -23, -6, -22, -12, -13, 8, -3, -82, 0, -2, -58, -48, -50, 10, -8];
+    
+pub struct Options {}
+    
 impl Options {
     pub fn new() -> Self {
-        Options{
-            castling_bonus: 28,
-            lost_queenside_castling_penalty: 24,
-            lost_kingside_castling_penalty: 51,
-            doubled_pawn_penalty: 19,
-            king_shield_bonus: 12,
-            pawn_cover_bonus: 12,
-            knight_king_threat: 1,
-            bishop_king_threat: 1,
-            rook_king_threat: 2,
-            queen_king_threat: 2,
-            eg_passed_pawn_bonus: [0, 0, 0, 0],
-            passed_pawn_bonus: [0, 0, 0, 0],
-            passed_pawn_king_defense_bonus: [0, 0, 0, 0, 0, 0, 0, 0],
-            passed_pawn_king_attacked_penalty: [0, 0, 0, 0, 0, 0, 0, 0],
-            king_danger_piece_penalty: [0, 4, 6, 17, 37, 60, 99, 151, 213, 351, 1200, 1200, 1200, 1200, 1200, 1600],
-            king_threat_adjustment: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            eg_knight_mob_bonus: [0, 0, 0, 0, 0, 0, 0, 0, 0],
-            eg_bishop_mob_bonus: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            eg_rook_mob_bonus: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            eg_queen_mob_bonus: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            knight_mob_bonus: [0, 0, 0, 0, 0, 0, 0, 0, 0],
-            bishop_mob_bonus: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            rook_mob_bonus: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            queen_mob_bonus: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            eg_pawn_pst: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            pawn_pst: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            eg_knight_pst: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            knight_pst: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            eg_bishop_pst: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            bishop_pst: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            eg_rook_pst: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            rook_pst: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            eg_queen_pst: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            queen_pst: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            eg_king_pst: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            king_pst: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-        }
+        Options{}
     }
     
-    pub fn set_option(&mut self, name: String, value: i32) {
-        match name.as_str() {
-            "castlingbonus" => self.set_castling_bonus(value),
-            "lostqueensidecastlingpenalty" => self.set_lost_queenside_castling_penalty(value),
-            "lostkingsidecastlingpenalty" => self.set_lost_kingside_castling_penalty(value),
-            "doubledpawnpenalty" => self.set_doubled_pawn_penalty(value),
-            "kingshieldbonus" => self.set_king_shield_bonus(value),
-            "pawncoverbonus" => self.set_pawn_cover_bonus(value),
-            "knightkingthreat" => self.set_knight_king_threat(value),
-            "bishopkingthreat" => self.set_bishop_king_threat(value),
-            "rookkingthreat" => self.set_rook_king_threat(value),
-            "queenkingthreat" => self.set_queen_king_threat(value),
-            _ => println!("Unknown option {}", name)
-        }
+    pub fn set_option(&mut self, name: String, _: i32) {
+        eprintln!("Unknown option {}", name);
     }
     
-    pub fn set_array_option(&mut self, name: String, index: usize, value: i32) {
-        match name.as_str() {
-            "egpassedpawnbonus" => self.set_eg_passed_pawn_bonus(index, value),
-            "passedpawnbonus" => self.set_passed_pawn_bonus(index, value),
-            "passedpawnkingdefensebonus" => self.set_passed_pawn_king_defense_bonus(index, value),
-            "passedpawnkingattackedpenalty" => self.set_passed_pawn_king_attacked_penalty(index, value),
-            "kingdangerpiecepenalty" => self.set_king_danger_piece_penalty(index, value),
-            "kingthreatadjustment" => self.set_king_threat_adjustment(index, value),
-            "egknightmobbonus" => self.set_eg_knight_mob_bonus(index, value),
-            "egbishopmobbonus" => self.set_eg_bishop_mob_bonus(index, value),
-            "egrookmobbonus" => self.set_eg_rook_mob_bonus(index, value),
-            "egqueenmobbonus" => self.set_eg_queen_mob_bonus(index, value),
-            "knightmobbonus" => self.set_knight_mob_bonus(index, value),
-            "bishopmobbonus" => self.set_bishop_mob_bonus(index, value),
-            "rookmobbonus" => self.set_rook_mob_bonus(index, value),
-            "queenmobbonus" => self.set_queen_mob_bonus(index, value),
-            "egpawnpst" => self.set_eg_pawn_pst(index, value),
-            "pawnpst" => self.set_pawn_pst(index, value),
-            "egknightpst" => self.set_eg_knight_pst(index, value),
-            "knightpst" => self.set_knight_pst(index, value),
-            "egbishoppst" => self.set_eg_bishop_pst(index, value),
-            "bishoppst" => self.set_bishop_pst(index, value),
-            "egrookpst" => self.set_eg_rook_pst(index, value),
-            "rookpst" => self.set_rook_pst(index, value),
-            "egqueenpst" => self.set_eg_queen_pst(index, value),
-            "queenpst" => self.set_queen_pst(index, value),
-            "egkingpst" => self.set_eg_king_pst(index, value),
-            "kingpst" => self.set_king_pst(index, value),
-            _ => println!("Unknown option {}", name)
-        }
+    pub fn set_array_option(&mut self, name: String, _: usize, _: i32) {
+        eprintln!("Unknown option {}", name);
     }
     
-    fn set_castling_bonus(&mut self, value: i32) {
-        self.castling_bonus = value;
-    }
 
     #[inline]
-    pub fn get_castling_bonus(&self) -> i32 {
-        self.castling_bonus
+    pub fn get_futility_margin_multiplier(&self) -> i32 {
+        FUTILITY_MARGIN_MULTIPLIER
     }
 
-    fn set_lost_queenside_castling_penalty(&mut self, value: i32) {
-        self.lost_queenside_castling_penalty = value;
-    }
 
     #[inline]
-    pub fn get_lost_queenside_castling_penalty(&self) -> i32 {
-        self.lost_queenside_castling_penalty
+    pub fn get_qs_see_threshold(&self) -> i32 {
+        QS_SEE_THRESHOLD
     }
 
-    fn set_lost_kingside_castling_penalty(&mut self, value: i32) {
-        self.lost_kingside_castling_penalty = value;
-    }
 
     #[inline]
-    pub fn get_lost_kingside_castling_penalty(&self) -> i32 {
-        self.lost_kingside_castling_penalty
+    pub fn get_qs_prune_margin(&self) -> i32 {
+        QS_PRUNE_MARGIN
     }
 
-    fn set_doubled_pawn_penalty(&mut self, value: i32) {
-        self.doubled_pawn_penalty = value;
-    }
 
     #[inline]
-    pub fn get_doubled_pawn_penalty(&self) -> i32 {
-        self.doubled_pawn_penalty
+    pub fn get_timeext_score_change_threshold(&self) -> i32 {
+        TIMEEXT_SCORE_CHANGE_THRESHOLD
     }
 
-    fn set_king_shield_bonus(&mut self, value: i32) {
-        self.king_shield_bonus = value;
-    }
 
     #[inline]
-    pub fn get_king_shield_bonus(&self) -> i32 {
-        self.king_shield_bonus
+    pub fn get_timeext_score_fluctuation_threshold(&self) -> i32 {
+        TIMEEXT_SCORE_FLUCTUATION_THRESHOLD
     }
 
-    fn set_pawn_cover_bonus(&mut self, value: i32) {
-        self.pawn_cover_bonus = value;
-    }
 
     #[inline]
-    pub fn get_pawn_cover_bonus(&self) -> i32 {
-        self.pawn_cover_bonus
+    pub fn get_timeext_score_fluctuation_reductions(&self) -> i32 {
+        TIMEEXT_SCORE_FLUCTUATION_REDUCTIONS
     }
 
-    fn set_knight_king_threat(&mut self, value: i32) {
-        self.knight_king_threat = value;
-    }
 
     #[inline]
-    pub fn get_knight_king_threat(&self) -> i32 {
-        self.knight_king_threat
+    pub fn get_razor_margin(&self) -> i32 {
+        RAZOR_MARGIN
     }
 
-    fn set_bishop_king_threat(&mut self, value: i32) {
-        self.bishop_king_threat = value;
-    }
-
-    #[inline]
-    pub fn get_bishop_king_threat(&self) -> i32 {
-        self.bishop_king_threat
-    }
-
-    fn set_rook_king_threat(&mut self, value: i32) {
-        self.rook_king_threat = value;
-    }
-
-    #[inline]
-    pub fn get_rook_king_threat(&self) -> i32 {
-        self.rook_king_threat
-    }
-
-    fn set_queen_king_threat(&mut self, value: i32) {
-        self.queen_king_threat = value;
-    }
 
     #[inline]
     pub fn get_queen_king_threat(&self) -> i32 {
-        self.queen_king_threat
+        QUEEN_KING_THREAT
     }
 
-    fn set_eg_passed_pawn_bonus(&mut self, index: usize, value: i32) {
-        self.eg_passed_pawn_bonus[index] = max(0, value);
+
+    #[inline]
+    pub fn get_rook_king_threat(&self) -> i32 {
+        ROOK_KING_THREAT
     }
-                
+
+
+    #[inline]
+    pub fn get_bishop_king_threat(&self) -> i32 {
+        BISHOP_KING_THREAT
+    }
+
+
+    #[inline]
+    pub fn get_knight_king_threat(&self) -> i32 {
+        KNIGHT_KING_THREAT
+    }
+
+
+    #[inline]
+    pub fn get_castling_bonus(&self) -> i32 {
+        CASTLING_BONUS
+    }
+
+
+    #[inline]
+    pub fn get_lost_queenside_castling_penalty(&self) -> i32 {
+        LOST_QUEENSIDE_CASTLING_PENALTY
+    }
+
+
+    #[inline]
+    pub fn get_lost_kingside_castling_penalty(&self) -> i32 {
+        LOST_KINGSIDE_CASTLING_PENALTY
+    }
+
+
+    #[inline]
+    pub fn get_doubled_pawn_penalty(&self) -> i32 {
+        DOUBLED_PAWN_PENALTY
+    }
+
+
+    #[inline]
+    pub fn get_king_shield_bonus(&self) -> i32 {
+        KING_SHIELD_BONUS
+    }
+
+
+    #[inline]
+    pub fn get_pawn_cover_bonus(&self) -> i32 {
+        PAWN_COVER_BONUS
+    }
+
     #[inline]
     pub fn get_eg_passed_pawn_bonus(&self, index: usize) -> i32 {
-        self.eg_passed_pawn_bonus[index]
+        EG_PASSED_PAWN_BONUS[index]
     }
     
-    fn set_passed_pawn_bonus(&mut self, index: usize, value: i32) {
-        self.passed_pawn_bonus[index] = max(0, value);
-    }
-                
     #[inline]
     pub fn get_passed_pawn_bonus(&self, index: usize) -> i32 {
-        self.passed_pawn_bonus[index]
+        PASSED_PAWN_BONUS[index]
     }
     
-    fn set_passed_pawn_king_defense_bonus(&mut self, index: usize, value: i32) {
-        self.passed_pawn_king_defense_bonus[index] = max(0, value);
-    }
-                
     #[inline]
     pub fn get_passed_pawn_king_defense_bonus(&self, index: usize) -> i32 {
-        self.passed_pawn_king_defense_bonus[index]
+        PASSED_PAWN_KING_DEFENSE_BONUS[index]
     }
     
-    fn set_passed_pawn_king_attacked_penalty(&mut self, index: usize, value: i32) {
-        self.passed_pawn_king_attacked_penalty[index] = max(0, value);
-    }
-                
     #[inline]
     pub fn get_passed_pawn_king_attacked_penalty(&self, index: usize) -> i32 {
-        self.passed_pawn_king_attacked_penalty[index]
+        PASSED_PAWN_KING_ATTACKED_PENALTY[index]
     }
     
-    fn set_king_danger_piece_penalty(&mut self, index: usize, value: i32) {
-        self.king_danger_piece_penalty[index] = value;
-    }
-        
     #[inline]
     pub fn get_king_danger_piece_penalty(&self, index: usize) -> i32 {
-        self.king_danger_piece_penalty[index]
+        KING_DANGER_PIECE_PENALTY[index]
     }
     
-    fn set_king_threat_adjustment(&mut self, index: usize, value: i32) {
-        self.king_threat_adjustment[index] = value;
-    }
-        
     #[inline]
     pub fn get_king_threat_adjustment(&self, index: usize) -> i32 {
-        self.king_threat_adjustment[index]
+        KING_THREAT_ADJUSTMENT[index]
     }
     
-    fn set_eg_knight_mob_bonus(&mut self, index: usize, value: i32) {
-        self.eg_knight_mob_bonus[index] = value;
-    }
-        
     #[inline]
     pub fn get_eg_knight_mob_bonus(&self, index: usize) -> i32 {
-        self.eg_knight_mob_bonus[index]
+        EG_KNIGHT_MOB_BONUS[index]
     }
     
-    fn set_eg_bishop_mob_bonus(&mut self, index: usize, value: i32) {
-        self.eg_bishop_mob_bonus[index] = value;
-    }
-        
     #[inline]
     pub fn get_eg_bishop_mob_bonus(&self, index: usize) -> i32 {
-        self.eg_bishop_mob_bonus[index]
+        EG_BISHOP_MOB_BONUS[index]
     }
     
-    fn set_eg_rook_mob_bonus(&mut self, index: usize, value: i32) {
-        self.eg_rook_mob_bonus[index] = value;
-    }
-        
     #[inline]
     pub fn get_eg_rook_mob_bonus(&self, index: usize) -> i32 {
-        self.eg_rook_mob_bonus[index]
+        EG_ROOK_MOB_BONUS[index]
     }
     
-    fn set_eg_queen_mob_bonus(&mut self, index: usize, value: i32) {
-        self.eg_queen_mob_bonus[index] = value;
-    }
-        
     #[inline]
     pub fn get_eg_queen_mob_bonus(&self, index: usize) -> i32 {
-        self.eg_queen_mob_bonus[index]
+        EG_QUEEN_MOB_BONUS[index]
     }
     
-    fn set_knight_mob_bonus(&mut self, index: usize, value: i32) {
-        self.knight_mob_bonus[index] = value;
-    }
-        
     #[inline]
     pub fn get_knight_mob_bonus(&self, index: usize) -> i32 {
-        self.knight_mob_bonus[index]
+        KNIGHT_MOB_BONUS[index]
     }
     
-    fn set_bishop_mob_bonus(&mut self, index: usize, value: i32) {
-        self.bishop_mob_bonus[index] = value;
-    }
-        
     #[inline]
     pub fn get_bishop_mob_bonus(&self, index: usize) -> i32 {
-        self.bishop_mob_bonus[index]
+        BISHOP_MOB_BONUS[index]
     }
     
-    fn set_rook_mob_bonus(&mut self, index: usize, value: i32) {
-        self.rook_mob_bonus[index] = value;
-    }
-        
     #[inline]
     pub fn get_rook_mob_bonus(&self, index: usize) -> i32 {
-        self.rook_mob_bonus[index]
+        ROOK_MOB_BONUS[index]
     }
     
-    fn set_queen_mob_bonus(&mut self, index: usize, value: i32) {
-        self.queen_mob_bonus[index] = value;
-    }
-        
     #[inline]
     pub fn get_queen_mob_bonus(&self, index: usize) -> i32 {
-        self.queen_mob_bonus[index]
+        QUEEN_MOB_BONUS[index]
     }
     
-    fn set_eg_pawn_pst(&mut self, index: usize, value: i32) {
-        self.eg_pawn_pst[index] = value;
-    }
-        
     #[inline]
-    pub fn get_eg_pawn_pst(&self) -> [i32; 64] {
-        self.eg_pawn_pst
+    pub const fn get_eg_pawn_pst(&self) -> [i32; 64] {
+        EG_PAWN_PST
     }
             
-    fn set_pawn_pst(&mut self, index: usize, value: i32) {
-        self.pawn_pst[index] = value;
-    }
-        
     #[inline]
-    pub fn get_pawn_pst(&self) -> [i32; 64] {
-        self.pawn_pst
+    pub const fn get_pawn_pst(&self) -> [i32; 64] {
+        PAWN_PST
     }
             
-    fn set_eg_knight_pst(&mut self, index: usize, value: i32) {
-        self.eg_knight_pst[index] = value;
-    }
-        
     #[inline]
-    pub fn get_eg_knight_pst(&self) -> [i32; 64] {
-        self.eg_knight_pst
+    pub const fn get_eg_knight_pst(&self) -> [i32; 64] {
+        EG_KNIGHT_PST
     }
             
-    fn set_knight_pst(&mut self, index: usize, value: i32) {
-        self.knight_pst[index] = value;
-    }
-        
     #[inline]
-    pub fn get_knight_pst(&self) -> [i32; 64] {
-        self.knight_pst
+    pub const fn get_knight_pst(&self) -> [i32; 64] {
+        KNIGHT_PST
     }
             
-    fn set_eg_bishop_pst(&mut self, index: usize, value: i32) {
-        self.eg_bishop_pst[index] = value;
-    }
-        
     #[inline]
-    pub fn get_eg_bishop_pst(&self) -> [i32; 64] {
-        self.eg_bishop_pst
+    pub const fn get_eg_bishop_pst(&self) -> [i32; 64] {
+        EG_BISHOP_PST
     }
             
-    fn set_bishop_pst(&mut self, index: usize, value: i32) {
-        self.bishop_pst[index] = value;
-    }
-        
     #[inline]
-    pub fn get_bishop_pst(&self) -> [i32; 64] {
-        self.bishop_pst
+    pub const fn get_bishop_pst(&self) -> [i32; 64] {
+        BISHOP_PST
     }
             
-    fn set_eg_rook_pst(&mut self, index: usize, value: i32) {
-        self.eg_rook_pst[index] = value;
-    }
-        
     #[inline]
-    pub fn get_eg_rook_pst(&self) -> [i32; 64] {
-        self.eg_rook_pst
+    pub const fn get_eg_rook_pst(&self) -> [i32; 64] {
+        EG_ROOK_PST
     }
             
-    fn set_rook_pst(&mut self, index: usize, value: i32) {
-        self.rook_pst[index] = value;
-    }
-        
     #[inline]
-    pub fn get_rook_pst(&self) -> [i32; 64] {
-        self.rook_pst
+    pub const fn get_rook_pst(&self) -> [i32; 64] {
+        ROOK_PST
     }
             
-    fn set_eg_queen_pst(&mut self, index: usize, value: i32) {
-        self.eg_queen_pst[index] = value;
-    }
-        
     #[inline]
-    pub fn get_eg_queen_pst(&self) -> [i32; 64] {
-        self.eg_queen_pst
+    pub const fn get_eg_queen_pst(&self) -> [i32; 64] {
+        EG_QUEEN_PST
     }
             
-    fn set_queen_pst(&mut self, index: usize, value: i32) {
-        self.queen_pst[index] = value;
-    }
-        
     #[inline]
-    pub fn get_queen_pst(&self) -> [i32; 64] {
-        self.queen_pst
+    pub const fn get_queen_pst(&self) -> [i32; 64] {
+        QUEEN_PST
     }
             
-    fn set_eg_king_pst(&mut self, index: usize, value: i32) {
-        self.eg_king_pst[index] = value;
-    }
-        
     #[inline]
-    pub fn get_eg_king_pst(&self) -> [i32; 64] {
-        self.eg_king_pst
+    pub const fn get_eg_king_pst(&self) -> [i32; 64] {
+        EG_KING_PST
     }
             
-    fn set_king_pst(&mut self, index: usize, value: i32) {
-        self.king_pst[index] = value;
-    }
-        
     #[inline]
-    pub fn get_king_pst(&self) -> [i32; 64] {
-        self.king_pst
+    pub const fn get_king_pst(&self) -> [i32; 64] {
+        KING_PST
     }
             
 }
 
-const SINGLE_VALUE_OPTION_NAMES: [&'static str; 10] = ["castlingbonus", "lostqueensidecastlingpenalty", "lostkingsidecastlingpenalty", "doubledpawnpenalty", "kingshieldbonus", "pawncoverbonus", "knightkingthreat", "bishopkingthreat", "rookkingthreat", "queenkingthreat"];
-const MULTI_VALUE_OPTION_NAMES: [&'static str; 26] = ["egpassedpawnbonus", "passedpawnbonus", "passedpawnkingdefensebonus", "passedpawnkingattackedpenalty", "kingdangerpiecepenalty", "kingthreatadjustment", "egknightmobbonus", "egbishopmobbonus", "egrookmobbonus", "egqueenmobbonus", "knightmobbonus", "bishopmobbonus", "rookmobbonus", "queenmobbonus", "egpawnpst", "pawnpst", "egknightpst", "knightpst", "egbishoppst", "bishoppst", "egrookpst", "rookpst", "egqueenpst", "queenpst", "egkingpst", "kingpst"];
-
-pub fn parse_set_option(tx: &Sender<Message>, name: &str, value_str: &str) {
-    if SINGLE_VALUE_OPTION_NAMES.contains(&name) {
-        set_option_value(tx, name, value_str);
-        return;
-    }
-
-    let name_without_index = name.replace(&['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'][..], "");
-    if MULTI_VALUE_OPTION_NAMES.contains(&name_without_index.as_str()) {
-        set_array_option_value(tx, name_without_index.as_str(), name, value_str);
-        return;
-    }
-}
-
-fn set_option_value(tx: &Sender<Message>, name: &str, value_str: &str) {
-    let value = match i32::from_str(value_str) {
-        Ok(value) => value,
-        Err(_) => {
-            println!("Invalid int value: {}", value_str);
-            return;
-        }
-    };
-
-    send_message(tx, Message::SetOption(String::from(name), value));
-}
-
-fn set_array_option_value(tx: &Sender<Message>, name: &str, name_with_index: &str, value_str: &str) {
-    let index = match i32::from_str(&name_with_index[name.len()..]) {
-        Ok(index) => index,
-        Err(_) => {
-            println!("Invalid index: {}", name_with_index);
-            return;
-        }
-    };
-
-    let value = match i32::from_str(value_str) {
-        Ok(value) => value,
-        Err(_) => {
-            println!("Invalid int value: {}", value_str);
-            return;
-        }
-    };
-
-    send_message(tx, Message::SetArrayOption(String::from(name), index, value));
-}
-
-fn send_message(tx: &Sender<Message>, msg: Message) {
-    match tx.send(msg) {
-        Ok(_) => return,
-        Err(err) => {
-            eprintln!("could not send message to engine thread: {}", err);
-        }
-    }
-}
+pub fn parse_set_option(_: &Sender<Message>, _: &str, _: &str) {}
+    
+const SCORES: [u32; 64 * 13] = calc_scores();
 
 pub struct PieceSquareTables {
-    white_scores: [u32; 64 * 7],
-    black_scores: [u32; 64 * 7],
 }
 
 impl PieceSquareTables {
-    pub fn new(options: &Options) -> Self {
-        PieceSquareTables {
-            white_scores: calc_white_scores(options),
-            black_scores: calc_black_scores(options),
-        }
+    pub fn new(_: &Options) -> Self {
+        PieceSquareTables {}
     }
 
+    #[inline]
     pub fn get_packed_score(&self, piece: i8, pos: usize) -> u32 {
-        if piece < 0 {
-            return self.black_scores[-piece as usize * 64 + pos];
-        }
-
-        self.white_scores[piece as usize * 64 + pos as usize]
+        unsafe { *SCORES.get_unchecked((piece + 6) as usize * 64 + pos) }
     }
 
-    pub fn recalculate(&mut self, options: &Options) {
-        self.white_scores.copy_from_slice(&calc_white_scores(options));
-        self.black_scores.copy_from_slice(&calc_black_scores(options));
-    }
+    pub fn recalculate(&mut self, _: &Options) {}
 }
 
-fn calc_white_scores(options: &Options) -> [u32; 64 * 7] {
+const fn calc_scores() -> [u32; 64 * 13] {
     concat(
-        combine(WHITE, P, options.get_pawn_pst(), options.get_eg_pawn_pst()),
-        combine(WHITE, N, options.get_knight_pst(), options.get_eg_knight_pst()),
-        combine(WHITE, B, options.get_bishop_pst(), options.get_eg_bishop_pst()),
-        combine(WHITE, R, options.get_rook_pst(), options.get_eg_rook_pst()),
-        combine(WHITE, Q, options.get_queen_pst(), options.get_eg_queen_pst()),
-        combine(WHITE, K, options.get_king_pst(), options.get_eg_king_pst())
+        combine(BLACK, P, mirror(PAWN_PST), mirror(EG_PAWN_PST)),
+        combine(BLACK, N, mirror(KNIGHT_PST), mirror(EG_KNIGHT_PST)),
+        combine(BLACK, B, mirror(BISHOP_PST), mirror(EG_BISHOP_PST)),
+        combine(BLACK, R, mirror(ROOK_PST), mirror(EG_ROOK_PST)),
+        combine(BLACK, Q, mirror(QUEEN_PST), mirror(EG_QUEEN_PST)),
+        combine(BLACK, K, mirror(KING_PST), mirror(EG_KING_PST)),
+        combine(WHITE, P, PAWN_PST, EG_PAWN_PST),
+        combine(WHITE, N, KNIGHT_PST, EG_KNIGHT_PST),
+        combine(WHITE, B, BISHOP_PST, EG_BISHOP_PST),
+        combine(WHITE, R, ROOK_PST, EG_ROOK_PST),
+        combine(WHITE, Q, QUEEN_PST, EG_QUEEN_PST),
+        combine(WHITE, K, KING_PST, EG_KING_PST)
     )
 }
 
-fn calc_black_scores(options: &Options) -> [u32; 64 * 7] {
-    concat(
-        combine(BLACK, P, mirror(options.get_pawn_pst()), mirror(options.get_eg_pawn_pst())),
-        combine(BLACK, N, mirror(options.get_knight_pst()), mirror(options.get_eg_knight_pst())),
-        combine(BLACK, B, mirror(options.get_bishop_pst()), mirror(options.get_eg_bishop_pst())),
-        combine(BLACK, R, mirror(options.get_rook_pst()), mirror(options.get_eg_rook_pst())),
-        combine(BLACK, Q, mirror(options.get_queen_pst()), mirror(options.get_eg_queen_pst())),
-        combine(BLACK, K, mirror(options.get_king_pst()), mirror(options.get_eg_king_pst())))
-}
-
-fn concat(
-    pawns: [u32; 64],
-    knights: [u32; 64],
-    bishops: [u32; 64],
-    rooks: [u32; 64],
-    queens: [u32; 64],
-    kings: [u32; 64],
-) -> [u32; 64 * 7] {
-    let mut all: [u32; 64 * 7] = [0; 64 * 7];
+const fn concat(
+    black_pawns: [u32; 64],
+    black_knights: [u32; 64],
+    black_bishops: [u32; 64],
+    black_rooks: [u32; 64],
+    black_queens: [u32; 64],
+    black_kings: [u32; 64],
+    white_pawns: [u32; 64],
+    white_knights: [u32; 64],
+    white_bishops: [u32; 64],
+    white_rooks: [u32; 64],
+    white_queens: [u32; 64],
+    white_kings: [u32; 64],
+) -> [u32; 64 * 13] {
+    let mut all: [u32; 64 * 13] = [0; 64 * 13];
 
     let mut i = 0;
     while i < 64 {
-        all[i + 1 * 64] = pawns[i];
-        all[i + 2 * 64] = knights[i];
-        all[i + 3 * 64] = bishops[i];
-        all[i + 4 * 64] = rooks[i];
-        all[i + 5 * 64] = queens[i];
-        all[i + 6 * 64] = kings[i];
+        all[i] = black_kings[i];
+        all[i + 1 * 64] = black_queens[i];
+        all[i + 2 * 64] = black_rooks[i];
+        all[i + 3 * 64] = black_bishops[i];
+        all[i + 4 * 64] = black_knights[i];
+        all[i + 5 * 64] = black_pawns[i];
 
+        all[i + 7 * 64] = white_pawns[i];
+        all[i + 8 * 64] = white_knights[i];
+        all[i + 9 * 64] = white_bishops[i];
+        all[i + 10 * 64] = white_rooks[i];
+        all[i + 11 * 64] = white_queens[i];
+        all[i + 12 * 64] = white_kings[i];
         i += 1;
     }
 
     all
 }
 
-fn combine(color: Color, piece: i8, scores: [i32; 64], eg_scores: [i32; 64]) -> [u32; 64] {
+const fn combine(color: Color, piece: i8, scores: [i32; 64], eg_scores: [i32; 64]) -> [u32; 64] {
     let mut combined_scores: [u32; 64] = [0; 64];
     let piece_value = PIECE_VALUES[piece as usize];
 
@@ -627,8 +407,8 @@ fn combine(color: Color, piece: i8, scores: [i32; 64], eg_scores: [i32; 64]) -> 
     combined_scores
 }
 
-fn mirror(scores: [i32; 64]) -> [i32; 64] {
-    let mut output: [i32; 64] = scores.clone();
+const fn mirror(scores: [i32; 64]) -> [i32; 64] {
+    let mut output: [i32; 64] = clone(scores);
 
     let mut col = 0;
     while col < 8 {
@@ -649,6 +429,18 @@ fn mirror(scores: [i32; 64]) -> [i32; 64] {
         }
 
         col += 1;
+    }
+
+    output
+}
+
+const fn clone(input: [i32; 64]) -> [i32; 64] {
+    let mut output: [i32; 64] = [0; 64];
+
+    let mut i = 0;
+    while i < 64 {
+        output[i] = input[i];
+        i += 1;
     }
 
     output

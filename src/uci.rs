@@ -42,10 +42,6 @@ pub fn start_uci_loop(tx: &Sender<Message>) {
         let parts: Vec<&str> = line.split_whitespace().collect();
         for (i, part) in parts.iter().enumerate() {
             match part.to_lowercase().as_str() {
-                "prepare_eval" => prepare_eval(tx, parts[i + 1..].to_vec()),
-
-                "eval" => eval(tx, parts[i + 1]),
-                
                 "fen" => fen(tx),
 
                 "go" => go(tx, parts[i + 1..].to_vec()),
@@ -73,6 +69,16 @@ pub fn start_uci_loop(tx: &Sender<Message>) {
                 "uci" => uci(),
 
                 "ucinewgame" => uci_new_game(tx),
+
+                "prepare_eval" => prepare_eval(tx, parts[i + 1..].to_vec()),
+
+                "prepare_quiet" => prepare_quiet(tx, parts[i + 1..].to_vec()),
+
+                "eval" => eval(tx, parts[i + 1]),
+
+                "printtestpositions" => print_test_positions(tx),
+
+                "resettestpositions" => reset_test_positions(tx),
 
                 _ => {
                     // Skip unknown commands
@@ -253,6 +259,18 @@ fn prepare_eval(tx: &Sender<Message>, parts: Vec<&str>) {
     send_message(tx, Message::PrepareEval(fens_with_result));
 }
 
+fn prepare_quiet(tx: &Sender<Message>, parts: Vec<&str>) {
+    if parts.is_empty() {
+        println!("prepare_quiet cmd: missing fen positions");
+        return;
+    }
+
+    let fens_str: String = parts.join(" ");
+    let fens_with_result: Vec<(String, f64)> = fens_str.split(';').filter(|&s| !s.is_empty()).map(extract_fen_result).collect();
+
+    send_message(tx, Message::PrepareQuiet(fens_with_result));
+}
+
 fn extract_fen_result(s: &str) -> (String, f64) {
     let pair: Vec<&str> = s.split(':').collect();
     if pair.len() != 2 {
@@ -274,6 +292,14 @@ fn eval(tx: &Sender<Message>, k_str: &str) {
     };
 
     send_message(tx, Message::Eval(k));
+}
+
+fn print_test_positions(tx: &Sender<Message>) {
+    send_message(tx, Message::PrintTestPositions);
+}
+
+fn reset_test_positions(tx: &Sender<Message>) {
+    send_message(tx, Message::ResetTestPositions);
 }
 
 fn profile(tx: &Sender<Message>) {

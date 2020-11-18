@@ -17,7 +17,7 @@
  */
 
 use crate::board::Board;
-use crate::colors::{Color, WHITE};
+use crate::colors::{Color, WHITE, BLACK};
 use crate::fen::{create_from_fen, read_fen, write_fen, START_POS};
 use crate::history_heuristics::HistoryHeuristics;
 use crate::move_gen::{
@@ -25,7 +25,7 @@ use crate::move_gen::{
 };
 use crate::move_sort::SortedMoveGenerator;
 use crate::perft::perft;
-use crate::pieces::EMPTY;
+use crate::pieces::{EMPTY, PIECE_VALUES, Q};
 use crate::search::Search;
 use crate::transposition_table::{TranspositionTable, DEFAULT_SIZE_MB};
 use crate::uci_move::UCIMove;
@@ -36,7 +36,8 @@ use std::sync::mpsc::{Receiver, Sender, TryRecvError};
 use std::thread;
 use std::time::{Instant, SystemTime};
 use crate::eval::Eval;
-use crate::score_util::{MIN_SCORE, MAX_SCORE};
+use crate::score_util::{MIN_SCORE, MAX_SCORE, decode_move};
+use crate::random::Random;
 
 pub enum Message {
     NewGame,
@@ -55,8 +56,11 @@ pub enum Message {
     IsReady,
     Stop,
     PrepareEval(Vec<(String, f64)>),
+    PrepareQuiet(Vec<(String, f64)>),
     Eval(f64),
     Fen,
+    PrintTestPositions,
+    ResetTestPositions,
     Profile,
     SetOption(String, i32),
     SetArrayOption(String, i32, i32),
@@ -69,6 +73,7 @@ pub struct EvalBoardPos {
     pieces: [i8; 64],
     halfmove_count: u16,
     castling_state: u8,
+    is_quiet: bool
 }
 
 impl EvalBoardPos {
@@ -95,6 +100,8 @@ pub struct Engine {
     pub current_depth: i32,
 
     pub is_stopped: bool,
+
+    pub rnd: Random,
 
     options_modified: bool,
 
@@ -132,7 +139,8 @@ impl Engine {
             current_depth: 0,
             is_stopped: false,
             options_modified: false,
-            test_positions: Vec::new()
+            test_positions: Vec::new(),
+            rnd: Random::new_with_seed((Instant::now().elapsed().as_micros() & 0xFFFFFFFFFFFFFFFF) as u64)
         }
     }
 
@@ -182,9 +190,15 @@ impl Engine {
 
             Message::PrepareEval(fens) => self.prepare_eval(fens),
 
+            Message::PrepareQuiet(fens) => self.prepare_quiet(fens),
+
             Message::Eval(k) => self.eval(k),
 
             Message::Fen => println!("{}", write_fen(&self.board)),
+
+            Message::PrintTestPositions => self.print_test_positions(),
+
+            Message::ResetTestPositions => self.reset_test_positions(),
 
             Message::Profile => self.profile(),
 
@@ -278,20 +292,110 @@ impl Engine {
                 Err(err) => println!("prepare_eval cmd: {}", err),
             }
 
+            if self.board.is_in_check(WHITE) || self.board.is_in_check(BLACK) {
+                continue;
+            }
 
             let mut pieces: [i8; 64] = [0; 64];
             for i in 0..64 {
                 pieces[i] = self.board.get_item(i as i32);
             }
 
-            self.test_positions.push(EvalBoardPos{
+
+            self.test_positions.push(EvalBoardPos {
                 result,
                 pieces,
                 halfmove_count: self.board.fullmove_count(),
                 castling_state: self.board.get_castling_state(),
+                is_quiet: true
             });
         }
-        println!("prepared")
+
+        println!("prepared");
+    }
+
+    fn prepare_quiet(&mut self, fens_with_result: Vec<(String, f64)>) {
+        for (fen, result) in fens_with_result {
+            match read_fen(&mut self.board, &fen) {
+                Ok(_) => (),
+                Err(err) => println!("prepare_quiet cmd: {}", err),
+            }
+
+            if self.board.is_in_check(-self.board.active_player()) {
+                continue;
+            }
+
+            let play_moves = (self.rnd.rand64() % 12) as i32;
+            for _ in 0..play_moves {
+                let sm = self.find_best_move(9, true);
+                if sm == NO_MOVE {
+                    break;
+                }
+
+                let m = decode_move(sm);
+                if m == NO_MOVE {
+                    break;
+                }
+
+                self.board.perform_move(decode_piece_id(m) as i8, decode_start_index(m), decode_end_index(m));
+            }
+
+            if !self.make_quiet() {
+                continue;
+            }
+
+            let mut pieces: [i8; 64] = [0; 64];
+            for i in 0..64 {
+                pieces[i] = self.board.get_item(i as i32);
+            }
+
+            let pos = EvalBoardPos {
+                result,
+                pieces,
+                halfmove_count: self.board.halfmove_count,
+                castling_state: self.board.get_castling_state(),
+                is_quiet: true
+            };
+
+            self.test_positions.push(pos);
+        }
+
+        println!("prepared");
+    }
+
+    fn make_quiet(&mut self) -> bool {
+        for _ in 0..15 {
+            if self.board.is_in_check(-self.board.active_player()) {
+                return false;
+            }
+
+            if self.board.get_static_score().abs() > PIECE_VALUES[Q as usize] as i32 {
+                return false;
+            }
+
+            let mut is_quiet = self.is_quiet_position();
+            if !is_quiet && self.make_quiet_position() && self.is_quiet_position() && self.board.get_static_score().abs() <= PIECE_VALUES[Q as usize] as i32 {
+                is_quiet = true;
+            }
+
+            let scored_m = self.find_best_move(6, true);
+            if scored_m == NO_MOVE {
+                return false;
+            }
+
+            if is_quiet && self.is_quiet_pv(decode_move(scored_m), 4) {
+                return true;
+            }
+
+            let m = decode_move(scored_m);
+            if m == NO_MOVE {
+                return false;
+            }
+
+            self.board.perform_move(decode_piece_id(m) as i8, decode_start_index(m), decode_end_index(m));
+        }
+
+        false
     }
 
     fn eval(&mut self, k: f64) {
@@ -300,11 +404,10 @@ impl Engine {
         let k_div = k / 400.0;
         for pos in self.test_positions.to_vec().iter() {
             pos.apply(&mut self.board);
-            let score = if self.board.is_in_check(self.board.active_player()) || self.board.is_in_check(-self.board.active_player()) {
+            let score = if pos.is_quiet {
                 self.board.get_score()
             } else {
-                self.board.get_score()
-                // self.quiescence_search(self.board.active_player(), MIN_SCORE, MAX_SCORE, 0) * self.board.active_player() as i32
+                self.quiescence_search(self.board.active_player(), MIN_SCORE, MAX_SCORE, 0) * self.board.active_player() as i32
             };
 
             let win_probability = 1.0 / (1.0 + 10.0f64.powf(-(score as f64) * k_div));
@@ -313,6 +416,32 @@ impl Engine {
         }
 
         println!("result {}:{}", self.test_positions.len(), errors);
+    }
+
+    fn print_test_positions(&mut self) {
+
+        print!("testpositions ");
+        let mut is_first = true;
+        for pos in self.test_positions.to_vec().iter() {
+            pos.apply(&mut self.board);
+            self.board.reset_half_move_clock();
+            let fen = write_fen(&self.board);
+
+            if !is_first {
+                print!(";");
+            } else {
+                is_first = false;
+            }
+
+            print!("{}", fen);
+        }
+
+        println!();
+    }
+
+    fn reset_test_positions(&mut self) {
+        self.test_positions.clear();
+        println!("reset completed");
     }
 
     fn set_tt_size(&mut self, size_mb: i32) {

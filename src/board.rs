@@ -46,7 +46,7 @@ pub struct Board {
     pub white_king: i32,
     pub black_king: i32,
     halfmove_clock: u16,
-    halfmove_count: u16,
+    pub halfmove_count: u16,
     pub score: i16,
     pub eg_score: i16,
 
@@ -872,6 +872,22 @@ impl Board {
             occupied &= !(1 << own_attacker_pos);
         }
     }
+
+    pub fn get_static_score(&self) -> i32 {
+        let mut score: i32 = 0;
+
+        for i in 0..64 {
+            let item = self.items[i];
+
+            if item == EMPTY {
+                continue;
+            }
+            score += PIECE_VALUES[item.abs() as usize] as i32 * item.signum() as i32;
+        }
+
+        score
+    }
+
 }
 
 pub const EN_PASSANT: i8 = 1 << 7;

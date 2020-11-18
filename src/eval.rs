@@ -401,32 +401,28 @@ impl Eval for Board {
 
         // King threat (uses king threat values from mobility evaluation)
 
-        if threat_to_black_king > 0 {
-            let white_pawn_threats = min(3, (white_pawns & black_king_danger_zone).count_ones());
+        if threat_to_black_king > 1 {
+            let white_pawn_threats = min(3, (white_pawn_attacks & black_king_danger_zone).count_ones());
             let threat_pattern = white_pawn_threats |
                 white_knight_threat << 2 |
                 white_bishop_threat << 3 |
                 white_rook_threat << 4 |
                 min(3, white_queen_threats) << 5;
 
-            threat_to_black_king += self.options.get_king_threat_adjustment(threat_pattern as usize);
-            threat_to_black_king = max(0, min(15, threat_to_black_king));
-
             interpolated_score += self.options.get_king_danger_piece_penalty(threat_to_black_king as usize);
+            interpolated_score += self.options.get_king_threat_adjustment(threat_pattern as usize);
         }
 
         if threat_to_white_king > 1 {
-            let black_pawn_threats = min(3, (black_pawns & white_king_danger_zone).count_ones());
+            let black_pawn_threats = min(3, (black_pawn_attacks & white_king_danger_zone).count_ones());
             let threat_pattern = black_pawn_threats |
                 black_knight_threat << 2 |
                 black_bishop_threat << 3 |
                 black_rook_threat << 4 |
                 min(3, black_queen_threats) << 5;
 
-            threat_to_white_king += self.options.get_king_threat_adjustment(threat_pattern as usize);
-            threat_to_white_king = max(0, min(15, threat_to_white_king));
-
             interpolated_score -= self.options.get_king_danger_piece_penalty(threat_to_white_king as usize);
+            interpolated_score -= self.options.get_king_threat_adjustment(threat_pattern as usize);
         }
 
         interpolated_score

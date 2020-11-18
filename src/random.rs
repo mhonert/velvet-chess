@@ -30,6 +30,12 @@ impl Random {
         }
     }
 
+    pub fn new_with_seed(seed: u64) -> Self {
+        Random {
+            state: seed.wrapping_mul(0x4d595df4d0f33173)
+        }
+    }
+
     fn rand32(&mut self) -> u32 {
         let mut x = self.state;
         let count = (x >> 59) as u32;

@@ -19,9 +19,7 @@
 use crate::board::EN_PASSANT;
 use crate::colors::{Color, BLACK, WHITE};
 use crate::engine::Engine;
-use crate::move_gen::{
-    decode_end_index, decode_piece_id, decode_start_index, Move, NO_MOVE,
-};
+use crate::move_gen::{decode_end_index, decode_piece_id, decode_start_index, Move, NO_MOVE};
 use crate::move_sort::SortedMoveGenerator;
 use crate::pieces::{EMPTY, P, K};
 use crate::score_util::{
@@ -59,6 +57,14 @@ pub trait Search {
     fn terminal_score(&mut self, active_player: Color, ply: i32) -> i32;
 
     fn is_likely_valid_move(&self, active_player: Color, m: Move) -> bool;
+
+    fn make_quiet_position(&mut self) -> bool;
+
+    fn static_quiescence_search(&mut self, alpha: i32, beta: i32, ply: i32) -> i32;
+
+    fn is_quiet_position(&mut self) -> bool;
+
+    fn is_quiet_pv(&mut self, m: Move, depth: i32) -> bool;
 }
 
 const CANCEL_SEARCH: i32 = i32::max_value() - 1;
@@ -66,20 +72,10 @@ const CANCEL_SEARCH: i32 = i32::max_value() - 1;
 const LMR_THRESHOLD: i32 = 4;
 const LMR_REDUCTIONS: i32 = 2;
 
-const FUTILITY_MARGIN_MULTIPLIER: i32 = 51;
-
 const FUTILE_MOVE_REDUCTIONS: i32 = 2;
 const LOSING_MOVE_REDUCTIONS: i32 = 2;
 
-const QS_SEE_THRESHOLD: i32 = 104;
-const QS_PRUNE_MARGIN: i32 = 989;
-
 const TIMEEXT_MULTIPLIER: i32 = 5;
-const TIMEEXT_SCORE_CHANGE_THRESHOLD: i32 = 80;
-const TIMEEXT_SCORE_FLUCTUATION_THRESHOLD: i32 = 130;
-const TIMEEXT_SCORE_FLUCTUATION_REDUCTIONS: i32 = 90; // reduction percentage per search iteration
-
-const RAZOR_MARGIN: i32 = 130;
 
 impl Search for Engine {
     fn find_best_move(&mut self, min_depth: i32, is_strict_timelimit: bool) -> Move {
@@ -199,7 +195,7 @@ impl Search for Engine {
                 if iteration_cancelled {
                     if best_move != NO_MOVE && previous_best_move != NO_MOVE {
                         score_fluctuations =
-                            score_fluctuations * 100 / TIMEEXT_SCORE_FLUCTUATION_REDUCTIONS;
+                            score_fluctuations * 100 / self.board.options.get_timeext_score_fluctuation_reductions();
                         score_fluctuations += (best_score - previous_best_score).abs();
 
                         if best_score.abs() >= (BLACK_MATE_SCORE - MAX_DEPTH as i32) {
@@ -218,6 +214,8 @@ impl Search for Engine {
                             previous_best_score,
                             score_fluctuations,
                             fluctuation_count,
+                            self.board.options.get_timeext_score_change_threshold(),
+                            self.board.options.get_timeext_score_fluctuation_threshold(),
                         )
                     {
                         already_extended_timelimit = true;
@@ -265,7 +263,7 @@ impl Search for Engine {
             if !iteration_cancelled {
                 if previous_best_move != NO_MOVE {
                     score_fluctuations =
-                        score_fluctuations * 100 / TIMEEXT_SCORE_FLUCTUATION_REDUCTIONS;
+                        score_fluctuations * 100 / self.board.options.get_timeext_score_fluctuation_reductions();
                     score_fluctuations += (best_score - previous_best_score).abs();
                     fluctuation_count += 1;
                 }
@@ -285,6 +283,8 @@ impl Search for Engine {
                             previous_best_score,
                             score_fluctuations,
                             fluctuation_count,
+                            self.board.options.get_timeext_score_change_threshold(),
+                            self.board.options.get_timeext_score_fluctuation_threshold(),
                         )
                     {
                         iteration_cancelled = true;
@@ -385,7 +385,7 @@ impl Search for Engine {
                 depth += 1;
             }
         } else if depth == 1
-            && (self.board.get_score() * player_color as i32) < alpha - RAZOR_MARGIN
+            && (self.board.get_score() * player_color as i32) < alpha - self.board.options.get_razor_margin()
         {
             // Directly jump to quiescence search, if current position score is below a certain threshold
             depth = 0;
@@ -495,7 +495,7 @@ impl Search for Engine {
         let mut prune_low_score = 0;
         if !is_pv && depth <= 4 {
             prune_low_score =
-                self.board.get_score() * player_color as i32 + depth * FUTILITY_MARGIN_MULTIPLIER;
+                self.board.get_score() * player_color as i32 + depth * self.board.options.get_futility_margin_multiplier();
             allow_futile_move_pruning = prune_low_score <= alpha;
         }
 
@@ -612,7 +612,7 @@ impl Search for Engine {
                         removed_piece_id as u32,
                     ) < 0
                 {
-                    // Reduce search depth for moves with negative capture moves with negative SEE score
+                    // Reduce search depth for moves with negative SEE score
                     reductions = LOSING_MOVE_REDUCTIONS;
                 }
             }
@@ -736,7 +736,7 @@ impl Search for Engine {
         }
 
         // Prune nodes where the position score is already so far below alpha that it is very unlikely to be raised by any available move
-        if position_score < alpha - QS_PRUNE_MARGIN {
+        if position_score < alpha - self.board.options.get_qs_prune_margin() {
             return alpha;
         }
 
@@ -746,7 +746,7 @@ impl Search for Engine {
 
         let mut moves = SortedMoveGenerator::gen_capture_moves();
 
-        let mut threshold = alpha - position_score - QS_SEE_THRESHOLD;
+        let mut threshold = alpha - position_score - self.board.options.get_qs_see_threshold();
 
         while let Some(scored_move) = moves.next_capture_move(&self.gen, &mut self.board)
         {
@@ -787,8 +787,209 @@ impl Search for Engine {
 
             if score > alpha {
                 alpha = score;
-                threshold = alpha - position_score - QS_SEE_THRESHOLD;
+                threshold = alpha - position_score - self.board.options.get_qs_see_threshold();
             }
+        }
+
+        alpha
+    }
+
+    fn make_quiet_position(&mut self) -> bool {
+        self.tt.increase_age();
+        self.tt.increase_age();
+        // self.tt.clear();
+        let _ = self.static_quiescence_search(MIN_SCORE, MAX_SCORE, 0) as i16;
+
+        loop {
+            let entry = self.tt.get_entry(self.board.get_hash());
+            if entry == 0 {
+                return true;
+            }
+
+            let m = decode_move(get_scored_move(entry));
+            if m == NO_MOVE || !self.is_likely_valid_move(self.board.active_player(), m) {
+                return true;
+            }
+
+            let target_piece_id = decode_piece_id(m);
+            let start = decode_start_index(m);
+            let end = decode_end_index(m);
+
+            self.board.perform_move(target_piece_id as i8, start, end);
+            if self.board.is_in_check(self.board.active_player()) {
+                return false;
+            }
+        }
+    }
+
+    fn is_quiet_position(&mut self) -> bool {
+        if self.board.is_in_check(WHITE) || self.board.is_in_check(BLACK) {
+            return false;
+        }
+
+        let mut moves = SortedMoveGenerator::gen_capture_moves();
+        while let Some(scored_move) = moves.next_capture_move(&self.gen, &mut self.board)
+        {
+            let m = decode_move(scored_move);
+            let start = decode_start_index(m);
+            let end = decode_end_index(m);
+            let previous_piece = self.board.get_item(start);
+            let previous_piece_id = previous_piece.abs();
+            let captured_piece_id = self.board.get_item(end).abs();
+
+            // skip capture moves with a SEE score below the given threshold
+            if self.board.see_score(
+                -self.board.active_player(),
+                start,
+                end,
+                previous_piece_id as u32,
+                captured_piece_id as u32,
+            ) > 0 {
+                return false;
+            }
+        }
+
+        true
+
+        // let static_score = self.board.get_static_score() as i32 * self.board.active_player() as i32;
+        // let qs_score = self.static_quiescence_search(MIN_SCORE, MAX_SCORE, 0);
+        //
+        // if static_score != qs_score {
+        //     return false;
+        // }
+        //
+        // self.tt.increase_age();
+        // self.tt.increase_age();
+        //
+        // self.timelimit_ms = 0;
+        // let scored_m = self.find_best_move(5, true);
+        // let m = decode_move(scored_m);
+        //
+        // if m != NO_MOVE {
+        //     self.is_quiet_pv(decode_move(scored_m), 3)
+        // } else {
+        //     false
+        // }
+    }
+
+    fn is_quiet_pv(&mut self, m: Move, depth: i32) -> bool {
+        if self.board.is_in_check(WHITE) || self.board.is_in_check(BLACK) {
+            return false;
+        }
+
+        if depth == 0 {
+            return true;
+        }
+
+        let target_piece_id = decode_piece_id(m);
+        let start = decode_start_index(m);
+        let end = decode_end_index(m);
+        let previous_piece = self.board.get_item(start);
+
+        let removed_piece_id = self.board.perform_move(target_piece_id as i8, start, end);
+
+        if removed_piece_id != EMPTY {
+            self.board.undo_move(previous_piece, start, end, removed_piece_id);
+            return false;
+        }
+
+        let entry = self.tt.get_entry(self.board.get_hash());
+        let next_move = if entry != 0 {
+            decode_move(get_scored_move(entry))
+        } else {
+            NO_MOVE
+        };
+
+        if next_move == NO_MOVE {
+            self.board.undo_move(previous_piece, start, end, removed_piece_id);
+            // return depth <= 1;
+            return false;
+        }
+
+        let active_player = self.board.active_player();
+        let is_valid_followup_move = next_move != NO_MOVE && self.is_likely_valid_move(active_player, next_move);
+        let is_quiet = if is_valid_followup_move {
+            removed_piece_id == EMPTY && self.is_quiet_pv(next_move, depth - 1)
+        } else {
+            false
+        };
+
+        self.board.undo_move(previous_piece, start, end, removed_piece_id);
+
+        is_quiet
+    }
+
+    fn static_quiescence_search(
+        &mut self,
+        mut alpha: i32,
+        beta: i32,
+        ply: i32,
+    ) -> i32 {
+        let active_player = self.board.active_player();
+
+        let position_score = self.board.get_static_score() as i32 * active_player as i32;
+
+        if ply >= 60 as i32 {
+            return position_score;
+        }
+
+        if position_score >= beta {
+            return beta;
+        }
+
+        if alpha < position_score {
+            alpha = position_score;
+        }
+
+        let mut moves = SortedMoveGenerator::gen_capture_moves();
+
+        let mut best_move = NO_MOVE;
+
+        while let Some(scored_move) = moves.next_capture_move(&self.gen, &mut self.board)
+        {
+            let m = decode_move(scored_move);
+            let target_piece_id = decode_piece_id(m);
+            let start = decode_start_index(m);
+            let end = decode_end_index(m);
+            let previous_piece = self.board.get_item(start);
+            let previous_piece_id = previous_piece.abs();
+            let captured_piece_id = self.board.get_item(end).abs();
+
+            // skip capture moves with a SEE score below the given threshold
+            if captured_piece_id != EMPTY && self.board.see_score(
+                -active_player,
+                start,
+                end,
+                previous_piece_id as u32,
+                captured_piece_id as u32,
+            ) < 0 {
+                continue;
+            }
+
+            let move_state = self.board.perform_move(target_piece_id as i8, start, end);
+
+            if self.board.is_in_check(active_player) {
+                // Invalid move
+                self.board.undo_move(previous_piece, start, end, move_state);
+                continue;
+            }
+
+            let score = -self.static_quiescence_search(-beta, -alpha, ply + 1);
+            self.board.undo_move(previous_piece, start, end, move_state);
+
+            if score >= beta {
+                self.tt.write_entry(self.board.get_hash(), 60 - ply, scored_move, LOWER_BOUND);
+                return beta;
+            }
+
+            if score > alpha {
+                best_move = scored_move;
+                alpha = score;
+            }
+        }
+
+        if best_move != NO_MOVE {
+            self.tt.write_entry(self.board.get_hash(), 60 - ply, best_move, EXACT);
         }
 
         alpha
@@ -886,6 +1087,7 @@ impl Search for Engine {
 
         removed_piece.signum() == -active_player
     }
+
 }
 
 fn should_extend_timelimit(
@@ -895,6 +1097,8 @@ fn should_extend_timelimit(
     previous_score: i32,
     score_fluctuations: i32,
     fluctuation_count: i32,
+    score_change_threshold: i32,
+    score_fluctuation_threshold: i32
 ) -> bool {
     if previous_move == 0 || new_move == 0 {
         return false;
@@ -907,8 +1111,8 @@ fn should_extend_timelimit(
     };
 
     new_move != previous_move
-        || (new_score - previous_score).abs() >= TIMEEXT_SCORE_CHANGE_THRESHOLD
-        || avg_fluctuations >= TIMEEXT_SCORE_FLUCTUATION_THRESHOLD
+        || (new_score - previous_score).abs() >= score_change_threshold
+        || avg_fluctuations >= score_fluctuation_threshold
 }
 
 fn get_score_info(score: i32) -> String {

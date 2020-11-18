@@ -47,8 +47,8 @@ def read_fens(fen_file) -> List[TestPosition]:
         # rnbqkb1r/1p2ppp1/p2p1n2/2pP3p/4P3/5N2/PPP1QPPP/RNB1KB1R w KQkq - 0 1 1-0
         for line in file:
             fen = line[:-5]
-            result_str = line[-4:].strip()
-            result = 1 if result_str == "1-0" else 0 if result_str == "0-1" else 0.5
+            result_str = line[line.rfind(" "):].strip()
+            result = float(result_str)
             test_positions.append(TestPosition(fen, result))
 
     return test_positions
@@ -159,23 +159,9 @@ def run_pass(config: Config, tuning_options: List[TuningOption], engines: List[E
             errors += e
             positions += p
 
-    log.debug("Pass completed")
     log.debug("Calc evals duration: %.2fs", time() - tick1)
 
-    # tick2 = time()
-    # e = calc_avg_error(k, test_positions)
-    # log.info("Calc avg error duration: %.2fs", time() - tick2)
-
     return errors / float(positions)
-
-
-def calc_avg_error(k: float, positions: List[TestPosition]) -> float:
-    errors = .0
-    for pos in positions:
-        win_probability = 1.0 / (1.0 + 10.0 ** (-pos.score * k / 400.0))
-        error = pos.result - win_probability
-        errors += error * error
-    return errors / float(len(positions))
 
 
 def write_options(options: List[TuningOption]):
@@ -203,10 +189,10 @@ def write_options(options: List[TuningOption]):
 
 
 def tune_option(config: Config, tuning_options: List[TuningOption], engines: List[Engine], best_err: float, resolution: int, option: TuningOption):
-    prev_value = option.value
+    option.prev_value = option.value
 
     for _ in range(2):
-        option.value = (prev_value // resolution + option.steps * option.direction) * resolution
+        option.value = (option.prev_value // resolution + option.steps * option.direction) * resolution
         if option.minimum is not None:
             if option.value < option.minimum:
                 option.value = option.minimum
@@ -217,17 +203,44 @@ def tune_option(config: Config, tuning_options: List[TuningOption], engines: Lis
         err = run_pass(config, tuning_options, engines)
         diff = best_err - err
 
-        if diff > 0:
-            option.improved(prev_value, diff)
+        if diff > .0:
+        # if diff > .0000000001:
+            option.improved(diff)
             return err
-        elif diff < 0:
-            option.not_improved(prev_value)
+        elif diff < .0:
+            option.not_improved(True)
         else:
-            option.not_improved(prev_value)
-            option.improvement = -1.0
+            option.not_improved(True)
             # break
 
         option.direction *= -1
+
+    return best_err
+
+
+def tune_options(config: Config, tuning_options: List[TuningOption], engines: List[Engine], best_err: float,
+                 resolution: int, summed_improvements: float, options: List[TuningOption]):
+
+    for option in options:
+        option.prev_value = option.value
+        option.value = (option.prev_value // resolution + option.steps * option.direction) * resolution
+
+    err = run_pass(config, tuning_options, engines)
+    diff = best_err - err
+
+    if diff > .0:
+    # if diff > .0000000001:
+        for option in options:
+            option.improved(diff * option.improvement / summed_improvements)
+            option.steps = 1
+        return err
+    elif diff < .0:
+        for option in options:
+            option.not_improved(False)
+    else:
+        for option in options:
+            option.not_improved(False)
+            option.improvement = .0
 
     return best_err
 
@@ -244,7 +257,16 @@ def main():
     # K = 1.342224
     # K = 0.6
 
-    config.k = 0.9
+    # config.k = 0.843
+    # config.k = 0.789999
+    #config.k = 1.342224
+    # config.k = 0.920004
+    # config.k = 1.5
+    # config.k = 1.1
+    # config.k = 1.322
+    # config.k = 1.0313
+    config.k = 1.603
+    # config.k = 0.8425
 
     log.info("Reading test positions ...")
     all_test_positions = read_fens(config.test_positions_file)
@@ -290,7 +312,6 @@ def main():
         iterations = 0
 
         low_improvements = 0
-        is_first_iteration = True
 
         local_best_err = run_pass(config, best_options, engines)
 
@@ -298,18 +319,21 @@ def main():
         # last_e = 10000000.0
         # k = 0.5
         # for step in [0.1, 0.01, 0.001, 0.0001, 0.00001, 0.000001, 0.0000001]:
+        #     log.info("Next step: %f", step)
         #     while True:
+        #         previous_k = k
+        #         k += step
         #         config.k = k
         #         e = run_pass(config, best_options, engines)
+        #         log.info("Check k = %.8f -> e = %.8f, last_e = %.8f", k, e, last_e)
         #         if e > last_e:
-        #             k -= step
+        #             k = previous_k
         #             break
-        #         log.info("k = %.8f -> e = %.8f", k, e)
         #         last_e = e
-        #         k += step
         #
+        # log.info("=> k = %.8f", k)
         # return
-        #
+
         init_err = local_best_err
 
         option_count = len(config.tuning_options)
@@ -317,25 +341,110 @@ def main():
         log.info("Tuning %d options", option_count)
         log.info("Start with resolution %d", resolution)
 
-        while low_improvements <= 3 or resolution > 1:
+        init_phase = -2
+
+        any_options_checked = False
+
+        is_first = True
+
+        while low_improvements <= 2 or resolution > 1:
             iterations += 1
 
             write_options(config.tuning_options)
 
             prev_err = local_best_err
-            for i, option in enumerate(best_options):
+            if init_phase < 0:
+                any_options_checked = False
+                init_phase += 1
+                improvement_count = 0
+                log.info("Re-init phase %d", low_improvements)
+                for i, option in enumerate(best_options):
+                    log.info("Option %s, %f, %d", option.name, option.improvement, option.improvements)
+                    option.iteration = iterations
+                    option.has_improved = False
+                    new_local_best_err = tune_option(config, best_options, engines, local_best_err, resolution, option)
+                    if new_local_best_err < local_best_err:
+                        local_best_err = new_local_best_err
+                        improvement_count += 1
 
-                option.iteration = iterations
-                option.has_improved = False
-                new_local_best_err = tune_option(config, best_options, engines, local_best_err, resolution, option)
-                if new_local_best_err < local_best_err:
-                    local_best_err = new_local_best_err
-                    if not is_first_iteration:
+                    if not is_first and low_improvements == 0 and improvement_count >= 4 and option.improvements == 0:
+                        log.info("Leave re-init phase")
                         break
 
-            is_first_iteration = False
+                    if is_first and init_phase == 0 and option.improvements == 0:
+                        log.info("Leave initial init phase")
+                        break;
 
-            best_options.sort(key=lambda o: (o.improvement, -o.iteration), reverse=True)
+                for i, option in enumerate(best_options):
+                    if option.improvements > 1 and not option.has_improved:
+                        option.improvements -= 1
+
+            else:
+                is_first = False
+                count = 0
+                options = []
+                start_rel = .0
+                summed_improvements = .0
+
+                for i, option in enumerate(best_options):
+                    # log.info("%s: %f", option.name, option.rel_improvement)
+                    if not option.has_improved or option.improvement <= .0:
+                        continue
+                    if count == 0:
+                        option.iteration = iterations
+                        option.has_improved = False
+                        start_rel = option.rel_improvement
+                        summed_improvements += option.improvement
+                        options.append(option)
+                        count += 1
+                        continue
+
+                    if option.steps > 1:
+                        break
+
+                    if start_rel - option.rel_improvement >= 1.0:
+                        break
+
+                    if option.rel_improvement < 1.0 and start_rel - option.rel_improvement >= .05:
+                        break
+
+                    if option.rel_improvement < .5 and start_rel - option.rel_improvement >= .025:
+                        break
+
+                    if start_rel <= 0.1 or start_rel - option.rel_improvement >= .1 or option.rel_improvement < 0.00000001:
+                        break
+
+                    option.iteration = iterations
+                    option.has_improved = False
+                    summed_improvements += option.improvement
+                    options.append(option)
+                    count += 1
+
+                    if count >= 128:
+                        break
+
+                if count > 0:
+                    any_options_checked = True
+                    if count > 1:
+                        log.info("Tuning %d options [%f, %f]", count, options[0].rel_improvement, options[-1].rel_improvement)
+                        new_local_best_err = tune_options(config, best_options, engines, local_best_err, resolution, summed_improvements, options)
+                        if new_local_best_err < local_best_err:
+                            local_best_err = new_local_best_err
+                        else:
+                            for option in options:
+                                new_local_best_err = tune_option(config, best_options, engines, local_best_err, resolution, option)
+                                if new_local_best_err < local_best_err:
+                                    local_best_err = new_local_best_err
+
+                    else:
+                        new_local_best_err = tune_option(config, best_options, engines, local_best_err, resolution, options[0])
+                        if new_local_best_err < local_best_err:
+                            local_best_err = new_local_best_err
+
+                else:
+                    any_options_checked = False
+
+            best_options.sort(key=lambda o: (o.rel_improvement, o.improvement, o.improvements, -o.iteration), reverse=True)
 
             improvement = prev_err - local_best_err
 
@@ -355,7 +464,7 @@ def main():
             if len(improvements) > 10:
                 improvements = improvements[1:]
 
-            if improvement == 0:
+            if improvement == 0 and not any_options_checked:
                 if resolution > 1:
                     resolution //= 10
                     if resolution < 10:
@@ -364,6 +473,9 @@ def main():
                     log.info("Continue with resolution %d", resolution)
 
                 low_improvements += 1
+                if init_phase >= 0:
+                    init_phase = -1
+
             else:
                 low_improvements = 0
 

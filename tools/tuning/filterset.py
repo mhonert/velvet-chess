@@ -16,13 +16,11 @@
 import argparse
 import logging as log
 import subprocess
-from concurrent.futures import ThreadPoolExecutor, as_completed, wait
+from concurrent.futures import ThreadPoolExecutor, wait
 from concurrent.futures._base import FIRST_COMPLETED
-from random import randint
 from time import time
 import sys
 from typing import List
-import chess
 
 
 # Read test FEN positions
@@ -45,10 +43,11 @@ class Engine:
 
     def stop(self):
         log.debug("Stopping engine instance")
-        self.process.communicate("quit\n", timeout=2)
-
-        self.process.kill()
-        self.process.communicate()
+        try:
+            self.process.communicate("quit\n", timeout=10)
+        finally:
+            self.process.kill()
+            self.process.communicate()
 
     def send_command(self, cmd):
         log.debug(">>> " + cmd)
@@ -66,82 +65,25 @@ def run_engine(engine: Engine, test_positions: List[str]):
     results = []
 
     try:
+        engine.send_command("resettestpositions")
+        engine.wait_for_command("reset completed")
 
-        start_nodes = 20000
-
+        fens = "prepare_quiet "
+        is_first = True
         for pos in test_positions:
-            pos_results = .0
-            pos_result_count = 0
-            remaining_iterations = 4
-            previous_result = .0
-            extended = False
+            if not is_first:
+                fens += ";"
+            else:
+                is_first = False
+            fens += pos + ":" + str(0)
 
-            mirrored_fen = None
+        engine.send_command(fens)
+        engine.wait_for_command("prepared")
 
-            while remaining_iterations > 0:
-                remaining_iterations -= 1
-                moves = []
-                board = chess.Board(pos)
-
-                if mirrored_fen is None:
-                    mirrored_fen = board.mirror().fen()
-
-                if board.is_game_over():
-                    continue
-
-                engine.send_command("ucinewgame")
-
-                engine.send_command("isready")
-                engine.wait_for_command("readyok")
-
-                nodes = randint(start_nodes, start_nodes + start_nodes // 10) * (20 + pos_result_count) // 20
-
-                claim_draw = True
-
-                while claim_draw or len(moves) < 400:
-                    if len(moves) > 0:
-                        engine.send_command("position fen " + pos + " moves " + " ".join(moves))
-                    else:
-                        engine.send_command("position fen " + pos)
-
-                    engine.send_command("go nodes " + str(nodes))
-
-                    response = engine.wait_for_command("bestmove").split(' ')
-                    best_move = response[1]
-
-                    board.push_uci(best_move)
-                    if board.is_game_over(claim_draw=claim_draw):
-                        break
-
-                    moves.append(best_move)
-
-                    response_move = response[3] if len(response) == 4 else None
-                    if response_move is None:
-                        continue
-
-                    board.push_uci(response_move)
-                    if board.is_game_over(claim_draw=claim_draw):
-                        break
-                    moves.append(response_move)
-
-                result = 0.5
-                if board.is_checkmate():
-                    result = to_result_value(board.result())
-
-                pos_results += result
-
-                if not extended and pos_result_count > 0:
-                    if previous_result != result:
-                        remaining_iterations += 4
-                        extended = True
-
-                previous_result = result
-                pos_result_count += 1
-
-            if pos_result_count > 0:
-                pos_result = pos_results / float(pos_result_count)
-                results.append(pos + " " + str(pos_result) + "\n")
-                results.append(mirrored_fen + " " + str(1.0 - pos_result) + "\n")
+        engine.send_command("printtestpositions")
+        result = engine.wait_for_command("testpositions")[len("testpositions "):]
+        for fen in result.split(";"):
+            results.append(fen + "\n")
 
     except subprocess.TimeoutExpired as error:
         engine.stop()
@@ -151,23 +93,6 @@ def run_engine(engine: Engine, test_positions: List[str]):
         log.error(str(error))
 
     return results
-
-
-def to_result_value(result: str) -> float:
-    if result == "1-0":
-        return 1.0
-    elif result == "0-1":
-        return .0
-    else:
-        return 0.5
-
-
-def mirror(result: str) -> str:
-    if result == "1-0":
-        return "0-1"
-    elif result == "0-1":
-        return "1-0"
-    return result
 
 
 # Split list of test positions into "batch_count" batches
@@ -233,9 +158,9 @@ def main():
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--engine', dest='engine_cmd')
-    parser.add_argument('--tb', dest='tb_path')
     args = parser.parse_args()
 
+    #log.getLogger().setLevel(log.DEBUG)
     log.info("Reading test positions ...")
 
     concurrency = 7
@@ -244,13 +169,11 @@ def main():
     log.info("Starting engines ...")
     engines = []
     for i in range(concurrency + 1):
-        engine = Engine(args.engine_cmd)
+        engine = Engine(args.engine)
         engine.send_command("uci")
         engine.wait_for_command("uciok")
 
-        engine.send_command("setoption name Hash value 512")
-        if args.tb_path:
-            engine.send_command("setoption name SyzygyPath value " + args.tb_path)
+        engine.send_command("setoption name Hash value 1024")
         engine.send_command("isready")
         engine.wait_for_command("readyok")
 
@@ -260,17 +183,18 @@ def main():
 
     try:
 
-        for i in range(1, 5 + 1):
-            test_positions = read_fens("fen/set_filtered_" + str(i) + ".fen")
-            log.info("Evaluating test position set %d ...", i)
+        for i in range(1, 848):
+            test_positions = read_fens("fen/set_" + str(i) + ".fen")
+            log.info("Filtering test position set %d ...", i)
             start = time()
 
             results = run_pass(engines, concurrency, test_positions)
 
-            with open("fen/set_eval_" + str(i) + ".fen", "w", encoding="utf-8") as result_file:
+            with open("fen/set_filtered_" + str(i) + ".fen", "w", encoding="utf-8") as result_file:
                 result_file.writelines(results)
 
             log.info("Duration         : %.2fs", time() - start)
+            log.info("Skipped          : %d%%", 100 - (len(results) * 100 / len(test_positions)))
 
     finally:
         for engine in engines:

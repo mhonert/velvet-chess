@@ -25,49 +25,59 @@ import yaml
 class TuningOption:
     name: str
     value: int
-    history: List[int]
+    history: List[float]
     is_part: bool = False
     orig_name: str = ""
     minimum: Optional[int] = None
     maximum: Optional[int] = None
     steps: int = 1
     direction: int = 1
-    improvement: float = 0
+    improvement: float = .0
     has_improved: bool = True
     iteration: int = -1
     fails: int = 0
+    prev_value: int = 0
+    rel_improvement: float = .0
+    improvements: int = 0
 
-    def improved(self, prev_value, diff):
+    def improved(self, diff):
         self.fails = 0
         self.improvement = diff
 
         self.history.append(diff)
         self.adjust_steps()
+        self.improvements += 1
 
         self.has_improved = True
 
-        log.info(" > Change %s from %d to %d (%d): %.8f", self.name, prev_value, self.value, self.steps * self.direction, self.improvement)
+        log.info(" > Change %s from %d to %d (%d): %.8f", self.name, self.prev_value, self.value, self.steps * self.direction, self.improvement)
 
-    def not_improved(self, prev_value):
+    def not_improved(self, reset):
         self.fails += 1
-        self.value = prev_value  # Restore previous value
+        self.value = self.prev_value  # Restore previous value
         self.has_improved = False
+        if not reset:
+            return
+
         if self.fails == 1:
             self.improvement /= 100
         else:
             self.improvement = 0
 
-        self.history.clear()
+        self.history = self.history[-1:]
+        self.rel_improvement = 0
         self.steps = 1
 
     def adjust_steps(self):
         if len(self.history) < 2:
             return
 
-        steps = self.history[-1] * (len(self.history) - 1) / self.history[0]
+        log.debug("%s: %d - %.8f", self.name, self.value, self.improvement)
 
+        self.rel_improvement = self.history[-1] / self.history[-2]
+        steps = self.history[-1] * (len(self.history) - 1) / self.history[0]
         self.steps = min(10, max(1, int(steps)))
-        log.debug("%s: %f", self.name, self.steps)
+        # log.debug("%s: %f", self.name, self.steps)
 
 
 def get_config(cfg: Dict, key: str, msg: str):
