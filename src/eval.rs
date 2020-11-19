@@ -431,3 +431,21 @@ fn calc_doubled_pawn_penalty(pawns: u64, penalty: i32) -> i32 {
 
     doubled.count_ones() as i32 * penalty
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::fen::create_from_fen;
+
+    #[test]
+    fn check_correct_eval_score_for_mirrored_pos() {
+        assert_eq!(create_from_fen("1b1r2k1/r4pp1/2p2n1p/1pPp3P/1P1PpPqQ/4P1P1/1B1N4/1K2R2R w - - 0 38").get_score(),
+                   -create_from_fen("1k2r2r/1b1n4/4p1p1/1p1pPpQq/1PpP3p/2P2N1P/R4PP1/1B1R2K1 b - - 0 38").get_score());
+
+        assert_eq!(create_from_fen("8/8/8/5k2/4r1p1/6P1/3K1P2/8 b - - 0 80").get_score(),
+                   -create_from_fen("8/3k1p2/6p1/4R1P1/5K2/8/8/8 w - - 0 80").get_score());
+
+        assert_eq!(create_from_fen("2kr1b1r/pp1nnp1b/4p2p/2qpP1p1/3N1B1N/8/PPP1BPPP/2RQ1RK1 w - - 0 14").get_score(),
+                   -create_from_fen("2rq1rk1/ppp1bppp/8/3n1b1n/2QPp1P1/4P2P/PP1NNP1B/2KR1B1R b - - 0 14").get_score());
+    }
+}
