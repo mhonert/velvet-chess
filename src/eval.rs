@@ -99,6 +99,9 @@ impl Eval for Board {
 
         let white_safe_targets = empty_or_black & !black_pawn_attacks;
 
+        let mut white_attacks = white_pawn_attacks;
+        let mut black_attacks = black_pawn_attacks;
+
         // Knights
         let mut white_knight_threat = 0;
         let white_knights = self.get_bitboard(N);
@@ -109,6 +112,7 @@ impl Eval for Board {
                 knights ^= 1 << pos as u64; // unset bit
 
                 let possible_moves = self.bb.get_knight_attacks(pos as i32);
+                white_attacks |= possible_moves;
 
                 let move_count = (possible_moves & white_safe_targets).count_ones();
                 score += self.options.get_knight_mob_bonus(move_count as usize);
@@ -133,6 +137,7 @@ impl Eval for Board {
                 knights ^= 1 << pos as u64; // unset bit
 
                 let possible_moves = self.bb.get_knight_attacks(pos as i32);
+                black_attacks |= possible_moves;
 
                 let move_count = (possible_moves & black_safe_targets).count_ones();
                 score -= self.options.get_knight_mob_bonus(move_count as usize);
@@ -160,6 +165,8 @@ impl Eval for Board {
                 bishops ^= 1 << pos as u64;  // unset bit
 
                 let possible_moves = self.bb.get_diagonal_attacks(occupied, pos as i32) | self.bb.get_anti_diagonal_attacks(occupied, pos as i32);
+                white_attacks |= possible_moves;
+
                 let move_count = (possible_moves & white_safe_targets).count_ones();
                 score += self.options.get_bishop_mob_bonus(move_count as usize);
                 eg_score += self.options.get_eg_bishop_mob_bonus(move_count as usize);
@@ -187,6 +194,8 @@ impl Eval for Board {
                 bishops ^= 1 << pos as u64;  // unset bit
 
                 let possible_moves = self.bb.get_diagonal_attacks(occupied, pos as i32) | self.bb.get_anti_diagonal_attacks(occupied, pos as i32);
+                black_attacks |= possible_moves;
+
                 let move_count = (possible_moves & black_safe_targets).count_ones();
                 score -= self.options.get_bishop_mob_bonus(move_count as usize);
                 eg_score -= self.options.get_eg_bishop_mob_bonus(move_count as usize);
@@ -225,6 +234,8 @@ impl Eval for Board {
                 }
 
                 let possible_moves = self.bb.get_horizontal_attacks(occupied, pos as i32) | self.bb.get_vertical_attacks(occupied, pos as i32);
+                white_attacks |= possible_moves;
+
                 let move_count = (possible_moves & white_safe_targets).count_ones();
                 score += self.options.get_rook_mob_bonus(move_count as usize);
                 eg_score += self.options.get_eg_rook_mob_bonus(move_count as usize);
@@ -262,6 +273,8 @@ impl Eval for Board {
                 }
 
                 let possible_moves = self.bb.get_horizontal_attacks(occupied, pos as i32) | self.bb.get_vertical_attacks(occupied, pos as i32);
+                black_attacks |= possible_moves;
+
                 let move_count = (possible_moves & black_safe_targets).count_ones();
                 score -= self.options.get_rook_mob_bonus(move_count as usize);
                 eg_score -= self.options.get_eg_rook_mob_bonus(move_count as usize);
@@ -293,6 +306,8 @@ impl Eval for Board {
                     | self.bb.get_diagonal_attacks(occupied, pos as i32)
                     | self.bb.get_anti_diagonal_attacks(occupied, pos as i32);
 
+                white_attacks |= possible_moves;
+
                 let move_count = (possible_moves & white_safe_targets).count_ones();
                 score += self.options.get_queen_mob_bonus(move_count as usize);
                 eg_score += self.options.get_eg_queen_mob_bonus(move_count as usize);
@@ -321,6 +336,8 @@ impl Eval for Board {
                     | self.bb.get_vertical_attacks(occupied, pos as i32)
                     | self.bb.get_diagonal_attacks(occupied, pos as i32)
                     | self.bb.get_anti_diagonal_attacks(occupied, pos as i32);
+
+                black_attacks |= possible_moves;
 
                 let move_count = (possible_moves & black_safe_targets).count_ones();
                 score -= self.options.get_queen_mob_bonus(move_count as usize);
@@ -391,6 +408,13 @@ impl Eval for Board {
                 eg_score += self.options.get_passed_pawn_king_attacked_penalty(opponent_king_distance as usize);
             }
         }
+
+        // Uncovered piece penalty
+        let uncovered_white_pieces = (white_pieces & !white_attacks).count_ones() as i32;
+        score -= uncovered_white_pieces * self.options.get_uncovered_piece_penalty();
+
+        let uncovered_black_pieces = (black_pieces & !black_attacks).count_ones() as i32;
+        score += uncovered_black_pieces * self.options.get_uncovered_piece_penalty();
 
         // Interpolate between opening/mid-game score and end game score for a smooth eval score transition
         let pieces_except_king_count: i32 = (white_pieces | black_pieces).count_ones() as i32 - 2; // -2 for two kings

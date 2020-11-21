@@ -49,6 +49,7 @@ const BISHOP_PIN_BONUS: i32 = 17;
 const EG_BISHOP_PIN_BONUS: i32 = 10;
 const ROOK_PIN_BONUS: i32 = 2;
 const EG_ROOK_PIN_BONUS: i32 = 9;
+const UNCOVERED_PIECE_PENALTY: i32 = 4;
 const EG_PASSED_PAWN_BONUS: [i32; 4] = [115, 97, 56, 10];
 const PASSED_PAWN_BONUS: [i32; 4] = [2, 23, 10, 0];
 const PASSED_PAWN_KING_DEFENSE_BONUS: [i32; 8] = [3, 95, 72, 45, 27, 21, 31, 23];
@@ -239,6 +240,12 @@ impl Options {
     #[inline]
     pub fn get_eg_rook_pin_bonus(&self) -> i32 {
         EG_ROOK_PIN_BONUS
+    }
+
+
+    #[inline]
+    pub fn get_uncovered_piece_penalty(&self) -> i32 {
+        UNCOVERED_PIECE_PENALTY
     }
 
     #[inline]
