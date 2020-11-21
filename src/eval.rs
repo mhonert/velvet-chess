@@ -81,10 +81,14 @@ impl Eval for Board {
         let white_pieces = self.get_all_piece_bitboard(WHITE);
         let black_pieces = self.get_all_piece_bitboard(BLACK);
 
+        let white_rooks = self.get_bitboard(R);
+        let black_rooks = self.get_bitboard(-R);
+
         // Mobility evaluation
         let empty_board = !white_pieces & !black_pieces;
         let empty_or_black = empty_board | black_pieces;
 
+        let white_pawn_attacks = white_left_pawn_attacks(white_pawns) | white_right_pawn_attacks(white_pawns);
         let black_pawn_attacks = black_left_pawn_attacks(black_pawns) | black_right_pawn_attacks(black_pawns);
 
         let mut threat_to_white_king = 0;
@@ -118,7 +122,6 @@ impl Eval for Board {
         }
 
         let empty_or_white = empty_board | white_pieces;
-        let white_pawn_attacks = white_left_pawn_attacks(white_pawns) | white_right_pawn_attacks(white_pawns);
         let black_safe_targets = empty_or_white & !white_pawn_attacks;
 
         let black_knights = self.get_bitboard(-N);
@@ -144,6 +147,8 @@ impl Eval for Board {
 
         let occupied = !empty_board;
 
+        let mut pinnable_black_pieces = black_knights | black_rooks;
+
         // Bishops
         let mut white_bishop_threat = 0;
         let white_bishops = self.get_bitboard(B);
@@ -163,9 +168,15 @@ impl Eval for Board {
                     threat_to_black_king += self.options.get_bishop_king_threat();
                     white_bishop_threat = 1;
                 }
+
+                if possible_moves & pinnable_black_pieces != 0 {
+                    score += self.options.get_bishop_pin_bonus();
+                    eg_score += self.options.get_eg_bishop_pin_bonus();
+                }
             }
         }
 
+        let mut pinnable_white_pieces = white_knights | white_rooks;
         let mut black_bishop_threat = 0;
         let black_bishops = self.get_bitboard(-B);
         {
@@ -184,12 +195,17 @@ impl Eval for Board {
                     threat_to_white_king += self.options.get_bishop_king_threat();
                     black_bishop_threat = 1;
                 }
+
+                if possible_moves & pinnable_white_pieces != 0 {
+                    score -= self.options.get_bishop_pin_bonus();
+                    eg_score -= self.options.get_eg_bishop_pin_bonus();
+                }
             }
         }
 
         // Rooks
         let mut white_rook_threat = 0;
-        let white_rooks = self.get_bitboard(R);
+        pinnable_black_pieces = black_knights | black_bishops;
         {
             let mut rooks = white_rooks;
             while rooks != 0 {
@@ -217,11 +233,16 @@ impl Eval for Board {
                     threat_to_black_king += self.options.get_rook_king_threat();
                     white_rook_threat = 1;
                 }
+
+                if possible_moves & pinnable_black_pieces != 0 {
+                    score += self.options.get_rook_pin_bonus();
+                    eg_score += self.options.get_eg_rook_pin_bonus();
+                }
             }
         }
 
         let mut black_rook_threat = 0;
-        let black_rooks = self.get_bitboard(-R);
+        pinnable_white_pieces = white_knights | white_bishops;
         {
             let mut rooks = black_rooks;
             while rooks != 0 {
@@ -248,6 +269,11 @@ impl Eval for Board {
                 if possible_moves & white_king_danger_zone != 0 {
                     threat_to_white_king += self.options.get_rook_king_threat();
                     black_rook_threat = 1;
+                }
+
+                if possible_moves & pinnable_white_pieces != 0 {
+                    score -= self.options.get_rook_pin_bonus();
+                    eg_score -= self.options.get_eg_rook_pin_bonus();
                 }
             }
         }

@@ -45,6 +45,10 @@ const ROOK_ON_HALF_OPEN_FILE_BONUS: i32 = 11;
 const ROOK_ON_OPEN_FILE_BONUS: i32 = 14;
 const EG_ROOK_ON_HALF_OPEN_FILE_BONUS: i32 = -6;
 const EG_ROOK_ON_OPEN_FILE_BONUS: i32 = 1;
+const BISHOP_PIN_BONUS: i32 = 17;
+const EG_BISHOP_PIN_BONUS: i32 = 10;
+const ROOK_PIN_BONUS: i32 = 2;
+const EG_ROOK_PIN_BONUS: i32 = 9;
 const EG_PASSED_PAWN_BONUS: [i32; 4] = [115, 97, 56, 10];
 const PASSED_PAWN_BONUS: [i32; 4] = [2, 23, 10, 0];
 const PASSED_PAWN_KING_DEFENSE_BONUS: [i32; 8] = [3, 95, 72, 45, 27, 21, 31, 23];
@@ -211,6 +215,30 @@ impl Options {
     #[inline]
     pub fn get_eg_rook_on_open_file_bonus(&self) -> i32 {
         EG_ROOK_ON_OPEN_FILE_BONUS
+    }
+
+
+    #[inline]
+    pub fn get_bishop_pin_bonus(&self) -> i32 {
+        BISHOP_PIN_BONUS
+    }
+
+
+    #[inline]
+    pub fn get_eg_bishop_pin_bonus(&self) -> i32 {
+        EG_BISHOP_PIN_BONUS
+    }
+
+
+    #[inline]
+    pub fn get_rook_pin_bonus(&self) -> i32 {
+        ROOK_PIN_BONUS
+    }
+
+
+    #[inline]
+    pub fn get_eg_rook_pin_bonus(&self) -> i32 {
+        EG_ROOK_PIN_BONUS
     }
 
     #[inline]
