@@ -191,11 +191,22 @@ impl Eval for Board {
         let mut white_rook_threat = 0;
         let white_rooks = self.get_bitboard(R);
         {
-            // let occupied = white_kt_occupied & !white_queens & !white_rooks;
             let mut rooks = white_rooks;
             while rooks != 0 {
                 let pos = rooks.trailing_zeros();
                 rooks ^= 1 << pos as u64;  // unset bit
+
+                // Rook on (half) open file?
+                let front_columns = self.bb.get_vertical_attacks(0, pos as i32);
+                if front_columns & white_pawns == 0 {
+                    score += self.options.get_rook_on_half_open_file_bonus();
+                    eg_score += self.options.get_eg_rook_on_half_open_file_bonus();
+
+                    if front_columns & black_pawns == 0 {
+                        score += self.options.get_rook_on_open_file_bonus();
+                        eg_score += self.options.get_eg_rook_on_open_file_bonus();
+                    }
+                }
 
                 let possible_moves = self.bb.get_horizontal_attacks(occupied, pos as i32) | self.bb.get_vertical_attacks(occupied, pos as i32);
                 let move_count = (possible_moves & white_safe_targets).count_ones();
@@ -216,6 +227,18 @@ impl Eval for Board {
             while rooks != 0 {
                 let pos = rooks.trailing_zeros();
                 rooks ^= 1 << pos as u64;  // unset bit
+
+                // Rook on (half) open file?
+                let front_columns = self.bb.get_vertical_attacks(0, pos as i32);
+                if front_columns & black_pawns == 0 {
+                    score -= self.options.get_rook_on_half_open_file_bonus();
+                    eg_score -= self.options.get_eg_rook_on_half_open_file_bonus();
+
+                    if front_columns & white_pawns == 0 {
+                        score -= self.options.get_rook_on_open_file_bonus();
+                        eg_score -= self.options.get_eg_rook_on_open_file_bonus();
+                    }
+                }
 
                 let possible_moves = self.bb.get_horizontal_attacks(occupied, pos as i32) | self.bb.get_vertical_attacks(occupied, pos as i32);
                 let move_count = (possible_moves & black_safe_targets).count_ones();
@@ -345,11 +368,6 @@ impl Eval for Board {
 
         // Interpolate between opening/mid-game score and end game score for a smooth eval score transition
         let pieces_except_king_count: i32 = (white_pieces | black_pieces).count_ones() as i32 - 2; // -2 for two kings
-
-        // Material difference relative to total piece count
-        if pieces_except_king_count > 0 {
-            score += self.score as i32 / pieces_except_king_count;
-        }
 
         let white_queen_phase_score = if white_queens != 0 { QUEEN_PHASE_VALUE } else { 0 };
         let black_queen_phase_score = if black_queens != 0 { QUEEN_PHASE_VALUE } else { 0 };

@@ -850,26 +850,6 @@ impl Search for Engine {
         }
 
         true
-
-        // let static_score = self.board.get_static_score() as i32 * self.board.active_player() as i32;
-        // let qs_score = self.static_quiescence_search(MIN_SCORE, MAX_SCORE, 0);
-        //
-        // if static_score != qs_score {
-        //     return false;
-        // }
-        //
-        // self.tt.increase_age();
-        // self.tt.increase_age();
-        //
-        // self.timelimit_ms = 0;
-        // let scored_m = self.find_best_move(5, true);
-        // let m = decode_move(scored_m);
-        //
-        // if m != NO_MOVE {
-        //     self.is_quiet_pv(decode_move(scored_m), 3)
-        // } else {
-        //     false
-        // }
     }
 
     fn is_quiet_pv(&mut self, m: Move, depth: i32) -> bool {
