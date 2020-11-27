@@ -31,6 +31,13 @@ use crate::options::{Options, PieceSquareTables};
 
 const MAX_GAME_HALFMOVES: usize = 5898 * 2;
 
+const BASE_PIECE_PHASE_VALUE: i32 = 2;
+const PAWN_PHASE_VALUE: i32 = -1; // relative to the base piece value
+const QUEEN_PHASE_VALUE: i32 = 4; // relative to the base piece value
+
+pub const MAX_PHASE: i32 = 16 * PAWN_PHASE_VALUE + 30 * BASE_PIECE_PHASE_VALUE + 2 * QUEEN_PHASE_VALUE;
+
+
 pub struct Board {
     pub bb: Bitboard,
     pub options: Options,
@@ -888,7 +895,31 @@ impl Board {
         score
     }
 
+    pub fn calc_phase_value(&self) -> i32 {
+        calc_phase_value(self.get_all_piece_bitboard(WHITE) | self.get_all_piece_bitboard(BLACK),
+                         self.get_bitboard(-P) | self.get_bitboard(P),
+                         self.get_bitboard(Q), self.get_bitboard(Q))
+    }
 }
+
+pub fn calc_phase_value(all_pieces: u64, all_pawns: u64, white_queens: u64, black_queens: u64) -> i32 {
+    let pieces_except_king_count: i32 = all_pieces.count_ones() as i32 - 2; // -2 for two kings
+
+    let white_queen_phase_score = if white_queens != 0 { QUEEN_PHASE_VALUE } else { 0 };
+    let black_queen_phase_score = if black_queens != 0 { QUEEN_PHASE_VALUE } else { 0 };
+    let queen_phase_score: i32 = white_queen_phase_score + black_queen_phase_score;
+    let pawn_count: i32 = all_pawns.count_ones() as i32;
+
+    pawn_count * PAWN_PHASE_VALUE + pieces_except_king_count * BASE_PIECE_PHASE_VALUE + queen_phase_score
+}
+
+#[inline]
+pub fn interpolate_score(phase: i32, score: i32, eg_score: i32) -> i32 {
+    let eg_phase: i32 = MAX_PHASE - phase;
+
+    ((score * phase) + (eg_score * eg_phase)) / MAX_PHASE
+}
+
 
 pub const EN_PASSANT: i8 = 1 << 7;
 

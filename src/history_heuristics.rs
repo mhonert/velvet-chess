@@ -92,7 +92,7 @@ impl HistoryHeuristics {
 
         let move_count = self.played_move_history[index];
         if move_count == 0 {
-            return 0;
+            return -1;
         }
 
         (self.cut_off_history[index] * 512 / move_count) as i32

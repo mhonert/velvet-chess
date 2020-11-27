@@ -16,7 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::board::Board;
+use crate::board::{Board, calc_phase_value, interpolate_score};
 use crate::pieces::{P, N, B, R, Q};
 use crate::castling::Castling;
 use crate::colors::{WHITE, BLACK};
@@ -28,12 +28,6 @@ pub trait Eval {
 }
 
 const PASSED_PAWN_THRESHOLD: u32 = 4;
-
-const BASE_PIECE_PHASE_VALUE: i32 = 2;
-const PAWN_PHASE_VALUE: i32 = -1; // relative to the base piece value
-const QUEEN_PHASE_VALUE: i32 = 4; // relative to the base piece value
-
-const MAX_PHASE: i32 = 16 * PAWN_PHASE_VALUE + 30 * BASE_PIECE_PHASE_VALUE + 2 * QUEEN_PHASE_VALUE;
 
 
 impl Eval for Board {
@@ -417,17 +411,9 @@ impl Eval for Board {
         score += uncovered_black_pieces * self.options.get_uncovered_piece_penalty();
 
         // Interpolate between opening/mid-game score and end game score for a smooth eval score transition
-        let pieces_except_king_count: i32 = (white_pieces | black_pieces).count_ones() as i32 - 2; // -2 for two kings
 
-        let white_queen_phase_score = if white_queens != 0 { QUEEN_PHASE_VALUE } else { 0 };
-        let black_queen_phase_score = if black_queens != 0 { QUEEN_PHASE_VALUE } else { 0 };
-        let queen_phase_score: i32 = white_queen_phase_score + black_queen_phase_score;
-        let pawn_count: i32 = (white_pawns | black_pawns).count_ones() as i32;
-
-        let phase: i32 = pawn_count * PAWN_PHASE_VALUE + pieces_except_king_count * BASE_PIECE_PHASE_VALUE + queen_phase_score;
-        let eg_phase: i32 = MAX_PHASE - phase;
-
-        let mut interpolated_score = ((score * phase) + (eg_score * eg_phase)) / MAX_PHASE;
+        let phase: i32 = calc_phase_value(white_pieces | black_pieces, white_pawns | black_pawns, white_queens, black_queens);
+        let mut interpolated_score = interpolate_score(phase, score, eg_score);
 
         // Perform evaluations which apply to all game phases
 
