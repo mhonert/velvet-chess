@@ -20,7 +20,7 @@ use crate::board::EN_PASSANT;
 use crate::colors::{Color, BLACK, WHITE};
 use crate::engine::Engine;
 use crate::move_gen::{decode_end_index, decode_piece_id, decode_start_index, Move, NO_MOVE};
-use crate::move_sort::SortedMoveGenerator;
+use crate::move_sort::{SortedMoveGenerator};
 use crate::pieces::{EMPTY, P, K};
 use crate::score_util::{
     decode_move, decode_score, encode_scored_move, ScoredMove, BLACK_MATE_SCORE, MAX_SCORE,
@@ -127,9 +127,7 @@ impl Search for Engine {
 
             let mut move_num = 0;
 
-            while let Some(scored_move) =
-                moves.next_legal_move(&self.gen, &self.hh, &mut self.board)
-            {
+            while let Some(scored_move) = moves.next_legal_move(&self.gen, &self.hh, &mut self.board) {
                 move_num += 1;
 
                 let m = decode_move(scored_move);
@@ -794,10 +792,11 @@ impl Search for Engine {
         alpha
     }
 
+    // Updates the current position until it is quiet
     fn make_quiet_position(&mut self) -> bool {
         self.tt.increase_age();
         self.tt.increase_age();
-        // self.tt.clear();
+
         let _ = self.static_quiescence_search(MIN_SCORE, MAX_SCORE, 0) as i16;
 
         loop {
