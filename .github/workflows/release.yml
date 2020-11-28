@@ -14,27 +14,27 @@ jobs:
 
       - name: Build x86_64-modern
         env:
-          RUSTFLAGS: "-Ctarget-feature=+bmi,+popcnt,+lzcnt -Cinline-threshold=600"
+          RUSTFLAGS: "-Ctarget-feature=+bmi,+popcnt,+lzcnt -Cinline-threshold=700"
         run: |
-          cargo build --release
+          cargo build --release --target x86_64-unknown-linux-musl
           strip target/release/velvet
           mv target/release/velvet velvet-linux-x86_64-modern
 
       - name: Build x86_64-popcnt
         env:
-          RUSTFLAGS: "-Ctarget-feature=+popcnt -Cinline-threshold=600"
+          RUSTFLAGS: "-Ctarget-feature=+popcnt -Cinline-threshold=700"
         run: |
           rm -rf target
-          cargo build --release
+          cargo build --release --target x86_64-unknown-linux-musl
           strip target/release/velvet
           mv target/release/velvet velvet-linux-x86_64-popcnt
 
       - name: Build x86_64-vintage
         env:
-          RUSTFLAGS: "-Cinline-threshold=600"
+          RUSTFLAGS: "-Cinline-threshold=700"
         run: |
           rm -rf target
-          cargo build --release
+          cargo build --release --target x86_64-unknown-linux-musl
           strip target/release/velvet
           mv target/release/velvet velvet-linux-x86_64-vintage
 
@@ -53,14 +53,14 @@ jobs:
 
       - name: Build x86_64-modern
         env:
-          RUSTFLAGS: "-Ctarget-feature=+crt-static,+bmi,+popcnt,+lzcnt -Cinline-threshold=600"
+          RUSTFLAGS: "-Ctarget-feature=+crt-static,+bmi,+popcnt,+lzcnt -Cinline-threshold=700"
         run: |
           cargo build --release
           mv .\target\release\velvet.exe velvet-windows-x86_64-modern.exe
 
       - name: Build x86_64-popcnt
         env:
-          RUSTFLAGS: "-Ctarget-feature=+crt-static,+popcnt -Cinline-threshold=600"
+          RUSTFLAGS: "-Ctarget-feature=+crt-static,+popcnt -Cinline-threshold=700"
         run: |
           rm target -r -fo
           cargo build --release
@@ -68,7 +68,7 @@ jobs:
 
       - name: Build x86_64-vintage
         env:
-          RUSTFLAGS: "-Ctarget-feature=+crt-static -Cinline-threshold=600"
+          RUSTFLAGS: "-Ctarget-feature=+crt-static -Cinline-threshold=700"
         run: |
           rm target -r -fo
           cargo build --release

@@ -16,16 +16,13 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::bitboard::{
-    BLACK_KING_SIDE_CASTLING_BIT_PATTERN, BLACK_QUEEN_SIDE_CASTLING_BIT_PATTERN,
-    PAWN_DOUBLE_MOVE_LINES, WHITE_KING_SIDE_CASTLING_BIT_PATTERN,
-    WHITE_QUEEN_SIDE_CASTLING_BIT_PATTERN,
-};
+use crate::bitboard::{BLACK_KING_SIDE_CASTLING_BIT_PATTERN, BLACK_QUEEN_SIDE_CASTLING_BIT_PATTERN, PAWN_DOUBLE_MOVE_LINES, WHITE_KING_SIDE_CASTLING_BIT_PATTERN, WHITE_QUEEN_SIDE_CASTLING_BIT_PATTERN, BitBoard, get_knight_attacks, get_bishop_attacks, get_rook_attacks, get_queen_attacks, get_king_attacks};
 use crate::board::Board;
 use crate::boardpos::{BlackBoardPos, WhiteBoardPos};
 use crate::castling::Castling;
 use crate::colors::{Color, BLACK, WHITE};
 use crate::pieces::{B, K, N, P, Q, R};
+
 
 pub fn generate_moves(board: &Board, active_player: Color) -> Vec<Move> {
     let mut moves: Vec<Move> = Vec::with_capacity(64);
@@ -54,41 +51,23 @@ pub fn generate_moves(board: &Board, active_player: Color) -> Vec<Move> {
         gen_black_pawn_moves(&mut moves, board, opponent_bb, empty_bb);
     }
 
-    let mut knights = board.get_bitboard(N * active_player);
-    while knights != 0 {
-        let pos = knights.trailing_zeros();
-        knights ^= 1 << pos as u64;
-        let attacks = board.bb.get_knight_attacks(pos as i32);
+    for pos in BitBoard(board.get_bitboard(N * active_player)) {
+        let attacks = get_knight_attacks(pos as i32);
         gen_piece_moves(&mut moves, N, pos as i32, attacks, opponent_bb, empty_bb);
     }
 
-    let mut bishops = board.get_bitboard(B * active_player);
-    while bishops != 0 {
-        let pos = bishops.trailing_zeros();
-        bishops ^= 1 << pos as u64;
-        let attacks = board.bb.get_diagonal_attacks(occupied, pos as i32)
-            | board.bb.get_anti_diagonal_attacks(occupied, pos as i32);
+    for pos in BitBoard(board.get_bitboard(B * active_player)) {
+        let attacks = get_bishop_attacks(occupied, pos as i32);
         gen_piece_moves(&mut moves, B, pos as i32, attacks, opponent_bb, empty_bb);
     }
 
-    let mut rooks = board.get_bitboard(R * active_player);
-    while rooks != 0 {
-        let pos = rooks.trailing_zeros();
-        rooks ^= 1 << pos as u64;
-        let attacks = board.bb.get_horizontal_attacks(occupied, pos as i32)
-            | board.bb.get_vertical_attacks(occupied, pos as i32);
+    for pos in BitBoard(board.get_bitboard(R * active_player)) {
+        let attacks = get_rook_attacks(occupied, pos as i32);
         gen_piece_moves(&mut moves, R, pos as i32, attacks, opponent_bb, empty_bb);
     }
 
-    let mut queens = board.get_bitboard(Q * active_player);
-    while queens != 0 {
-        let pos = queens.trailing_zeros();
-        queens ^= 1 << pos as u64;
-        let attacks = board.bb.get_horizontal_attacks(occupied, pos as i32)
-            | board.bb.get_vertical_attacks(occupied, pos as i32)
-            | board.bb.get_diagonal_attacks(occupied, pos as i32)
-            | board.bb.get_anti_diagonal_attacks(occupied, pos as i32);
-
+    for pos in BitBoard(board.get_bitboard(Q * active_player)) {
+        let attacks = get_queen_attacks(occupied, pos as i32);
         gen_piece_moves(&mut moves, Q, pos as i32, attacks, opponent_bb, empty_bb);
     }
 
@@ -105,51 +84,33 @@ pub fn generate_capture_moves(board: &Board, active_player: Color) -> Vec<Move> 
         gen_white_attack_pawn_moves(&mut moves, board.get_bitboard(P), opponent_bb);
 
         let king_pos = board.king_pos(WHITE);
-        let king_targets = board.bb.get_king_attacks(king_pos);
+        let king_targets = get_king_attacks(king_pos);
         add_moves(&mut moves, K, king_pos, king_targets & opponent_bb);
     } else {
         gen_black_attack_pawn_moves(&mut moves, board.get_bitboard(-P), opponent_bb);
 
         let king_pos = board.king_pos(BLACK);
-        let king_targets = board.bb.get_king_attacks(king_pos);
+        let king_targets = get_king_attacks(king_pos);
         add_moves(&mut moves, K, king_pos, king_targets & opponent_bb);
     }
 
-    let mut knights = board.get_bitboard(N * active_player);
-    while knights != 0 {
-        let pos = knights.trailing_zeros();
-        knights ^= 1 << pos as u64;
-        let attacks = board.bb.get_knight_attacks(pos as i32);
+    for pos in BitBoard(board.get_bitboard(N * active_player)) {
+        let attacks = get_knight_attacks(pos as i32);
         gen_piece_capture_moves(&mut moves, N, pos as i32, attacks, opponent_bb);
     }
 
-    let mut bishops = board.get_bitboard(B * active_player);
-    while bishops != 0 {
-        let pos = bishops.trailing_zeros();
-        bishops ^= 1 << pos as u64;
-        let attacks = board.bb.get_diagonal_attacks(occupied, pos as i32)
-            | board.bb.get_anti_diagonal_attacks(occupied, pos as i32);
+    for pos in BitBoard(board.get_bitboard(B * active_player)) {
+        let attacks = get_bishop_attacks(occupied, pos as i32);
         gen_piece_capture_moves(&mut moves, B, pos as i32, attacks, opponent_bb);
     }
 
-    let mut rooks = board.get_bitboard(R * active_player);
-    while rooks != 0 {
-        let pos = rooks.trailing_zeros();
-        rooks ^= 1 << pos as u64;
-        let attacks = board.bb.get_horizontal_attacks(occupied, pos as i32)
-            | board.bb.get_vertical_attacks(occupied, pos as i32);
+    for pos in BitBoard(board.get_bitboard(R * active_player)) {
+        let attacks = get_rook_attacks(occupied, pos as i32);
         gen_piece_capture_moves(&mut moves, R, pos as i32, attacks, opponent_bb);
     }
 
-    let mut queens = board.get_bitboard(Q * active_player);
-    while queens != 0 {
-        let pos = queens.trailing_zeros();
-        queens ^= 1 << pos as u64;
-        let attacks = board.bb.get_horizontal_attacks(occupied, pos as i32)
-            | board.bb.get_vertical_attacks(occupied, pos as i32)
-            | board.bb.get_diagonal_attacks(occupied, pos as i32)
-            | board.bb.get_anti_diagonal_attacks(occupied, pos as i32);
-
+    for pos in BitBoard(board.get_bitboard(Q * active_player)) {
+        let attacks = get_queen_attacks(occupied, pos as i32);
         gen_piece_capture_moves(&mut moves, Q, pos as i32, attacks, opponent_bb);
     }
 
@@ -187,50 +148,32 @@ pub fn has_valid_moves(board: &mut Board, active_player: Color) -> bool {
         }
     }
 
-    let mut knights = board.get_bitboard(N * active_player);
-    while knights != 0 {
-        let pos = knights.trailing_zeros();
-        knights ^= 1 << pos as u64;
-        let attacks = board.bb.get_knight_attacks(pos as i32);
+    for pos in BitBoard(board.get_bitboard(N * active_player)) {
+        let attacks = get_knight_attacks(pos as i32);
         gen_piece_moves(&mut moves, N, pos as i32, attacks, opponent_bb, empty_bb);
     }
     if any_moves_allow_check_evasion(board, &mut moves, active_player) {
         return true;
     }
 
-    let mut bishops = board.get_bitboard(B * active_player);
-    while bishops != 0 {
-        let pos = bishops.trailing_zeros();
-        bishops ^= 1 << pos as u64;
-        let attacks = board.bb.get_diagonal_attacks(occupied, pos as i32)
-            | board.bb.get_anti_diagonal_attacks(occupied, pos as i32);
+    for pos in BitBoard(board.get_bitboard(B * active_player)) {
+        let attacks = get_bishop_attacks(occupied, pos as i32);
         gen_piece_moves(&mut moves, B, pos as i32, attacks, opponent_bb, empty_bb);
     }
     if any_moves_allow_check_evasion(board, &mut moves, active_player) {
         return true;
     }
 
-    let mut rooks = board.get_bitboard(R * active_player);
-    while rooks != 0 {
-        let pos = rooks.trailing_zeros();
-        rooks ^= 1 << pos as u64;
-        let attacks = board.bb.get_horizontal_attacks(occupied, pos as i32)
-            | board.bb.get_vertical_attacks(occupied, pos as i32);
+    for pos in BitBoard(board.get_bitboard(R * active_player)) {
+        let attacks = get_rook_attacks(occupied, pos as i32);
         gen_piece_moves(&mut moves, R, pos as i32, attacks, opponent_bb, empty_bb);
     }
     if any_moves_allow_check_evasion(board, &mut moves, active_player) {
         return true;
     }
 
-    let mut queens = board.get_bitboard(Q * active_player);
-    while queens != 0 {
-        let pos = queens.trailing_zeros();
-        queens ^= 1 << pos as u64;
-        let attacks = board.bb.get_horizontal_attacks(occupied, pos as i32)
-            | board.bb.get_vertical_attacks(occupied, pos as i32)
-            | board.bb.get_diagonal_attacks(occupied, pos as i32)
-            | board.bb.get_anti_diagonal_attacks(occupied, pos as i32);
-
+    for pos in BitBoard(board.get_bitboard(Q * active_player)) {
+        let attacks = get_queen_attacks(occupied, pos as i32);
         gen_piece_moves(&mut moves, Q, pos as i32, attacks, opponent_bb, empty_bb);
     }
     if any_moves_allow_check_evasion(board, &mut moves, active_player) {
@@ -419,10 +362,7 @@ fn gen_black_en_passant_moves(moves: &mut Vec<Move>, board: &Board, pawns: u64) 
 }
 
 fn add_pawn_moves(moves: &mut Vec<Move>, target_bb: u64, direction: i32) {
-    let mut bb = target_bb;
-    while bb != 0 {
-        let end = bb.trailing_zeros();
-        bb ^= 1 << (end as u64);
+    for end in BitBoard(target_bb) {
         let start = end as i32 + direction;
 
         if end <= 7 || end >= 56 {
@@ -445,7 +385,7 @@ fn gen_white_king_moves(
     opponent_bb: u64,
     empty_bb: u64,
 ) {
-    let king_targets = board.bb.get_king_attacks(pos);
+    let king_targets = get_king_attacks(pos);
 
     // Captures
     add_moves(moves, K, pos, king_targets & opponent_bb);
@@ -478,7 +418,7 @@ fn gen_black_king_moves(
     opponent_bb: u64,
     empty_bb: u64,
 ) {
-    let king_targets = board.bb.get_king_attacks(pos);
+    let king_targets = get_king_attacks(pos);
 
     // Captures
     add_moves(moves, K, pos, king_targets & opponent_bb);
@@ -505,10 +445,7 @@ fn gen_black_king_moves(
 }
 
 fn add_moves(moves: &mut Vec<Move>, piece: i8, pos: i32, target_bb: u64) {
-    let mut bb = target_bb;
-    while bb != 0 {
-        let end = bb.trailing_zeros();
-        bb ^= 1 << (end as u64);
+    for end in BitBoard(target_bb) {
         moves.push(encode_move(piece, pos, end as i32));
     }
 }

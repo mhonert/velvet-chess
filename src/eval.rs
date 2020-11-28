@@ -20,7 +20,7 @@ use crate::board::{Board, calc_phase_value, interpolate_score};
 use crate::pieces::{P, N, B, R, Q};
 use crate::castling::Castling;
 use crate::colors::{WHITE, BLACK};
-use crate::bitboard::{black_left_pawn_attacks, black_right_pawn_attacks, white_left_pawn_attacks, white_right_pawn_attacks};
+use crate::bitboard::{black_left_pawn_attacks, black_right_pawn_attacks, white_left_pawn_attacks, white_right_pawn_attacks, BitBoard, get_white_king_shield, get_black_king_shield, get_king_danger_zone, get_knight_attacks, get_bishop_attacks, get_vertical_attacks, get_rook_attacks, get_queen_attacks, get_white_pawn_freepath, get_white_pawn_freesides, get_black_pawn_freepath, get_black_pawn_freesides};
 use std::cmp::{max, min};
 
 pub trait Eval {
@@ -39,8 +39,8 @@ impl Eval for Board {
         let black_pawns = self.get_bitboard(-P);
 
         // Add bonus for pawns which form a shield in front of the king
-        let white_king_shield = (white_pawns & self.bb.get_white_king_shield(self.white_king)).count_ones() as i32;
-        let black_king_shield = (black_pawns & self.bb.get_black_king_shield(self.black_king)).count_ones() as i32;
+        let white_king_shield = (white_pawns & get_white_king_shield(self.white_king)).count_ones() as i32;
+        let black_king_shield = (black_pawns & get_black_king_shield(self.black_king)).count_ones() as i32;
 
         score += white_king_shield * self.options.get_king_shield_bonus();
         score -= black_king_shield * self.options.get_king_shield_bonus();
@@ -88,8 +88,8 @@ impl Eval for Board {
         let mut threat_to_white_king = 0;
         let mut threat_to_black_king = 0;
 
-        let black_king_danger_zone = self.bb.get_king_danger_zone(self.black_king);
-        let white_king_danger_zone = self.bb.get_king_danger_zone(self.white_king);
+        let black_king_danger_zone = get_king_danger_zone(self.black_king);
+        let white_king_danger_zone = get_king_danger_zone(self.white_king);
 
         let white_safe_targets = empty_or_black & !black_pawn_attacks;
 
@@ -99,23 +99,17 @@ impl Eval for Board {
         // Knights
         let mut white_knight_threat = 0;
         let white_knights = self.get_bitboard(N);
-        {
-            let mut knights = white_knights;
-            while knights != 0 {
-                let pos = knights.trailing_zeros();
-                knights ^= 1 << pos as u64; // unset bit
+        for pos in BitBoard(white_knights) {
+            let possible_moves = get_knight_attacks(pos as i32);
+            white_attacks |= possible_moves;
 
-                let possible_moves = self.bb.get_knight_attacks(pos as i32);
-                white_attacks |= possible_moves;
+            let move_count = (possible_moves & white_safe_targets).count_ones();
+            score += self.options.get_knight_mob_bonus(move_count as usize);
+            eg_score += self.options.get_eg_knight_mob_bonus(move_count as usize);
 
-                let move_count = (possible_moves & white_safe_targets).count_ones();
-                score += self.options.get_knight_mob_bonus(move_count as usize);
-                eg_score += self.options.get_eg_knight_mob_bonus(move_count as usize);
-
-                if possible_moves & black_king_danger_zone != 0 {
-                    threat_to_black_king += self.options.get_knight_king_threat();
-                    white_knight_threat = 1;
-                }
+            if possible_moves & black_king_danger_zone != 0 {
+                threat_to_black_king += self.options.get_knight_king_threat();
+                white_knight_threat = 1;
             }
         }
 
@@ -124,23 +118,17 @@ impl Eval for Board {
 
         let black_knights = self.get_bitboard(-N);
         let mut black_knight_threat = 0;
-        {
-            let mut knights = black_knights;
-            while knights != 0 {
-                let pos = knights.trailing_zeros();
-                knights ^= 1 << pos as u64; // unset bit
+        for pos in BitBoard(black_knights) {
+            let possible_moves = get_knight_attacks(pos as i32);
+            black_attacks |= possible_moves;
 
-                let possible_moves = self.bb.get_knight_attacks(pos as i32);
-                black_attacks |= possible_moves;
+            let move_count = (possible_moves & black_safe_targets).count_ones();
+            score -= self.options.get_knight_mob_bonus(move_count as usize);
+            eg_score -= self.options.get_eg_knight_mob_bonus(move_count as usize);
 
-                let move_count = (possible_moves & black_safe_targets).count_ones();
-                score -= self.options.get_knight_mob_bonus(move_count as usize);
-                eg_score -= self.options.get_eg_knight_mob_bonus(move_count as usize);
-
-                if possible_moves & white_king_danger_zone != 0 {
-                    threat_to_white_king += self.options.get_knight_king_threat();
-                    black_knight_threat = 1;
-                }
+            if possible_moves & white_king_danger_zone != 0 {
+                threat_to_white_king += self.options.get_knight_king_threat();
+                black_knight_threat = 1;
             }
         }
 
@@ -151,214 +139,162 @@ impl Eval for Board {
         // Bishops
         let mut white_bishop_threat = 0;
         let white_bishops = self.get_bitboard(B);
-        {
-            // let occupied = white_kt_occupied & !white_queens & !white_bishops;
-            let mut bishops = white_bishops;
-            while bishops != 0 {
-                let pos = bishops.trailing_zeros();
-                bishops ^= 1 << pos as u64;  // unset bit
+        for pos in BitBoard(white_bishops) {
+            let possible_moves = get_bishop_attacks(occupied, pos as i32);
+            white_attacks |= possible_moves;
 
-                let possible_moves = self.bb.get_diagonal_attacks(occupied, pos as i32) | self.bb.get_anti_diagonal_attacks(occupied, pos as i32);
-                white_attacks |= possible_moves;
+            let move_count = (possible_moves & white_safe_targets).count_ones();
+            score += self.options.get_bishop_mob_bonus(move_count as usize);
+            eg_score += self.options.get_eg_bishop_mob_bonus(move_count as usize);
 
-                let move_count = (possible_moves & white_safe_targets).count_ones();
-                score += self.options.get_bishop_mob_bonus(move_count as usize);
-                eg_score += self.options.get_eg_bishop_mob_bonus(move_count as usize);
+            if possible_moves & black_king_danger_zone != 0 {
+                threat_to_black_king += self.options.get_bishop_king_threat();
+                white_bishop_threat = 1;
+            }
 
-                if possible_moves & black_king_danger_zone != 0 {
-                    threat_to_black_king += self.options.get_bishop_king_threat();
-                    white_bishop_threat = 1;
-                }
-
-                if possible_moves & pinnable_black_pieces != 0 {
-                    score += self.options.get_bishop_pin_bonus();
-                    eg_score += self.options.get_eg_bishop_pin_bonus();
-                }
+            if possible_moves & pinnable_black_pieces != 0 {
+                score += self.options.get_bishop_pin_bonus();
+                eg_score += self.options.get_eg_bishop_pin_bonus();
             }
         }
 
         let mut pinnable_white_pieces = white_knights | white_rooks;
         let mut black_bishop_threat = 0;
         let black_bishops = self.get_bitboard(-B);
-        {
-            // let occupied = black_kt_occupied & !black_queens & !black_bishops;
-            let mut bishops = black_bishops;
-            while bishops != 0 {
-                let pos = bishops.trailing_zeros();
-                bishops ^= 1 << pos as u64;  // unset bit
+        for pos in BitBoard(black_bishops) {
+            let possible_moves = get_bishop_attacks(occupied, pos as i32);
+            black_attacks |= possible_moves;
 
-                let possible_moves = self.bb.get_diagonal_attacks(occupied, pos as i32) | self.bb.get_anti_diagonal_attacks(occupied, pos as i32);
-                black_attacks |= possible_moves;
+            let move_count = (possible_moves & black_safe_targets).count_ones();
+            score -= self.options.get_bishop_mob_bonus(move_count as usize);
+            eg_score -= self.options.get_eg_bishop_mob_bonus(move_count as usize);
 
-                let move_count = (possible_moves & black_safe_targets).count_ones();
-                score -= self.options.get_bishop_mob_bonus(move_count as usize);
-                eg_score -= self.options.get_eg_bishop_mob_bonus(move_count as usize);
+            if possible_moves & white_king_danger_zone != 0 {
+                threat_to_white_king += self.options.get_bishop_king_threat();
+                black_bishop_threat = 1;
+            }
 
-                if possible_moves & white_king_danger_zone != 0 {
-                    threat_to_white_king += self.options.get_bishop_king_threat();
-                    black_bishop_threat = 1;
-                }
-
-                if possible_moves & pinnable_white_pieces != 0 {
-                    score -= self.options.get_bishop_pin_bonus();
-                    eg_score -= self.options.get_eg_bishop_pin_bonus();
-                }
+            if possible_moves & pinnable_white_pieces != 0 {
+                score -= self.options.get_bishop_pin_bonus();
+                eg_score -= self.options.get_eg_bishop_pin_bonus();
             }
         }
 
         // Rooks
         let mut white_rook_threat = 0;
         pinnable_black_pieces = black_knights | black_bishops;
-        {
-            let mut rooks = white_rooks;
-            while rooks != 0 {
-                let pos = rooks.trailing_zeros();
-                rooks ^= 1 << pos as u64;  // unset bit
+        for pos in BitBoard(white_rooks) {
+            // Rook on (half) open file?
+            let front_columns = get_vertical_attacks(0, pos as i32);
+            if front_columns & white_pawns == 0 {
+                score += self.options.get_rook_on_half_open_file_bonus();
+                eg_score += self.options.get_eg_rook_on_half_open_file_bonus();
 
-                // Rook on (half) open file?
-                let front_columns = self.bb.get_vertical_attacks(0, pos as i32);
-                if front_columns & white_pawns == 0 {
-                    score += self.options.get_rook_on_half_open_file_bonus();
-                    eg_score += self.options.get_eg_rook_on_half_open_file_bonus();
-
-                    if front_columns & black_pawns == 0 {
-                        score += self.options.get_rook_on_open_file_bonus();
-                        eg_score += self.options.get_eg_rook_on_open_file_bonus();
-                    }
+                if front_columns & black_pawns == 0 {
+                    score += self.options.get_rook_on_open_file_bonus();
+                    eg_score += self.options.get_eg_rook_on_open_file_bonus();
                 }
+            }
 
-                let possible_moves = self.bb.get_horizontal_attacks(occupied, pos as i32) | self.bb.get_vertical_attacks(occupied, pos as i32);
-                white_attacks |= possible_moves;
+            let possible_moves = get_rook_attacks(occupied, pos as i32);
+            white_attacks |= possible_moves;
 
-                let move_count = (possible_moves & white_safe_targets).count_ones();
-                score += self.options.get_rook_mob_bonus(move_count as usize);
-                eg_score += self.options.get_eg_rook_mob_bonus(move_count as usize);
+            let move_count = (possible_moves & white_safe_targets).count_ones();
+            score += self.options.get_rook_mob_bonus(move_count as usize);
+            eg_score += self.options.get_eg_rook_mob_bonus(move_count as usize);
 
-                if possible_moves & black_king_danger_zone != 0 {
-                    threat_to_black_king += self.options.get_rook_king_threat();
-                    white_rook_threat = 1;
-                }
+            if possible_moves & black_king_danger_zone != 0 {
+                threat_to_black_king += self.options.get_rook_king_threat();
+                white_rook_threat = 1;
+            }
 
-                if possible_moves & pinnable_black_pieces != 0 {
-                    score += self.options.get_rook_pin_bonus();
-                    eg_score += self.options.get_eg_rook_pin_bonus();
-                }
+            if possible_moves & pinnable_black_pieces != 0 {
+                score += self.options.get_rook_pin_bonus();
+                eg_score += self.options.get_eg_rook_pin_bonus();
             }
         }
 
         let mut black_rook_threat = 0;
         pinnable_white_pieces = white_knights | white_bishops;
-        {
-            let mut rooks = black_rooks;
-            while rooks != 0 {
-                let pos = rooks.trailing_zeros();
-                rooks ^= 1 << pos as u64;  // unset bit
+        for pos in BitBoard(black_rooks) {
+            // Rook on (half) open file?
+            let front_columns = get_vertical_attacks(0, pos as i32);
+            if front_columns & black_pawns == 0 {
+                score -= self.options.get_rook_on_half_open_file_bonus();
+                eg_score -= self.options.get_eg_rook_on_half_open_file_bonus();
 
-                // Rook on (half) open file?
-                let front_columns = self.bb.get_vertical_attacks(0, pos as i32);
-                if front_columns & black_pawns == 0 {
-                    score -= self.options.get_rook_on_half_open_file_bonus();
-                    eg_score -= self.options.get_eg_rook_on_half_open_file_bonus();
-
-                    if front_columns & white_pawns == 0 {
-                        score -= self.options.get_rook_on_open_file_bonus();
-                        eg_score -= self.options.get_eg_rook_on_open_file_bonus();
-                    }
+                if front_columns & white_pawns == 0 {
+                    score -= self.options.get_rook_on_open_file_bonus();
+                    eg_score -= self.options.get_eg_rook_on_open_file_bonus();
                 }
+            }
 
-                let possible_moves = self.bb.get_horizontal_attacks(occupied, pos as i32) | self.bb.get_vertical_attacks(occupied, pos as i32);
-                black_attacks |= possible_moves;
+            let possible_moves = get_rook_attacks(occupied, pos as i32);
+            black_attacks |= possible_moves;
 
-                let move_count = (possible_moves & black_safe_targets).count_ones();
-                score -= self.options.get_rook_mob_bonus(move_count as usize);
-                eg_score -= self.options.get_eg_rook_mob_bonus(move_count as usize);
+            let move_count = (possible_moves & black_safe_targets).count_ones();
+            score -= self.options.get_rook_mob_bonus(move_count as usize);
+            eg_score -= self.options.get_eg_rook_mob_bonus(move_count as usize);
 
-                if possible_moves & white_king_danger_zone != 0 {
-                    threat_to_white_king += self.options.get_rook_king_threat();
-                    black_rook_threat = 1;
-                }
+            if possible_moves & white_king_danger_zone != 0 {
+                threat_to_white_king += self.options.get_rook_king_threat();
+                black_rook_threat = 1;
+            }
 
-                if possible_moves & pinnable_white_pieces != 0 {
-                    score -= self.options.get_rook_pin_bonus();
-                    eg_score -= self.options.get_eg_rook_pin_bonus();
-                }
+            if possible_moves & pinnable_white_pieces != 0 {
+                score -= self.options.get_rook_pin_bonus();
+                eg_score -= self.options.get_eg_rook_pin_bonus();
             }
         }
 
         // Queens
         let mut white_queen_threats = 0;
         let white_queens = self.get_bitboard(Q);
-        {
-            let mut queens = white_queens;
-            while queens != 0 {
-                let pos = queens.trailing_zeros();
-                let pos_mask = 1 << pos as u64;
-                queens ^= pos_mask;  // unset bit
+        for pos in BitBoard(white_queens) {
+            let possible_moves = get_queen_attacks(occupied, pos as i32);
+            white_attacks |= possible_moves;
 
-                let possible_moves = self.bb.get_horizontal_attacks(occupied, pos as i32)
-                    | self.bb.get_vertical_attacks(occupied, pos as i32)
-                    | self.bb.get_diagonal_attacks(occupied, pos as i32)
-                    | self.bb.get_anti_diagonal_attacks(occupied, pos as i32);
+            let move_count = (possible_moves & white_safe_targets).count_ones();
+            score += self.options.get_queen_mob_bonus(move_count as usize);
+            eg_score += self.options.get_eg_queen_mob_bonus(move_count as usize);
 
-                white_attacks |= possible_moves;
-
-                let move_count = (possible_moves & white_safe_targets).count_ones();
-                score += self.options.get_queen_mob_bonus(move_count as usize);
-                eg_score += self.options.get_eg_queen_mob_bonus(move_count as usize);
-
-                if possible_moves & black_king_danger_zone != 0 {
-                    threat_to_black_king += self.options.get_queen_king_threat();
-                    white_queen_threats += 1;
-
-                    if pos_mask & black_king_danger_zone != 0 {
-                        white_queen_threats += 1
-                    }
-                }
+            if possible_moves & black_king_danger_zone != 0 {
+                threat_to_black_king += self.options.get_queen_king_threat();
+                white_queen_threats += 1;
             }
+        }
+
+        if white_queens & black_king_danger_zone != 0 {
+            white_queen_threats += 1
         }
 
         let mut black_queen_threats = 0;
         let black_queens = self.get_bitboard(-Q);
-        {
-            let mut queens = black_queens;
-            while queens != 0 {
-                let pos = queens.trailing_zeros();
-                let pos_mask = 1 << pos as u64;
-                queens ^= pos_mask;  // unset bit
+        for pos in BitBoard(black_queens) {
+            let possible_moves = get_queen_attacks(occupied, pos as i32);
+            black_attacks |= possible_moves;
 
-                let possible_moves = self.bb.get_horizontal_attacks(occupied, pos as i32)
-                    | self.bb.get_vertical_attacks(occupied, pos as i32)
-                    | self.bb.get_diagonal_attacks(occupied, pos as i32)
-                    | self.bb.get_anti_diagonal_attacks(occupied, pos as i32);
+            let move_count = (possible_moves & black_safe_targets).count_ones();
+            score -= self.options.get_queen_mob_bonus(move_count as usize);
+            eg_score -= self.options.get_eg_queen_mob_bonus(move_count as usize);
 
-                black_attacks |= possible_moves;
-
-                let move_count = (possible_moves & black_safe_targets).count_ones();
-                score -= self.options.get_queen_mob_bonus(move_count as usize);
-                eg_score -= self.options.get_eg_queen_mob_bonus(move_count as usize);
-
-                if possible_moves & white_king_danger_zone != 0 {
-                    threat_to_white_king += self.options.get_queen_king_threat();
-                    black_queen_threats += 1;
-
-                    if pos_mask & white_king_danger_zone != 0 {
-                        black_queen_threats += 1;
-                    }
-                }
+            if possible_moves & white_king_danger_zone != 0 {
+                threat_to_white_king += self.options.get_queen_king_threat();
+                black_queen_threats += 1;
             }
+        }
+
+        if black_queens & white_king_danger_zone != 0 {
+            black_queen_threats += 1;
         }
 
         // Passed white pawn bonus
         let pawn_blockers = black_pieces | white_pawns;
-        let mut pawns = white_pawns;
-        while pawns != 0 {
-            let pos = pawns.trailing_zeros();
-            pawns ^= 1 << pos as u64; // unset bit
-
+        for pos in BitBoard(white_pawns) {
             let distance_to_promotion = pos / 8;
             if distance_to_promotion <= PASSED_PAWN_THRESHOLD
-                && (self.bb.get_white_pawn_freepath(pos as i32) & pawn_blockers) == 0
-                && (self.bb.get_white_pawn_freesides(pos as i32) & black_pawns) == 0 {
+                && (get_white_pawn_freepath(pos as i32) & pawn_blockers) == 0
+                && (get_white_pawn_freesides(pos as i32) & black_pawns) == 0 {
 
                 // Not blocked and unguarded by enemy pawns
                 score += self.options.get_passed_pawn_bonus((distance_to_promotion - 1) as usize);
@@ -378,14 +314,11 @@ impl Eval for Board {
 
         // Passed black pawn bonus
         let pawn_blockers = white_pieces | black_pawns;
-        pawns = black_pawns;
-        while pawns != 0 {
-            let pos = pawns.trailing_zeros();
-            pawns ^= 1 << pos as u64; // unset bit
+        for pos in BitBoard(black_pawns) {
             let distance_to_promotion = 7 - pos / 8;
             if distance_to_promotion <= PASSED_PAWN_THRESHOLD
-                && (self.bb.get_black_pawn_freepath(pos as i32) & pawn_blockers) == 0
-                && (self.bb.get_black_pawn_freesides(pos as i32) & white_pawns) == 0 {
+                && (get_black_pawn_freepath(pos as i32) & pawn_blockers) == 0
+                && (get_black_pawn_freesides(pos as i32) & white_pawns) == 0 {
 
                 // Not blocked and unguarded by enemy pawns
                 score -= self.options.get_passed_pawn_bonus((distance_to_promotion - 1) as usize);

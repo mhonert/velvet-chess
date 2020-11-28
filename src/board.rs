@@ -16,10 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::bitboard::{
-    black_left_pawn_attacks, black_right_pawn_attacks, white_left_pawn_attacks,
-    white_right_pawn_attacks, Bitboard, DARK_COLORED_FIELD_PATTERN, LIGHT_COLORED_FIELD_PATTERN,
-};
+use crate::bitboard::{black_left_pawn_attacks, black_right_pawn_attacks, white_left_pawn_attacks, white_right_pawn_attacks, DARK_COLORED_FIELD_PATTERN, LIGHT_COLORED_FIELD_PATTERN, get_knight_attacks, get_king_attacks, get_white_pawn_freepath, get_white_pawn_freesides, get_black_pawn_freepath, get_black_pawn_freesides, get_bishop_attacks, get_rook_attacks};
 use crate::boardpos::{BlackBoardPos, WhiteBoardPos};
 use crate::castling::Castling;
 use crate::colors::{Color, BLACK, WHITE};
@@ -39,7 +36,6 @@ pub const MAX_PHASE: i32 = 16 * PAWN_PHASE_VALUE + 30 * BASE_PIECE_PHASE_VALUE +
 
 
 pub struct Board {
-    pub bb: Bitboard,
     pub options: Options,
     zobrist: Zobrist,
     pub pst: PieceSquareTables,
@@ -84,7 +80,6 @@ impl Board {
         let pst = PieceSquareTables::new(&options);
 
         let mut board = Board {
-            bb: Bitboard::new(),
             options,
             zobrist: Zobrist::new(),
             pst,
@@ -664,15 +659,14 @@ impl Board {
 
             // Check knights
             let knights = self.get_bitboard(N) & occupied_bb;
-            let attacking_knights = knights & self.bb.get_knight_attacks(pos);
+            let attacking_knights = knights & get_knight_attacks(pos);
             if attacking_knights != 0 {
                 return attacking_knights.trailing_zeros() as i32;
             }
 
             // Check bishops
             let bishops = self.get_bitboard(B) & occupied_bb;
-            let bishop_attacks = self.bb.get_diagonal_attacks(occupied_bb, pos)
-                | self.bb.get_anti_diagonal_attacks(occupied_bb, pos);
+            let bishop_attacks = get_bishop_attacks(occupied_bb, pos);
             let attacking_bishops = bishops & bishop_attacks;
             if attacking_bishops != 0 {
                 return attacking_bishops.trailing_zeros() as i32;
@@ -680,8 +674,7 @@ impl Board {
 
             // Check rooks
             let rooks = self.get_bitboard(R) & occupied_bb;
-            let rook_attacks = self.bb.get_horizontal_attacks(occupied_bb, pos)
-                | self.bb.get_vertical_attacks(occupied_bb, pos);
+            let rook_attacks = get_rook_attacks(occupied_bb, pos);
             let attacking_rooks = rooks & rook_attacks;
             if attacking_rooks != 0 {
                 return attacking_rooks.trailing_zeros() as i32;
@@ -696,7 +689,7 @@ impl Board {
 
             // Check king
             let king_pos = self.king_pos(WHITE);
-            let attacking_king = self.bb.get_king_attacks(king_pos) & target_bb;
+            let attacking_king = get_king_attacks(king_pos) & target_bb;
             if attacking_king != 0 {
                 let king_bb = 1u64 << (king_pos as u64);
                 if (king_bb & occupied_bb) != 0 {
@@ -714,15 +707,14 @@ impl Board {
 
             // Check knights
             let knights = self.get_bitboard(-N) & occupied_bb;
-            let attacking_knights = knights & self.bb.get_knight_attacks(pos);
+            let attacking_knights = knights & get_knight_attacks(pos);
             if attacking_knights != 0 {
                 return attacking_knights.trailing_zeros() as i32;
             }
 
             // Check bishops
             let bishops = self.get_bitboard(-B) & occupied_bb;
-            let bishop_attacks = self.bb.get_diagonal_attacks(occupied_bb, pos)
-                | self.bb.get_anti_diagonal_attacks(occupied_bb, pos);
+            let bishop_attacks = get_bishop_attacks(occupied_bb, pos);
             let attacking_bishops = bishops & bishop_attacks;
             if attacking_bishops != 0 {
                 return attacking_bishops.trailing_zeros() as i32;
@@ -730,8 +722,7 @@ impl Board {
 
             // Check rooks
             let rooks = self.get_bitboard(-R) & occupied_bb;
-            let rook_attacks = self.bb.get_horizontal_attacks(occupied_bb, pos)
-                | self.bb.get_vertical_attacks(occupied_bb, pos);
+            let rook_attacks = get_rook_attacks(occupied_bb, pos);
             let attacking_rooks = rooks & rook_attacks;
             if attacking_rooks != 0 {
                 return attacking_rooks.trailing_zeros() as i32;
@@ -746,7 +737,7 @@ impl Board {
 
             // Check king
             let king_pos = self.king_pos(BLACK);
-            let attacking_king = self.bb.get_king_attacks(king_pos) & target_bb;
+            let attacking_king = get_king_attacks(king_pos) & target_bb;
             if attacking_king != 0 {
                 let king_bb = 1u64 << (king_pos as u64);
                 if (king_bb & occupied_bb) != 0 {
@@ -817,14 +808,14 @@ impl Board {
         if piece == P {
             let distance_to_promotion = pos / 8;
             return distance_to_promotion <= moves_left
-                && (self.bb.get_white_pawn_freepath(pos as i32) & blockers) == 0
-                && (self.bb.get_white_pawn_freesides(pos as i32) & opp_pawns) == 0;
+                && (get_white_pawn_freepath(pos as i32) & blockers) == 0
+                && (get_white_pawn_freesides(pos as i32) & opp_pawns) == 0;
 
         } else if piece == -P {
             let distance_to_promotion = 7 - pos / 8;
             return distance_to_promotion <= moves_left
-                && (self.bb.get_black_pawn_freepath(pos as i32) & blockers) == 0
-                && (self.bb.get_black_pawn_freesides(pos as i32) & opp_pawns) == 0;
+                && (get_black_pawn_freepath(pos as i32) & blockers) == 0
+                && (get_black_pawn_freesides(pos as i32) & opp_pawns) == 0;
         }
 
         false
