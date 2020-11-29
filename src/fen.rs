@@ -72,7 +72,7 @@ pub fn read_fen(board: &mut Board, fen: &str) -> Result<(), FenError> {
 
     let enpassant_target = fen_parts.next().and_then(read_enpassant);
 
-    let halfmove_clock: u16 = match fen_parts.next() {
+    let halfmove_clock: u8 = match fen_parts.next() {
         Some(halfmoves) => halfmoves.parse().unwrap(),
         None => 0,
     };

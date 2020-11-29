@@ -32,8 +32,8 @@ const PASSED_PAWN_THRESHOLD: u32 = 4;
 
 impl Eval for Board {
     fn get_score(&self) -> i32 {
-        let mut score = self.score as i32;
-        let mut eg_score = self.eg_score as i32;
+        let mut score = self.state.score as i32;
+        let mut eg_score = self.state.eg_score as i32;
 
         let white_pawns = self.get_bitboard(P);
         let black_pawns = self.get_bitboard(-P);
