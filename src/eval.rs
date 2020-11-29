@@ -16,7 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::board::{Board, calc_phase_value, interpolate_score};
+use crate::board::{Board, interpolate_score};
 use crate::pieces::{P, N, B, R, Q};
 use crate::castling::Castling;
 use crate::colors::{WHITE, BLACK};
@@ -32,8 +32,16 @@ const PASSED_PAWN_THRESHOLD: u32 = 4;
 
 impl Eval for Board {
     fn get_score(&self) -> i32 {
-        let mut score = self.state.score as i32;
-        let mut eg_score = self.state.eg_score as i32;
+        let phase = self.calc_phase_value();
+        let mut interpolated_score = interpolate_score(phase, self.state.score as i32, self.state.eg_score as i32);
+
+        if interpolated_score > self.options.get_full_eval_threshold() {
+            // skip full evaluation if material advantage is already very large
+            return interpolated_score;
+        }
+
+        let mut score = 0;
+        let mut eg_score = 0;
 
         let white_pawns = self.get_bitboard(P);
         let black_pawns = self.get_bitboard(-P);
@@ -345,8 +353,7 @@ impl Eval for Board {
 
         // Interpolate between opening/mid-game score and end game score for a smooth eval score transition
 
-        let phase: i32 = calc_phase_value(white_pieces | black_pieces, white_pawns | black_pawns, white_queens, black_queens);
-        let mut interpolated_score = interpolate_score(phase, score, eg_score);
+        interpolated_score += interpolate_score(phase, score, eg_score);
 
         // Perform evaluations which apply to all game phases
 

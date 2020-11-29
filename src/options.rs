@@ -24,6 +24,7 @@ use crate::colors::{Color, BLACK, WHITE};
 use crate::pieces::{B, K, N, P, Q, R, get_piece_value};
 use crate::score_util::{pack_scores};
 
+const FULL_EVAL_THRESHOLD: i32 = 1150;
 const FUTILITY_MARGIN_MULTIPLIER: i32 = 51;
 const QS_SEE_THRESHOLD: i32 = 104;
 const QS_PRUNE_MARGIN: i32 = 989;
@@ -92,6 +93,12 @@ impl Options {
         eprintln!("Unknown option {}", name);
     }
     
+
+    #[inline]
+    pub fn get_full_eval_threshold(&self) -> i32 {
+        FULL_EVAL_THRESHOLD
+    }
+
 
     #[inline]
     pub fn get_futility_margin_multiplier(&self) -> i32 {
