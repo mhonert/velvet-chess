@@ -25,6 +25,7 @@ use std::cmp::{max, min};
 
 pub trait Eval {
     fn get_score(&self) -> i32;
+    fn eval_passed_pawns(&self, white_pieces: u64, black_pieces: u64, white_pawns: u64, black_pawns: u64) -> (i32, i32);
 }
 
 const PASSED_PAWN_THRESHOLD: u32 = 4;
@@ -43,10 +44,9 @@ impl Eval for Board {
         let mut score = 0;
         let mut eg_score = 0;
 
+        // Add bonus for pawns which form a shield in front of the king
         let white_pawns = self.get_bitboard(P);
         let black_pawns = self.get_bitboard(-P);
-
-        // Add bonus for pawns which form a shield in front of the king
         let white_king_shield = (white_pawns & get_white_king_shield(self.white_king)).count_ones() as i32;
         let black_king_shield = (black_pawns & get_black_king_shield(self.black_king)).count_ones() as i32;
 
@@ -80,14 +80,15 @@ impl Eval for Board {
             }
         }
 
-        let white_pieces = self.get_all_piece_bitboard(WHITE);
-        let black_pieces = self.get_all_piece_bitboard(BLACK);
-
         let white_rooks = self.get_bitboard(R);
         let black_rooks = self.get_bitboard(-R);
 
         // Mobility evaluation
-        let empty_board = !white_pieces & !black_pieces;
+        let white_pieces = self.get_all_piece_bitboard(WHITE);
+        let black_pieces = self.get_all_piece_bitboard(BLACK);
+
+        let occupied = white_pieces | black_pieces;
+        let empty_board = !occupied;
         let empty_or_black = empty_board | black_pieces;
 
         let white_pawn_attacks = white_left_pawn_attacks(white_pawns) | white_right_pawn_attacks(white_pawns);
@@ -139,8 +140,6 @@ impl Eval for Board {
                 black_knight_threat = 1;
             }
         }
-
-        let occupied = !empty_board;
 
         let mut pinnable_black_pieces = black_knights | black_rooks;
 
@@ -296,52 +295,18 @@ impl Eval for Board {
             black_queen_threats += 1;
         }
 
-        // Passed white pawn bonus
-        let pawn_blockers = black_pieces | white_pawns;
-        for pos in BitBoard(white_pawns) {
-            let distance_to_promotion = pos / 8;
-            if distance_to_promotion <= PASSED_PAWN_THRESHOLD
-                && (get_white_pawn_freepath(pos as i32) & pawn_blockers) == 0
-                && (get_white_pawn_freesides(pos as i32) & black_pawns) == 0 {
+        // Passed pawn evaluation
+        let (pp_score, eg_pp_score) = self.eval_passed_pawns(white_pieces, black_pieces, white_pawns, black_pawns);
+        score += pp_score;
+        eg_score += eg_pp_score;
 
-                // Not blocked and unguarded by enemy pawns
-                score += self.options.get_passed_pawn_bonus((distance_to_promotion - 1) as usize);
-                eg_score += self.options.get_eg_passed_pawn_bonus((distance_to_promotion - 1) as usize);
-
-                // Passed pawn - king distance
-                let own_king_distance = max((self.white_king / 8 - pos as i32 / 8).abs(),
-                                            (self.white_king % 8 - pos as i32 % 8).abs());
-
-                eg_score += self.options.get_passed_pawn_king_defense_bonus(own_king_distance as usize);
-
-                let opponent_king_distance = max((self.black_king / 8 - pos as i32 / 8).abs(),
-                                                 (self.black_king % 8 - pos as i32 % 8).abs());
-                eg_score -= self.options.get_passed_pawn_king_attacked_penalty(opponent_king_distance as usize);
-            }
-        }
-
-        // Passed black pawn bonus
-        let pawn_blockers = white_pieces | black_pawns;
-        for pos in BitBoard(black_pawns) {
-            let distance_to_promotion = 7 - pos / 8;
-            if distance_to_promotion <= PASSED_PAWN_THRESHOLD
-                && (get_black_pawn_freepath(pos as i32) & pawn_blockers) == 0
-                && (get_black_pawn_freesides(pos as i32) & white_pawns) == 0 {
-
-                // Not blocked and unguarded by enemy pawns
-                score -= self.options.get_passed_pawn_bonus((distance_to_promotion - 1) as usize);
-                eg_score -= self.options.get_eg_passed_pawn_bonus((distance_to_promotion - 1) as usize);
-
-                // Passed pawn - king distance
-                let own_king_distance = max((self.black_king / 8 - pos as i32 / 8).abs(),
-                                            (self.black_king % 8 - pos as i32 % 8).abs());
-
-                eg_score -= self.options.get_passed_pawn_king_defense_bonus(own_king_distance as usize);
-
-                let opponent_king_distance = max((self.white_king / 8 - pos as i32 / 8).abs(),
-                                                 (self.white_king % 8 - pos as i32 % 8).abs());
-                eg_score += self.options.get_passed_pawn_king_attacked_penalty(opponent_king_distance as usize);
-            }
+        // Piece imbalances
+        if white_queens == 0 && black_queens != 0 {
+            score -= self.options.get_queen_imbalance_penalty();
+            eg_score -= self.options.get_eg_queen_imbalance_penalty();
+        } else if black_queens == 0 && white_queens != 0 {
+            score += self.options.get_queen_imbalance_penalty();
+            eg_score += self.options.get_eg_queen_imbalance_penalty();
         }
 
         // Uncovered piece penalty
@@ -397,6 +362,62 @@ impl Eval for Board {
         }
 
         interpolated_score
+    }
+
+    #[inline]
+    fn eval_passed_pawns(&self, white_pieces: u64, black_pieces: u64, white_pawns: u64, black_pawns: u64) -> (i32, i32) {
+        let mut score: i32 = 0;
+        let mut eg_score: i32 = 0;
+
+        // Passed white pawn bonus
+        let pawn_blockers = black_pieces | white_pawns;
+        for pos in BitBoard(white_pawns) {
+            let distance_to_promotion = pos / 8;
+            if distance_to_promotion <= PASSED_PAWN_THRESHOLD
+                && (get_white_pawn_freepath(pos as i32) & pawn_blockers) == 0
+                && (get_white_pawn_freesides(pos as i32) & black_pawns) == 0 {
+
+                // Not blocked and unguarded by enemy pawns
+                score += self.options.get_passed_pawn_bonus((distance_to_promotion - 1) as usize);
+                eg_score += self.options.get_eg_passed_pawn_bonus((distance_to_promotion - 1) as usize);
+
+                // Passed pawn - king distance
+                let own_king_distance = max((self.white_king / 8 - pos as i32 / 8).abs(),
+                                            (self.white_king % 8 - pos as i32 % 8).abs());
+
+                eg_score += self.options.get_passed_pawn_king_defense_bonus(own_king_distance as usize);
+
+                let opponent_king_distance = max((self.black_king / 8 - pos as i32 / 8).abs(),
+                                                 (self.black_king % 8 - pos as i32 % 8).abs());
+                eg_score -= self.options.get_passed_pawn_king_attacked_penalty(opponent_king_distance as usize);
+            }
+        }
+
+        // Passed black pawn bonus
+        let pawn_blockers = white_pieces | black_pawns;
+        for pos in BitBoard(black_pawns) {
+            let distance_to_promotion = 7 - pos / 8;
+            if distance_to_promotion <= PASSED_PAWN_THRESHOLD
+                && (get_black_pawn_freepath(pos as i32) & pawn_blockers) == 0
+                && (get_black_pawn_freesides(pos as i32) & white_pawns) == 0 {
+
+                // Not blocked and unguarded by enemy pawns
+                score -= self.options.get_passed_pawn_bonus((distance_to_promotion - 1) as usize);
+                eg_score -= self.options.get_eg_passed_pawn_bonus((distance_to_promotion - 1) as usize);
+
+                // Passed pawn - king distance
+                let own_king_distance = max((self.black_king / 8 - pos as i32 / 8).abs(),
+                                            (self.black_king % 8 - pos as i32 % 8).abs());
+
+                eg_score -= self.options.get_passed_pawn_king_defense_bonus(own_king_distance as usize);
+
+                let opponent_king_distance = max((self.white_king / 8 - pos as i32 / 8).abs(),
+                                                 (self.white_king % 8 - pos as i32 % 8).abs());
+                eg_score += self.options.get_passed_pawn_king_attacked_penalty(opponent_king_distance as usize);
+            }
+        }
+
+        (score, eg_score)
     }
 }
 

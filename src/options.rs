@@ -25,6 +25,8 @@ use crate::pieces::{B, K, N, P, Q, R, get_piece_value};
 use crate::score_util::{pack_scores};
 
 const FULL_EVAL_THRESHOLD: i32 = 1150;
+const QUEEN_IMBALANCE_PENALTY: i32 = 124;
+const EG_QUEEN_IMBALANCE_PENALTY: i32 = -81;
 const FUTILITY_MARGIN_MULTIPLIER: i32 = 51;
 const QS_SEE_THRESHOLD: i32 = 104;
 const QS_PRUNE_MARGIN: i32 = 989;
@@ -97,6 +99,18 @@ impl Options {
     #[inline]
     pub fn get_full_eval_threshold(&self) -> i32 {
         FULL_EVAL_THRESHOLD
+    }
+
+
+    #[inline]
+    pub fn get_queen_imbalance_penalty(&self) -> i32 {
+        QUEEN_IMBALANCE_PENALTY
+    }
+
+
+    #[inline]
+    pub fn get_eg_queen_imbalance_penalty(&self) -> i32 {
+        EG_QUEEN_IMBALANCE_PENALTY
     }
 
 

@@ -121,6 +121,10 @@ impl TranspositionTable {
         (unsafe { *self.moves.get_unchecked(index) } as u64) << 32 | (entry & !HASHCHECK_MASK)
     }
 
+    pub fn get_age_diff(&self, entry: u64) -> i32 {
+        self.age - (entry & AGE_MASK) as i32
+    }
+
     fn calc_index(&self, hash: u64) -> usize {
         (hash & self.index_mask) as usize
     }

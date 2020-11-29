@@ -413,7 +413,7 @@ impl Search for Engine {
             }
 
             if can_use_hash_score {
-                let score = adjust_score_from_tt(decode_score(scored_move), ply);
+                let score = adjust_score_from_tt(decode_score(scored_move), self.tt.get_age_diff(tt_entry));
 
                 match get_score_type(tt_entry) {
                     EXACT => {
@@ -676,7 +676,7 @@ impl Search for Engine {
                         self.tt.write_entry(
                             hash,
                             depth,
-                            encode_scored_move(best_move, adjust_score_for_tt(best_score)),
+                            encode_scored_move(best_move, best_score),
                             LOWER_BOUND,
                         );
 
@@ -703,7 +703,7 @@ impl Search for Engine {
         self.tt.write_entry(
             hash,
             depth,
-            encode_scored_move(best_move, adjust_score_for_tt(best_score)),
+            encode_scored_move(best_move, best_score),
             score_type,
         );
 
@@ -1103,21 +1103,11 @@ fn get_score_info(score: i32) -> String {
     format!("cp {}", score)
 }
 
-fn adjust_score_for_tt(score: i32) -> i32 {
+fn adjust_score_from_tt(score: i32, age_diff: i32) -> i32 {
     if score >= BLACK_MATE_SCORE - MAX_DEPTH as i32 {
-        return BLACK_MATE_SCORE;
+        return min(BLACK_MATE_SCORE, score + age_diff);
     } else if score <= WHITE_MATE_SCORE + MAX_DEPTH as i32 {
-        return WHITE_MATE_SCORE;
-    }
-
-    score
-}
-
-fn adjust_score_from_tt(score: i32, ply: i32) -> i32 {
-    if score == BLACK_MATE_SCORE {
-        return score - ply;
-    } else if score == WHITE_MATE_SCORE {
-       return score + ply;
+       return max(WHITE_MATE_SCORE, score - age_diff);
     }
 
     score
