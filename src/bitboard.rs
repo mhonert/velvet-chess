@@ -48,72 +48,69 @@ const LINE_MASKS: [LinePatterns; 64 * 4] = calc_line_patterns();
 
 #[inline]
 pub fn get_knight_attacks(pos: i32) -> u64 {
-    KNIGHT_ATTACKS[pos as usize]
+    unsafe { *KNIGHT_ATTACKS.get_unchecked(pos as usize) }
 }
 
 #[inline]
 pub fn get_king_attacks(pos: i32) -> u64 {
-    KING_ATTACKS[pos as usize]
+    unsafe { *KING_ATTACKS.get_unchecked(pos as usize) }
 }
 
 #[inline]
 pub fn get_bishop_attacks(occupied: u64, pos: i32) -> u64 {
-    get_line_attacks(occupied, &LINE_MASKS[pos as usize + (Diagonal as usize * 64)])
-    | get_line_attacks(occupied, &LINE_MASKS[pos as usize + (AntiDiagonal as usize * 64)])
+    get_line_attacks(occupied, unsafe { LINE_MASKS.get_unchecked(pos as usize + (Diagonal as usize * 64)) })
+    | get_line_attacks(occupied, unsafe { LINE_MASKS.get_unchecked(pos as usize + (AntiDiagonal as usize * 64)) })
 }
 
 #[inline]
 pub fn get_rook_attacks(occupied: u64, pos: i32) -> u64 {
-    get_line_attacks(occupied, &LINE_MASKS[pos as usize + (Horizontal as usize * 64)])
-    | get_line_attacks(occupied, &LINE_MASKS[pos as usize + (Vertical as usize * 64)])
+    get_line_attacks(occupied, unsafe { LINE_MASKS.get_unchecked(pos as usize + (Horizontal as usize * 64)) })
+    | get_line_attacks(occupied, unsafe { LINE_MASKS.get_unchecked(pos as usize + (Vertical as usize * 64)) })
 }
 
 #[inline]
 pub fn get_vertical_attacks(occupied: u64, pos: i32) -> u64 {
-    get_line_attacks(occupied, &LINE_MASKS[pos as usize + (Vertical as usize * 64)])
+    get_line_attacks(occupied, unsafe { LINE_MASKS.get_unchecked(pos as usize + (Vertical as usize * 64)) })
 }
 
 #[inline]
 pub fn get_queen_attacks(occupied: u64, pos: i32) -> u64 {
-    get_line_attacks(occupied, &LINE_MASKS[pos as usize + (Diagonal as usize * 64)])
-    | get_line_attacks(occupied, &LINE_MASKS[pos as usize + (AntiDiagonal as usize * 64)])
-    | get_line_attacks(occupied, &LINE_MASKS[pos as usize + (Horizontal as usize * 64)])
-    | get_line_attacks(occupied, &LINE_MASKS[pos as usize + (Vertical as usize * 64)])
+    get_bishop_attacks(occupied, pos) | get_rook_attacks(occupied, pos)
 }
 
 #[inline]
 pub fn get_white_pawn_freepath(pos: i32) -> u64 {
-    WHITE_PAWN_FREEPATH[pos as usize]
+    unsafe { *WHITE_PAWN_FREEPATH.get_unchecked(pos as usize) }
 }
 
 #[inline]
 pub fn get_black_pawn_freepath(pos: i32) -> u64 {
-    BLACK_PAWN_FREEPATH[pos as usize]
+    unsafe { *BLACK_PAWN_FREEPATH.get_unchecked(pos as usize) }
 }
 
 #[inline]
 pub fn get_white_pawn_freesides(pos: i32) -> u64 {
-    WHITE_PAWN_FREESIDES[pos as usize]
+    unsafe { *WHITE_PAWN_FREESIDES.get_unchecked(pos as usize) }
 }
 
 #[inline]
 pub fn get_black_pawn_freesides(pos: i32) -> u64 {
-    BLACK_PAWN_FREESIDES[pos as usize]
+    unsafe { *BLACK_PAWN_FREESIDES.get_unchecked(pos as usize) }
 }
 
 #[inline]
 pub fn get_white_king_shield(pos: i32) -> u64 {
-    WHITE_KING_SHIELD[pos as usize]
+    unsafe { *WHITE_KING_SHIELD.get_unchecked(pos as usize) }
 }
 
 #[inline]
 pub fn get_black_king_shield(pos: i32) -> u64 {
-    BLACK_KING_SHIELD[pos as usize]
+    unsafe { *BLACK_KING_SHIELD.get_unchecked(pos as usize) }
 }
 
 #[inline]
 pub fn get_king_danger_zone(pos: i32) -> u64 {
-    KING_DANGER_ZONE[pos as usize]
+    unsafe { *KING_DANGER_ZONE.get_unchecked(pos as usize) }
 }
 
 // Calculate move patterns for pieces which can only move to one target field per direction (king and knight)

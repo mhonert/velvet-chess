@@ -87,11 +87,11 @@ impl TranspositionTable {
     pub fn write_entry(&mut self, hash: u64, depth: i32, scored_move: ScoredMove, typ: u8) {
         let index = self.calc_index(hash);
 
-        let entry = self.entries[index];
+        let entry = unsafe { self.entries.get_unchecked_mut(index) };
 
-        if entry != 0
-            && (entry & AGE_MASK) as i32 == self.age
-            && depth < ((entry >> DEPTH_BITSHIFT) & DEPTH_MASK) as i32
+        if *entry != 0
+            && (*entry & AGE_MASK) as i32 == self.age
+            && depth < ((*entry >> DEPTH_BITSHIFT) & DEPTH_MASK) as i32
         {
             return;
         }
@@ -101,14 +101,14 @@ impl TranspositionTable {
         new_entry |= (typ as u64) << SCORE_TYPE_BITSHIFT;
         new_entry |= self.age as u64;
 
-        self.entries[index] = new_entry;
-        self.moves[index] = scored_move;
+        *entry = new_entry;
+        unsafe { *self.moves.get_unchecked_mut(index) = scored_move };
     }
 
     pub fn get_entry(&self, hash: u64) -> u64 {
         let index = self.calc_index(hash);
 
-        let entry = self.entries[index];
+        let entry = unsafe { *self.entries.get_unchecked(index) };
         let age_diff = self.age - (entry & AGE_MASK) as i32;
 
         if entry == 0
@@ -118,8 +118,7 @@ impl TranspositionTable {
         {
             return 0;
         }
-
-        (self.moves[index] as u64) << 32 | (entry & !HASHCHECK_MASK)
+        (unsafe { *self.moves.get_unchecked(index) } as u64) << 32 | (entry & !HASHCHECK_MASK)
     }
 
     fn calc_index(&self, hash: u64) -> usize {

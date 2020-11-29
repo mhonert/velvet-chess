@@ -21,7 +21,7 @@
 use std::sync::mpsc::Sender;
 use crate::engine::Message;
 use crate::colors::{Color, BLACK, WHITE};
-use crate::pieces::{B, K, N, P, PIECE_VALUES, Q, R};
+use crate::pieces::{B, K, N, P, Q, R, get_piece_value};
 use crate::score_util::{pack_scores};
 
 const FUTILITY_MARGIN_MULTIPLIER: i32 = 51;
@@ -250,72 +250,72 @@ impl Options {
 
     #[inline]
     pub fn get_eg_passed_pawn_bonus(&self, index: usize) -> i32 {
-        EG_PASSED_PAWN_BONUS[index]
+        unsafe { *EG_PASSED_PAWN_BONUS.get_unchecked(index) }
     }
     
     #[inline]
     pub fn get_passed_pawn_bonus(&self, index: usize) -> i32 {
-        PASSED_PAWN_BONUS[index]
+        unsafe { *PASSED_PAWN_BONUS.get_unchecked(index) }
     }
     
     #[inline]
     pub fn get_passed_pawn_king_defense_bonus(&self, index: usize) -> i32 {
-        PASSED_PAWN_KING_DEFENSE_BONUS[index]
+        unsafe { *PASSED_PAWN_KING_DEFENSE_BONUS.get_unchecked(index) }
     }
     
     #[inline]
     pub fn get_passed_pawn_king_attacked_penalty(&self, index: usize) -> i32 {
-        PASSED_PAWN_KING_ATTACKED_PENALTY[index]
+        unsafe { *PASSED_PAWN_KING_ATTACKED_PENALTY.get_unchecked(index) }
     }
     
     #[inline]
     pub fn get_king_danger_piece_penalty(&self, index: usize) -> i32 {
-        KING_DANGER_PIECE_PENALTY[index]
+        unsafe { *KING_DANGER_PIECE_PENALTY.get_unchecked(index) }
     }
     
     #[inline]
     pub fn get_king_threat_adjustment(&self, index: usize) -> i32 {
-        KING_THREAT_ADJUSTMENT[index]
+        unsafe { *KING_THREAT_ADJUSTMENT.get_unchecked(index) }
     }
     
     #[inline]
     pub fn get_eg_knight_mob_bonus(&self, index: usize) -> i32 {
-        EG_KNIGHT_MOB_BONUS[index]
+        unsafe { *EG_KNIGHT_MOB_BONUS.get_unchecked(index) }
     }
     
     #[inline]
     pub fn get_eg_bishop_mob_bonus(&self, index: usize) -> i32 {
-        EG_BISHOP_MOB_BONUS[index]
+        unsafe { *EG_BISHOP_MOB_BONUS.get_unchecked(index) }
     }
     
     #[inline]
     pub fn get_eg_rook_mob_bonus(&self, index: usize) -> i32 {
-        EG_ROOK_MOB_BONUS[index]
+        unsafe { *EG_ROOK_MOB_BONUS.get_unchecked(index) }
     }
     
     #[inline]
     pub fn get_eg_queen_mob_bonus(&self, index: usize) -> i32 {
-        EG_QUEEN_MOB_BONUS[index]
+        unsafe { *EG_QUEEN_MOB_BONUS.get_unchecked(index) }
     }
     
     #[inline]
     pub fn get_knight_mob_bonus(&self, index: usize) -> i32 {
-        KNIGHT_MOB_BONUS[index]
+        unsafe { *KNIGHT_MOB_BONUS.get_unchecked(index) }
     }
     
     #[inline]
     pub fn get_bishop_mob_bonus(&self, index: usize) -> i32 {
-        BISHOP_MOB_BONUS[index]
+        unsafe { *BISHOP_MOB_BONUS.get_unchecked(index) }
     }
     
     #[inline]
     pub fn get_rook_mob_bonus(&self, index: usize) -> i32 {
-        ROOK_MOB_BONUS[index]
+        unsafe { *ROOK_MOB_BONUS.get_unchecked(index) }
     }
     
     #[inline]
     pub fn get_queen_mob_bonus(&self, index: usize) -> i32 {
-        QUEEN_MOB_BONUS[index]
+        unsafe { *QUEEN_MOB_BONUS.get_unchecked(index) }
     }
     
     #[inline]
@@ -456,7 +456,7 @@ const fn concat(
 
 const fn combine(color: Color, piece: i8, scores: [i32; 64], eg_scores: [i32; 64]) -> [u32; 64] {
     let mut combined_scores: [u32; 64] = [0; 64];
-    let piece_value = PIECE_VALUES[piece as usize];
+    let piece_value = get_piece_value(piece as usize);
 
     let mut i = 0;
     while i < 64 {

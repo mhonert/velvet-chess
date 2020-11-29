@@ -22,39 +22,17 @@ use crate::history_heuristics::HistoryHeuristics;
 use crate::move_gen::{decode_end_index, decode_piece_id, decode_start_index, generate_capture_moves, generate_moves, Move, NO_MOVE};
 use crate::pieces::{EMPTY};
 use crate::score_util::{decode_score, encode_scored_move, ScoredMove, unpack_score, unpack_eg_score, decode_move};
-use std::iter::Iterator;
 
 const CAPTURE_ORDER_SIZE: usize = 5 + 5 * 8 + 1;
 
 const PRIMARY_KILLER_SCORE_BONUS: i32 = -2267;
 const SECONDARY_KILLER_SCORE_BONUS: i32 = -3350;
 
-pub struct SortedMoveGenerator {
-    capture_order_scores: [i32; CAPTURE_ORDER_SIZE],
-}
+const CAPTURE_ORDER_SCORES: [i32; CAPTURE_ORDER_SIZE] = calc_capture_order_scores();
 
-impl SortedMoveGenerator {
-    pub fn new() -> Self {
-        SortedMoveGenerator {
-            capture_order_scores: calc_capture_order_scores(),
-        }
-    }
-
-    pub fn get_capture_order_score(&self, attacker_id: i32, victim_id: i32) -> i32 {
-        self.capture_order_scores[((attacker_id - 1) * 8 + (victim_id - 1)) as usize]
-    }
-
-    pub fn gen_moves(scored_hash_move: ScoredMove, primary_killer: Move, secondary_killer: Move) -> SortedMoves {
-        SortedMoves::new(scored_hash_move, primary_killer, secondary_killer)
-    }
-
-    pub fn gen_capture_moves() -> SortedMoves {
-        SortedMoves::new(NO_MOVE, NO_MOVE, NO_MOVE)
-    }
-
-    pub fn gen_legal_moves() -> SortedLegalMoves {
-        SortedLegalMoves::new()
-    }
+#[inline]
+fn get_capture_order_score(attacker_id: i32, victim_id: i32) -> i32 {
+    CAPTURE_ORDER_SCORES[((attacker_id - 1) * 8 + (victim_id - 1)) as usize]
 }
 
 enum Stage {
@@ -87,7 +65,7 @@ impl SortedMoves {
         self.stage = Stage::HashMove;
     }
 
-    pub fn next_move(&mut self, gen: &SortedMoveGenerator, hh: &HistoryHeuristics, board: &mut Board) -> Option<ScoredMove> {
+    pub fn next_move(&mut self, hh: &HistoryHeuristics, board: &mut Board) -> Option<ScoredMove> {
         match self.stage {
             Stage::HashMove => {
                 self.index = 0;
@@ -96,20 +74,20 @@ impl SortedMoves {
                 if self.scored_hash_move != NO_MOVE {
                     Some(self.scored_hash_move)
                 } else {
-                    self.next_move(gen, hh, board)
+                    self.next_move(hh, board)
                 }
             },
 
             Stage::GeneratedMoves => {
                 if self.moves == None {
-                   self.moves = Some(gen_moves(gen, hh, board, self.primary_killer, self.secondary_killer));
+                   self.moves = Some(gen_moves(hh, board, self.primary_killer, self.secondary_killer));
                 }
 
                 match &self.moves {
                     Some(moves) => {
                         while self.index < moves.len() {
                             self.index += 1;
-                            let m = moves[self.index - 1];
+                            let m = unsafe { *moves.get_unchecked(self.index - 1) };
                             if decode_move(m) != decode_move(self.scored_hash_move) {
 
                                 return Some(m);
@@ -126,16 +104,16 @@ impl SortedMoves {
         }
     }
 
-    pub fn next_capture_move(&mut self, gen: &SortedMoveGenerator, board: &mut Board) -> Option<ScoredMove> {
+    pub fn next_capture_move(&mut self, board: &mut Board) -> Option<ScoredMove> {
         if self.moves == None {
-            self.moves = Some(gen_capture_moves(gen, board));
+            self.moves = Some(gen_capture_moves(board));
         }
 
         match &self.moves {
             Some(moves) => {
                 if self.index < moves.len() {
                     self.index += 1;
-                    let m = moves[self.index - 1];
+                    let m = unsafe { *moves.get_unchecked(self.index - 1) };
                     return Some(m);
                 }
                 None
@@ -147,19 +125,19 @@ impl SortedMoves {
 
 }
 
-fn gen_moves(gen: &SortedMoveGenerator, hh: &HistoryHeuristics, board: &Board, primary_killer: Move, secondary_killer: Move) -> Vec<ScoredMove> {
+fn gen_moves(hh: &HistoryHeuristics, board: &Board, primary_killer: Move, secondary_killer: Move) -> Vec<ScoredMove> {
     let active_player = board.active_player();
     let mut moves = generate_moves(board, active_player);
-    sort_by_score(gen, hh, board, &mut moves, primary_killer, secondary_killer, active_player);
+    sort_by_score(hh, board, &mut moves, primary_killer, secondary_killer, active_player);
     moves
 }
 
-fn gen_capture_moves(gen: &SortedMoveGenerator, board: &Board) -> Vec<ScoredMove> {
+fn gen_capture_moves(board: &Board) -> Vec<ScoredMove> {
     let active_player = board.active_player();
     let mut moves = generate_capture_moves(board, active_player);
 
     for m in moves.iter_mut() {
-        let score = evaluate_capture_move_score(gen, board, active_player, *m);
+        let score = evaluate_capture_move_score(board, active_player, *m);
         *m = encode_scored_move(*m, score);
     }
 
@@ -169,7 +147,6 @@ fn gen_capture_moves(gen: &SortedMoveGenerator, board: &Board) -> Vec<ScoredMove
 }
 
 fn sort_by_score(
-    gen: &SortedMoveGenerator,
     hh: &HistoryHeuristics,
     board: &Board,
     moves: &mut Vec<Move>,
@@ -184,7 +161,7 @@ fn sort_by_score(
         } else if *m == secondary_killer {
             SECONDARY_KILLER_SCORE_BONUS
         } else {
-            evaluate_move_score(phase, gen, hh,  board, active_player, *m)
+            evaluate_move_score(phase, hh,  board, active_player, *m)
         };
         *m = encode_scored_move(*m, score);
     }
@@ -192,12 +169,7 @@ fn sort_by_score(
     sort_by_score_desc(moves);
 }
 
-fn evaluate_capture_move_score(
-    gen: &SortedMoveGenerator,
-    board: &Board,
-    active_player: Color,
-    m: Move,
-) -> i32 {
+fn evaluate_capture_move_score(board: &Board, active_player: Color, m: Move) -> i32 {
     let start = decode_start_index(m);
     let end = decode_end_index(m);
     let captured_piece = board.get_item(end);
@@ -205,18 +177,25 @@ fn evaluate_capture_move_score(
     let original_piece_id = active_player * board.get_item(start);
     let captured_piece_id = captured_piece.abs();
 
-    gen.get_capture_order_score(original_piece_id as i32, captured_piece_id as i32)
+    get_capture_order_score(original_piece_id as i32, captured_piece_id as i32)
 }
 
-fn calc_capture_order_scores() -> [i32; CAPTURE_ORDER_SIZE] {
+const fn calc_capture_order_scores() -> [i32; CAPTURE_ORDER_SIZE] {
     let mut scores: [i32; CAPTURE_ORDER_SIZE] = [0; CAPTURE_ORDER_SIZE];
     let mut score: i32 = 0;
 
-    for victim in 0..=5 {
-        for attacker in (0..=5).rev() {
+    let mut victim = 0;
+    while victim <= 5 {
+
+        let mut attacker = 5;
+        while attacker >= 0 {
             scores[(victim + attacker * 8) as usize] = score * 64;
             score += 1;
+
+            attacker -= 1;
         }
+
+        victim += 1;
     }
 
     scores
@@ -245,9 +224,9 @@ impl SortedLegalMoves {
         };
     }
 
-    pub fn next_legal_move(&mut self, gen: &SortedMoveGenerator, hh: &HistoryHeuristics, board: &mut Board) -> Option<ScoredMove> {
+    pub fn next_legal_move(&mut self, hh: &HistoryHeuristics, board: &mut Board) -> Option<ScoredMove> {
         if self.moves == None {
-            self.moves = Some(gen_legal_moves(gen, hh, board));
+            self.moves = Some(gen_legal_moves(hh, board));
         }
 
         match &self.moves {
@@ -272,7 +251,7 @@ impl SortedLegalMoves {
 
 }
 
-fn gen_legal_moves(gen: &SortedMoveGenerator, hh: &HistoryHeuristics, board: &mut Board) -> Vec<ScoredMove> {
+fn gen_legal_moves(hh: &HistoryHeuristics, board: &mut Board) -> Vec<ScoredMove> {
     let active_player = board.active_player();
     let mut moves = generate_moves(board, active_player);
     {
@@ -288,7 +267,7 @@ fn gen_legal_moves(gen: &SortedMoveGenerator, hh: &HistoryHeuristics, board: &mu
 
     let phase = board.calc_phase_value();
     for m in moves.iter_mut() {
-        let score = evaluate_move_score(phase, gen, hh,  board, active_player, *m);
+        let score = evaluate_move_score(phase, hh,  board, active_player, *m);
         *m = encode_scored_move(*m, score);
     }
 
@@ -299,7 +278,6 @@ fn gen_legal_moves(gen: &SortedMoveGenerator, hh: &HistoryHeuristics, board: &mu
 // Move evaluation heuristic for initial move ordering (high values are better for the active player)
 fn evaluate_move_score(
     phase: i32,
-    gen: &SortedMoveGenerator,
     hh: &HistoryHeuristics,
     board: &Board,
     active_player: Color,
@@ -336,25 +314,25 @@ fn evaluate_move_score(
     let original_piece_id = board.get_item(start).abs();
     let captured_piece_id = captured_piece.abs();
 
-    gen.get_capture_order_score(original_piece_id as i32, captured_piece_id as i32)
+    get_capture_order_score(original_piece_id as i32, captured_piece_id as i32)
 }
 
 fn sort_by_score_desc(moves: &mut Vec<Move>) {
     // Basic insertion sort
     for i in 1..moves.len() {
-        let x = moves[i];
+        let x = unsafe { *moves.get_unchecked(i) };
         let x_score = decode_score(x);
         let mut j = i as i32 - 1;
         while j >= 0 {
-            let y = moves[j as usize];
+            let y = unsafe { *moves.get_unchecked(j as usize) };
             if decode_score(y) >= x_score {
                 break;
             }
 
-            moves[j as usize + 1] = y;
+            unsafe { *moves.get_unchecked_mut(j as usize + 1) = y };
             j -= 1;
         }
-        moves[(j + 1) as usize] = x;
+        unsafe { *moves.get_unchecked_mut((j + 1) as usize) = x };
     }
 }
 

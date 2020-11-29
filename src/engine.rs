@@ -23,9 +23,8 @@ use crate::history_heuristics::HistoryHeuristics;
 use crate::move_gen::{
     decode_end_index, decode_piece_id, decode_start_index, has_valid_moves, Move, NO_MOVE,
 };
-use crate::move_sort::SortedMoveGenerator;
 use crate::perft::perft;
-use crate::pieces::{EMPTY, PIECE_VALUES, Q};
+use crate::pieces::{EMPTY, Q, get_piece_value};
 use crate::search::Search;
 use crate::transposition_table::{TranspositionTable, DEFAULT_SIZE_MB};
 use crate::uci_move::UCIMove;
@@ -87,7 +86,6 @@ pub struct Engine {
     pub board: Board,
     pub hh: HistoryHeuristics,
     pub tt: TranspositionTable,
-    pub gen: SortedMoveGenerator,
 
     pub starttime: Instant,
     pub timelimit_ms: i32,
@@ -128,7 +126,6 @@ impl Engine {
             board: create_from_fen(&fen),
             hh: HistoryHeuristics::new(),
             tt: TranspositionTable::new(tt_size_mb),
-            gen: SortedMoveGenerator::new(),
             starttime: Instant::now(),
             timelimit_ms: 0,
             cancel_possible: false,
@@ -369,12 +366,12 @@ impl Engine {
                 return false;
             }
 
-            if self.board.get_static_score().abs() > PIECE_VALUES[Q as usize] as i32 {
+            if self.board.get_static_score().abs() > get_piece_value(Q as usize) as i32 {
                 return false;
             }
 
             let mut is_quiet = self.is_quiet_position();
-            if !is_quiet && self.make_quiet_position() && self.is_quiet_position() && self.board.get_static_score().abs() <= PIECE_VALUES[Q as usize] as i32 {
+            if !is_quiet && self.make_quiet_position() && self.is_quiet_position() && self.board.get_static_score().abs() <= get_piece_value(Q as usize) as i32 {
                 is_quiet = true;
             }
 

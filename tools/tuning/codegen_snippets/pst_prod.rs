@@ -73,7 +73,7 @@ const fn concat(
 
 const fn combine(color: Color, piece: i8, scores: [i32; 64], eg_scores: [i32; 64]) -> [u32; 64] {
     let mut combined_scores: [u32; 64] = [0; 64];
-    let piece_value = PIECE_VALUES[piece as usize];
+    let piece_value = get_piece_value(piece as usize);
 
     let mut i = 0;
     while i < 64 {

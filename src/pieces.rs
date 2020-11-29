@@ -31,7 +31,7 @@ const BISHOP_VALUE: i16 = 350;
 const KNIGHT_VALUE: i16 = 350;
 const PAWN_VALUE: i16 = 100;
 
-pub const PIECE_VALUES: [i16; 7] = [
+const PIECE_VALUES: [i16; 7] = [
     0,
     PAWN_VALUE,
     KNIGHT_VALUE,
@@ -40,3 +40,8 @@ pub const PIECE_VALUES: [i16; 7] = [
     QUEEN_VALUE,
     KING_VALUE,
 ];
+
+#[inline]
+pub const fn get_piece_value(piece_id: usize) -> i16 {
+    PIECE_VALUES[piece_id]
+}

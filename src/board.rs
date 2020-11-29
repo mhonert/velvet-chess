@@ -20,11 +20,11 @@ use crate::bitboard::{black_left_pawn_attacks, black_right_pawn_attacks, white_l
 use crate::boardpos::{BlackBoardPos, WhiteBoardPos};
 use crate::castling::Castling;
 use crate::colors::{Color, BLACK, WHITE};
-use crate::pieces::{B, EMPTY, K, N, P, PIECE_VALUES, Q, R};
+use crate::pieces::{B, EMPTY, K, N, P, Q, R, get_piece_value};
 use crate::pos_history::PositionHistory;
 use crate::score_util::{unpack_eg_score, unpack_score};
-use crate::zobrist::Zobrist;
 use crate::options::{Options, PieceSquareTables};
+use crate::zobrist::{piece_zobrist_key, player_zobrist_key, castling_zobrist_key, enpassant_zobrist_key};
 
 const MAX_GAME_HALFMOVES: usize = 5898 * 2;
 
@@ -37,7 +37,6 @@ pub const MAX_PHASE: i32 = 16 * PAWN_PHASE_VALUE + 30 * BASE_PIECE_PHASE_VALUE +
 
 pub struct Board {
     pub options: Options,
-    zobrist: Zobrist,
     pub pst: PieceSquareTables,
     pos_history: PositionHistory,
     items: [i8; 64],
@@ -81,7 +80,6 @@ impl Board {
 
         let mut board = Board {
             options,
-            zobrist: Zobrist::new(),
             pst,
             pos_history: PositionHistory::new(),
             items: [0; 64],
@@ -173,12 +171,12 @@ impl Board {
         for pos in 0..64 {
             let piece = self.items[pos];
             if piece != EMPTY {
-                self.hash ^= self.zobrist.piece_number(piece, pos);
+                self.hash ^= piece_zobrist_key(piece, pos);
             }
         }
 
         if self.active_player() == BLACK {
-            self.hash ^= self.zobrist.player
+            self.hash ^= player_zobrist_key()
         }
 
         self.update_hash_for_castling(ALL_CASTLING);
@@ -218,8 +216,8 @@ impl Board {
     }
 
     fn update_hash_for_castling(&mut self, previous_castling_state: u8) {
-        self.hash ^= self.zobrist.castling_number(previous_castling_state);
-        self.hash ^= self.zobrist.castling_number(self.castling_state);
+        self.hash ^= castling_zobrist_key(previous_castling_state);
+        self.hash ^= castling_zobrist_key(self.castling_state);
     }
 
     fn set_enpassant(&mut self, pos: i8) {
@@ -238,17 +236,17 @@ impl Board {
         let new_state = self.enpassant_state;
         if previous_state != new_state {
             if previous_state != 0 {
-                self.hash ^= self.zobrist.enpassant_number(previous_state);
+                self.hash ^= enpassant_zobrist_key(previous_state);
             }
 
             if new_state != 0 {
-                self.hash ^= self.zobrist.enpassant_number(new_state);
+                self.hash ^= enpassant_zobrist_key(new_state);
             }
         }
     }
 
     pub fn get_item(&self, pos: i32) -> i8 {
-        self.items[pos as usize]
+        unsafe { *self.items.get_unchecked(pos as usize) }
     }
 
     pub fn get_hash(&self) -> u64 {
@@ -311,7 +309,7 @@ impl Board {
         self.halfmove_count += 1;
         self.halfmove_clock += 1;
 
-        self.hash ^= self.zobrist.player;
+        self.hash ^= player_zobrist_key();
     }
 
     pub fn perform_move(&mut self, target_piece_id: i8, move_start: i32, move_end: i32) -> i8 {
@@ -323,7 +321,7 @@ impl Board {
 
         self.clear_en_passant();
 
-        if self.items[move_end as usize] != EMPTY {
+        if self.get_item(move_end) != EMPTY {
             // Capture move (except en passant)
             let removed_piece = self.remove_piece(move_end);
             self.add_piece(color, target_piece_id, move_end as usize);
@@ -508,20 +506,26 @@ impl Board {
     }
 
     fn add_piece_without_inc_update(&mut self, color: Color, piece: i8, pos: i32) {
-        self.items[pos as usize] = piece;
-        self.bitboards[(piece + 6) as usize] |= 1u64 << pos as u64;
-        self.bitboards_all_pieces[(color + 1) as usize] |= 1u64 << pos as u64;
+        unsafe {
+            *self.items.get_unchecked_mut(pos as usize) = piece;
+            *self.bitboards_all_pieces.get_unchecked_mut((color + 1) as usize) |= 1u64 << pos as u64;
+            *self.bitboards.get_unchecked_mut((piece + 6) as usize) |= 1u64 << pos as u64;
+        }
     }
 
     pub fn add_piece(&mut self, color: Color, piece_id: i8, pos: usize) {
         let piece = piece_id * color;
-        self.items[pos] = piece;
+        unsafe {
+            *self.items.get_unchecked_mut(pos as usize) = piece;
+        }
 
         self.add_piece_score(piece, pos);
-        self.hash ^= self.zobrist.piece_number(piece, pos);
+        self.hash ^= piece_zobrist_key(piece, pos);
 
-        self.bitboards[(piece + 6) as usize] |= 1u64 << pos as u64;
-        self.bitboards_all_pieces[(color + 1) as usize] |= 1u64 << pos as u64;
+        unsafe {
+            *self.bitboards_all_pieces.get_unchecked_mut((color + 1) as usize) |= 1u64 << pos as u64;
+            *self.bitboards.get_unchecked_mut((piece + 6) as usize) |= 1u64 << pos as u64;
+        }
     }
 
     fn add_piece_score(&mut self, piece: i8, pos: usize) {
@@ -541,9 +545,9 @@ impl Board {
     }
 
     pub fn remove_piece(&mut self, pos: i32) -> i8 {
-        let piece = self.items[pos as usize];
+        let piece = self.get_item(pos);
         self.subtract_piece_score(piece, pos as usize);
-        self.hash ^= self.zobrist.piece_number(piece, pos as usize);
+        self.hash ^= piece_zobrist_key(piece, pos as usize);
 
         let color = piece.signum();
         self.remove(piece, color, pos)
@@ -557,15 +561,17 @@ impl Board {
     }
 
     fn remove_piece_without_inc_update(&mut self, pos: i32) {
-        let piece = self.items[pos as usize];
+        let piece = self.get_item(pos);
         let color = piece.signum();
         self.remove(piece, color, pos);
     }
 
     fn remove(&mut self, piece: i8, color: Color, pos: i32) -> i8 {
-        self.bitboards[(piece + 6) as usize] &= !(1u64 << pos as u64);
-        self.bitboards_all_pieces[(color + 1) as usize] &= !(1u64 << pos as u64);
-        self.items[pos as usize] = EMPTY;
+        unsafe {
+            *self.bitboards.get_unchecked_mut((piece + 6) as usize) &= !(1u64 << pos as u64);
+            *self.bitboards_all_pieces.get_unchecked_mut((color + 1) as usize) &= !(1u64 << pos as u64);
+            *self.items.get_unchecked_mut(pos as usize) = EMPTY;
+        }
 
         if piece == R {
             if pos == WhiteBoardPos::QueenSideRook as i32 {
@@ -596,10 +602,12 @@ impl Board {
             | (self.halfmove_clock as u64) << 32
             | (self.enpassant_state as u64);
 
-        self.state_history[self.history_counter] = state;
-        self.hash_history[self.history_counter] = self.hash;
-        self.score_history[self.history_counter] = self.score;
-        self.eg_score_history[self.history_counter] = self.eg_score;
+        unsafe {
+            *self.state_history.get_unchecked_mut(self.history_counter) = state;
+            *self.hash_history.get_unchecked_mut(self.history_counter) = self.hash;
+            *self.score_history.get_unchecked_mut(self.history_counter) = self.score;
+            *self.eg_score_history.get_unchecked_mut(self.history_counter) = self.eg_score;
+        }
         self.history_counter += 1;
     }
 
@@ -607,14 +615,17 @@ impl Board {
         self.halfmove_count -= 1;
         self.history_counter -= 1;
 
-        self.hash = self.hash_history[self.history_counter];
-        self.score = self.score_history[self.history_counter];
-        self.eg_score = self.eg_score_history[self.history_counter];
-        let state = self.state_history[self.history_counter];
+        unsafe {
+            self.hash = *self.hash_history.get_unchecked(self.history_counter);
+            self.score = *self.score_history.get_unchecked(self.history_counter);
+            self.eg_score = *self.eg_score_history.get_unchecked(self.history_counter);
+            let state = *self.state_history.get_unchecked(self.history_counter);
 
-        self.castling_state = (state >> 56) as u8;
-        self.halfmove_clock = ((state >> 32) & 0xFFFF) as u16;
-        self.enpassant_state = (state & 0xFFFF) as u16;
+            self.castling_state = (state >> 56) as u8;
+            self.halfmove_clock = ((state >> 32) & 0xFFFF) as u16;
+            self.enpassant_state = (state & 0xFFFF) as u16;
+        }
+
     }
 
     pub fn king_pos(&self, color: Color) -> i32 {
@@ -630,7 +641,7 @@ impl Board {
     }
 
     pub fn get_all_piece_bitboard(&self, color: Color) -> u64 {
-        self.bitboards_all_pieces[(color + 1) as usize]
+        unsafe { *self.bitboards_all_pieces.get_unchecked((color + 1) as usize) }
     }
 
     pub fn get_occupancy_bitboard(&self) -> u64 {
@@ -642,7 +653,7 @@ impl Board {
     }
 
     pub fn get_bitboard(&self, piece: i8) -> u64 {
-        self.bitboards[(piece + 6) as usize]
+        unsafe { *self.bitboards.get_unchecked((piece + 6) as usize) }
     }
 
     // Returns the position of the smallest attacker or -1 if there is no attacker
@@ -837,9 +848,9 @@ impl Board {
         own_piece_id: u32,
         captured_piece_id: u32,
     ) -> i32 {
-        let mut score = PIECE_VALUES[captured_piece_id as usize];
+        let mut score = get_piece_value(captured_piece_id as usize);
         let mut occupied = self.get_occupancy_bitboard() & !(1 << from as u64);
-        let mut trophy_piece_score = PIECE_VALUES[own_piece_id as usize];
+        let mut trophy_piece_score = get_piece_value(own_piece_id as usize);
 
         loop {
             // Opponent attack
@@ -848,7 +859,7 @@ impl Board {
                 return score as i32;
             }
             score -= trophy_piece_score;
-            trophy_piece_score = PIECE_VALUES[self.get_item(attacker_pos).abs() as usize];
+            trophy_piece_score = get_piece_value(self.get_item(attacker_pos).abs() as usize);
             if score + trophy_piece_score < 0 {
                 return score as i32;
             }
@@ -862,7 +873,7 @@ impl Board {
             }
 
             score += trophy_piece_score;
-            trophy_piece_score = PIECE_VALUES[self.get_item(own_attacker_pos).abs() as usize];
+            trophy_piece_score = get_piece_value(self.get_item(own_attacker_pos).abs() as usize);
             if score - trophy_piece_score > 0 {
                 return score as i32;
             }
@@ -880,7 +891,7 @@ impl Board {
             if item == EMPTY {
                 continue;
             }
-            score += PIECE_VALUES[item.abs() as usize] as i32 * item.signum() as i32;
+            score += get_piece_value(item.abs() as usize) as i32 * item.signum() as i32;
         }
 
         score

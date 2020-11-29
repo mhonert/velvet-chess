@@ -27,6 +27,7 @@ import sys
 import re
 from pathlib import Path
 from typing import List, Optional
+from zobrist import PIECE_RNG_NUMBERS, PLAYER_RNG_NUMBER, CASTLING_RNG_NUMBERS, EN_PASSANT_RNG_NUMBERS
 
 from common import Config
 
@@ -40,6 +41,7 @@ def main(mode: str = "tuning"):
 
     log.info("Generating code from config.yml for %s mode ...", mode)
 
+    # Generate options.rs
     out = open("../../src/options.rs", "w")
 
     out.write(Path("./codegen_snippets/header.rs").read_text())
@@ -50,6 +52,16 @@ def main(mode: str = "tuning"):
     else:
         gen_for_prod_mode(config, out)
         out.write(Path("./codegen_snippets/pst_prod.rs").read_text())
+
+    out.close()
+
+    # Generate zobrist.rs
+    out = open("../../src/zobrist.rs", "w")
+
+    out.write(Path("./codegen_snippets/header.rs").read_text())
+
+    gen_zobrist_keys(out)
+
 
     out.close()
 
@@ -71,7 +83,7 @@ def gen_for_prod_mode(config, out):
 use std::sync::mpsc::Sender;
 use crate::engine::Message;
 use crate::colors::{Color, BLACK, WHITE};
-use crate::pieces::{B, K, N, P, PIECE_VALUES, Q, R};
+use crate::pieces::{B, K, N, P, Q, R, get_piece_value};
 use crate::score_util::{pack_scores};
 ''')
     multi_options = {}
@@ -140,7 +152,7 @@ impl Options {
             out.write(f'''
     #[inline]
     pub fn get_{to_snake_case(option.name)}(&self, index: usize) -> i32 {{
-        {to_snake_case(option.name).upper()}[index]
+        unsafe {{ *{to_snake_case(option.name).upper()}.get_unchecked(index) }}
     }}
     ''')
     out.write(f'''
@@ -160,7 +172,7 @@ use std::sync::mpsc::Sender;
 use crate::engine::Message;
 use std::str::FromStr;
 use crate::colors::{Color, BLACK, WHITE};
-use crate::pieces::{B, K, N, P, PIECE_VALUES, Q, R};
+use crate::pieces::{B, K, N, P, Q, R, get_piece_value};
 use crate::score_util::{pack_scores};
 
 pub struct Options {''')
@@ -282,6 +294,36 @@ const SINGLE_VALUE_OPTION_NAMES: [&'static str; {len(single_option_names)}] = [{
 const MULTI_VALUE_OPTION_NAMES: [&'static str; {len(multi_option_names)}] = [{joined_names}];
 ''')
     out.write(Path("./codegen_snippets/options_parse.rs").read_text())
+
+
+def gen_zobrist_keys(out):
+    out.write(f'''const PLAYER_ZOBRIST_KEY: u64 = {PLAYER_RNG_NUMBER};\n''')
+    out.write(f'''const EN_PASSANT_ZOBRIST_KEYS: [u64; 16] = {EN_PASSANT_RNG_NUMBERS};\n''')
+    out.write(f'''const CASTLING_ZOBRIST_KEYS: [u64; 16] = {CASTLING_RNG_NUMBERS};\n''')
+    out.write(f'''const PIECE_ZOBRIST_KEYS: [u64; 13 * 64] = {PIECE_RNG_NUMBERS};\n''')
+
+    out.write('''
+    
+#[inline]
+pub fn player_zobrist_key() -> u64 {
+    PLAYER_ZOBRIST_KEY
+}
+
+#[inline]
+pub fn enpassant_zobrist_key(en_passant_state: u16) -> u64 {
+    unsafe { *EN_PASSANT_ZOBRIST_KEYS.get_unchecked(en_passant_state.trailing_zeros() as usize) }
+}
+
+#[inline]
+pub fn castling_zobrist_key(castling_state: u8) -> u64 {
+    unsafe { *CASTLING_ZOBRIST_KEYS.get_unchecked(castling_state as usize & 0xf) }
+}
+
+#[inline]
+pub fn piece_zobrist_key(piece: i8, pos: usize) -> u64 {
+    unsafe { *PIECE_ZOBRIST_KEYS.get_unchecked(((piece + 6) as usize) * 64 + pos) }
+}
+''')
 
 
 # Main

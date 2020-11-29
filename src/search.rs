@@ -20,7 +20,6 @@ use crate::board::EN_PASSANT;
 use crate::colors::{Color, BLACK, WHITE};
 use crate::engine::Engine;
 use crate::move_gen::{decode_end_index, decode_piece_id, decode_start_index, Move, NO_MOVE};
-use crate::move_sort::{SortedMoveGenerator};
 use crate::pieces::{EMPTY, P, K};
 use crate::score_util::{
     decode_move, decode_score, encode_scored_move, ScoredMove, BLACK_MATE_SCORE, MAX_SCORE,
@@ -33,6 +32,7 @@ use crate::uci_move::UCIMove;
 use std::cmp::{max, min};
 use std::time::{Duration, Instant};
 use crate::eval::Eval;
+use crate::move_sort::{SortedMoves, SortedLegalMoves};
 
 pub trait Search {
     fn find_best_move(&mut self, min_depth: i32, is_strict_timelimit: bool) -> Move;
@@ -86,7 +86,7 @@ impl Search for Engine {
 
         self.starttime = Instant::now();
 
-        let mut moves = SortedMoveGenerator::gen_legal_moves();
+        let mut moves = SortedLegalMoves::new();
 
         self.cancel_possible = false;
         self.node_count = 0;
@@ -127,7 +127,7 @@ impl Search for Engine {
 
             let mut move_num = 0;
 
-            while let Some(scored_move) = moves.next_legal_move(&self.gen, &self.hh, &mut self.board) {
+            while let Some(scored_move) = moves.next_legal_move(&self.hh, &mut self.board) {
                 move_num += 1;
 
                 let m = decode_move(scored_move);
@@ -477,8 +477,7 @@ impl Search for Engine {
         let primary_killer = self.hh.get_primary_killer(ply);
         let secondary_killer = self.hh.get_secondary_killer(ply);
 
-        let mut moves =
-            SortedMoveGenerator::gen_moves(scored_move, primary_killer, secondary_killer);
+        let mut moves = SortedMoves::new(scored_move, primary_killer, secondary_killer);
 
         let mut best_move = NO_MOVE;
         let mut best_score = MIN_SCORE;
@@ -501,7 +500,7 @@ impl Search for Engine {
         let opp_pawns = self.board.get_bitboard(P * -player_color);
 
         loop {
-            scored_move = match moves.next_move(&self.gen, &self.hh, &mut self.board) {
+            scored_move = match moves.next_move(&self.hh, &mut self.board) {
                 Some(scored_move) => scored_move,
                 None => {
                     if fail_high && has_valid_moves {
@@ -742,11 +741,11 @@ impl Search for Engine {
             alpha = position_score;
         }
 
-        let mut moves = SortedMoveGenerator::gen_capture_moves();
+        let mut moves = SortedMoves::new(NO_MOVE, NO_MOVE, NO_MOVE);
 
         let mut threshold = alpha - position_score - self.board.options.get_qs_see_threshold();
 
-        while let Some(scored_move) = moves.next_capture_move(&self.gen, &mut self.board)
+        while let Some(scored_move) = moves.next_capture_move(&mut self.board)
         {
             let m = decode_move(scored_move);
             let target_piece_id = decode_piece_id(m);
@@ -826,8 +825,8 @@ impl Search for Engine {
             return false;
         }
 
-        let mut moves = SortedMoveGenerator::gen_capture_moves();
-        while let Some(scored_move) = moves.next_capture_move(&self.gen, &mut self.board)
+        let mut moves = SortedMoves::new(NO_MOVE, NO_MOVE, NO_MOVE);
+        while let Some(scored_move) = moves.next_capture_move(&mut self.board)
         {
             let m = decode_move(scored_move);
             let start = decode_start_index(m);
@@ -920,11 +919,11 @@ impl Search for Engine {
             alpha = position_score;
         }
 
-        let mut moves = SortedMoveGenerator::gen_capture_moves();
+        let mut moves = SortedMoves::new(NO_MOVE, NO_MOVE, NO_MOVE);
 
         let mut best_move = NO_MOVE;
 
-        while let Some(scored_move) = moves.next_capture_move(&self.gen, &mut self.board)
+        while let Some(scored_move) = moves.next_capture_move(&mut self.board)
         {
             let m = decode_move(scored_move);
             let target_piece_id = decode_piece_id(m);

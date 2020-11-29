@@ -27,7 +27,6 @@ pub struct HistoryHeuristics {
     secondary_killers: [Move; MAX_DEPTH],
     cut_off_history: [u64; HISTORY_SIZE],
     played_move_history: [u64; HISTORY_SIZE],
-    played_move_thresholds: [u64; MAX_DEPTH],
 }
 
 impl Default for HistoryHeuristics {
@@ -36,6 +35,8 @@ impl Default for HistoryHeuristics {
     }
 }
 
+const PLAYED_MOVE_THRESHOLDS: [u64; MAX_DEPTH] = calc_move_thresholds();
+
 impl HistoryHeuristics {
     pub fn new() -> Self {
         Self {
@@ -43,7 +44,6 @@ impl HistoryHeuristics {
             secondary_killers: [NO_MOVE; MAX_DEPTH],
             cut_off_history: [0; HISTORY_SIZE],
             played_move_history: [0; HISTORY_SIZE],
-            played_move_thresholds: calc_move_thresholds(),
         }
     }
 
@@ -60,11 +60,11 @@ impl HistoryHeuristics {
     }
 
     pub fn get_primary_killer(&self, ply: i32) -> Move {
-        self.primary_killers[ply as usize]
+        unsafe { *self.primary_killers.get_unchecked(ply as usize) }
     }
 
     pub fn get_secondary_killer(&self, ply: i32) -> Move {
-        self.secondary_killers[ply as usize]
+        unsafe { *self.secondary_killers.get_unchecked(ply as usize) }
     }
 
     pub fn update(&mut self, ply: i32, color: Color, start: i32, end: i32, m: Move) {
@@ -74,28 +74,30 @@ impl HistoryHeuristics {
     }
 
     fn update_killer_moves(&mut self, ply: i32, m: Move) {
-        let current_primary = self.primary_killers[ply as usize];
-        if current_primary != m {
-            self.primary_killers[ply as usize] = m;
-            self.secondary_killers[ply as usize] = current_primary;
+        let current_primary = unsafe { self.primary_killers.get_unchecked_mut(ply as usize) };
+        if *current_primary != m {
+            unsafe { *self.secondary_killers.get_unchecked_mut(ply as usize) = *current_primary };
+            *current_primary = m;
         }
     }
 
     pub fn update_played_moves(&mut self, color: Color, start: i32, end: i32) {
         let color_offset = if color == WHITE { 0 } else { 64 * 64 };
-        self.played_move_history[(color_offset + start + end * 64) as usize] += 1;
+        unsafe {
+            *self.played_move_history.get_unchecked_mut((color_offset + start + end * 64) as usize) += 1;
+        }
     }
 
     pub fn get_history_score(&self, color: Color, start: i32, end: i32) -> i32 {
         let color_offset = if color == WHITE { 0 } else { 64 * 64 };
         let index = (color_offset + start + end * 64) as usize;
 
-        let move_count = self.played_move_history[index];
+        let move_count = unsafe { *self.played_move_history.get_unchecked(index) };
         if move_count == 0 {
             return -1;
         }
 
-        (self.cut_off_history[index] * 512 / move_count) as i32
+        (unsafe { *self.cut_off_history.get_unchecked(index) } * 512 / move_count) as i32
     }
 
     // Returns true, if the history contains sufficient information about the given move, to indicate
@@ -104,22 +106,29 @@ impl HistoryHeuristics {
         let color_offset = if color == WHITE { 0 } else { 64 * 64 };
         let index = (color_offset + start + end * 64) as usize;
 
-        let move_count = self.played_move_history[index];
-        if move_count < self.played_move_thresholds[depth as usize] {
+        let move_count = unsafe { *self.played_move_history.get_unchecked(index) };
+        if move_count < unsafe { *PLAYED_MOVE_THRESHOLDS.get_unchecked(depth as usize) } {
             return false;
         }
 
-        (self.cut_off_history[index] * 512 / move_count) == 0
+        (unsafe { *self.cut_off_history.get_unchecked(index) } * 512 / move_count) == 0
     }
 }
 
-fn calc_move_thresholds() -> [u64; MAX_DEPTH] {
+const fn calc_move_thresholds() -> [u64; MAX_DEPTH] {
     let mut thresholds: [u64; MAX_DEPTH] = [0; MAX_DEPTH];
-    let mut threshold: f32 = 2.0;
+    let mut threshold: u64 = 20;
 
-    for depth in 0..MAX_DEPTH {
-        thresholds[depth] = threshold as u64;
-        threshold *= 1.6;
+    let mut depth = 0;
+    while depth < MAX_DEPTH {
+        thresholds[depth] = threshold / 10 as u64;
+
+        if threshold < u64::max_value() / 16 {
+            threshold *= 16;
+            threshold /= 10;
+        }
+
+        depth += 1;
     }
 
     thresholds

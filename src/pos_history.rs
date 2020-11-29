@@ -30,7 +30,7 @@ impl PositionHistory {
     }
 
     pub fn push(&mut self, hash: u64) {
-        self.positions[self.index] = hash;
+        unsafe { *self.positions.get_unchecked_mut(self.index) = hash };
         self.index += 1;
     }
 
@@ -43,9 +43,9 @@ impl PositionHistory {
             return false;
         }
 
-        let hash = self.positions[self.index - 1];
+        let hash = unsafe { *self.positions.get_unchecked(self.index - 1) };
         for i in 0..self.index - 1 {
-            if self.positions[i] == hash {
+            if unsafe { *self.positions.get_unchecked(i) } == hash {
                 return true;
             }
         }
