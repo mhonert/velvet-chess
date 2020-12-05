@@ -537,48 +537,22 @@ impl Search for Engine {
                 has_valid_moves = true;
                 gives_check = self.board.is_in_check(-player_color);
                 if removed_piece_id == EMPTY {
-                    let has_negative_history =
-                        self.hh
-                            .has_negative_history(player_color, depth, start, end);
+                    let has_negative_history = self.hh.has_negative_history(player_color, depth, start, end);
                     let own_moves_left = depth / 2;
                     if !gives_check
                         && allow_reductions
                         && evaluated_move_count > LMR_THRESHOLD
-                        && !self.board.is_pawn_move_close_to_promotion(
-                            previous_piece,
-                            end,
-                            own_moves_left,
-                            blockers,
-                            opp_pawns)
-                    {
+                        && !self.board.is_pawn_move_close_to_promotion(previous_piece, end, own_moves_left, blockers, opp_pawns) {
                         // Reduce search depth for late moves (i.e. after trying the most promising moves)
                         reductions = LMR_REDUCTIONS;
-                        if has_negative_history
-                            || self.board.see_score(
-                                -player_color,
-                                start,
-                                end,
-                                target_piece_id,
-                                EMPTY as u32,
-                            ) < 0
-                        {
+                        if has_negative_history || self.board.see_score(-player_color, start, end, target_piece_id, EMPTY as u32) < 0 {
                             // Reduce more, if move has negative history or SEE score
                             reductions += 1;
                         }
                     } else if !gives_check
                         && allow_futile_move_pruning
-                        && target_piece_id as i8 == previous_piece.abs()
-                    {
-                        if own_moves_left <= 1
-                            || (has_negative_history
-                                && self.board.see_score(
-                                    -player_color,
-                                    start,
-                                    end,
-                                    target_piece_id,
-                                    EMPTY as u32,
-                                ) < 0)
-                        {
+                        && target_piece_id as i8 == previous_piece.abs() {
+                        if own_moves_left <= 1 || (has_negative_history && self.board.see_score(-player_color, start, end, target_piece_id, EMPTY as u32) < 0) {
                             // Prune futile move
                             skip = true;
                             if prune_low_score > best_score {
@@ -588,27 +562,11 @@ impl Search for Engine {
                             // Reduce futile move
                             reductions = FUTILE_MOVE_REDUCTIONS;
                         }
-                    } else if has_negative_history
-                        || self.board.see_score(
-                            -player_color,
-                            start,
-                            end,
-                            target_piece_id,
-                            EMPTY as u32,
-                        ) < 0
-                    {
+                    } else if has_negative_history || self.board.see_score(-player_color, start, end, target_piece_id, EMPTY as u32) < 0 {
                         // Reduce search depth for moves with negative history or negative SEE score
                         reductions = LOSING_MOVE_REDUCTIONS;
                     }
-                } else if removed_piece_id <= previous_piece.abs()
-                    && self.board.see_score(
-                        -player_color,
-                        start,
-                        end,
-                        target_piece_id,
-                        removed_piece_id as u32,
-                    ) < 0
-                {
+                } else if removed_piece_id < target_piece_id as i && self.board.see_score(-player_color, start, end, target_piece_id, removed_piece_id as u32) < 0 {
                     // Reduce search depth for moves with negative SEE score
                     reductions = LOSING_MOVE_REDUCTIONS;
                 }
