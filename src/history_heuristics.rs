@@ -102,6 +102,7 @@ impl HistoryHeuristics {
 
     // Returns true, if the history contains sufficient information about the given move, to indicate
     // that it is very unlikely to cause a cut-off during search
+    #[inline]
     pub fn has_negative_history(&self, color: Color, depth: i32, start: i32, end: i32) -> bool {
         let color_offset = if color == WHITE { 0 } else { 64 * 64 };
         let index = (color_offset + start + end * 64) as usize;

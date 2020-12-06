@@ -614,6 +614,7 @@ impl Board {
         self.black_king as i32
     }
 
+    #[inline]
     pub fn is_in_check(&self, color: Color) -> bool {
         if color == WHITE {
             self.is_attacked(BLACK, self.white_king)
@@ -851,14 +852,8 @@ impl Board {
         }
     }
 
-    pub fn is_pawn_move_close_to_promotion(
-        &self,
-        piece: i8,
-        pos: i32,
-        moves_left: i32,
-        blockers: u64,
-        opp_pawns: u64
-    ) -> bool {
+    #[inline]
+    pub fn is_pawn_move_close_to_promotion(&self, piece: i8, pos: i32, moves_left: i32, blockers: u64, opp_pawns: u64) -> bool {
         if piece == P {
             let distance_to_promotion = pos / 8;
             return distance_to_promotion <= moves_left

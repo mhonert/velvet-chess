@@ -311,7 +311,7 @@ fn evaluate_move_score(
         }
     }
 
-    let original_piece_id = board.get_item(start).abs();
+    let original_piece_id = decode_piece_id(m);
     let captured_piece_id = captured_piece.abs();
 
     get_capture_order_score(original_piece_id as i32, captured_piece_id as i32)
