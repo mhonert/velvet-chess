@@ -573,7 +573,7 @@ impl Search for Engine {
                 self.board.undo_move(previous_piece, start, end, move_state);
             } else {
                 if removed_piece_id == EMPTY {
-                    self.hh.update_played_moves(player_color, start, end);
+                    self.hh.update_played_moves(depth, player_color, start, end);
                 }
 
                 evaluated_move_count += 1;
@@ -636,7 +636,7 @@ impl Search for Engine {
                         );
 
                         if removed_piece_id == EMPTY {
-                            self.hh.update(ply, player_color, start, end, best_move);
+                            self.hh.update(depth, ply, player_color, start, end, best_move);
                         }
 
                         return alpha;
