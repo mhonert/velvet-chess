@@ -16,7 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::bitboard::{black_left_pawn_attacks, black_right_pawn_attacks, white_left_pawn_attacks, white_right_pawn_attacks, DARK_COLORED_FIELD_PATTERN, LIGHT_COLORED_FIELD_PATTERN, get_knight_attacks, get_king_attacks, get_white_pawn_freepath, get_white_pawn_freesides, get_black_pawn_freepath, get_black_pawn_freesides, get_bishop_attacks, get_rook_attacks};
+use crate::bitboard::{black_left_pawn_attacks, black_right_pawn_attacks, white_left_pawn_attacks, white_right_pawn_attacks, DARK_COLORED_FIELD_PATTERN, LIGHT_COLORED_FIELD_PATTERN, get_knight_attacks, get_king_attacks, get_white_pawn_freepath, get_black_pawn_freepath, get_bishop_attacks, get_rook_attacks};
 use crate::boardpos::{BlackBoardPos, WhiteBoardPos};
 use crate::castling::Castling;
 use crate::colors::{Color, BLACK, WHITE};
@@ -853,18 +853,12 @@ impl Board {
     }
 
     #[inline]
-    pub fn is_pawn_move_close_to_promotion(&self, piece: i8, pos: i32, moves_left: i32, blockers: u64, opp_pawns: u64) -> bool {
+    pub fn is_pawn_move_close_to_promotion(&self, piece: i8, pos: i32, blockers: u64) -> bool {
         if piece == P {
-            // let distance_to_promotion = pos / 8;
-            // return distance_to_promotion <= moves_left
-                (get_white_pawn_freepath(pos as i32) & blockers) == 0
-                && (get_white_pawn_freesides(pos as i32) & opp_pawns) == 0;
+            return (get_white_pawn_freepath(pos as i32) & blockers) == 0;
 
         } else if piece == -P {
-            // let distance_to_promotion = 7 - pos / 8;
-            // return distance_to_promotion <= moves_left
-                (get_black_pawn_freepath(pos as i32) & blockers) == 0
-                && (get_black_pawn_freesides(pos as i32) & opp_pawns) == 0;
+            return (get_black_pawn_freepath(pos as i32) & blockers) == 0;
         }
 
         false

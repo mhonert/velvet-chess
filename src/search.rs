@@ -20,7 +20,7 @@ use crate::board::EN_PASSANT;
 use crate::colors::{Color, BLACK, WHITE};
 use crate::engine::Engine;
 use crate::move_gen::{decode_end_index, decode_piece_id, decode_start_index, Move, NO_MOVE};
-use crate::pieces::{EMPTY, P, K};
+use crate::pieces::{EMPTY, K};
 use crate::score_util::{
     decode_move, decode_score, encode_scored_move, ScoredMove, BLACK_MATE_SCORE, MAX_SCORE,
     MIN_SCORE, WHITE_MATE_SCORE,
@@ -496,8 +496,7 @@ impl Search for Engine {
             allow_futile_move_pruning = prune_low_score <= alpha;
         }
 
-        let blockers = self.board.get_all_piece_bitboard(-player_color) | self.board.get_bitboard(P * player_color);
-        let opp_pawns = self.board.get_bitboard(P * -player_color);
+        let opponent_pieces = self.board.get_all_piece_bitboard(-player_color);
 
         loop {
             scored_move = match moves.next_move(&self.hh, &mut self.board) {
@@ -541,7 +540,7 @@ impl Search for Engine {
                     if allow_reductions
                         && !gives_check
                         && evaluated_move_count > LMR_THRESHOLD
-                        && !self.board.is_pawn_move_close_to_promotion(previous_piece, end, own_moves_left, blockers, opp_pawns) {
+                        && !self.board.is_pawn_move_close_to_promotion(previous_piece, end, opponent_pieces) {
                         // Reduce search depth for late moves (i.e. after trying the most promising moves)
                         reductions = LMR_REDUCTIONS;
                         if self.hh.has_negative_history(player_color, depth, start, end) {
