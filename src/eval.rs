@@ -47,11 +47,19 @@ impl Eval for Board {
         // Add bonus for pawns which form a shield in front of the king
         let white_pawns = self.get_bitboard(P);
         let black_pawns = self.get_bitboard(-P);
-        let white_king_shield = (white_pawns & get_white_king_shield(self.white_king)).count_ones() as i32;
-        let black_king_shield = (black_pawns & get_black_king_shield(self.black_king)).count_ones() as i32;
 
-        score += white_king_shield * self.options.get_king_shield_bonus();
-        score -= black_king_shield * self.options.get_king_shield_bonus();
+        let white_queens = self.get_bitboard(Q);
+        let black_queens = self.get_bitboard(-Q);
+
+        if black_queens != 0 {
+            let white_king_shield = (white_pawns & get_white_king_shield(self.white_king)).count_ones() as i32;
+            score += white_king_shield * self.options.get_king_shield_bonus();
+        }
+
+        if white_queens != 0 {
+            let black_king_shield = (black_pawns & get_black_king_shield(self.black_king)).count_ones() as i32;
+            score -= black_king_shield * self.options.get_king_shield_bonus();
+        }
 
         // Castling
         if self.has_white_castled() {
@@ -256,7 +264,6 @@ impl Eval for Board {
 
         // Queens
         let mut white_queen_threats = 0;
-        let white_queens = self.get_bitboard(Q);
         for pos in BitBoard(white_queens) {
             let possible_moves = get_queen_attacks(occupied, pos as i32);
             white_attacks |= possible_moves;
@@ -276,7 +283,6 @@ impl Eval for Board {
         }
 
         let mut black_queen_threats = 0;
-        let black_queens = self.get_bitboard(-Q);
         for pos in BitBoard(black_queens) {
             let possible_moves = get_queen_attacks(occupied, pos as i32);
             black_attacks |= possible_moves;

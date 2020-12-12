@@ -20,7 +20,7 @@ use crate::board::EN_PASSANT;
 use crate::colors::{Color, BLACK, WHITE};
 use crate::engine::Engine;
 use crate::move_gen::{decode_end_index, decode_piece_id, decode_start_index, Move, NO_MOVE};
-use crate::pieces::{EMPTY, K};
+use crate::pieces::{EMPTY, K, R};
 use crate::score_util::{
     decode_move, decode_score, encode_scored_move, ScoredMove, BLACK_MATE_SCORE, MAX_SCORE,
     MIN_SCORE, WHITE_MATE_SCORE,
@@ -37,16 +37,7 @@ use crate::move_sort::{SortedMoves, SortedLegalMoves};
 pub trait Search {
     fn find_best_move(&mut self, min_depth: i32, is_strict_timelimit: bool) -> Move;
 
-    fn rec_find_best_move(
-        &mut self,
-        alpha: i32,
-        beta: i32,
-        player_color: Color,
-        depth: i32,
-        ply: i32,
-        null_move_performed: bool,
-        is_in_check: bool,
-    ) -> i32;
+    fn rec_find_best_move(&mut self, alpha: i32, beta: i32, player_color: Color, depth: i32, ply: i32, null_move_performed: bool, is_in_check: bool) -> i32;
 
     fn quiescence_search(&mut self, player_color: Color, alpha: i32, beta: i32, ply: i32) -> i32;
 
@@ -158,29 +149,13 @@ impl Search for Engine {
                 let gives_check = self.board.is_in_check(-player_color);
 
                 // Use principal variation search
-                let mut result = self.rec_find_best_move(
-                    a,
-                    -alpha,
-                    -player_color,
-                    depth - 1,
-                    1,
-                    false,
-                    gives_check,
-                );
+                let mut result = self.rec_find_best_move(a, -alpha, -player_color, depth - 1, 1, false, gives_check);
                 if result == CANCEL_SEARCH {
                     iteration_cancelled = true;
                 } else {
                     // Repeat search if it falls outside the window
                     if -result > alpha && -result < beta {
-                        result = self.rec_find_best_move(
-                            -beta,
-                            -alpha,
-                            -player_color,
-                            depth - 1,
-                            1,
-                            false,
-                            gives_check,
-                        );
+                        result = self.rec_find_best_move(-beta, -alpha, -player_color, depth - 1, 1, false, gives_check);
                         if result == CANCEL_SEARCH {
                             iteration_cancelled = true;
                         }
@@ -260,8 +235,7 @@ impl Search for Engine {
 
             if !iteration_cancelled {
                 if previous_best_move != NO_MOVE {
-                    score_fluctuations =
-                        score_fluctuations * 100 / self.board.options.get_timeext_score_fluctuation_reductions();
+                    score_fluctuations = score_fluctuations * 100 / self.board.options.get_timeext_score_fluctuation_reductions();
                     score_fluctuations += (best_score - previous_best_score).abs();
                     fluctuation_count += 1;
                 }
@@ -333,18 +307,9 @@ impl Search for Engine {
 
     // Recursively calls itself with alternating player colors to
     // find the best possible move in response to the current board position.
-    fn rec_find_best_move(
-        &mut self,
-        mut alpha: i32,
-        beta: i32,
-        player_color: Color,
-        mut depth: i32,
-        ply: i32,
-        null_move_performed: bool,
-        is_in_check: bool,
-    ) -> i32 {
+    fn rec_find_best_move(&mut self, mut alpha: i32, beta: i32, player_color: Color, mut depth: i32, ply: i32, null_move_performed: bool, is_in_check: bool) -> i32 {
         if self.node_count >= self.next_check_node_count {
-            self.next_check_node_count = self.node_count + 10000;
+            self.next_check_node_count = self.node_count + 20000;
             let current_time = Instant::now();
             let total_duration = current_time.duration_since(self.starttime);
 
@@ -377,14 +342,8 @@ impl Search for Engine {
 
         if is_in_check {
             // Extend search when in check
-            if depth < 0 {
-                depth = 1;
-            } else {
-                depth += 1;
-            }
-        } else if depth == 1
-            && (self.board.get_score() * player_color as i32) < alpha - self.board.options.get_razor_margin()
-        {
+            depth = max(1, depth + 1);
+        } else if depth == 1 && (self.board.get_score() * player_color as i32) < alpha - self.board.options.get_razor_margin() {
             // Directly jump to quiescence search, if current position score is below a certain threshold
             depth = 0;
         }
@@ -451,15 +410,7 @@ impl Search for Engine {
         if !is_pv && !null_move_performed && depth > 3 && !is_in_check {
             let r = if depth > 6 { 4 } else { 3 };
             self.board.perform_null_move();
-            let result = self.rec_find_best_move(
-                -beta,
-                -beta + 1,
-                -player_color,
-                depth - r - 1,
-                ply + 1,
-                true,
-                false,
-            );
+            let result = self.rec_find_best_move(-beta, -beta + 1, -player_color, depth - r - 1, ply + 1, true, false);
             self.board.undo_null_move();
             if result == CANCEL_SEARCH {
                 return CANCEL_SEARCH;
@@ -491,8 +442,7 @@ impl Search for Engine {
         let mut allow_futile_move_pruning = false;
         let mut prune_low_score = 0;
         if !is_pv && depth <= 4 {
-            prune_low_score =
-                self.board.get_score() * player_color as i32 + depth * self.board.options.get_futility_margin_multiplier();
+            prune_low_score = self.board.get_score() * player_color as i32 + depth * self.board.options.get_futility_margin_multiplier();
             allow_futile_move_pruning = prune_low_score <= alpha;
         }
 
@@ -582,15 +532,7 @@ impl Search for Engine {
                 } else {
                     -beta
                 };
-                let mut result = self.rec_find_best_move(
-                    a,
-                    -alpha,
-                    -player_color,
-                    depth - reductions - 1,
-                    ply + 1,
-                    false,
-                    gives_check,
-                );
+                let mut result = self.rec_find_best_move(a, -alpha, -player_color, depth - reductions - 1, ply + 1, false, gives_check);
                 if result == CANCEL_SEARCH {
                     self.board.undo_move(previous_piece, start, end, move_state);
                     return CANCEL_SEARCH;
@@ -598,15 +540,7 @@ impl Search for Engine {
 
                 if -result > alpha && (-result < beta || reductions > 0) {
                     // Repeat search without reduction and with full window
-                    result = self.rec_find_best_move(
-                        -beta,
-                        -alpha,
-                        -player_color,
-                        depth - 1,
-                        ply + 1,
-                        false,
-                        gives_check,
-                    );
+                    result = self.rec_find_best_move(-beta, -alpha, -player_color, depth - 1, ply + 1, false, gives_check);
                     if result == CANCEL_SEARCH {
                         self.board.undo_move(previous_piece, start, end, move_state);
                         return CANCEL_SEARCH;
@@ -627,12 +561,7 @@ impl Search for Engine {
                     }
 
                     if alpha >= beta {
-                        self.tt.write_entry(
-                            hash,
-                            depth,
-                            encode_scored_move(best_move, best_score),
-                            LOWER_BOUND,
-                        );
+                        self.tt.write_entry(hash, depth, encode_scored_move(best_move, best_score), LOWER_BOUND);
 
                         if removed_piece_id == EMPTY {
                             self.hh.update(depth, ply, player_color, start, end, best_move);
@@ -654,23 +583,12 @@ impl Search for Engine {
             return 0;
         }
 
-        self.tt.write_entry(
-            hash,
-            depth,
-            encode_scored_move(best_move, best_score),
-            score_type,
-        );
+        self.tt.write_entry(hash, depth, encode_scored_move(best_move, best_score), score_type);
 
         best_score
     }
 
-    fn quiescence_search(
-        &mut self,
-        active_player: Color,
-        mut alpha: i32,
-        beta: i32,
-        ply: i32,
-    ) -> i32 {
+    fn quiescence_search(&mut self, active_player: Color, mut alpha: i32, beta: i32, ply: i32) -> i32 {
         self.node_count += 1;
 
         if self.board.is_engine_draw() {
@@ -687,9 +605,7 @@ impl Search for Engine {
         }
 
         // Prune nodes where the position score is already so far below alpha that it is very unlikely to be raised by any available move
-        if position_score < alpha - self.board.options.get_qs_prune_margin() {
-            return alpha;
-        }
+        let prune_low_captures = position_score < alpha - self.board.options.get_qs_prune_margin();
 
         if alpha < position_score {
             alpha = position_score;
@@ -699,25 +615,23 @@ impl Search for Engine {
 
         let mut threshold = alpha - position_score - self.board.options.get_qs_see_threshold();
 
-        while let Some(scored_move) = moves.next_capture_move(&mut self.board)
-        {
+        while let Some(scored_move) = moves.next_capture_move(&mut self.board) {
             let m = decode_move(scored_move);
             let target_piece_id = decode_piece_id(m);
             let start = decode_start_index(m);
             let end = decode_end_index(m);
             let previous_piece = self.board.get_item(start);
             let previous_piece_id = previous_piece.abs();
+
             let captured_piece_id = self.board.get_item(end).abs();
 
+            if prune_low_captures && target_piece_id as i8 == previous_piece_id && captured_piece_id < R {
+                continue;
+            }
+
+
             // skip capture moves with a SEE score below the given threshold
-            if self.board.see_score(
-                -active_player,
-                start,
-                end,
-                previous_piece_id as u32,
-                captured_piece_id as u32,
-            ) <= threshold
-            {
+            if self.board.see_score(-active_player, start, end, previous_piece_id as u32, captured_piece_id as u32) <= threshold {
                 continue;
             }
 
@@ -834,7 +748,6 @@ impl Search for Engine {
 
         if next_move == NO_MOVE {
             self.board.undo_move(previous_piece, start, end, removed_piece_id);
-            // return depth <= 1;
             return false;
         }
 
@@ -851,12 +764,7 @@ impl Search for Engine {
         is_quiet
     }
 
-    fn static_quiescence_search(
-        &mut self,
-        mut alpha: i32,
-        beta: i32,
-        ply: i32,
-    ) -> i32 {
+    fn static_quiescence_search(&mut self, mut alpha: i32, beta: i32, ply: i32) -> i32 {
         let active_player = self.board.active_player();
 
         let position_score = self.board.get_static_score() as i32 * active_player as i32;
@@ -877,8 +785,7 @@ impl Search for Engine {
 
         let mut best_move = NO_MOVE;
 
-        while let Some(scored_move) = moves.next_capture_move(&mut self.board)
-        {
+        while let Some(scored_move) = moves.next_capture_move(&mut self.board) {
             let m = decode_move(scored_move);
             let target_piece_id = decode_piece_id(m);
             let start = decode_start_index(m);

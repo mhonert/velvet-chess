@@ -91,7 +91,7 @@ pub fn start_uci_loop(tx: &Sender<Message>) {
 // Sends a message to the engine
 fn send_message(tx: &Sender<Message>, msg: Message) {
     match tx.send(msg) {
-        Ok(_) => return,
+        Ok(_) => {},
         Err(err) => {
             eprintln!("could not send message to engine thread: {}", err);
         }

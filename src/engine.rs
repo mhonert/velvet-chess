@@ -171,19 +171,10 @@ impl Engine {
 
             Message::Perft(depth) => self.perft(depth),
 
-            Message::IsReady => {
-                self.is_ready();
-            },
+            Message::IsReady => self.is_ready(),
 
-            Message::Go {
-                depth,
-                wtime,
-                btime,
-                winc,
-                binc,
-                movetime,
-                movestogo,
-            } => self.go(depth, wtime, btime, winc, binc, movetime, movestogo),
+            Message::Go { depth, wtime, btime, winc, binc, movetime, movestogo} =>
+                self.go(depth, wtime, btime, winc, binc, movetime, movestogo),
 
             Message::PrepareEval(fens) => self.prepare_eval(fens),
 
@@ -219,16 +210,7 @@ impl Engine {
         true
     }
 
-    fn go(
-        &mut self,
-        depth: i32,
-        wtime: i32,
-        btime: i32,
-        winc: i32,
-        binc: i32,
-        movetime: i32,
-        movestogo: i32,
-    ) {
+    fn go(&mut self, depth: i32, wtime: i32, btime: i32, winc: i32, binc: i32, movetime: i32, movestogo: i32) {
         self.timelimit_ms = if self.board.active_player() == WHITE {
             calc_timelimit(movetime, wtime, winc, movestogo)
         } else {
