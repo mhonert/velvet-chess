@@ -1,10 +1,18 @@
 
-This is the initial release of the Velvet Chess Engine :sparkles: 
+This is the second release of the Velvet Chess Engine :sparkles: 
 > It is based upon my previous web-based engine Wasabi, which can be played [**here**](https://mhonert.github.io/chess).
 
 ## Changes
+- Simplified and improved passed pawn evaluation
+- Replaced null-move pruning with a null-move reduction approach
+- Increased (theoretical) maximum search depth
 - Replaced *classical* line attack generation with obstruction difference algorithm
-- Improved passed pawn evaluation
+- Improved and optimized tuning tool
+- Re-tuned all evaluation parameters with a set of 7 million test positions from self-play games
+- Bonus for rooks on (half) open files
+- Improved move sorting
+- Improved mobility evaluation
+- Improved king safety evaluation
 
 ## Installation
 - Download the suitable executable for your platform (Linux or Windows) and CPU generation
