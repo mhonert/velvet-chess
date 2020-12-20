@@ -12,6 +12,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v2
 
+      - name: Install linux-musl target
+        run: |
+          rustup target add x86_64-unknown-linux-musl
+
       - name: Build x86_64-modern
         env:
           RUSTFLAGS: "-Ctarget-feature=+bmi,+popcnt,+lzcnt -Cinline-threshold=750"
