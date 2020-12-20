@@ -21,8 +21,8 @@ jobs:
           RUSTFLAGS: "-Ctarget-feature=+bmi,+popcnt,+lzcnt -Cinline-threshold=750"
         run: |
           cargo build --release --target x86_64-unknown-linux-musl
-          strip target/release/velvet
-          mv target/release/velvet velvet-linux-x86_64-modern
+          strip target/x86_64-unknown-linux-musl/release/velvet
+          mv target/x86_64-unknown-linux-musl/release/velvet velvet-linux-x86_64-modern
 
       - name: Build x86_64-popcnt
         env:
@@ -30,8 +30,8 @@ jobs:
         run: |
           rm -rf target
           cargo build --release --target x86_64-unknown-linux-musl
-          strip target/release/velvet
-          mv target/release/velvet velvet-linux-x86_64-popcnt
+          strip target/x86_64-unknown-linux-musl/release/velvet
+          mv target/x86_64-unknown-linux-musl/release/velvet velvet-linux-x86_64-popcnt
 
       - name: Build x86_64-vintage
         env:
@@ -39,8 +39,8 @@ jobs:
         run: |
           rm -rf target
           cargo build --release --target x86_64-unknown-linux-musl
-          strip target/release/velvet
-          mv target/release/velvet velvet-linux-x86_64-vintage
+          strip target/x86_64-unknown-linux-musl/release/velvet
+          mv target/x86_64-unknown-linux-musl/release/velvet velvet-linux-x86_64-vintage
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v2
