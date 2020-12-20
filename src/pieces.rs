@@ -45,3 +45,4 @@ const PIECE_VALUES: [i16; 7] = [
 pub const fn get_piece_value(piece_id: usize) -> i16 {
     PIECE_VALUES[piece_id]
 }
+

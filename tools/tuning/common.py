@@ -30,6 +30,7 @@ class TuningOption:
     orig_name: str = ""
     minimum: Optional[int] = None
     maximum: Optional[int] = None
+    skip_early: int = 64
     steps: int = 1
     direction: int = 1
     improvement: float = .0
@@ -39,8 +40,12 @@ class TuningOption:
     prev_value: int = 0
     rel_improvement: float = .0
     improvements: int = 0
+    skip: bool = False
+    ever_improved: bool = False
+    is_tuning = False
 
     def improved(self, diff):
+        self.ever_improved = True
         self.fails = 0
         self.improvement = diff
 
@@ -54,6 +59,9 @@ class TuningOption:
 
     def not_improved(self, reset):
         self.fails += 1
+        if not self.ever_improved and self.fails >= self.skip_early:
+            self.skip = True
+
         self.value = self.prev_value  # Restore previous value
         self.has_improved = False
         if not reset:
@@ -136,11 +144,11 @@ class Config:
                     value = t["value"]
                     if type(value) is list:
                         for index, v in enumerate(value):
-                            option = TuningOption(t["name"] + str(index), int(v), [], True, t["name"], t.get("min", None))
+                            option = TuningOption(t["name"] + str(index), int(v), [], True, t["name"], t.get("min", None), t.get("max", None), t.get("skip_early", 64))
                             self.tuning_options.append(option)
 
                     else:
-                        option = TuningOption(t["name"], int(value), [], False, None, t.get("min", None), t.get("max", None))
+                        option = TuningOption(t["name"], int(value), [], False, t["name"], t.get("min", None), t.get("max", None), t.get("skip_early", 64))
                         self.tuning_options.append(option)
 
             if skip_excluded_options and len(included_options) > 0:

@@ -85,9 +85,6 @@ def run_engine(k: float, engine: Engine, tuning_options: List[TuningOption]) -> 
     try:
 
         if not engine.is_prepared:
-            engine.send_command("uci")
-            engine.wait_for_command("uciok")
-
             engine.is_prepared = True
             is_first = True
             for chunk in make_chunks(engine.test_positions, 512):
@@ -103,7 +100,8 @@ def run_engine(k: float, engine: Engine, tuning_options: List[TuningOption]) -> 
                 engine.wait_for_command("prepared")
 
         for option in tuning_options:
-            engine.send_command("setoption name {} value {}".format(option.name, option.value))
+            if option.is_tuning:
+                engine.send_command("setoption name {} value {}".format(option.name, option.value))
 
         engine.send_command("isready")
         engine.wait_for_command("readyok")
@@ -113,11 +111,28 @@ def run_engine(k: float, engine: Engine, tuning_options: List[TuningOption]) -> 
 
         [pos_str, error_str] = result[len("result "):].split(":")
 
+        for option in tuning_options:
+            if option.is_tuning:
+                engine.send_command("setoption name {} value {}".format(option.name, option.prev_value))
+
         return int(pos_str), float(error_str)
 
     except Exception as error:
         engine.stop()
         log.error("Error occured during eval calculation", error)
+        raise error
+
+
+def apply_options(engine: Engine, tuning_options: List[TuningOption]) -> (int, float):
+    try:
+
+        for option in tuning_options:
+            if option.is_tuning:
+                engine.send_command("setoption name {} value {}".format(option.name, option.value))
+
+    except Exception as error:
+        engine.stop()
+        log.error("Error occured during apply_options", error)
         raise error
 
 
@@ -164,6 +179,24 @@ def run_pass(config: Config, tuning_options: List[TuningOption], engines: List[E
     return errors / float(positions)
 
 
+def run_apply_options(config: Config, tuning_options: List[TuningOption], engines: List[Engine]):
+    futures = []
+
+    with ThreadPoolExecutor(max_workers=config.concurrent_workers) as executor:
+        for engine in engines:
+            futures.append(executor.submit(apply_options, engine, tuning_options))
+
+        for future in as_completed(futures):
+            if future.exception():
+                log.exception("Worker was cancelled", future.exception())
+                sys.exit("Worker was cancelled")
+
+            if future.cancelled():
+                sys.exit("Worker was cancelled - possible engine bug? try enabling the debug_log output and re-run the tuner")
+
+            future.result()
+
+
 def write_options(options: List[TuningOption]):
     results = []
     result_by_name = {}
@@ -177,6 +210,9 @@ def write_options(options: List[TuningOption]):
                 if option.minimum is not None:
                     result["min"] = option.minimum
 
+                if option.maximum is not None:
+                    result["max"] = option.maximum
+
                 result["value"] = [option.value]
                 results.append(result)
                 result_by_name[option.orig_name] = result
@@ -189,10 +225,12 @@ def write_options(options: List[TuningOption]):
 
 
 def tune_option(config: Config, tuning_options: List[TuningOption], engines: List[Engine], best_err: float, resolution: int, option: TuningOption):
+    option.is_tuning = True
     option.prev_value = option.value
 
     for _ in range(2):
         option.value = (option.prev_value // resolution + option.steps * option.direction) * resolution
+
         if option.minimum is not None:
             if option.value < option.minimum:
                 option.value = option.minimum
@@ -204,7 +242,9 @@ def tune_option(config: Config, tuning_options: List[TuningOption], engines: Lis
         diff = best_err - err
 
         if diff > .0:
-        # if diff > .0000000001:
+            run_apply_options(config, tuning_options, engines)
+            option.is_tuning = False
+
             option.improved(diff)
             return err
         elif diff < .0:
@@ -215,6 +255,7 @@ def tune_option(config: Config, tuning_options: List[TuningOption], engines: Lis
 
         option.direction *= -1
 
+    option.is_tuning = False
     return best_err
 
 
@@ -222,23 +263,34 @@ def tune_options(config: Config, tuning_options: List[TuningOption], engines: Li
                  resolution: int, summed_improvements: float, options: List[TuningOption]):
 
     for option in options:
+        option.is_tuning = True
         option.prev_value = option.value
         option.value = (option.prev_value // resolution + option.steps * option.direction) * resolution
+
+        if option.minimum is not None:
+            if option.value < option.minimum:
+                option.value = option.minimum
+        if option.maximum is not None:
+            if option.value > option.maximum:
+                option.value = option.maximum
 
     err = run_pass(config, tuning_options, engines)
     diff = best_err - err
 
     if diff > .0:
-    # if diff > .0000000001:
+        run_apply_options(config, tuning_options, engines)
         for option in options:
+            option.is_tuning = False
             option.improved(diff * option.improvement / summed_improvements)
             option.steps = 1
         return err
     elif diff < .0:
         for option in options:
+            option.is_tuning = False
             option.not_improved(False)
     else:
         for option in options:
+            option.is_tuning = False
             option.not_improved(False)
             option.improvement = .0
 
@@ -279,6 +331,16 @@ def main():
 
     for batch in make_batches(all_test_positions, config.concurrent_workers):
         engine = Engine(config.engine_cmd)
+
+        engine.send_command("uci")
+        engine.wait_for_command("uciok")
+
+        for option in config.tuning_options:
+            engine.send_command("setoption name {} value {}".format(option.name, option.value))
+
+        engine.send_command("isready")
+        engine.wait_for_command("readyok")
+
         engines.append(engine)
         engine.test_positions = batch
 
@@ -359,6 +421,8 @@ def main():
                 improvement_count = 0
                 log.info("Re-init phase %d", low_improvements)
                 for i, option in enumerate(best_options):
+                    if option.skip:
+                        continue
                     log.info("Option %s, %f, %d", option.name, option.improvement, option.improvements)
                     option.iteration = iterations
                     option.has_improved = False
@@ -388,7 +452,7 @@ def main():
 
                 for i, option in enumerate(best_options):
                     # log.info("%s: %f", option.name, option.rel_improvement)
-                    if not option.has_improved or option.improvement <= .0:
+                    if not option.has_improved or option.improvement <= .0 or option.skip:
                         continue
                     if count == 0:
                         option.iteration = iterations

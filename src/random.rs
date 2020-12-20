@@ -36,7 +36,7 @@ impl Random {
         }
     }
 
-    fn rand32(&mut self) -> u32 {
+    pub fn rand32(&mut self) -> u32 {
         let mut x = self.state;
         let count = (x >> 59) as u32;
         self.state = x.wrapping_mul(MULTIPLIER).wrapping_add(INCREMENT);
@@ -45,8 +45,14 @@ impl Random {
         ((x >> 27) as u32).rotate_right(count)
     }
 
+    #[inline]
     pub fn rand64(&mut self) -> u64 {
         ((self.rand32() as u64) << 32) | (self.rand32() as u64)
+    }
+
+    #[inline]
+    pub fn rand128(&mut self) -> u128 {
+        ((self.rand64() as u128) << 64) | (self.rand64() as u128)
     }
 }
 

@@ -30,6 +30,52 @@ pub trait Eval {
 
 const PASSED_PAWN_THRESHOLD: u32 = 4;
 
+#[inline]
+fn calc_hash(pattern: u64) -> u64 {
+    let mut hash = (pattern.wrapping_mul(54043197675929600) >> 12) ^ (pattern << 15) ^ (pattern << 20);
+    hash ^= hash.wrapping_mul(54043197675929600);
+
+    hash >> (64 - 13)
+}
+
+#[inline]
+pub fn calc_white_pawn_hash(pawns: u64, king_pos: i32) -> u64 {
+    let king_half = (king_pos & 7) / 4;
+    let pattern = if king_half == 0 {
+        ((pawns & 0xF000000000000000) >> 60) |
+            ((pawns & 0x00F0000000000000) >> 48) |
+            ((pawns & 0x0000F00000000000) >> 36) |
+            ((pawns & 0x000000F000000000) >> 24)
+
+    } else {
+        ((pawns & 0x0F00000000000000) >> 56) |
+            ((pawns & 0x000F000000000000) >> 44) |
+            ((pawns & 0x00000F0000000000) >> 32) |
+            ((pawns & 0x0000000F00000000) >> 20)
+    };
+
+    calc_hash(pattern) * (2 - king_half as u64)
+}
+
+#[inline]
+pub fn calc_black_pawn_hash(pawns: u64, king_pos: i32) -> u64 {
+    let king_half = (king_pos & 7) / 4;
+    let pattern = if king_half == 0 {
+        (pawns & 0x000000000000000F) |
+            ((pawns & 0x0000000000000F00) >> 4) |
+            ((pawns & 0x00000000000F0000) >> 8) |
+            ((pawns & 0x000000000F000000) >> 12)
+
+    } else {
+        ((pawns & 0x00000000000000F0) >> 4) |
+            ((pawns & 0x000000000000F000) >> 8) |
+            ((pawns & 0x0000000000F00000) >> 12) |
+            ((pawns & 0x00000000F0000000) >> 16)
+    };
+
+    calc_hash(pattern) * (king_half as u64 + 1)
+}
+
 
 impl Eval for Board {
     fn get_score(&self) -> i32 {
@@ -51,14 +97,36 @@ impl Eval for Board {
         let white_queens = self.get_bitboard(Q);
         let black_queens = self.get_bitboard(-Q);
 
+        // White king shield pawn structure
         if black_queens != 0 {
             let white_king_shield = (white_pawns & get_white_king_shield(self.white_king)).count_ones() as i32;
             score += white_king_shield * self.options.get_king_shield_bonus();
+            eg_score += white_king_shield * self.options.get_eg_king_shield_bonus();
+
+            if phase >= self.options.get_king_pawn_phase_threshold() {
+                let king_row = self.white_king / 8;
+                if king_row >= 5 {
+                    let hash = calc_white_pawn_hash(white_pawns, self.white_king);
+                    let pattern_bonus = self.options.get_king_pawn_pattern_bonus(hash as usize);
+                    score += pattern_bonus;
+                }
+            }
         }
 
+        // Black king shield pawn structure
         if white_queens != 0 {
             let black_king_shield = (black_pawns & get_black_king_shield(self.black_king)).count_ones() as i32;
             score -= black_king_shield * self.options.get_king_shield_bonus();
+            eg_score -= black_king_shield * self.options.get_eg_king_shield_bonus();
+
+            if phase >= self.options.get_king_pawn_phase_threshold() {
+                let king_row = self.black_king / 8;
+                if king_row <= 2 {
+                    let hash = calc_black_pawn_hash(black_pawns, self.black_king);
+                    let pattern_bonus = self.options.get_king_pawn_pattern_bonus(hash as usize);
+                    score -= pattern_bonus
+                }
+            }
         }
 
         // Castling
@@ -444,13 +512,22 @@ mod tests {
 
     #[test]
     fn check_correct_eval_score_for_mirrored_pos() {
-        assert_eq!(create_from_fen("1b1r2k1/r4pp1/2p2n1p/1pPp3P/1P1PpPqQ/4P1P1/1B1N4/1K2R2R w - - 0 38").get_score(),
-                   -create_from_fen("1k2r2r/1b1n4/4p1p1/1p1pPpQq/1PpP3p/2P2N1P/R4PP1/1B1R2K1 b - - 0 38").get_score());
-
         assert_eq!(create_from_fen("8/8/8/5k2/4r1p1/6P1/3K1P2/8 b - - 0 80").get_score(),
                    -create_from_fen("8/3k1p2/6p1/4R1P1/5K2/8/8/8 w - - 0 80").get_score());
+    }
 
-        assert_eq!(create_from_fen("2kr1b1r/pp1nnp1b/4p2p/2qpP1p1/3N1B1N/8/PPP1BPPP/2RQ1RK1 w - - 0 14").get_score(),
-                   -create_from_fen("2rq1rk1/ppp1bppp/8/3n1b1n/2QPp1P1/4P2P/PP1NNP1B/2KR1B1R b - - 0 14").get_score());
+    #[test]
+    fn check_white_pawn_patterns() {
+        assert_eq!(calc_white_pawn_hash(0b00001111_00001111_00001111_00001111_00000000_00000000_00000000_00000000, 63),
+                   calc_black_pawn_hash(0b00000000_00000000_00000000_00000000_00001111_00001111_00001111_00001111, 0));
+
+        assert_eq!(calc_white_pawn_hash(0b00001110_00001101_00001011_00000111_00000000_00000000_00000000_00000000, 63),
+                   calc_black_pawn_hash(0b00000000_00000000_00000000_00000000_00000111_00001011_00001101_00001110, 0));
+
+        assert_eq!(calc_white_pawn_hash(0b11110000_11110000_11110000_11110000_00000000_00000000_00000000_00000000, 56),
+                   calc_black_pawn_hash(0b00000000_00000000_00000000_00000000_11110000_11110000_11110000_11110000, 7));
+
+        assert_eq!(calc_white_pawn_hash(0b11100000_11010000_10110000_01110000_00000000_00000000_00000000_00000000, 56),
+                   calc_black_pawn_hash(0b00000000_00000000_00000000_00000000_01110000_10110000_11010000_11100000, 7));
     }
 }

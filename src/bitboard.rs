@@ -357,7 +357,6 @@ const fn create_king_shield_patterns(direction: i32) -> [u64; 64] {
             if col > 0 {
                 let front_west_pawn_pos = shield_row * 8 + col - 1;
                 pattern |= 1 << front_west_pawn_pos as u64;
-
             }
 
             if col < 7 {
