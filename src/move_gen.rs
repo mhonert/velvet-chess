@@ -199,7 +199,7 @@ fn any_moves_allow_check_evasion(
     moves: &mut Vec<Move>,
     active_player: Color,
 ) -> bool {
-    for m in moves.iter() {
+    for &m in moves.iter() {
         if !move_results_in_check(board, m, active_player) {
             return true;
         }
@@ -208,11 +208,8 @@ fn any_moves_allow_check_evasion(
     false
 }
 
-fn move_results_in_check(board: &mut Board, m: &Move, active_player: Color) -> bool {
-    let start = m.start();
-    let end = m.end();
-
-    let m = Move::new(m.piece_id() as i8, start, end);
+#[inline]
+fn move_results_in_check(board: &mut Board, m: Move, active_player: Color) -> bool {
     let (previous_piece, move_state) = board.perform_move(m);
     let check = board.is_in_check(active_player);
     board.undo_move(m, previous_piece, move_state);

@@ -97,16 +97,19 @@ impl Eval for Board {
         let white_queens = self.get_bitboard(Q);
         let black_queens = self.get_bitboard(-Q);
 
+        let white_king = self.king_pos(WHITE);
+        let black_king = self.king_pos(BLACK);
+
         // White king shield pawn structure
         if black_queens != 0 {
-            let white_king_shield = (white_pawns & get_white_king_shield(self.white_king)).count_ones() as i32;
+            let white_king_shield = (white_pawns & get_white_king_shield(white_king)).count_ones() as i32;
             score += white_king_shield * self.options.get_king_shield_bonus();
             eg_score += white_king_shield * self.options.get_eg_king_shield_bonus();
 
             if phase >= self.options.get_king_pawn_phase_threshold() {
-                let king_row = self.white_king / 8;
+                let king_row = white_king / 8;
                 if king_row >= 5 {
-                    let hash = calc_white_pawn_hash(white_pawns, self.white_king);
+                    let hash = calc_white_pawn_hash(white_pawns, white_king);
                     let pattern_bonus = self.options.get_king_pawn_pattern_bonus(hash as usize);
                     score += pattern_bonus;
                 }
@@ -115,14 +118,14 @@ impl Eval for Board {
 
         // Black king shield pawn structure
         if white_queens != 0 {
-            let black_king_shield = (black_pawns & get_black_king_shield(self.black_king)).count_ones() as i32;
+            let black_king_shield = (black_pawns & get_black_king_shield(black_king)).count_ones() as i32;
             score -= black_king_shield * self.options.get_king_shield_bonus();
             eg_score -= black_king_shield * self.options.get_eg_king_shield_bonus();
 
             if phase >= self.options.get_king_pawn_phase_threshold() {
-                let king_row = self.black_king / 8;
+                let king_row = black_king / 8;
                 if king_row <= 2 {
-                    let hash = calc_black_pawn_hash(black_pawns, self.black_king);
+                    let hash = calc_black_pawn_hash(black_pawns, black_king);
                     let pattern_bonus = self.options.get_king_pawn_pattern_bonus(hash as usize);
                     score -= pattern_bonus
                 }
@@ -173,8 +176,8 @@ impl Eval for Board {
         let mut threat_to_white_king = 0;
         let mut threat_to_black_king = 0;
 
-        let black_king_danger_zone = get_king_danger_zone(self.black_king);
-        let white_king_danger_zone = get_king_danger_zone(self.white_king);
+        let black_king_danger_zone = get_king_danger_zone(black_king);
+        let white_king_danger_zone = get_king_danger_zone(white_king);
 
         let white_safe_targets = empty_or_black & !black_pawn_attacks;
 
@@ -443,6 +446,10 @@ impl Eval for Board {
         let mut score: i32 = 0;
         let mut eg_score: i32 = 0;
 
+        let white_king = self.king_pos(WHITE);
+        let black_king = self.king_pos(BLACK);
+
+
         // Passed white pawn bonus
         let pawn_blockers = black_pieces | white_pawns;
         for pos in BitBoard(white_pawns) {
@@ -456,13 +463,13 @@ impl Eval for Board {
                 eg_score += self.options.get_eg_passed_pawn_bonus((distance_to_promotion - 1) as usize);
 
                 // Passed pawn - king distance
-                let own_king_distance = max((self.white_king / 8 - pos as i32 / 8).abs(),
-                                            (self.white_king % 8 - pos as i32 % 8).abs());
+                let own_king_distance = max((white_king / 8 - pos as i32 / 8).abs(),
+                                            (white_king % 8 - pos as i32 % 8).abs());
 
                 eg_score += self.options.get_passed_pawn_king_defense_bonus(own_king_distance as usize);
 
-                let opponent_king_distance = max((self.black_king / 8 - pos as i32 / 8).abs(),
-                                                 (self.black_king % 8 - pos as i32 % 8).abs());
+                let opponent_king_distance = max((black_king / 8 - pos as i32 / 8).abs(),
+                                                 (black_king % 8 - pos as i32 % 8).abs());
                 eg_score -= self.options.get_passed_pawn_king_attacked_penalty(opponent_king_distance as usize);
             }
         }
@@ -480,13 +487,13 @@ impl Eval for Board {
                 eg_score -= self.options.get_eg_passed_pawn_bonus((distance_to_promotion - 1) as usize);
 
                 // Passed pawn - king distance
-                let own_king_distance = max((self.black_king / 8 - pos as i32 / 8).abs(),
-                                            (self.black_king % 8 - pos as i32 % 8).abs());
+                let own_king_distance = max((black_king / 8 - pos as i32 / 8).abs(),
+                                            (black_king % 8 - pos as i32 % 8).abs());
 
                 eg_score -= self.options.get_passed_pawn_king_defense_bonus(own_king_distance as usize);
 
-                let opponent_king_distance = max((self.white_king / 8 - pos as i32 / 8).abs(),
-                                                 (self.white_king % 8 - pos as i32 % 8).abs());
+                let opponent_king_distance = max((white_king / 8 - pos as i32 / 8).abs(),
+                                                 (white_king % 8 - pos as i32 % 8).abs());
                 eg_score += self.options.get_passed_pawn_king_attacked_penalty(opponent_king_distance as usize);
             }
         }

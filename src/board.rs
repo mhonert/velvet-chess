@@ -18,7 +18,7 @@
 
 use crate::bitboard::{black_left_pawn_attacks, black_right_pawn_attacks, white_left_pawn_attacks, white_right_pawn_attacks, DARK_COLORED_FIELD_PATTERN, LIGHT_COLORED_FIELD_PATTERN, get_knight_attacks, get_king_attacks, get_white_pawn_freepath, get_black_pawn_freepath, get_bishop_attacks, get_rook_attacks};
 use crate::boardpos::{BlackBoardPos, WhiteBoardPos};
-use crate::castling::Castling;
+use crate::castling::{Castling, clear_castling_bits};
 use crate::colors::{Color, BLACK, WHITE};
 use crate::pieces::{B, EMPTY, K, N, P, Q, R, get_piece_value};
 use crate::pos_history::PositionHistory;
@@ -43,8 +43,7 @@ pub struct Board {
     bitboards: [u64; 13],
     bitboards_all_pieces: [u64; 3],
     pub state: StateEntry,
-    pub white_king: i32,
-    pub black_king: i32,
+    pub king_pos: [i32; 3],
     pub halfmove_count: u16,
 
     history_counter: usize,
@@ -88,8 +87,7 @@ impl Board {
             bitboards: [0; 13],
             bitboards_all_pieces: [0; 3],
             state: StateEntry{en_passant: 0, castling: 0, halfmove_clock: 0, hash: 0, score: 0, eg_score: 0},
-            white_king: 0,
-            black_king: 0,
+            king_pos: [0; 3],
             halfmove_count: 0,
             history_counter: 0,
             history: [StateEntry{en_passant: 0, castling: 0, halfmove_clock: 0, hash: 0, score: 0, eg_score: 0}; MAX_GAME_HALFMOVES],
@@ -150,9 +148,9 @@ impl Board {
             }
 
             if item == K {
-                self.white_king = i as i32;
+                self.set_king_pos(WHITE, i as i32);
             } else if item == -K {
-                self.black_king = i as i32;
+                self.set_king_pos(BLACK, i as i32);
             }
         }
 
@@ -197,9 +195,9 @@ impl Board {
                 self.add_piece_score(piece, pos);
 
                 if piece == K {
-                    self.white_king = pos as i32;
+                    self.set_king_pos(WHITE, pos as i32);
                 } else if piece == -K {
-                    self.black_king = pos as i32;
+                    self.set_king_pos(BLACK, pos as i32);
                 }
             }
         }
@@ -327,13 +325,8 @@ impl Board {
             self.reset_half_move_clock();
 
             if target_piece_id == K {
-                if color == WHITE {
-                    self.white_king = move_end;
-                    self.set_white_king_moved();
-                } else {
-                    self.black_king = move_end;
-                    self.set_black_king_moved();
-                }
+                self.set_king_pos(color, move_end);
+                self.set_king_moved(color);
             }
 
             self.pos_history.push(self.state.hash);
@@ -372,7 +365,7 @@ impl Board {
                 return (own_piece, EN_PASSANT);
             }
         } else if own_piece == K {
-            self.white_king = move_end;
+            self.set_king_pos(WHITE, move_end);
 
             // Special castling handling
             if move_start - move_end == -2 {
@@ -384,10 +377,10 @@ impl Board {
                 self.add_piece(WHITE, R, WhiteBoardPos::KingStart as usize - 1);
                 self.set_white_has_castled();
             } else {
-                self.set_white_king_moved();
+                self.set_king_moved(WHITE);
             }
         } else if own_piece == -K {
-            self.black_king = move_end;
+            self.set_king_pos(BLACK, move_end);
 
             // Special castling handling
             if move_start - move_end == -2 {
@@ -399,7 +392,7 @@ impl Board {
                 self.add_piece(BLACK, R, BlackBoardPos::KingStart as usize - 1);
                 self.set_black_has_castled();
             } else {
-                self.set_black_king_moved();
+                self.set_king_moved(BLACK);
             }
         }
 
@@ -422,35 +415,21 @@ impl Board {
     pub fn set_white_has_castled(&mut self) {
         let previous_state = self.state.castling;
         self.state.castling |= Castling::WhiteHasCastled as u8;
-        self.state.castling &= !(Castling::WhiteKingSide as u8);
-        self.state.castling &= !(Castling::WhiteQueenSide as u8);
+        self.state.castling = clear_castling_bits(WHITE, self.state.castling);
         self.update_hash_for_castling(previous_state);
     }
 
     pub fn set_black_has_castled(&mut self) {
         let previous_state = self.state.castling;
         self.state.castling |= Castling::BlackHasCastled as u8;
-        self.state.castling &= !(Castling::BlackKingSide as u8);
-        self.state.castling &= !(Castling::BlackQueenSide as u8);
+        self.state.castling = clear_castling_bits(BLACK, self.state.castling);
         self.update_hash_for_castling(previous_state);
     }
 
-    pub fn set_white_king_moved(&mut self) {
-        if self.can_castle(Castling::WhiteKingSide) || self.can_castle(Castling::WhiteQueenSide) {
-            let previous_state = self.state.castling;
-            self.state.castling &= !(Castling::WhiteKingSide as u8);
-            self.state.castling &= !(Castling::WhiteQueenSide as u8);
-            self.update_hash_for_castling(previous_state);
-        }
-    }
-
-    pub fn set_black_king_moved(&mut self) {
-        if self.can_castle(Castling::BlackKingSide) || self.can_castle(Castling::BlackQueenSide) {
-            let previous_state = self.state.castling;
-            self.state.castling &= !(Castling::BlackKingSide as u8);
-            self.state.castling &= !(Castling::BlackQueenSide as u8);
-            self.update_hash_for_castling(previous_state);
-        }
+    pub fn set_king_moved(&mut self, color: Color) {
+        let previous_state = self.state.castling;
+        self.state.castling = clear_castling_bits(color, self.state.castling);
+        self.update_hash_for_castling(previous_state);
     }
 
     pub fn undo_move(&mut self, m: Move, piece: i8, removed_piece_id: i8) {
@@ -475,7 +454,7 @@ impl Board {
 
         if piece == K {
             // White King
-            self.white_king = move_start;
+            self.set_king_pos(WHITE, move_start);
 
             // Undo Castle?
             if move_start - move_end == -2 {
@@ -487,7 +466,7 @@ impl Board {
             }
         } else if piece == -K {
             // Black King
-            self.black_king = move_start;
+            self.set_king_pos(BLACK, move_start);
 
             // Undo Castle?
             if move_start - move_end == -2 {
@@ -614,20 +593,12 @@ impl Board {
         }
     }
 
-    pub fn king_pos(&self, color: Color) -> i32 {
-        if color == WHITE {
-            return self.white_king as i32;
-        }
-
-        self.black_king as i32
-    }
-
     #[inline]
     pub fn is_in_check(&self, color: Color) -> bool {
         if color == WHITE {
-            self.is_attacked(BLACK, self.white_king)
+            self.is_attacked(BLACK, self.king_pos(WHITE))
         } else {
-            self.is_attacked(WHITE, self.black_king)
+            self.is_attacked(WHITE, self.king_pos(BLACK))
         }
     }
 
@@ -940,6 +911,16 @@ impl Board {
         calc_phase_value(self.get_all_piece_bitboard(WHITE) | self.get_all_piece_bitboard(BLACK),
                          self.get_bitboard(-P) | self.get_bitboard(P),
                          self.get_bitboard(Q), self.get_bitboard(Q))
+    }
+
+    #[inline]
+    fn set_king_pos(&mut self, color: Color, pos: i32) {
+        unsafe { *self.king_pos.get_unchecked_mut((color + 1) as usize) = pos };
+    }
+
+    #[inline]
+    pub fn king_pos(&self, color: Color) -> i32 {
+        unsafe { *self.king_pos.get_unchecked((color + 1) as usize) }
     }
 }
 

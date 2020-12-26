@@ -16,6 +16,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+use crate::castling::Castling::{BlackQueenSide, BlackKingSide, WhiteQueenSide, WhiteKingSide};
+use crate::colors::Color;
+
 #[repr(u8)]
 #[derive(Clone, Copy)]
 pub enum Castling {
@@ -26,4 +29,11 @@ pub enum Castling {
 
     WhiteHasCastled = 1 << 4,
     BlackHasCastled = 1 << 5,
+}
+
+const UNSET_CASTLING_BY_COLOR: [u8; 3] = [!(BlackQueenSide as u8 | BlackKingSide as u8), 0, !(WhiteQueenSide as u8 | WhiteKingSide as u8)];
+
+#[inline]
+pub fn clear_castling_bits(color: Color, castling_state: u8) -> u8 {
+    castling_state & unsafe { *UNSET_CASTLING_BY_COLOR.get_unchecked((color + 1) as usize) }
 }
