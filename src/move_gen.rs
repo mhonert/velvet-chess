@@ -22,7 +22,7 @@ use crate::boardpos::{BlackBoardPos, WhiteBoardPos};
 use crate::castling::Castling;
 use crate::colors::{Color, BLACK, WHITE};
 use crate::pieces::{B, K, N, P, Q, R};
-use crate::moves::Move;
+use crate::moves::{Move, MoveType};
 
 pub fn generate_moves(board: &Board, active_player: Color) -> Vec<Move> {
     let mut moves: Vec<Move> = Vec::with_capacity(64);
@@ -85,13 +85,13 @@ pub fn generate_capture_moves(board: &Board, active_player: Color) -> Vec<Move> 
 
         let king_pos = board.king_pos(WHITE);
         let king_targets = get_king_attacks(king_pos);
-        add_moves(&mut moves, K, king_pos, king_targets & opponent_bb);
+        add_moves(&mut moves, MoveType::KingCapture, K, king_pos, king_targets & opponent_bb);
     } else {
         gen_black_attack_pawn_moves(&mut moves, board.get_bitboard(-P), opponent_bb);
 
         let king_pos = board.king_pos(BLACK);
         let king_targets = get_king_attacks(king_pos);
-        add_moves(&mut moves, K, king_pos, king_targets & opponent_bb);
+        add_moves(&mut moves, MoveType::KingCapture, K, king_pos, king_targets & opponent_bb);
     }
 
     for pos in BitBoard(board.get_bitboard(N * active_player)) {
@@ -217,30 +217,15 @@ fn move_results_in_check(board: &mut Board, m: Move, active_player: Color) -> bo
     check
 }
 
-fn gen_piece_moves(
-    moves: &mut Vec<Move>,
-    piece: i8,
-    pos: i32,
-    targets: u64,
-    opponent_bb: u64,
-    empty_bb: u64,
-) {
-    // Captures
-    add_moves(moves, piece, pos, targets & opponent_bb);
-
-    // Normal moves
-    add_moves(moves, piece, pos, targets & empty_bb);
+#[inline]
+fn gen_piece_moves(moves: &mut Vec<Move>, piece: i8, pos: i32, targets: u64, opponent_bb: u64, empty_bb: u64) {
+    add_moves(moves, MoveType::Capture, piece, pos, targets & opponent_bb);
+    add_moves(moves, MoveType::Quiet, piece, pos, targets & empty_bb);
 }
 
-fn gen_piece_capture_moves(
-    moves: &mut Vec<Move>,
-    piece: i8,
-    pos: i32,
-    targets: u64,
-    opponent_bb: u64,
-) {
-    // Captures
-    add_moves(moves, piece, pos, targets & opponent_bb);
+#[inline]
+fn gen_piece_capture_moves(moves: &mut Vec<Move>, piece: i8, pos: i32, targets: u64, opponent_bb: u64) {
+    add_moves(moves, MoveType::Capture, piece, pos, targets & opponent_bb);
 }
 
 fn gen_white_pawn_moves(moves: &mut Vec<Move>, board: &Board, opponent_bb: u64, empty_bb: u64) {
@@ -254,14 +239,14 @@ fn gen_white_pawn_moves(moves: &mut Vec<Move>, board: &Board, opponent_bb: u64, 
 fn gen_white_straight_pawn_moves(moves: &mut Vec<Move>, pawns: u64, empty_bb: u64) {
     // Single move
     let mut target_bb = (pawns >> 8) & empty_bb;
-    add_pawn_moves(moves, target_bb, 8);
+    add_pawn_moves(MoveType::PawnQuiet, moves, target_bb, 8);
 
     // Double move
     target_bb &= PAWN_DOUBLE_MOVE_LINES[WHITE as usize + 1];
     target_bb >>= 8;
 
     target_bb &= empty_bb;
-    add_pawn_moves(moves, target_bb, 16);
+    add_pawn_moves(MoveType::PawnDoubleQuiet, moves, target_bb, 16);
 }
 
 fn gen_white_attack_pawn_moves(moves: &mut Vec<Move>, pawns: u64, opponent_bb: u64) {
@@ -269,13 +254,13 @@ fn gen_white_attack_pawn_moves(moves: &mut Vec<Move>, pawns: u64, opponent_bb: u
     left_attacks >>= 9;
 
     left_attacks &= opponent_bb;
-    add_pawn_moves(moves, left_attacks, 9);
+    add_pawn_moves(MoveType::Capture, moves, left_attacks, 9);
 
     let mut right_attacks = pawns & 0x7f7f7f7f7f7f7f7f; // mask left column
     right_attacks >>= 7;
 
     right_attacks &= opponent_bb;
-    add_pawn_moves(moves, right_attacks, 7);
+    add_pawn_moves(MoveType::Capture, moves, right_attacks, 7);
 }
 
 fn gen_white_en_passant_moves(moves: &mut Vec<Move>, board: &Board, pawns: u64) {
@@ -288,14 +273,14 @@ fn gen_white_en_passant_moves(moves: &mut Vec<Move>, board: &Board, pawns: u64) 
     if en_passant != 0b10000000 {
         let start = end + 9;
         if (pawns & (1 << start)) != 0 {
-            moves.push(Move::new(P, start as i32, end as i32));
+            moves.push(Move::new(MoveType::PawnSpecial, P, start as i32, end as i32));
         }
     }
 
     if en_passant != 0b00000001 {
         let start = end + 7;
         if (pawns & (1 << start)) != 0 {
-            moves.push(Move::new(P, start as i32, end as i32));
+            moves.push(Move::new(MoveType::PawnSpecial, P, start as i32, end as i32));
         }
     }
 }
@@ -311,14 +296,14 @@ fn gen_black_pawn_moves(moves: &mut Vec<Move>, board: &Board, opponent_bb: u64, 
 fn gen_black_straight_pawn_moves(moves: &mut Vec<Move>, pawns: u64, empty_bb: u64) {
     // Single move
     let mut target_bb = (pawns << 8) & empty_bb;
-    add_pawn_moves(moves, target_bb, -8);
+    add_pawn_moves(MoveType::PawnQuiet, moves, target_bb, -8);
 
     // Double move
     target_bb &= PAWN_DOUBLE_MOVE_LINES[((BLACK as i32) + 1) as usize];
     target_bb <<= 8;
 
     target_bb &= empty_bb;
-    add_pawn_moves(moves, target_bb, -16);
+    add_pawn_moves(MoveType::PawnDoubleQuiet, moves, target_bb, -16);
 }
 
 fn gen_black_attack_pawn_moves(moves: &mut Vec<Move>, pawns: u64, opponent_bb: u64) {
@@ -326,13 +311,13 @@ fn gen_black_attack_pawn_moves(moves: &mut Vec<Move>, pawns: u64, opponent_bb: u
     left_attacks <<= 7;
 
     left_attacks &= opponent_bb;
-    add_pawn_moves(moves, left_attacks, -7);
+    add_pawn_moves(MoveType::Capture, moves, left_attacks, -7);
 
     let mut right_attacks = pawns & 0x7f7f7f7f7f7f7f7f; // mask left column
     right_attacks <<= 9;
 
     right_attacks &= opponent_bb;
-    add_pawn_moves(moves, right_attacks, -9);
+    add_pawn_moves(MoveType::Capture, moves, right_attacks, -9);
 }
 
 fn gen_black_en_passant_moves(moves: &mut Vec<Move>, board: &Board, pawns: u64) {
@@ -345,31 +330,31 @@ fn gen_black_en_passant_moves(moves: &mut Vec<Move>, board: &Board, pawns: u64) 
     if en_passant != 0b00000001 {
         let start = end - 9;
         if (pawns & (1 << start)) != 0 {
-            moves.push(Move::new(P, start as i32, end as i32));
+            moves.push(Move::new(MoveType::PawnSpecial, P, start as i32, end as i32));
         }
     }
 
     if en_passant != 0b10000000 {
         let start = end - 7;
         if (pawns & (1 << start)) != 0 {
-            moves.push(Move::new(P, start as i32, end as i32));
+            moves.push(Move::new(MoveType::PawnSpecial, P, start as i32, end as i32));
         }
     }
 }
 
-fn add_pawn_moves(moves: &mut Vec<Move>, target_bb: u64, direction: i32) {
+fn add_pawn_moves(typ: MoveType, moves: &mut Vec<Move>, target_bb: u64, direction: i32) {
     for end in BitBoard(target_bb) {
         let start = end as i32 + direction;
 
         if end <= 7 || end >= 56 {
             // Promotion
-            moves.push(Move::new(Q, start, end as i32));
-            moves.push(Move::new(R, start, end as i32));
-            moves.push(Move::new(B, start, end as i32));
-            moves.push(Move::new(N, start, end as i32));
+            moves.push(Move::new(MoveType::PawnSpecial, Q, start, end as i32));
+            moves.push(Move::new(MoveType::PawnSpecial, R, start, end as i32));
+            moves.push(Move::new(MoveType::PawnSpecial, B, start, end as i32));
+            moves.push(Move::new(MoveType::PawnSpecial, N, start, end as i32));
         } else {
             // Normal move
-            moves.push(Move::new(P, start, end as i32));
+            moves.push(Move::new(typ, P, start, end as i32));
         }
     }
 }
@@ -378,10 +363,10 @@ fn gen_white_king_moves(moves: &mut Vec<Move>, pos: i32, board: &Board, opponent
     let king_targets = get_king_attacks(pos);
 
     // Captures
-    add_moves(moves, K, pos, king_targets & opponent_bb);
+    add_moves(moves, MoveType::KingCapture, K, pos, king_targets & opponent_bb);
 
     // Normal moves
-    add_moves(moves, K, pos, king_targets & empty_bb);
+    add_moves(moves, MoveType::KingQuiet, K, pos, king_targets & empty_bb);
 
     // // Castling moves
     if pos != WhiteBoardPos::KingStart as i32 {
@@ -389,11 +374,11 @@ fn gen_white_king_moves(moves: &mut Vec<Move>, pos: i32, board: &Board, opponent
     }
 
     if board.can_castle(Castling::WhiteKingSide) && is_kingside_castling_valid_for_white(board, empty_bb) {
-        moves.push(Move::new(K, pos, pos + 2));
+        moves.push(Move::new(MoveType::Castling, K, pos, pos + 2));
     }
 
     if board.can_castle(Castling::WhiteQueenSide) && is_queenside_castling_valid_for_white(board, empty_bb) {
-        moves.push(Move::new(K, pos, pos - 2));
+        moves.push(Move::new(MoveType::Castling, K, pos, pos - 2));
     }
 }
 
@@ -401,10 +386,10 @@ fn gen_black_king_moves(moves: &mut Vec<Move>, pos: i32, board: &Board, opponent
     let king_targets = get_king_attacks(pos);
 
     // Captures
-    add_moves(moves, K, pos, king_targets & opponent_bb);
+    add_moves(moves, MoveType::KingCapture, K, pos, king_targets & opponent_bb);
 
     // Normal moves
-    add_moves(moves, K, pos, king_targets & empty_bb);
+    add_moves(moves, MoveType::KingQuiet, K, pos, king_targets & empty_bb);
 
     // Castling moves
     if pos != BlackBoardPos::KingStart as i32 {
@@ -412,19 +397,18 @@ fn gen_black_king_moves(moves: &mut Vec<Move>, pos: i32, board: &Board, opponent
     }
 
     if board.can_castle(Castling::BlackKingSide) && is_kingside_castling_valid_for_black(board, empty_bb) {
-        moves.push(Move::new(K, pos, pos + 2));
+        moves.push(Move::new(MoveType::Castling, K, pos, pos + 2));
     }
 
-    if board.can_castle(Castling::BlackQueenSide)
-        && is_queenside_castling_valid_for_black(board, empty_bb)
-    {
-        moves.push(Move::new(K, pos, pos - 2));
+    if board.can_castle(Castling::BlackQueenSide) && is_queenside_castling_valid_for_black(board, empty_bb) {
+        moves.push(Move::new(MoveType::Castling, K, pos, pos - 2));
     }
 }
 
-fn add_moves(moves: &mut Vec<Move>, piece: i8, pos: i32, target_bb: u64) {
+#[inline]
+fn add_moves(moves: &mut Vec<Move>, typ: MoveType, piece: i8, pos: i32, target_bb: u64) {
     for end in BitBoard(target_bb) {
-        moves.push(Move::new(piece, pos, end as i32));
+        moves.push(Move::new(typ, piece, pos, end as i32));
     }
 }
 
@@ -493,7 +477,7 @@ mod tests {
     #[test]
     pub fn exclude_illegal_moves() {
         let mut board: Board = board_with_one_piece(WHITE, Q, 52);
-        board.perform_move(Move::new(K, board.king_pos(WHITE), 53));
+        board.perform_move(Move::new(MoveType::KingQuiet, K, board.king_pos(WHITE), 53));
         board.add_piece(BLACK, R, 51);
 
         let moves = generate_moves_for_pos(&mut board, WHITE, 52);

@@ -16,13 +16,28 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+use std::intrinsics::transmute;
+
+#[repr(u8)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum MoveType {
+    Capture = 0,
+    Quiet = 1,
+    PawnQuiet = 2,
+    PawnDoubleQuiet = 3,
+    PawnSpecial = 4, // En Passant or Promotion
+    Castling = 5,
+    KingQuiet = 6,
+    KingCapture = 7
+}
+
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Debug)]
 pub struct Move(u32);
 
 impl Move {
     #[inline]
-    pub fn new(piece: i8, start: i32, end: i32) -> Self {
-        Move(((piece.abs() as u32) << 3) | ((start as u32) << 6) | ((end as u32) << 12))
+    pub fn new(typ: MoveType, piece: i8, start: i32, end: i32) -> Self {
+        Move((typ as u32) | ((piece.abs() as u32) << 3) | ((start as u32) << 6) | ((end as u32) << 12))
     }
 
     #[inline]
@@ -53,6 +68,13 @@ impl Move {
     #[inline]
     pub fn is_same_move(&self, m: Move) -> bool {
         (self.0 & 0x3FFFF) == (m.0 & 0x3FFFF)
+    }
+
+    #[inline]
+    pub fn typ(&self) -> MoveType {
+        unsafe {
+            transmute((self.0 & 0x3) as u8)
+        }
     }
 
     #[inline]
@@ -91,7 +113,7 @@ mod tests {
     #[test]
     fn scored_move() {
         let score = -1037;
-        let m = Move::new(K, 4, 12).with_score(score);
+        let m = Move::new(MoveType::KingQuiet, K, 4, 12).with_score(score);
 
         assert_eq!(m.piece_id(), K);
         assert_eq!(m.start(), 4);
@@ -101,7 +123,7 @@ mod tests {
 
     #[test]
     fn scored_move_for_max_score() {
-        let m = Move::new(Q, 2, 63).with_score(MAX_SCORE);
+        let m = Move::new(MoveType::Quiet, Q, 2, 63).with_score(MAX_SCORE);
 
         assert_eq!(m.piece_id(), Q);
         assert_eq!(m.start(), 2);
@@ -111,7 +133,7 @@ mod tests {
 
     #[test]
     fn scored_move_for_min_score() {
-        let m = Move::new(K, 0, 1).with_score(MIN_SCORE);
+        let m = Move::new(MoveType::KingQuiet, K, 0, 1).with_score(MIN_SCORE);
 
         assert_eq!(m.piece_id(), K);
         assert_eq!(m.start(), 0);

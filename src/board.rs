@@ -954,6 +954,7 @@ const ALL_CASTLING: u8 = Castling::WhiteKingSide as u8
 mod tests {
     use super::*;
     use crate::castling::Castling;
+    use crate::moves::MoveType;
 
     #[test]
     fn update_hash_when_piece_moves() {
@@ -968,7 +969,7 @@ mod tests {
         board.recalculate_hash();
         let initial_hash = board.get_hash();
 
-        let m = Move::new(K, 59, 60);
+        let m = Move::new(MoveType::KingQuiet, K, 59, 60);
         let (previous, state) = board.perform_move(m);
         let hash_perform_move = board.get_hash();
         assert_ne!(initial_hash, hash_perform_move);
@@ -1015,7 +1016,7 @@ mod tests {
         let initial_hash = board.get_hash();
         let initial_castling_state = board.get_castling_state();
 
-        let m = Move::new(K, WhiteBoardPos::KingStart as i32, WhiteBoardPos::KingStart as i32 - 2);
+        let m = Move::new(MoveType::Castling, K, WhiteBoardPos::KingStart as i32, WhiteBoardPos::KingStart as i32 - 2);
         let (previous, state) = board.perform_move(m);
 
         assert_ne!(&initial_items[..], &board.items[..]);
@@ -1043,7 +1044,7 @@ mod tests {
         let initial_hash = board.get_hash();
         let initial_castling_state = board.get_castling_state();
 
-        let m = Move::new(K, BlackBoardPos::KingStart as i32, BlackBoardPos::KingStart as i32 - 2);
+        let m = Move::new(MoveType::Castling, K, BlackBoardPos::KingStart as i32, BlackBoardPos::KingStart as i32 - 2);
 
         let (previous, state) = board.perform_move(m);
 
@@ -1338,11 +1339,11 @@ mod tests {
         let mut board = Board::new(&items, BLACK, 0, None, 0, 1);
         let initial_hash = board.get_hash();
 
-        board.perform_move(Move::new(K, 59, 60));
+        board.perform_move(Move::new(MoveType::KingQuiet, K, 59, 60));
         let hash_after_move = board.get_hash();
         assert_ne!(initial_hash, hash_after_move);
 
-        board.perform_move(Move::new(K, 60, 59));
+        board.perform_move(Move::new(MoveType::KingQuiet, K, 60, 59));
         let hash_reverted_move = board.get_hash();
         assert_eq!(initial_hash, hash_reverted_move);
     }

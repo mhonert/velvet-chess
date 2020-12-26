@@ -151,13 +151,14 @@ const fn calc_move_thresholds() -> [u64; MAX_DEPTH] {
 mod tests {
     use super::*;
     use crate::pieces::{Q, R};
+    use crate::moves::MoveType;
 
     #[test]
     fn updates_killer_moves() {
         let mut hh = HistoryHeuristics::new();
 
-        let move_a = Move::new(Q, 1, 2);
-        let move_b = Move::new(R, 4, 5);
+        let move_a = Move::new(MoveType::Quiet, Q, 1, 2);
+        let move_b = Move::new(MoveType::Quiet, R, 4, 5);
         hh.update(3, 1, WHITE, 1, 2, move_a);
         hh.update(3, 1, WHITE, 4, 5, move_b);
 

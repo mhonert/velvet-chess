@@ -154,6 +154,7 @@ pub fn get_score_type(entry: u64) -> u8 {
 mod tests {
     use super::*;
     use crate::score_util::{MIN_SCORE, MAX_SCORE};
+    use crate::moves::MoveType;
 
     #[test]
     fn writes_entry() {
@@ -162,7 +163,7 @@ mod tests {
         let depth = MAX_DEPTH as i32;
         let score = -10;
 
-        let m = Move::new(5, 32, 33).with_score(score);
+        let m = Move::new(MoveType::Quiet, 5, 32, 33).with_score(score);
         let typ = EXACT;
 
         tt.write_entry(hash, depth, m, typ);
