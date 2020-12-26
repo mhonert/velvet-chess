@@ -105,6 +105,16 @@ impl UCIMove {
 
         result
     }
+
+    pub fn to_move(&self, board: &Board) -> Move {
+        let target_piece_id = if self.promotion != EMPTY {
+            self.promotion
+        } else {
+            board.get_item(self.start as i32)
+        };
+
+        Move::new(target_piece_id, self.start as i32, self.end as i32)
+    }
 }
 
 fn uci_col(col: i8) -> char {

@@ -23,7 +23,6 @@ use crate::castling::Castling;
 use crate::colors::{Color, BLACK, WHITE};
 use crate::pieces::{B, K, N, P, Q, R};
 
-
 pub fn generate_moves(board: &Board, active_player: Color) -> Vec<Move> {
     let mut moves: Vec<Move> = Vec::with_capacity(64);
 
@@ -212,10 +211,10 @@ fn move_results_in_check(board: &mut Board, m: &Move, active_player: Color) -> b
     let start = m.start();
     let end = m.end();
 
-    let previous_piece = board.get_item(start);
-    let move_state = board.perform_move(m.piece_id() as i8, start, end);
+    let m = Move::new(m.piece_id() as i8, start, end);
+    let (previous_piece, move_state) = board.perform_move(m);
     let check = board.is_in_check(active_player);
-    board.undo_move(previous_piece, start, end, move_state);
+    board.undo_move(m, previous_piece, move_state);
 
     check
 }
@@ -467,15 +466,15 @@ pub const NO_MOVE: Move = Move(0);
 impl Move {
     #[inline]
     pub fn new(piece: i8, start: i32, end: i32) -> Self {
-        Move((piece.abs() as u32) | ((start as u32) << 3) | ((end as u32) << 10))
+        Move(((piece.abs() as u32) << 3) | ((start as u32) << 6) | ((end as u32) << 12))
     }
 
     #[inline]
     pub fn with_score(&self, score: i32) -> Move {
         if score < 0 {
-            Move(self.0 & 0x1FFFF | 0x80000000 | ((-score as u32) << 17))
+            Move(self.0 & 0x3FFFF | 0x80000000 | ((-score as u32) << 18))
         } else {
-            Move(self.0 & 0x1FFFF | (score as u32) << 17)
+            Move(self.0 & 0x3FFFF | (score as u32) << 18)
         }
     }
 
@@ -497,30 +496,30 @@ impl Move {
     /// Checks, whether the two moves are the same (except for the score)
     #[inline]
     pub fn is_same_move(&self, m: Move) -> bool {
-        (self.0 & 0x1FFFF) == (m.0 & 0x1FFFF)
+        (self.0 & 0x3FFFF) == (m.0 & 0x3FFFF)
     }
 
     #[inline]
     pub fn piece_id(&self) -> i8 {
-        (self.0 & 0x7) as i8
+        ((self.0 >> 3) & 0x7) as i8
     }
 
     #[inline]
     pub fn start(&self) -> i32 {
-        ((self.0 >> 3) & 0x7F) as i32
+        ((self.0 >> 6) & 0x3F) as i32
     }
 
     #[inline]
     pub fn end(&self) -> i32 {
-        ((self.0 >> 10) & 0x7F) as i32
+        ((self.0 >> 12) & 0x3F) as i32
     }
 
     #[inline]
     pub fn score(&self) -> i32 {
         if self.0 & 0x80000000 != 0 {
-            -(((self.0 & 0x7FFE0000) >> 17) as i32)
+            -(((self.0 & 0x7FFC0000) >> 18) as i32)
         } else {
-            (self.0 >> 17) as i32
+            (self.0 >> 18) as i32
         }
     }
 }
@@ -563,7 +562,7 @@ mod tests {
     #[test]
     pub fn exclude_illegal_moves() {
         let mut board: Board = board_with_one_piece(WHITE, Q, 52);
-        board.perform_move(K, board.king_pos(WHITE), 53);
+        board.perform_move(Move::new(K, board.king_pos(WHITE), 53));
         board.add_piece(BLACK, R, 51);
 
         let moves = generate_moves_for_pos(&mut board, WHITE, 52);

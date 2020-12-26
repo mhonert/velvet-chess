@@ -306,9 +306,13 @@ impl Board {
         self.state.hash ^= player_zobrist_key();
     }
 
-    pub fn perform_move(&mut self, target_piece_id: i8, move_start: i32, move_end: i32) -> i8 {
+    pub fn perform_move(&mut self, m: Move) -> (i8, i8) {
         self.store_state();
         self.increase_half_move_count();
+
+        let move_start = m.start();
+        let move_end = m.end();
+        let target_piece_id = m.piece_id();
 
         let own_piece = self.remove_piece(move_start);
         let color = own_piece.signum();
@@ -333,7 +337,7 @@ impl Board {
             }
 
             self.pos_history.push(self.state.hash);
-            return removed_piece.abs();
+            return (own_piece, removed_piece.abs());
         }
 
         self.add_piece(color, target_piece_id, move_end as usize);
@@ -346,11 +350,11 @@ impl Board {
             } else if move_start - move_end == 7 {
                 self.remove_piece(move_start + WHITE as i32);
                 self.pos_history.push(self.state.hash);
-                return EN_PASSANT;
+                return (own_piece, EN_PASSANT);
             } else if move_start - move_end == 9 {
                 self.remove_piece(move_start - WHITE as i32);
                 self.pos_history.push(self.state.hash);
-                return EN_PASSANT;
+                return (own_piece, EN_PASSANT);
             }
         } else if own_piece == -P {
             self.reset_half_move_clock();
@@ -361,11 +365,11 @@ impl Board {
             } else if move_start - move_end == -7 {
                 self.remove_piece(move_start + BLACK as i32);
                 self.pos_history.push(self.state.hash);
-                return EN_PASSANT;
+                return (own_piece, EN_PASSANT);
             } else if move_start - move_end == -9 {
                 self.remove_piece(move_start - BLACK as i32);
                 self.pos_history.push(self.state.hash);
-                return EN_PASSANT;
+                return (own_piece, EN_PASSANT);
             }
         } else if own_piece == K {
             self.white_king = move_end;
@@ -402,7 +406,7 @@ impl Board {
         // Position history
 
         self.pos_history.push(self.state.hash);
-        EMPTY
+        (own_piece, EMPTY)
     }
 
     pub fn perform_null_move(&mut self) {
@@ -449,8 +453,11 @@ impl Board {
         }
     }
 
-    pub fn undo_move(&mut self, piece: i8, move_start: i32, move_end: i32, removed_piece_id: i8) {
+    pub fn undo_move(&mut self, m: Move, piece: i8, removed_piece_id: i8) {
         self.pos_history.pop();
+
+        let move_start = m.start();
+        let move_end = m.end();
 
         let color = piece.signum();
         self.remove_piece_without_inc_update(move_end);
@@ -805,12 +812,9 @@ impl Board {
     }
 
     pub fn is_legal_move(&mut self, color: Color, m: Move) -> bool {
-        let start = m.start();
-        let end = m.end();
-        let previous_piece = self.get_item(start);
-        let move_state = self.perform_move(m.piece_id(), start, end);
+        let (previous_piece, move_state) = self.perform_move(m);
         let is_legal = !self.is_in_check(color);
-        self.undo_move(previous_piece, start, end, move_state);
+        self.undo_move(m, previous_piece, move_state);
         is_legal
     }
 
@@ -983,11 +987,12 @@ mod tests {
         board.recalculate_hash();
         let initial_hash = board.get_hash();
 
-        let removed = board.perform_move(K, 59, 60);
+        let m = Move::new(K, 59, 60);
+        let (previous, state) = board.perform_move(m);
         let hash_perform_move = board.get_hash();
         assert_ne!(initial_hash, hash_perform_move);
 
-        board.undo_move(K, 59, 60, removed);
+        board.undo_move(m, previous, state);
         let hash_undo_move = board.get_hash();
         assert_eq!(initial_hash, hash_undo_move);
     }
@@ -1029,23 +1034,14 @@ mod tests {
         let initial_hash = board.get_hash();
         let initial_castling_state = board.get_castling_state();
 
-        let previous_piece = board.get_item(WhiteBoardPos::KingStart as i32);
-        let removed_piece_id = board.perform_move(
-            K,
-            WhiteBoardPos::KingStart as i32,
-            WhiteBoardPos::KingStart as i32 - 2,
-        );
+        let m = Move::new(K, WhiteBoardPos::KingStart as i32, WhiteBoardPos::KingStart as i32 - 2);
+        let (previous, state) = board.perform_move(m);
 
         assert_ne!(&initial_items[..], &board.items[..]);
         assert_ne!(initial_hash, board.get_hash());
         assert_ne!(initial_castling_state, board.get_castling_state());
 
-        board.undo_move(
-            previous_piece,
-            WhiteBoardPos::KingStart as i32,
-            WhiteBoardPos::KingStart as i32 - 2,
-            removed_piece_id,
-        );
+        board.undo_move(m, previous, state);
 
         assert_eq!(&initial_items[..], &board.items[..]);
         assert_eq!(initial_hash, board.get_hash());
@@ -1066,23 +1062,15 @@ mod tests {
         let initial_hash = board.get_hash();
         let initial_castling_state = board.get_castling_state();
 
-        let previous_piece = board.get_item(BlackBoardPos::KingStart as i32);
-        let removed_piece_id = board.perform_move(
-            K,
-            BlackBoardPos::KingStart as i32,
-            BlackBoardPos::KingStart as i32 - 2,
-        );
+        let m = Move::new(K, BlackBoardPos::KingStart as i32, BlackBoardPos::KingStart as i32 - 2);
+
+        let (previous, state) = board.perform_move(m);
 
         assert_ne!(&initial_items[..], &board.items[..]);
         assert_ne!(initial_hash, board.get_hash());
         assert_ne!(initial_castling_state, board.get_castling_state());
 
-        board.undo_move(
-            previous_piece,
-            BlackBoardPos::KingStart as i32,
-            BlackBoardPos::KingStart as i32 - 2,
-            removed_piece_id,
-        );
+        board.undo_move(m, previous, state);
 
         assert_eq!(&initial_items[..], &board.items[..]);
         assert_eq!(initial_hash, board.get_hash());
@@ -1369,11 +1357,11 @@ mod tests {
         let mut board = Board::new(&items, BLACK, 0, None, 0, 1);
         let initial_hash = board.get_hash();
 
-        board.perform_move(K, 59, 60);
+        board.perform_move(Move::new(K, 59, 60));
         let hash_after_move = board.get_hash();
         assert_ne!(initial_hash, hash_after_move);
 
-        board.perform_move(K, 60, 59);
+        board.perform_move(Move::new(K, 60, 59));
         let hash_reverted_move = board.get_hash();
         assert_eq!(initial_hash, hash_reverted_move);
     }

@@ -153,6 +153,7 @@ pub fn get_score_type(entry: u64) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::score_util::{MIN_SCORE, MAX_SCORE};
 
     #[test]
     fn writes_entry() {
@@ -176,7 +177,7 @@ mod tests {
     #[test]
     fn encodes_negative_score_correctly() {
         let mut tt = TranspositionTable::new(1);
-        let score = -16383;
+        let score = MIN_SCORE;
         let hash = u64::max_value();
         let m = NO_MOVE.with_score(score);
         tt.write_entry(hash, 1, m, EXACT);
@@ -188,7 +189,7 @@ mod tests {
     #[test]
     fn encodes_positive_score_correctly() {
         let mut tt = TranspositionTable::new(1);
-        let score = 16383;
+        let score = MAX_SCORE;
         let hash = u64::max_value();
         let m = NO_MOVE.with_score(score);
         tt.write_entry(hash, 1, m, EXACT);

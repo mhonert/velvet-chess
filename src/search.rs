@@ -137,12 +137,7 @@ impl Search for Engine {
                     }
                 }
 
-                let target_piece_id = m.piece_id();
-                let start = m.start();
-                let end = m.end();
-                let previous_piece = self.board.get_item(start);
-
-                let removed_piece_id = self.board.perform_move(target_piece_id as i8, start, end);
+                let (previous_piece, move_state) = self.board.perform_move(m);
 
                 let gives_check = self.board.is_in_check(-player_color);
 
@@ -160,7 +155,7 @@ impl Search for Engine {
                     }
                 }
 
-                self.board.undo_move(previous_piece, start, end, removed_piece_id);
+                self.board.undo_move(m, previous_piece, move_state);
 
                 if iteration_cancelled {
                     if best_move != NO_MOVE && previous_best_move != NO_MOVE {
@@ -460,9 +455,8 @@ impl Search for Engine {
             let target_piece_id = m.piece_id();
             let start = m.start();
             let end = m.end();
-            let previous_piece = self.board.get_item(start);
 
-            let move_state = self.board.perform_move(target_piece_id as i8, start, end);
+            let (previous_piece, move_state) = self.board.perform_move(m);
             let removed_piece_id = move_state & !EN_PASSANT;
 
             let mut skip = self.board.is_in_check(player_color); // skip if move would put own king in check
@@ -507,7 +501,7 @@ impl Search for Engine {
             }
 
             if skip {
-                self.board.undo_move(previous_piece, start, end, move_state);
+                self.board.undo_move(m, previous_piece, move_state);
             } else {
                 if removed_piece_id == EMPTY {
                     self.hh.update_played_moves(depth, player_color, start, end);
@@ -522,7 +516,7 @@ impl Search for Engine {
                 };
                 let mut result = self.rec_find_best_move(a, -alpha, -player_color, depth - reductions - 1, ply + 1, false, gives_check);
                 if result == CANCEL_SEARCH {
-                    self.board.undo_move(previous_piece, start, end, move_state);
+                    self.board.undo_move(m, previous_piece, move_state);
                     return CANCEL_SEARCH;
                 }
 
@@ -530,13 +524,13 @@ impl Search for Engine {
                     // Repeat search without reduction and with full window
                     result = self.rec_find_best_move(-beta, -alpha, -player_color, depth - 1, ply + 1, false, gives_check);
                     if result == CANCEL_SEARCH {
-                        self.board.undo_move(previous_piece, start, end, move_state);
+                        self.board.undo_move(m, previous_piece, move_state);
                         return CANCEL_SEARCH;
                     }
                 }
 
                 let score = -result;
-                self.board.undo_move(previous_piece, start, end, move_state);
+                self.board.undo_move(m, previous_piece, move_state);
 
                 if score > best_score {
                     best_score = score;
@@ -622,16 +616,16 @@ impl Search for Engine {
                 continue;
             }
 
-            let move_state = self.board.perform_move(target_piece_id as i8, start, end);
+            let (previous_piece, move_state) = self.board.perform_move(m);
 
             if self.board.is_in_check(active_player) {
                 // Invalid move
-                self.board.undo_move(previous_piece, start, end, move_state);
+                self.board.undo_move(m, previous_piece, move_state);
                 continue;
             }
 
             let score = -self.quiescence_search(-active_player, -beta, -alpha, ply + 1);
-            self.board.undo_move(previous_piece, start, end, move_state);
+            self.board.undo_move(m, previous_piece, move_state);
 
             if score >= beta {
                 return beta;
@@ -664,7 +658,7 @@ impl Search for Engine {
                 return true;
             }
 
-            self.board.perform_move(m.piece_id(), m.start(), m.end());
+            self.board.perform_move(m);
             if self.board.is_in_check(self.board.active_player()) {
                 return false;
             }
@@ -701,15 +695,10 @@ impl Search for Engine {
             return true;
         }
 
-        let target_piece_id = m.piece_id();
-        let start = m.start();
-        let end = m.end();
-        let previous_piece = self.board.get_item(start);
+        let (previous_piece, move_state) = self.board.perform_move(m);
 
-        let removed_piece_id = self.board.perform_move(target_piece_id as i8, start, end);
-
-        if removed_piece_id != EMPTY {
-            self.board.undo_move(previous_piece, start, end, removed_piece_id);
+        if move_state != EMPTY {
+            self.board.undo_move(m, previous_piece, move_state);
             return false;
         }
 
@@ -721,19 +710,19 @@ impl Search for Engine {
         };
 
         if next_move == NO_MOVE {
-            self.board.undo_move(previous_piece, start, end, removed_piece_id);
+            self.board.undo_move(m, previous_piece, move_state);
             return false;
         }
 
         let active_player = self.board.active_player();
         let is_valid_followup_move = next_move != NO_MOVE && self.is_likely_valid_move(active_player, next_move);
         let is_quiet = if is_valid_followup_move {
-            removed_piece_id == EMPTY && self.is_quiet_pv(next_move, depth - 1)
+            self.is_quiet_pv(next_move, depth - 1)
         } else {
             false
         };
 
-        self.board.undo_move(previous_piece, start, end, removed_piece_id);
+        self.board.undo_move(m, previous_piece, move_state);
 
         is_quiet
     }
@@ -760,7 +749,6 @@ impl Search for Engine {
         let mut best_move = NO_MOVE;
 
         while let Some(m) = moves.next_capture_move(&mut self.board) {
-            let target_piece_id = m.piece_id();
             let start = m.start();
             let end = m.end();
             let previous_piece = self.board.get_item(start);
@@ -772,16 +760,16 @@ impl Search for Engine {
                 continue;
             }
 
-            let move_state = self.board.perform_move(target_piece_id as i8, start, end);
+            let (_, move_state) = self.board.perform_move(m);
 
             if self.board.is_in_check(active_player) {
                 // Invalid move
-                self.board.undo_move(previous_piece, start, end, move_state);
+                self.board.undo_move(m, previous_piece, move_state);
                 continue;
             }
 
             let score = -self.static_quiescence_search(-beta, -alpha, ply + 1);
-            self.board.undo_move(previous_piece, start, end, move_state);
+            self.board.undo_move(m, previous_piece, move_state);
 
             if score >= beta {
                 self.tt.write_entry(self.board.get_hash(), 60 - ply, m, LOWER_BOUND);
@@ -827,9 +815,7 @@ impl Search for Engine {
             return uci_move;
         }
 
-        let previous_piece = self.board.get_item(m.start());
-
-        let removed_piece_id = self.board.perform_move(m.piece_id(), m.start(), m.end());
+        let (previous_piece, move_state) = self.board.perform_move(m);
 
         let entry = self.tt.get_entry(self.board.get_hash());
         let next_move = if entry != 0 {
@@ -846,7 +832,7 @@ impl Search for Engine {
             String::from("")
         };
 
-        self.board.undo_move(previous_piece, m.start(), m.end(), removed_piece_id);
+        self.board.undo_move(m, previous_piece, move_state);
 
         format!("{}{}", uci_move, followup_uci_moves)
     }

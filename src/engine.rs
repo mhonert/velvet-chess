@@ -22,7 +22,7 @@ use crate::fen::{create_from_fen, read_fen, write_fen, START_POS};
 use crate::history_heuristics::HistoryHeuristics;
 use crate::move_gen::{has_valid_moves, Move, NO_MOVE};
 use crate::perft::perft;
-use crate::pieces::{EMPTY, Q, get_piece_value};
+use crate::pieces::{Q, get_piece_value};
 use crate::search::Search;
 use crate::transposition_table::{TranspositionTable, DEFAULT_SIZE_MB};
 use crate::uci_move::UCIMove;
@@ -251,14 +251,7 @@ impl Engine {
         }
 
         for m in moves {
-            let color = self.board.active_player();
-            let piece = if m.promotion != EMPTY {
-                m.promotion * color
-            } else {
-                self.board.get_item(m.start as i32)
-            };
-            self.board
-                .perform_move(piece * color, m.start as i32, m.end as i32);
+            self.board.perform_move(m.to_move(&self.board));
         }
     }
 
@@ -309,7 +302,7 @@ impl Engine {
                     break;
                 }
 
-                self.board.perform_move(m.piece_id(), m.start(), m.end());
+                self.board.perform_move(m);
             }
 
             if !self.make_quiet() {
@@ -359,7 +352,7 @@ impl Engine {
                 return true;
             }
 
-            self.board.perform_move(m.piece_id(), m.start(), m.end());
+            self.board.perform_move(m);
         }
 
         false
@@ -442,7 +435,7 @@ impl Engine {
     }
 
     pub fn perform_move(&mut self, m: Move) {
-        self.board.perform_move(m.piece_id(), m.start(), m.end());
+        self.board.perform_move(m);
     }
 
     pub fn is_check_mate(&mut self, color: Color) -> bool {

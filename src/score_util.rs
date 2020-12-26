@@ -16,11 +16,11 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub const MIN_SCORE: i32 = -16383;
-pub const MAX_SCORE: i32 = 16383;
+pub const MIN_SCORE: i32 = -8191;
+pub const MAX_SCORE: i32 = 8191;
 
-pub const WHITE_MATE_SCORE: i32 = -16000;
-pub const BLACK_MATE_SCORE: i32 = 16000;
+pub const WHITE_MATE_SCORE: i32 = -8000;
+pub const BLACK_MATE_SCORE: i32 = 8000;
 
 pub const fn pack_scores(score: i16, eg_score: i16) -> u32 {
     (score as u32) << 16 | ((eg_score as u32) & 0xFFFF)
