@@ -14,7 +14,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::move_gen::{Move, NO_MOVE};
+use crate::moves::{Move, NO_MOVE};
 
 pub const MAX_HASH_SIZE_MB: i32 = 4096;
 

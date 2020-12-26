@@ -20,7 +20,7 @@ use crate::board::Board;
 use crate::colors::{Color, WHITE, BLACK};
 use crate::fen::{create_from_fen, read_fen, write_fen, START_POS};
 use crate::history_heuristics::HistoryHeuristics;
-use crate::move_gen::{has_valid_moves, Move, NO_MOVE};
+use crate::move_gen::{has_valid_moves};
 use crate::perft::perft;
 use crate::pieces::{Q, get_piece_value};
 use crate::search::Search;
@@ -35,6 +35,7 @@ use std::time::{Instant, SystemTime};
 use crate::eval::Eval;
 use crate::score_util::{MIN_SCORE, MAX_SCORE};
 use crate::random::Random;
+use crate::moves::{NO_MOVE, Move};
 
 pub enum Message {
     NewGame,

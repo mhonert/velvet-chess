@@ -17,8 +17,8 @@
  */
 
 use crate::board::Board;
-use crate::move_gen::{Move};
 use crate::pieces::{B, EMPTY, N, Q, R};
+use crate::moves::Move;
 
 pub struct UCIMove {
     pub start: i8,

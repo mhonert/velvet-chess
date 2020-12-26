@@ -29,6 +29,7 @@ mod castling;
 mod colors;
 mod options;
 mod history_heuristics;
+mod moves;
 mod move_gen;
 mod move_sort;
 mod pieces;

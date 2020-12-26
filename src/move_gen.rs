@@ -22,6 +22,7 @@ use crate::boardpos::{BlackBoardPos, WhiteBoardPos};
 use crate::castling::Castling;
 use crate::colors::{Color, BLACK, WHITE};
 use crate::pieces::{B, K, N, P, Q, R};
+use crate::moves::Move;
 
 pub fn generate_moves(board: &Board, active_player: Color) -> Vec<Move> {
     let mut moves: Vec<Move> = Vec::with_capacity(64);
@@ -458,76 +459,9 @@ fn is_queenside_castling_valid_for_black(board: &Board, empty_bb: u64) -> bool {
         && !board.is_attacked(WHITE, BlackBoardPos::KingStart as i32 - 2)
 }
 
-#[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Debug)]
-pub struct Move(u32);
-
-pub const NO_MOVE: Move = Move(0);
-
-impl Move {
-    #[inline]
-    pub fn new(piece: i8, start: i32, end: i32) -> Self {
-        Move(((piece.abs() as u32) << 3) | ((start as u32) << 6) | ((end as u32) << 12))
-    }
-
-    #[inline]
-    pub fn with_score(&self, score: i32) -> Move {
-        if score < 0 {
-            Move(self.0 & 0x3FFFF | 0x80000000 | ((-score as u32) << 18))
-        } else {
-            Move(self.0 & 0x3FFFF | (score as u32) << 18)
-        }
-    }
-
-    #[inline]
-    pub fn to_u32(&self) -> u32 {
-        self.0
-    }
-
-    #[inline]
-    pub fn from_u32(packed_move: u32) -> Move {
-        Move(packed_move)
-    }
-
-    #[inline]
-    pub fn without_score(&self) -> Move {
-        self.with_score(0)
-    }
-
-    /// Checks, whether the two moves are the same (except for the score)
-    #[inline]
-    pub fn is_same_move(&self, m: Move) -> bool {
-        (self.0 & 0x3FFFF) == (m.0 & 0x3FFFF)
-    }
-
-    #[inline]
-    pub fn piece_id(&self) -> i8 {
-        ((self.0 >> 3) & 0x7) as i8
-    }
-
-    #[inline]
-    pub fn start(&self) -> i32 {
-        ((self.0 >> 6) & 0x3F) as i32
-    }
-
-    #[inline]
-    pub fn end(&self) -> i32 {
-        ((self.0 >> 12) & 0x3F) as i32
-    }
-
-    #[inline]
-    pub fn score(&self) -> i32 {
-        if self.0 & 0x80000000 != 0 {
-            -(((self.0 & 0x7FFC0000) >> 18) as i32)
-        } else {
-            (self.0 >> 18) as i32
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::score_util::{MAX_SCORE, MIN_SCORE};
 
     #[rustfmt::skip]
     const ONLY_KINGS: [i8; 64] = [
@@ -571,37 +505,6 @@ mod tests {
             moves.len(),
             "There must be only one legal move for the white queen"
         );
-    }
-
-    #[test]
-    fn scored_move_for_max_score() {
-        let m = Move::new(Q, 2, 63).with_score(MAX_SCORE);
-
-        assert_eq!(m.piece_id(), Q);
-        assert_eq!(m.start(), 2);
-        assert_eq!(m.end(), 63);
-        assert_eq!(MAX_SCORE, m.score());
-    }
-
-    #[test]
-    fn scored_move_for_min_score() {
-        let m = Move::new(K, 0, 1).with_score(MIN_SCORE);
-
-        assert_eq!(m.piece_id(), K);
-        assert_eq!(m.start(), 0);
-        assert_eq!(m.end(), 1);
-        assert_eq!(MIN_SCORE, m.score());
-    }
-
-    #[test]
-    fn scored_move() {
-        let score = -1037;
-        let m = Move::new(K, 4, 12).with_score(score);
-
-        assert_eq!(m.piece_id(), K);
-        assert_eq!(m.start(), 4);
-        assert_eq!(m.end(), 12);
-        assert_eq!(score, m.score());
     }
 
     fn board_with_one_piece(color: Color, piece_id: i8, pos: i32) -> Board {

@@ -19,9 +19,10 @@
 use crate::board::{Board, interpolate_score};
 use crate::colors::{Color};
 use crate::history_heuristics::HistoryHeuristics;
-use crate::move_gen::{generate_capture_moves, generate_moves, Move, NO_MOVE};
+use crate::move_gen::{generate_capture_moves, generate_moves};
 use crate::pieces::{EMPTY};
 use crate::score_util::{unpack_score, unpack_eg_score};
+use crate::moves::{Move, NO_MOVE};
 
 const CAPTURE_ORDER_SIZE: usize = 5 + 5 * 8 + 1;
 

@@ -19,7 +19,6 @@
 use crate::board::EN_PASSANT;
 use crate::colors::{Color, BLACK, WHITE};
 use crate::engine::Engine;
-use crate::move_gen::{Move, NO_MOVE};
 use crate::pieces::{EMPTY, K, R};
 use crate::score_util::{
     BLACK_MATE_SCORE, MAX_SCORE,
@@ -33,6 +32,7 @@ use std::cmp::{max, min};
 use std::time::{Duration, Instant};
 use crate::eval::Eval;
 use crate::move_sort::{SortedMoves, SortedLegalMoves};
+use crate::moves::{Move, NO_MOVE};
 
 pub trait Search {
     fn find_best_move(&mut self, min_depth: i32, is_strict_timelimit: bool) -> Move;
@@ -929,6 +929,7 @@ mod tests {
     use crate::fen::write_fen;
     use crate::pieces::{K, R};
     use std::sync::mpsc;
+    use crate::moves::NO_MOVE;
 
     #[test]
     fn finds_mate_in_one() {

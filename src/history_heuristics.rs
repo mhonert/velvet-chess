@@ -17,8 +17,8 @@
  */
 
 use crate::colors::{Color, WHITE};
-use crate::move_gen::{Move, NO_MOVE};
 use crate::transposition_table::MAX_DEPTH;
+use crate::moves::{Move, NO_MOVE};
 
 const HISTORY_SIZE: usize = 2 * 64 * 64;
 

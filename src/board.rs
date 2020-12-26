@@ -25,7 +25,7 @@ use crate::pos_history::PositionHistory;
 use crate::score_util::{unpack_eg_score, unpack_score};
 use crate::options::{Options, PieceSquareTables};
 use crate::zobrist::{piece_zobrist_key, player_zobrist_key, castling_zobrist_key, enpassant_zobrist_key};
-use crate::move_gen::Move;
+use crate::moves::Move;
 
 const MAX_GAME_HALFMOVES: usize = 5898 * 2;
 
