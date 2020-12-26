@@ -16,8 +16,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::move_gen::Move;
-
 pub const MIN_SCORE: i32 = -16383;
 pub const MAX_SCORE: i32 = 16383;
 
@@ -36,33 +34,9 @@ pub fn unpack_eg_score(packed_score: u32) -> i16 {
     (packed_score & 0xFFFF) as i16
 }
 
-pub type ScoredMove = u32;
-
-pub fn encode_scored_move(m: Move, score: i32) -> ScoredMove {
-    if score < 0 {
-        (m | 0x80000000 | ((-score as u32) << 17)) as ScoredMove
-    } else {
-        (m | ((score as u32) << 17)) as ScoredMove
-    }
-}
-
-pub fn decode_score(m: ScoredMove) -> i32 {
-    if m & 0x80000000 != 0 {
-        -(((m & 0x7FFE0000) >> 17) as i32)
-    } else {
-        (m >> 17) as i32
-    }
-}
-
-pub fn decode_move(m: ScoredMove) -> Move {
-    (m & 0x1FFFF) as Move
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::move_gen::encode_move;
-    use crate::pieces::Q;
 
     #[test]
     fn pack_any_scores() {
@@ -104,21 +78,4 @@ mod tests {
         assert_eq!(unpack_eg_score(packed), b);
     }
 
-    #[test]
-    fn scored_move_for_max_score() {
-        let m = encode_move(Q, 2, 63);
-        let scored_move = encode_scored_move(m, MAX_SCORE);
-
-        assert_eq!(m, decode_move(scored_move));
-        assert_eq!(MAX_SCORE, decode_score(scored_move));
-    }
-
-    #[test]
-    fn scored_move_for_min_score() {
-        let m = encode_move(Q, 2, 63);
-        let scored_move = encode_scored_move(m, MIN_SCORE);
-
-        assert_eq!(m, decode_move(scored_move));
-        assert_eq!(MIN_SCORE, decode_score(scored_move));
-    }
 }

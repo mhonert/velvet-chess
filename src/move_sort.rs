@@ -19,9 +19,9 @@
 use crate::board::{Board, interpolate_score};
 use crate::colors::{Color};
 use crate::history_heuristics::HistoryHeuristics;
-use crate::move_gen::{decode_end_index, decode_piece_id, decode_start_index, generate_capture_moves, generate_moves, Move, NO_MOVE};
+use crate::move_gen::{generate_capture_moves, generate_moves, Move, NO_MOVE};
 use crate::pieces::{EMPTY};
-use crate::score_util::{decode_score, encode_scored_move, ScoredMove, unpack_score, unpack_eg_score, decode_move};
+use crate::score_util::{unpack_score, unpack_eg_score};
 
 const CAPTURE_ORDER_SIZE: usize = 5 + 5 * 8 + 1;
 
@@ -32,7 +32,7 @@ const CAPTURE_ORDER_SCORES: [i32; CAPTURE_ORDER_SIZE] = calc_capture_order_score
 
 #[inline]
 fn get_capture_order_score(attacker_id: i32, victim_id: i32) -> i32 {
-    CAPTURE_ORDER_SCORES[((attacker_id - 1) * 8 + (victim_id - 1)) as usize]
+    unsafe { *CAPTURE_ORDER_SCORES.get_unchecked(((attacker_id - 1) * 8 + (victim_id - 1)) as usize) }
 }
 
 enum Stage {
@@ -41,16 +41,16 @@ enum Stage {
 }
 
 pub struct SortedMoves {
-    scored_hash_move: ScoredMove,
+    scored_hash_move: Move,
     primary_killer: Move,
     secondary_killer: Move,
-    moves: Option<Vec<ScoredMove>>,
+    moves: Option<Vec<Move>>,
     stage: Stage,
     index: usize,
 }
 
 impl SortedMoves {
-    pub fn new(scored_hash_move: ScoredMove, primary_killer: Move, secondary_killer: Move) -> Self {
+    pub fn new(scored_hash_move: Move, primary_killer: Move, secondary_killer: Move) -> Self {
         SortedMoves {
             scored_hash_move,
             primary_killer,
@@ -65,7 +65,7 @@ impl SortedMoves {
         self.stage = Stage::HashMove;
     }
 
-    pub fn next_move(&mut self, hh: &HistoryHeuristics, board: &mut Board) -> Option<ScoredMove> {
+    pub fn next_move(&mut self, hh: &HistoryHeuristics, board: &mut Board) -> Option<Move> {
         match self.stage {
             Stage::HashMove => {
                 self.index = 0;
@@ -88,7 +88,7 @@ impl SortedMoves {
                         while self.index < moves.len() {
                             self.index += 1;
                             let m = unsafe { *moves.get_unchecked(self.index - 1) };
-                            if decode_move(m) != decode_move(self.scored_hash_move) {
+                            if !m.is_same_move(self.scored_hash_move) {
 
                                 return Some(m);
                             }
@@ -104,7 +104,7 @@ impl SortedMoves {
         }
     }
 
-    pub fn next_capture_move(&mut self, board: &mut Board) -> Option<ScoredMove> {
+    pub fn next_capture_move(&mut self, board: &mut Board) -> Option<Move> {
         if self.moves == None {
             self.moves = Some(gen_capture_moves(board));
         }
@@ -125,20 +125,21 @@ impl SortedMoves {
 
 }
 
-fn gen_moves(hh: &HistoryHeuristics, board: &Board, primary_killer: Move, secondary_killer: Move) -> Vec<ScoredMove> {
+fn gen_moves(hh: &HistoryHeuristics, board: &Board, primary_killer: Move, secondary_killer: Move) -> Vec<Move> {
     let active_player = board.active_player();
     let mut moves = generate_moves(board, active_player);
-    sort_by_score(hh, board, &mut moves, primary_killer, secondary_killer, active_player);
+    score_moves(hh, board, &mut moves, primary_killer, secondary_killer, active_player);
+    sort_by_score_desc(&mut moves);
+
     moves
 }
 
-fn gen_capture_moves(board: &Board) -> Vec<ScoredMove> {
+fn gen_capture_moves(board: &Board) -> Vec<Move> {
     let active_player = board.active_player();
     let mut moves = generate_capture_moves(board, active_player);
 
     for m in moves.iter_mut() {
-        let score = evaluate_capture_move_score(board, active_player, *m);
-        *m = encode_scored_move(*m, score);
+        *m = m.with_score(evaluate_capture_move_score(board, active_player, *m));
     }
 
     sort_by_score_desc(&mut moves);
@@ -146,14 +147,7 @@ fn gen_capture_moves(board: &Board) -> Vec<ScoredMove> {
     moves
 }
 
-fn sort_by_score(
-    hh: &HistoryHeuristics,
-    board: &Board,
-    moves: &mut Vec<Move>,
-    primary_killer: Move,
-    secondary_killer: Move,
-    active_player: Color
-) {
+fn score_moves(hh: &HistoryHeuristics, board: &Board, moves: &mut Vec<Move>, primary_killer: Move, secondary_killer: Move, active_player: Color) {
     let phase = board.calc_phase_value();
     for m in moves.iter_mut() {
         let score = if *m == primary_killer {
@@ -163,18 +157,16 @@ fn sort_by_score(
         } else {
             evaluate_move_score(phase, hh,  board, active_player, *m)
         };
-        *m = encode_scored_move(*m, score);
-    }
 
-    sort_by_score_desc(moves);
+        *m = m.with_score(score);
+    }
 }
 
+#[inline]
 fn evaluate_capture_move_score(board: &Board, active_player: Color, m: Move) -> i32 {
-    let start = decode_start_index(m);
-    let end = decode_end_index(m);
-    let captured_piece = board.get_item(end);
+    let captured_piece = board.get_item(m.end());
 
-    let original_piece_id = active_player * board.get_item(start);
+    let original_piece_id = active_player * board.get_item(m.start());
     let captured_piece_id = captured_piece.abs();
 
     get_capture_order_score(original_piece_id as i32, captured_piece_id as i32)
@@ -202,7 +194,7 @@ const fn calc_capture_order_scores() -> [i32; CAPTURE_ORDER_SIZE] {
 }
 
 pub struct SortedLegalMoves {
-    moves: Option<Vec<ScoredMove>>,
+    moves: Option<Vec<Move>>,
     index: usize,
 }
 
@@ -224,7 +216,7 @@ impl SortedLegalMoves {
         };
     }
 
-    pub fn next_legal_move(&mut self, hh: &HistoryHeuristics, board: &mut Board) -> Option<ScoredMove> {
+    pub fn next_legal_move(&mut self, hh: &HistoryHeuristics, board: &mut Board) -> Option<Move> {
         if self.moves == None {
             self.moves = Some(gen_legal_moves(hh, board));
         }
@@ -243,7 +235,7 @@ impl SortedLegalMoves {
         }
     }
 
-    pub fn update_move(&mut self, scored_move: ScoredMove) {
+    pub fn update_move(&mut self, scored_move: Move) {
         if let Some(moves) = self.moves.as_mut() {
             moves[self.index - 1] = scored_move;
         };
@@ -251,24 +243,16 @@ impl SortedLegalMoves {
 
 }
 
-fn gen_legal_moves(hh: &HistoryHeuristics, board: &mut Board) -> Vec<ScoredMove> {
+fn gen_legal_moves(hh: &HistoryHeuristics, board: &mut Board) -> Vec<Move> {
     let active_player = board.active_player();
     let mut moves = generate_moves(board, active_player);
     {
-        moves.retain(|&m| {
-            board.is_legal_move(
-                active_player,
-                decode_piece_id(m) as i8,
-                decode_start_index(m),
-                decode_end_index(m),
-            )
-        });
+        moves.retain(|&m| board.is_legal_move(active_player, m));
     }
 
     let phase = board.calc_phase_value();
     for m in moves.iter_mut() {
-        let score = evaluate_move_score(phase, hh,  board, active_player, *m);
-        *m = encode_scored_move(*m, score);
+        * m = m.with_score(evaluate_move_score(phase, hh,  board, active_player, *m));
     }
 
     sort_by_score_desc(&mut moves);
@@ -283,8 +267,8 @@ fn evaluate_move_score(
     active_player: Color,
     m: Move,
 ) -> i32 {
-    let start = decode_start_index(m);
-    let end = decode_end_index(m);
+    let start = m.start();
+    let end = m.end();
     let captured_piece = board.get_item(end);
 
     if captured_piece == EMPTY {
@@ -311,7 +295,7 @@ fn evaluate_move_score(
         }
     }
 
-    let original_piece_id = decode_piece_id(m);
+    let original_piece_id = m.piece_id();
     let captured_piece_id = captured_piece.abs();
 
     get_capture_order_score(original_piece_id as i32, captured_piece_id as i32)
@@ -321,11 +305,11 @@ fn sort_by_score_desc(moves: &mut Vec<Move>) {
     // Basic insertion sort
     for i in 1..moves.len() {
         let x = unsafe { *moves.get_unchecked(i) };
-        let x_score = decode_score(x);
+        let x_score = x.score();
         let mut j = i as i32 - 1;
         while j >= 0 {
             let y = unsafe { *moves.get_unchecked(j as usize) };
-            if decode_score(y) >= x_score {
+            if y.score() >= x_score {
                 break;
             }
 

@@ -17,7 +17,7 @@
  */
 
 use crate::board::Board;
-use crate::move_gen::{decode_end_index, decode_piece_id, decode_start_index, Move};
+use crate::move_gen::{Move};
 use crate::pieces::{B, EMPTY, N, Q, R};
 
 pub struct UCIMove {
@@ -36,20 +36,16 @@ impl UCIMove {
     }
 
     pub fn from_encoded_move(board: &Board, m: Move) -> Self {
-        let target_piece = decode_piece_id(m) as i8;
-        let start = decode_start_index(m) as i8;
-        let end = decode_end_index(m) as i8;
-
-        let current_piece = board.get_item(start as i32).abs();
-        let promotion = if target_piece != current_piece {
-            target_piece
+        let current_piece = board.get_item(m.start() as i32).abs();
+        let promotion = if m.piece_id() != current_piece {
+            m.piece_id()
         } else {
             EMPTY
         };
 
         UCIMove {
-            start,
-            end,
+            start: m.start() as i8,
+            end: m.end() as i8,
             promotion,
         }
     }

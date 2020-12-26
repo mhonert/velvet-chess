@@ -199,7 +199,7 @@ fn any_moves_allow_check_evasion(
     moves: &mut Vec<Move>,
     active_player: Color,
 ) -> bool {
-    for &m in moves.iter() {
+    for m in moves.iter() {
         if !move_results_in_check(board, m, active_player) {
             return true;
         }
@@ -208,13 +208,12 @@ fn any_moves_allow_check_evasion(
     false
 }
 
-fn move_results_in_check(board: &mut Board, m: Move, active_player: Color) -> bool {
-    let piece_id = decode_piece_id(m);
-    let start = decode_start_index(m);
-    let end = decode_end_index(m);
+fn move_results_in_check(board: &mut Board, m: &Move, active_player: Color) -> bool {
+    let start = m.start();
+    let end = m.end();
 
     let previous_piece = board.get_item(start);
-    let move_state = board.perform_move(piece_id as i8, start, end);
+    let move_state = board.perform_move(m.piece_id() as i8, start, end);
     let check = board.is_in_check(active_player);
     board.undo_move(previous_piece, start, end, move_state);
 
@@ -292,14 +291,14 @@ fn gen_white_en_passant_moves(moves: &mut Vec<Move>, board: &Board, pawns: u64) 
     if en_passant != 0b10000000 {
         let start = end + 9;
         if (pawns & (1 << start)) != 0 {
-            moves.push(encode_move(P, start as i32, end as i32));
+            moves.push(Move::new(P, start as i32, end as i32));
         }
     }
 
     if en_passant != 0b00000001 {
         let start = end + 7;
         if (pawns & (1 << start)) != 0 {
-            moves.push(encode_move(P, start as i32, end as i32));
+            moves.push(Move::new(P, start as i32, end as i32));
         }
     }
 }
@@ -349,14 +348,14 @@ fn gen_black_en_passant_moves(moves: &mut Vec<Move>, board: &Board, pawns: u64) 
     if en_passant != 0b00000001 {
         let start = end - 9;
         if (pawns & (1 << start)) != 0 {
-            moves.push(encode_move(P, start as i32, end as i32));
+            moves.push(Move::new(P, start as i32, end as i32));
         }
     }
 
     if en_passant != 0b10000000 {
         let start = end - 7;
         if (pawns & (1 << start)) != 0 {
-            moves.push(encode_move(P, start as i32, end as i32));
+            moves.push(Move::new(P, start as i32, end as i32));
         }
     }
 }
@@ -367,24 +366,18 @@ fn add_pawn_moves(moves: &mut Vec<Move>, target_bb: u64, direction: i32) {
 
         if end <= 7 || end >= 56 {
             // Promotion
-            moves.push(encode_move(Q, start, end as i32));
-            moves.push(encode_move(R, start, end as i32));
-            moves.push(encode_move(B, start, end as i32));
-            moves.push(encode_move(N, start, end as i32));
+            moves.push(Move::new(Q, start, end as i32));
+            moves.push(Move::new(R, start, end as i32));
+            moves.push(Move::new(B, start, end as i32));
+            moves.push(Move::new(N, start, end as i32));
         } else {
             // Normal move
-            moves.push(encode_move(P, start, end as i32));
+            moves.push(Move::new(P, start, end as i32));
         }
     }
 }
 
-fn gen_white_king_moves(
-    moves: &mut Vec<Move>,
-    pos: i32,
-    board: &Board,
-    opponent_bb: u64,
-    empty_bb: u64,
-) {
+fn gen_white_king_moves(moves: &mut Vec<Move>, pos: i32, board: &Board, opponent_bb: u64, empty_bb: u64) {
     let king_targets = get_king_attacks(pos);
 
     // Captures
@@ -398,26 +391,16 @@ fn gen_white_king_moves(
         return;
     }
 
-    if board.can_castle(Castling::WhiteKingSide)
-        && is_kingside_castling_valid_for_white(board, empty_bb)
-    {
-        moves.push(encode_move(K, pos, pos + 2));
+    if board.can_castle(Castling::WhiteKingSide) && is_kingside_castling_valid_for_white(board, empty_bb) {
+        moves.push(Move::new(K, pos, pos + 2));
     }
 
-    if board.can_castle(Castling::WhiteQueenSide)
-        && is_queenside_castling_valid_for_white(board, empty_bb)
-    {
-        moves.push(encode_move(K, pos, pos - 2));
+    if board.can_castle(Castling::WhiteQueenSide) && is_queenside_castling_valid_for_white(board, empty_bb) {
+        moves.push(Move::new(K, pos, pos - 2));
     }
 }
 
-fn gen_black_king_moves(
-    moves: &mut Vec<Move>,
-    pos: i32,
-    board: &Board,
-    opponent_bb: u64,
-    empty_bb: u64,
-) {
+fn gen_black_king_moves(moves: &mut Vec<Move>, pos: i32, board: &Board, opponent_bb: u64, empty_bb: u64) {
     let king_targets = get_king_attacks(pos);
 
     // Captures
@@ -431,22 +414,20 @@ fn gen_black_king_moves(
         return;
     }
 
-    if board.can_castle(Castling::BlackKingSide)
-        && is_kingside_castling_valid_for_black(board, empty_bb)
-    {
-        moves.push(encode_move(K, pos, pos + 2));
+    if board.can_castle(Castling::BlackKingSide) && is_kingside_castling_valid_for_black(board, empty_bb) {
+        moves.push(Move::new(K, pos, pos + 2));
     }
 
     if board.can_castle(Castling::BlackQueenSide)
         && is_queenside_castling_valid_for_black(board, empty_bb)
     {
-        moves.push(encode_move(K, pos, pos - 2));
+        moves.push(Move::new(K, pos, pos - 2));
     }
 }
 
 fn add_moves(moves: &mut Vec<Move>, piece: i8, pos: i32, target_bb: u64) {
     for end in BitBoard(target_bb) {
-        moves.push(encode_move(piece, pos, end as i32));
+        moves.push(Move::new(piece, pos, end as i32));
     }
 }
 
@@ -478,28 +459,76 @@ fn is_queenside_castling_valid_for_black(board: &Board, empty_bb: u64) -> bool {
         && !board.is_attacked(WHITE, BlackBoardPos::KingStart as i32 - 2)
 }
 
-pub type Move = u32;
-pub const NO_MOVE: Move = 0;
+#[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Debug)]
+pub struct Move(u32);
 
-pub fn encode_move(piece: i8, start: i32, end: i32) -> Move {
-    (piece.abs() as u32) | ((start as u32) << 3) | ((end as u32) << 10)
-}
+pub const NO_MOVE: Move = Move(0);
 
-pub fn decode_piece_id(m: Move) -> u32 {
-    m & 0x7
-}
+impl Move {
+    #[inline]
+    pub fn new(piece: i8, start: i32, end: i32) -> Self {
+        Move((piece.abs() as u32) | ((start as u32) << 3) | ((end as u32) << 10))
+    }
 
-pub fn decode_start_index(m: Move) -> i32 {
-    ((m >> 3) & 0x7F) as i32
-}
+    #[inline]
+    pub fn with_score(&self, score: i32) -> Move {
+        if score < 0 {
+            Move(self.0 & 0x1FFFF | 0x80000000 | ((-score as u32) << 17))
+        } else {
+            Move(self.0 & 0x1FFFF | (score as u32) << 17)
+        }
+    }
 
-pub fn decode_end_index(m: Move) -> i32 {
-    ((m >> 10) & 0x7F) as i32
+    #[inline]
+    pub fn to_u32(&self) -> u32 {
+        self.0
+    }
+
+    #[inline]
+    pub fn from_u32(packed_move: u32) -> Move {
+        Move(packed_move)
+    }
+
+    #[inline]
+    pub fn without_score(&self) -> Move {
+        self.with_score(0)
+    }
+
+    /// Checks, whether the two moves are the same (except for the score)
+    #[inline]
+    pub fn is_same_move(&self, m: Move) -> bool {
+        (self.0 & 0x1FFFF) == (m.0 & 0x1FFFF)
+    }
+
+    #[inline]
+    pub fn piece_id(&self) -> i8 {
+        (self.0 & 0x7) as i8
+    }
+
+    #[inline]
+    pub fn start(&self) -> i32 {
+        ((self.0 >> 3) & 0x7F) as i32
+    }
+
+    #[inline]
+    pub fn end(&self) -> i32 {
+        ((self.0 >> 10) & 0x7F) as i32
+    }
+
+    #[inline]
+    pub fn score(&self) -> i32 {
+        if self.0 & 0x80000000 != 0 {
+            -(((self.0 & 0x7FFE0000) >> 17) as i32)
+        } else {
+            (self.0 >> 17) as i32
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::score_util::{MAX_SCORE, MIN_SCORE};
 
     #[rustfmt::skip]
     const ONLY_KINGS: [i8; 64] = [
@@ -545,6 +574,37 @@ mod tests {
         );
     }
 
+    #[test]
+    fn scored_move_for_max_score() {
+        let m = Move::new(Q, 2, 63).with_score(MAX_SCORE);
+
+        assert_eq!(m.piece_id(), Q);
+        assert_eq!(m.start(), 2);
+        assert_eq!(m.end(), 63);
+        assert_eq!(MAX_SCORE, m.score());
+    }
+
+    #[test]
+    fn scored_move_for_min_score() {
+        let m = Move::new(K, 0, 1).with_score(MIN_SCORE);
+
+        assert_eq!(m.piece_id(), K);
+        assert_eq!(m.start(), 0);
+        assert_eq!(m.end(), 1);
+        assert_eq!(MIN_SCORE, m.score());
+    }
+
+    #[test]
+    fn scored_move() {
+        let score = -1037;
+        let m = Move::new(K, 4, 12).with_score(score);
+
+        assert_eq!(m.piece_id(), K);
+        assert_eq!(m.start(), 4);
+        assert_eq!(m.end(), 12);
+        assert_eq!(score, m.score());
+    }
+
     fn board_with_one_piece(color: Color, piece_id: i8, pos: i32) -> Board {
         let mut items = ONLY_KINGS;
         items[pos as usize] = piece_id * color;
@@ -554,15 +614,9 @@ mod tests {
     fn generate_moves_for_pos(board: &mut Board, color: Color, pos: i32) -> Vec<Move> {
         generate_moves(board, color)
             .into_iter()
-            .filter(|&m| decode_start_index(m) == pos)
-            .filter(|&m| {
-                board.is_legal_move(
-                    color,
-                    decode_piece_id(m) as i8,
-                    decode_start_index(m),
-                    decode_end_index(m),
-                )
-            })
+            .filter(|&m| m.start() == pos)
+            .filter(|&m| board.is_legal_move(color, m))
             .collect()
     }
+
 }

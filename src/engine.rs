@@ -20,9 +20,7 @@ use crate::board::Board;
 use crate::colors::{Color, WHITE, BLACK};
 use crate::fen::{create_from_fen, read_fen, write_fen, START_POS};
 use crate::history_heuristics::HistoryHeuristics;
-use crate::move_gen::{
-    decode_end_index, decode_piece_id, decode_start_index, has_valid_moves, Move, NO_MOVE,
-};
+use crate::move_gen::{has_valid_moves, Move, NO_MOVE};
 use crate::perft::perft;
 use crate::pieces::{EMPTY, Q, get_piece_value};
 use crate::search::Search;
@@ -35,7 +33,7 @@ use std::sync::mpsc::{Receiver, Sender, TryRecvError};
 use std::thread;
 use std::time::{Instant, SystemTime};
 use crate::eval::Eval;
-use crate::score_util::{MIN_SCORE, MAX_SCORE, decode_move};
+use crate::score_util::{MIN_SCORE, MAX_SCORE};
 use crate::random::Random;
 
 pub enum Message {
@@ -306,17 +304,12 @@ impl Engine {
 
             let play_moves = (self.rnd.rand64() % 12) as i32;
             for _ in 0..play_moves {
-                let sm = self.find_best_move(9, true);
-                if sm == NO_MOVE {
-                    break;
-                }
-
-                let m = decode_move(sm);
+                let m = self.find_best_move(9, true);
                 if m == NO_MOVE {
                     break;
                 }
 
-                self.board.perform_move(decode_piece_id(m) as i8, decode_start_index(m), decode_end_index(m));
+                self.board.perform_move(m.piece_id(), m.start(), m.end());
             }
 
             if !self.make_quiet() {
@@ -357,21 +350,16 @@ impl Engine {
                 is_quiet = true;
             }
 
-            let scored_m = self.find_best_move(6, true);
-            if scored_m == NO_MOVE {
-                return false;
-            }
-
-            if is_quiet && self.is_quiet_pv(decode_move(scored_m), 4) {
-                return true;
-            }
-
-            let m = decode_move(scored_m);
+            let m = self.find_best_move(6, true);
             if m == NO_MOVE {
                 return false;
             }
 
-            self.board.perform_move(decode_piece_id(m) as i8, decode_start_index(m), decode_end_index(m));
+            if is_quiet && self.is_quiet_pv(m, 4) {
+                return true;
+            }
+
+            self.board.perform_move(m.piece_id(), m.start(), m.end());
         }
 
         false
@@ -454,11 +442,7 @@ impl Engine {
     }
 
     pub fn perform_move(&mut self, m: Move) {
-        self.board.perform_move(
-            decode_piece_id(m) as i8,
-            decode_start_index(m),
-            decode_end_index(m),
-        );
+        self.board.perform_move(m.piece_id(), m.start(), m.end());
     }
 
     pub fn is_check_mate(&mut self, color: Color) -> bool {

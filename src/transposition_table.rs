@@ -14,7 +14,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::score_util::ScoredMove;
+use crate::move_gen::{Move, NO_MOVE};
 
 pub const MAX_HASH_SIZE_MB: i32 = 4096;
 
@@ -44,7 +44,7 @@ const PER_ENTRY_BYTE_SIZE: u64 = 8 + 4;
 pub struct TranspositionTable {
     index_mask: u64,
     entries: Vec<u64>,
-    moves: Vec<ScoredMove>,
+    moves: Vec<Move>,
     age: i32,
 }
 
@@ -73,7 +73,7 @@ impl TranspositionTable {
             self.index_mask = (size as u64) - 1;
 
             self.entries.resize(size, 0);
-            self.moves.resize(size, 0);
+            self.moves.resize(size, NO_MOVE);
 
             self.entries.shrink_to_fit();
             self.moves.shrink_to_fit();
@@ -84,7 +84,7 @@ impl TranspositionTable {
         self.age = (self.age + 1) & AGE_MASK as i32;
     }
 
-    pub fn write_entry(&mut self, hash: u64, depth: i32, scored_move: ScoredMove, typ: u8) {
+    pub fn write_entry(&mut self, hash: u64, depth: i32, scored_move: Move, typ: u8) {
         let index = self.calc_index(hash);
 
         let entry = unsafe { self.entries.get_unchecked_mut(index) };
@@ -118,7 +118,7 @@ impl TranspositionTable {
         {
             return 0;
         }
-        (unsafe { *self.moves.get_unchecked(index) } as u64) << 32 | (entry & !HASHCHECK_MASK)
+        (unsafe { *self.moves.get_unchecked(index) }.to_u32() as u64) << 32 | (entry & !HASHCHECK_MASK)
     }
 
     pub fn get_age_diff(&self, entry: u64) -> i32 {
@@ -132,14 +132,14 @@ impl TranspositionTable {
     pub fn clear(&mut self) {
         for i in 0..self.entries.len() {
             self.entries[i] = 0;
-            self.moves[i] = 0;
+            self.moves[i] = NO_MOVE;
         }
         self.age = 0;
     }
 }
 
-pub fn get_scored_move(entry: u64) -> ScoredMove {
-    (entry >> 32) as ScoredMove
+pub fn get_scored_move(entry: u64) -> Move {
+    Move::from_u32((entry >> 32) as u32)
 }
 
 pub fn get_depth(entry: u64) -> i32 {
@@ -153,24 +153,22 @@ pub fn get_score_type(entry: u64) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::move_gen::encode_move;
-    use crate::score_util::{decode_score, encode_scored_move};
 
     #[test]
     fn writes_entry() {
         let mut tt = TranspositionTable::new(1);
         let hash = u64::max_value();
         let depth = MAX_DEPTH as i32;
-        let m = encode_move(5, 32, 33);
         let score = -10;
+
+        let m = Move::new(5, 32, 33).with_score(score);
         let typ = EXACT;
 
-        let scored_move = encode_scored_move(m, score);
-        tt.write_entry(hash, depth, scored_move, typ);
+        tt.write_entry(hash, depth, m, typ);
 
         let entry = tt.get_entry(hash);
 
-        assert_eq!(scored_move, get_scored_move(entry));
+        assert_eq!(m, get_scored_move(entry));
         assert_eq!(depth, get_depth(entry));
         assert_eq!(typ, get_score_type(entry));
     }
@@ -180,10 +178,11 @@ mod tests {
         let mut tt = TranspositionTable::new(1);
         let score = -16383;
         let hash = u64::max_value();
-        tt.write_entry(hash, 1, encode_scored_move(0, score), EXACT);
+        let m = NO_MOVE.with_score(score);
+        tt.write_entry(hash, 1, m, EXACT);
 
         let entry = tt.get_entry(hash);
-        assert_eq!(score, decode_score(get_scored_move(entry)));
+        assert_eq!(score, get_scored_move(entry).score());
     }
 
     #[test]
@@ -191,9 +190,10 @@ mod tests {
         let mut tt = TranspositionTable::new(1);
         let score = 16383;
         let hash = u64::max_value();
-        tt.write_entry(hash, 1, encode_scored_move(0, score), EXACT);
+        let m = NO_MOVE.with_score(score);
+        tt.write_entry(hash, 1, m, EXACT);
 
         let entry = tt.get_entry(hash);
-        assert_eq!(score, decode_score(get_scored_move(entry)));
+        assert_eq!(score, get_scored_move(entry).score());
     }
 }

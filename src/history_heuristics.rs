@@ -83,9 +83,9 @@ impl HistoryHeuristics {
     #[inline]
     fn update_killer_moves(&mut self, ply: i32, m: Move) {
         let current_primary = unsafe { self.primary_killers.get_unchecked_mut(ply as usize) };
-        if *current_primary != m {
+        if *current_primary != m.without_score() {
             unsafe { *self.secondary_killers.get_unchecked_mut(ply as usize) = *current_primary };
-            *current_primary = m;
+            *current_primary = m.without_score();
         }
     }
 
@@ -150,15 +150,14 @@ const fn calc_move_thresholds() -> [u64; MAX_DEPTH] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::move_gen::encode_move;
     use crate::pieces::{Q, R};
 
     #[test]
     fn updates_killer_moves() {
         let mut hh = HistoryHeuristics::new();
 
-        let move_a = encode_move(Q, 1, 2);
-        let move_b = encode_move(R, 4, 5);
+        let move_a = Move::new(Q, 1, 2);
+        let move_b = Move::new(R, 4, 5);
         hh.update(3, 1, WHITE, 1, 2, move_a);
         hh.update(3, 1, WHITE, 4, 5, move_b);
 

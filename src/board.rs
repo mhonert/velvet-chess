@@ -25,6 +25,7 @@ use crate::pos_history::PositionHistory;
 use crate::score_util::{unpack_eg_score, unpack_score};
 use crate::options::{Options, PieceSquareTables};
 use crate::zobrist::{piece_zobrist_key, player_zobrist_key, castling_zobrist_key, enpassant_zobrist_key};
+use crate::move_gen::Move;
 
 const MAX_GAME_HALFMOVES: usize = 5898 * 2;
 
@@ -803,9 +804,11 @@ impl Board {
         -1
     }
 
-    pub fn is_legal_move(&mut self, color: Color, piece_id: i8, start: i32, end: i32) -> bool {
+    pub fn is_legal_move(&mut self, color: Color, m: Move) -> bool {
+        let start = m.start();
+        let end = m.end();
         let previous_piece = self.get_item(start);
-        let move_state = self.perform_move(piece_id, start, end);
+        let move_state = self.perform_move(m.piece_id(), start, end);
         let is_legal = !self.is_in_check(color);
         self.undo_move(previous_piece, start, end, move_state);
         is_legal
@@ -877,8 +880,8 @@ impl Board {
         opp_color: Color,
         from: i32,
         target: i32,
-        own_piece_id: u32,
-        captured_piece_id: u32,
+        own_piece_id: i8,
+        captured_piece_id: i8,
     ) -> i32 {
         let mut score = get_piece_value(captured_piece_id as usize);
         let mut occupied = self.get_occupancy_bitboard() & !(1 << from as u64);
@@ -1328,7 +1331,7 @@ mod tests {
         ];
 
         let mut board = Board::new(&items, WHITE, 0, None, 0, 1);
-        assert!(board.see_score(BLACK, 52, 44, R as u32, P as u32) > 0);
+        assert!(board.see_score(BLACK, 52, 44, R, P) > 0);
     }
 
     #[test]
@@ -1346,7 +1349,7 @@ mod tests {
         ];
 
         let mut board = Board::new(&items, BLACK, 0, None, 0, 1);
-        assert!(board.see_score(WHITE, 52, 44, R as u32, P as u32) > 0);
+        assert!(board.see_score(WHITE, 52, 44, R, P) > 0);
     }
 
     #[test]
