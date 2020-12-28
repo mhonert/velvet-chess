@@ -15,6 +15,7 @@
  */
 
 use crate::moves::{Move, NO_MOVE};
+use std::intrinsics::transmute;
 
 pub const MAX_HASH_SIZE_MB: i32 = 4096;
 
@@ -28,9 +29,22 @@ const DEPTH_BITSHIFT: i32 = 15;
 const DEPTH_MASK: u64 = 0b11111111;
 
 // Bits 14 - 13: Score Type
-pub const EXACT: u8 = 0;
-pub const UPPER_BOUND: u8 = 1;
-pub const LOWER_BOUND: u8 = 2;
+#[repr(u8)]
+#[derive(Clone, Copy)]
+pub enum ScoreType {
+    Exact = 0,
+    UpperBound = 1,
+    LowerBound = 2
+}
+
+impl ScoreType {
+    #[inline]
+    pub fn from(code: u8) -> Self {
+        unsafe {
+            transmute(code)
+        }
+    }
+}
 
 const SCORE_TYPE_BITSHIFT: u32 = 13;
 const SCORE_TYPE_MASK: u64 = 0b11;
@@ -84,15 +98,12 @@ impl TranspositionTable {
         self.age = (self.age + 1) & AGE_MASK as i32;
     }
 
-    pub fn write_entry(&mut self, hash: u64, depth: i32, scored_move: Move, typ: u8) {
+    pub fn write_entry(&mut self, hash: u64, depth: i32, scored_move: Move, typ: ScoreType) {
         let index = self.calc_index(hash);
 
         let entry = unsafe { self.entries.get_unchecked_mut(index) };
 
-        if *entry != 0
-            && (*entry & AGE_MASK) as i32 == self.age
-            && depth < ((*entry >> DEPTH_BITSHIFT) & DEPTH_MASK) as i32
-        {
+        if *entry != 0 && (*entry & AGE_MASK) as i32 == self.age && depth < get_depth(*entry) {
             return;
         }
 
@@ -109,15 +120,15 @@ impl TranspositionTable {
         let index = self.calc_index(hash);
 
         let entry = unsafe { *self.entries.get_unchecked(index) };
-        let age_diff = self.age - (entry & AGE_MASK) as i32;
-
-        if entry == 0
-            || age_diff < 0
-            || age_diff > 1
-            || (entry & HASHCHECK_MASK) != (hash & HASHCHECK_MASK)
-        {
+        if entry == 0 {
             return 0;
         }
+
+        let age_diff = self.age - (entry & AGE_MASK) as i32;
+        if age_diff > 1 || (entry & HASHCHECK_MASK) != (hash & HASHCHECK_MASK) {
+            return 0;
+        }
+
         (unsafe { *self.moves.get_unchecked(index) }.to_u32() as u64) << 32 | (entry & !HASHCHECK_MASK)
     }
 
@@ -146,8 +157,8 @@ pub fn get_depth(entry: u64) -> i32 {
     ((entry >> DEPTH_BITSHIFT) & DEPTH_MASK) as i32
 }
 
-pub fn get_score_type(entry: u64) -> u8 {
-    ((entry >> SCORE_TYPE_BITSHIFT) & SCORE_TYPE_MASK) as u8
+pub fn get_score_type(entry: u64) -> ScoreType {
+    ScoreType::from(((entry >> SCORE_TYPE_BITSHIFT) & SCORE_TYPE_MASK) as u8)
 }
 
 #[cfg(test)]
@@ -164,7 +175,7 @@ mod tests {
         let score = -10;
 
         let m = Move::new(MoveType::Quiet, 5, 32, 33).with_score(score);
-        let typ = EXACT;
+        let typ = ScoreType::Exact;
 
         tt.write_entry(hash, depth, m, typ);
 
@@ -172,7 +183,7 @@ mod tests {
 
         assert_eq!(m, get_scored_move(entry));
         assert_eq!(depth, get_depth(entry));
-        assert_eq!(typ, get_score_type(entry));
+        assert_eq!(typ as u8, get_score_type(entry) as u8);
     }
 
     #[test]
@@ -181,7 +192,7 @@ mod tests {
         let score = MIN_SCORE;
         let hash = u64::max_value();
         let m = NO_MOVE.with_score(score);
-        tt.write_entry(hash, 1, m, EXACT);
+        tt.write_entry(hash, 1, m, ScoreType::Exact);
 
         let entry = tt.get_entry(hash);
         assert_eq!(score, get_scored_move(entry).score());
@@ -193,7 +204,7 @@ mod tests {
         let score = MAX_SCORE;
         let hash = u64::max_value();
         let m = NO_MOVE.with_score(score);
-        tt.write_entry(hash, 1, m, EXACT);
+        tt.write_entry(hash, 1, m, ScoreType::Exact);
 
         let entry = tt.get_entry(hash);
         assert_eq!(score, get_scored_move(entry).score());

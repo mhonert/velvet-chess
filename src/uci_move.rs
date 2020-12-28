@@ -109,7 +109,7 @@ impl UCIMove {
     pub fn to_move(&self, board: &Board) -> Move {
         let start = self.start as i32;
         let end = self.end as i32;
-        let start_piece_id = board.get_item(start);
+        let start_piece_id = board.get_item(start).abs();
 
         let typ = match start_piece_id {
             P => {

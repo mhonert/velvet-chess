@@ -26,10 +26,12 @@ pub const fn pack_scores(score: i16, eg_score: i16) -> u32 {
     (score as u32) << 16 | ((eg_score as u32) & 0xFFFF)
 }
 
+#[inline]
 pub fn unpack_score(packed_score: u32) -> i16 {
     (packed_score >> 16) as i16
 }
 
+#[inline]
 pub fn unpack_eg_score(packed_score: u32) -> i16 {
     (packed_score & 0xFFFF) as i16
 }

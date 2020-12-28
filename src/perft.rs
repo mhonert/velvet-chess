@@ -35,13 +35,13 @@ pub fn perft(board: &mut Board, depth: i32) -> u64 {
     let moves = generate_moves(board, active_player);
 
     for m in moves {
-        let (previous_piece, move_state) = board.perform_move(m);
+        let (previous_piece, removed_piece_id) = board.perform_move(m);
 
         if !board.is_in_check(active_player) {
             nodes += perft(board, depth - 1);
         }
 
-        board.undo_move(m, previous_piece, move_state);
+        board.undo_move(m, previous_piece, removed_piece_id);
     }
 
     nodes

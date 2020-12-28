@@ -20,12 +20,12 @@ use crate::bitboard::{black_left_pawn_attacks, black_right_pawn_attacks, white_l
 use crate::boardpos::{BlackBoardPos, WhiteBoardPos};
 use crate::castling::{Castling, clear_castling_bits};
 use crate::colors::{Color, BLACK, WHITE};
-use crate::pieces::{B, EMPTY, K, N, P, Q, R, get_piece_value};
+use crate::pieces::{B, EMPTY, K, N, P, Q, R, get_piece_value_unchecked};
 use crate::pos_history::PositionHistory;
 use crate::score_util::{unpack_eg_score, unpack_score};
 use crate::options::{Options, PieceSquareTables};
 use crate::zobrist::{piece_zobrist_key, player_zobrist_key, castling_zobrist_key, enpassant_zobrist_key};
-use crate::moves::Move;
+use crate::moves::{Move, MoveType};
 
 const MAX_GAME_HALFMOVES: usize = 5898 * 2;
 
@@ -127,8 +127,8 @@ impl Board {
         self.state.castling = castling_state;
         self.state.en_passant = 0;
 
-        if enpassant_target.is_some() {
-            self.set_enpassant(enpassant_target.unwrap())
+        if let Some(target) = enpassant_target {
+            self.set_enpassant(target)
         }
 
         self.bitboards = [0; 13];
@@ -225,15 +225,12 @@ impl Board {
     }
 
     fn update_hash_for_enpassant(&mut self, previous_state: u16) {
-        let new_state = self.state.en_passant;
-        if previous_state != new_state {
-            if previous_state != 0 {
-                self.state.hash ^= enpassant_zobrist_key(previous_state);
-            }
+        if previous_state != 0 {
+            self.state.hash ^= enpassant_zobrist_key(previous_state);
+        }
 
-            if new_state != 0 {
-                self.state.hash ^= enpassant_zobrist_key(new_state);
-            }
+        if self.state.en_passant != 0 {
+            self.state.hash ^= enpassant_zobrist_key(self.state.en_passant);
         }
     }
 
@@ -334,69 +331,82 @@ impl Board {
         }
 
         self.add_piece(color, target_piece_id, move_end as usize);
-        if own_piece == P {
-            self.reset_half_move_clock();
 
-            // Special en passant handling
-            if move_start - move_end == 16 {
+        match m.typ() {
+            MoveType::PawnQuiet => {
+                self.reset_half_move_clock();
+            }
+
+            MoveType::PawnDoubleQuiet => {
+                self.reset_half_move_clock();
                 self.set_enpassant(move_start as i8);
-            } else if move_start - move_end == 7 {
-                self.remove_piece(move_start + WHITE as i32);
-                self.pos_history.push(self.state.hash);
-                return (own_piece, EN_PASSANT);
-            } else if move_start - move_end == 9 {
-                self.remove_piece(move_start - WHITE as i32);
-                self.pos_history.push(self.state.hash);
-                return (own_piece, EN_PASSANT);
             }
-        } else if own_piece == -P {
-            self.reset_half_move_clock();
 
-            // Special en passant handling
-            if move_start - move_end == -16 {
-                self.set_enpassant(move_start as i8);
-            } else if move_start - move_end == -7 {
-                self.remove_piece(move_start + BLACK as i32);
-                self.pos_history.push(self.state.hash);
-                return (own_piece, EN_PASSANT);
-            } else if move_start - move_end == -9 {
-                self.remove_piece(move_start - BLACK as i32);
-                self.pos_history.push(self.state.hash);
-                return (own_piece, EN_PASSANT);
-            }
-        } else if own_piece == K {
-            self.set_king_pos(WHITE, move_end);
+            MoveType::PawnSpecial => {
+                if own_piece == P {
+                    // Special en passant handling
+                    if move_start - move_end == 7 {
+                        self.remove_piece(move_start + WHITE as i32);
+                        self.pos_history.push(self.state.hash);
+                        return (own_piece, P);
+                    } else if move_start - move_end == 9 {
+                        self.remove_piece(move_start - WHITE as i32);
+                        self.pos_history.push(self.state.hash);
+                        return (own_piece, P);
+                    }
+                } else if own_piece == -P {
+                    self.reset_half_move_clock();
 
-            // Special castling handling
-            if move_start - move_end == -2 {
-                self.remove_piece(WhiteBoardPos::KingSideRook as i32);
-                self.add_piece(WHITE, R, WhiteBoardPos::KingStart as usize + 1);
-                self.set_white_has_castled();
-            } else if move_start - move_end == 2 {
-                self.remove_piece(WhiteBoardPos::QueenSideRook as i32);
-                self.add_piece(WHITE, R, WhiteBoardPos::KingStart as usize - 1);
-                self.set_white_has_castled();
-            } else {
-                self.set_king_moved(WHITE);
+                    // Special en passant handling
+                    if move_start - move_end == -7 {
+                        self.remove_piece(move_start + BLACK as i32);
+                        self.pos_history.push(self.state.hash);
+                        return (own_piece, P);
+                    } else if move_start - move_end == -9 {
+                        self.remove_piece(move_start - BLACK as i32);
+                        self.pos_history.push(self.state.hash);
+                        return (own_piece, P);
+                    }
+                }
             }
-        } else if own_piece == -K {
-            self.set_king_pos(BLACK, move_end);
 
-            // Special castling handling
-            if move_start - move_end == -2 {
-                self.remove_piece(BlackBoardPos::KingSideRook as i32);
-                self.add_piece(BLACK, R, BlackBoardPos::KingStart as usize + 1);
-                self.set_black_has_castled();
-            } else if move_start - move_end == 2 {
-                self.remove_piece(BlackBoardPos::QueenSideRook as i32);
-                self.add_piece(BLACK, R, BlackBoardPos::KingStart as usize - 1);
-                self.set_black_has_castled();
-            } else {
-                self.set_king_moved(BLACK);
+            MoveType::KingQuiet => {
+                self.set_king_pos(color, move_end);
+                self.set_king_moved(color);
             }
+
+            MoveType::Castling => {
+                if own_piece == K {
+                    self.set_king_pos(WHITE, move_end);
+
+                    // Special castling handling
+                    if move_start - move_end == -2 {
+                        self.remove_piece(WhiteBoardPos::KingSideRook as i32);
+                        self.add_piece(WHITE, R, WhiteBoardPos::KingStart as usize + 1);
+                        self.set_white_has_castled();
+                    } else if move_start - move_end == 2 {
+                        self.remove_piece(WhiteBoardPos::QueenSideRook as i32);
+                        self.add_piece(WHITE, R, WhiteBoardPos::KingStart as usize - 1);
+                        self.set_white_has_castled();
+                    }
+                } else if own_piece == -K {
+                    self.set_king_pos(BLACK, move_end);
+
+                    // Special castling handling
+                    if move_start - move_end == -2 {
+                        self.remove_piece(BlackBoardPos::KingSideRook as i32);
+                        self.add_piece(BLACK, R, BlackBoardPos::KingStart as usize + 1);
+                        self.set_black_has_castled();
+                    } else if move_start - move_end == 2 {
+                        self.remove_piece(BlackBoardPos::QueenSideRook as i32);
+                        self.add_piece(BLACK, R, BlackBoardPos::KingStart as usize - 1);
+                        self.set_black_has_castled();
+                    }
+                }
+            }
+
+            _ => {}
         }
-
-        // Position history
 
         self.pos_history.push(self.state.hash);
         (own_piece, EMPTY)
@@ -414,15 +424,15 @@ impl Board {
 
     pub fn set_white_has_castled(&mut self) {
         let previous_state = self.state.castling;
-        self.state.castling |= Castling::WhiteHasCastled as u8;
         self.state.castling = clear_castling_bits(WHITE, self.state.castling);
+        self.state.castling |= Castling::WhiteHasCastled as u8;
         self.update_hash_for_castling(previous_state);
     }
 
     pub fn set_black_has_castled(&mut self) {
         let previous_state = self.state.castling;
-        self.state.castling |= Castling::BlackHasCastled as u8;
         self.state.castling = clear_castling_bits(BLACK, self.state.castling);
+        self.state.castling |= Castling::BlackHasCastled as u8;
         self.update_hash_for_castling(previous_state);
     }
 
@@ -442,7 +452,7 @@ impl Board {
         self.remove_piece_without_inc_update(move_end);
         self.add_piece_without_inc_update(color, piece, move_start);
 
-        if removed_piece_id == EN_PASSANT {
+        if m.is_en_passant() {
             if (move_start - move_end).abs() == 7 {
                 self.add_piece_without_inc_update(-color, P * -color, move_start + color as i32);
             } else if (move_start - move_end).abs() == 9 {
@@ -529,6 +539,21 @@ impl Board {
         self.subtract_piece_score(piece, pos as usize);
         self.state.hash ^= piece_zobrist_key(piece, pos as usize);
 
+
+        if piece == R {
+            if pos == WhiteBoardPos::QueenSideRook as i32 {
+                self.set_rook_moved(Castling::WhiteQueenSide);
+            } else if pos == WhiteBoardPos::KingSideRook as i32 {
+                self.set_rook_moved(Castling::WhiteKingSide);
+            }
+        } else if piece == -R {
+            if pos == BlackBoardPos::QueenSideRook as i32 {
+                self.set_rook_moved(Castling::BlackQueenSide);
+            } else if pos == BlackBoardPos::KingSideRook as i32 {
+                self.set_rook_moved(Castling::BlackKingSide);
+            }
+        }
+
         let color = piece.signum();
         self.remove(piece, color, pos)
     }
@@ -546,6 +571,7 @@ impl Board {
         self.remove(piece, color, pos);
     }
 
+    #[inline]
     fn remove(&mut self, piece: i8, color: Color, pos: i32) -> i8 {
         unsafe {
             *self.bitboards.get_unchecked_mut((piece + 6) as usize) &= !(1u64 << pos as u64);
@@ -553,19 +579,6 @@ impl Board {
             *self.items.get_unchecked_mut(pos as usize) = EMPTY;
         }
 
-        if piece == R {
-            if pos == WhiteBoardPos::QueenSideRook as i32 {
-                self.set_rook_moved(Castling::WhiteQueenSide);
-            } else if pos == WhiteBoardPos::KingSideRook as i32 {
-                self.set_rook_moved(Castling::WhiteKingSide);
-            }
-        } else if piece == -R {
-            if pos == BlackBoardPos::QueenSideRook as i32 {
-                self.set_rook_moved(Castling::BlackQueenSide);
-            } else if pos == BlackBoardPos::KingSideRook as i32 {
-                self.set_rook_moved(Castling::BlackKingSide);
-            }
-        }
         piece
     }
 
@@ -792,7 +805,7 @@ impl Board {
     // Return true, if the engine considers the current position as a draw.
     // Note: it already considers the first repetition of a position as a draw to stop searching a branch that leads to a draw earlier.
     pub fn is_engine_draw(&self) -> bool {
-        self.pos_history.is_single_repetition()
+        self.pos_history.is_single_repetition(self.state.halfmove_clock)
             || self.is_fifty_move_draw()
             || self.is_insufficient_material_draw()
     }
@@ -858,9 +871,9 @@ impl Board {
         own_piece_id: i8,
         captured_piece_id: i8,
     ) -> i32 {
-        let mut score = get_piece_value(captured_piece_id as usize);
+        let mut score = get_piece_value_unchecked(captured_piece_id as usize);
         let mut occupied = self.get_occupancy_bitboard() & !(1 << from as u64);
-        let mut trophy_piece_score = get_piece_value(own_piece_id as usize);
+        let mut trophy_piece_score = get_piece_value_unchecked(own_piece_id as usize);
 
         loop {
             // Opponent attack
@@ -869,7 +882,7 @@ impl Board {
                 return score as i32;
             }
             score -= trophy_piece_score;
-            trophy_piece_score = get_piece_value(self.get_item(attacker_pos).abs() as usize);
+            trophy_piece_score = get_piece_value_unchecked(self.get_item(attacker_pos).abs() as usize);
             if score + trophy_piece_score < 0 {
                 return score as i32;
             }
@@ -883,7 +896,7 @@ impl Board {
             }
 
             score += trophy_piece_score;
-            trophy_piece_score = get_piece_value(self.get_item(own_attacker_pos).abs() as usize);
+            trophy_piece_score = get_piece_value_unchecked(self.get_item(own_attacker_pos).abs() as usize);
             if score - trophy_piece_score > 0 {
                 return score as i32;
             }
@@ -901,7 +914,7 @@ impl Board {
             if item == EMPTY {
                 continue;
             }
-            score += get_piece_value(item.abs() as usize) as i32 * item.signum() as i32;
+            score += get_piece_value_unchecked(item.abs() as usize) as i32 * item.signum() as i32;
         }
 
         score
@@ -922,6 +935,33 @@ impl Board {
     pub fn king_pos(&self, color: Color) -> i32 {
         unsafe { *self.king_pos.get_unchecked((color + 1) as usize) }
     }
+
+    pub fn is_likely_valid_move(&self, active_player: Color, m: Move) -> bool {
+        let previous_piece = self.get_item(m.start());
+
+        if previous_piece.signum() != active_player {
+            return false;
+        }
+
+        let removed_piece = self.get_item(m.end());
+        if m.is_en_passant() {
+            // Check for invalid en passant move
+            if removed_piece != EMPTY || !self.can_enpassant(active_player, m.end() as u8) {
+                return false;
+            }
+        }
+
+        if removed_piece == EMPTY {
+            return true;
+        }
+
+        if removed_piece == K || removed_piece == -K {
+            return false;
+        }
+
+        removed_piece.signum() == -active_player
+    }
+
 }
 
 pub fn calc_phase_value(all_pieces: u64, all_pawns: u64, white_queens: u64, black_queens: u64) -> i32 {
@@ -942,8 +982,6 @@ pub fn interpolate_score(phase: i32, score: i32, eg_score: i32) -> i32 {
     ((score * phase) + (eg_score * eg_phase)) / MAX_PHASE
 }
 
-
-pub const EN_PASSANT: i8 = 1 << 7;
 
 const ALL_CASTLING: u8 = Castling::WhiteKingSide as u8
     | Castling::WhiteQueenSide as u8

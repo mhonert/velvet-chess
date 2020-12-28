@@ -16,6 +16,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+use std::cmp::min;
+
 pub struct PositionHistory {
     positions: [u64; 1024],
     index: usize,
@@ -38,14 +40,14 @@ impl PositionHistory {
         self.index -= 1;
     }
 
-    pub fn is_single_repetition(&self) -> bool {
-        if self.index <= 1 {
-            return false;
-        }
+    pub fn is_single_repetition(&self, halfmove_clock: u8) -> bool {
+        let mut pos = self.index - 1;
+        let hash = unsafe { *self.positions.get_unchecked(pos) };
 
-        let hash = unsafe { *self.positions.get_unchecked(self.index - 1) };
-        for i in 0..self.index - 1 {
-            if unsafe { *self.positions.get_unchecked(i) } == hash {
+        let earliest_index = self.index + 2 - (min(self.index, halfmove_clock as usize));
+        while pos >= earliest_index {
+            pos -= 2;
+            if unsafe { *self.positions.get_unchecked(pos) } == hash {
                 return true;
             }
         }
@@ -64,14 +66,21 @@ mod tests {
 
     #[test]
     fn detects_single_repetition() {
+
         let mut history = PositionHistory::new();
+        history.push(1000);
+        history.push(1001);
+        history.push(1002);
+        history.push(1003);
+        history.push(1004);
+
         history.push(1);
-        assert!(!history.is_single_repetition());
+        assert!(!history.is_single_repetition(1));
 
         history.push(2);
-        assert!(!history.is_single_repetition());
+        assert!(!history.is_single_repetition(2));
 
         history.push(1);
-        assert!(history.is_single_repetition());
+        assert!(history.is_single_repetition(3));
     }
 }

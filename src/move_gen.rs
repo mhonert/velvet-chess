@@ -242,7 +242,7 @@ fn gen_white_straight_pawn_moves(moves: &mut Vec<Move>, pawns: u64, empty_bb: u6
     add_pawn_moves(MoveType::PawnQuiet, moves, target_bb, 8);
 
     // Double move
-    target_bb &= PAWN_DOUBLE_MOVE_LINES[WHITE as usize + 1];
+    target_bb &= unsafe{ *PAWN_DOUBLE_MOVE_LINES.get_unchecked(WHITE as usize + 1) };
     target_bb >>= 8;
 
     target_bb &= empty_bb;
@@ -299,7 +299,7 @@ fn gen_black_straight_pawn_moves(moves: &mut Vec<Move>, pawns: u64, empty_bb: u6
     add_pawn_moves(MoveType::PawnQuiet, moves, target_bb, -8);
 
     // Double move
-    target_bb &= PAWN_DOUBLE_MOVE_LINES[((BLACK as i32) + 1) as usize];
+    target_bb &= unsafe { *PAWN_DOUBLE_MOVE_LINES.get_unchecked(((BLACK as i32) + 1) as usize) };
     target_bb <<= 8;
 
     target_bb &= empty_bb;
@@ -349,9 +349,9 @@ fn add_pawn_moves(typ: MoveType, moves: &mut Vec<Move>, target_bb: u64, directio
         if end <= 7 || end >= 56 {
             // Promotion
             moves.push(Move::new(MoveType::PawnSpecial, Q, start, end as i32));
+            moves.push(Move::new(MoveType::PawnSpecial, N, start, end as i32));
             moves.push(Move::new(MoveType::PawnSpecial, R, start, end as i32));
             moves.push(Move::new(MoveType::PawnSpecial, B, start, end as i32));
-            moves.push(Move::new(MoveType::PawnSpecial, N, start, end as i32));
         } else {
             // Normal move
             moves.push(Move::new(typ, P, start, end as i32));

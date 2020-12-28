@@ -432,7 +432,6 @@ impl Engine {
             let nodes_per_sec = nodes * 1_000_000 / duration_micro as u64;
             println!("Nodes per second: {}", nodes_per_sec);
         }
-        self.tt.clear();
     }
 
     pub fn perform_move(&mut self, m: Move) {

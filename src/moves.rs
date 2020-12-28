@@ -17,18 +17,20 @@
  */
 
 use std::intrinsics::transmute;
+use crate::moves::MoveType::PawnSpecial;
+use crate::pieces::P;
 
 #[repr(u8)]
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy)]
 pub enum MoveType {
-    Capture = 0,
+    PawnQuiet = 0,
     Quiet = 1,
-    PawnQuiet = 2,
-    PawnDoubleQuiet = 3,
-    PawnSpecial = 4, // En Passant or Promotion
-    Castling = 5,
-    KingQuiet = 6,
-    KingCapture = 7
+    PawnDoubleQuiet = 2,
+    KingQuiet = 3,
+    Capture = 4,
+    KingCapture = 5,
+    PawnSpecial = 6, // En Passant or Promotion
+    Castling = 7,
 }
 
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Debug)]
@@ -73,7 +75,7 @@ impl Move {
     #[inline]
     pub fn typ(&self) -> MoveType {
         unsafe {
-            transmute((self.0 & 0x3) as u8)
+            transmute((self.0 & 0x7) as u8)
         }
     }
 
@@ -100,6 +102,17 @@ impl Move {
             (self.0 >> 18) as i32
         }
     }
+
+    #[inline]
+    pub fn is_promotion(&self) -> bool {
+        self.typ() as u8 == PawnSpecial as u8 && self.piece_id() != P
+    }
+
+    #[inline]
+    pub fn is_en_passant(&self) -> bool {
+        self.typ() as u8 == PawnSpecial as u8 && self.piece_id() == P
+    }
+
 }
 
 pub const NO_MOVE: Move = Move(0);
@@ -139,6 +152,21 @@ mod tests {
         assert_eq!(m.start(), 0);
         assert_eq!(m.end(), 1);
         assert_eq!(MIN_SCORE, m.score());
+    }
+
+    #[test]
+    fn move_type() {
+        for &typ in [MoveType::Quiet, MoveType::PawnQuiet, MoveType::PawnDoubleQuiet, MoveType::KingQuiet,
+            MoveType::Capture, MoveType::KingCapture, MoveType::PawnSpecial, MoveType::Castling].iter() {
+
+            let m = Move::new(typ, K, 63, 63).with_score(MIN_SCORE);
+
+            assert_eq!(typ as u8, m.typ() as u8);
+            assert_eq!(m.piece_id(), K);
+            assert_eq!(m.start(), 63);
+            assert_eq!(m.end(), 63);
+            assert_eq!(m.score(), MIN_SCORE);
+        }
     }
 
 }

@@ -16,17 +16,14 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::board::EN_PASSANT;
 use crate::colors::{Color, BLACK, WHITE};
 use crate::engine::Engine;
-use crate::pieces::{EMPTY, K, R};
+use crate::pieces::{EMPTY, R};
 use crate::score_util::{
     BLACK_MATE_SCORE, MAX_SCORE,
     MIN_SCORE, WHITE_MATE_SCORE,
 };
-use crate::transposition_table::{
-    get_depth, get_score_type, get_scored_move, EXACT, LOWER_BOUND, MAX_DEPTH, UPPER_BOUND,
-};
+use crate::transposition_table::{get_depth, get_score_type, get_scored_move, MAX_DEPTH, ScoreType};
 use crate::uci_move::UCIMove;
 use std::cmp::{max, min};
 use std::time::{Duration, Instant};
@@ -46,8 +43,6 @@ pub trait Search {
     fn extract_pv(&mut self, m: Move, depth: i32) -> String;
 
     fn terminal_score(&mut self, active_player: Color, ply: i32) -> i32;
-
-    fn is_likely_valid_move(&self, active_player: Color, m: Move) -> bool;
 
     fn make_quiet_position(&mut self) -> bool;
 
@@ -351,7 +346,7 @@ impl Search for Engine {
 
             let mut can_use_hash_score = get_depth(tt_entry) >= depth;
             // Validate hash move for additional protection against hash collisions
-            if !self.is_likely_valid_move(player_color, m) {
+            if !self.board.is_likely_valid_move(player_color, m) {
                 m = NO_MOVE;
                 can_use_hash_score = false;
             }
@@ -360,16 +355,17 @@ impl Search for Engine {
                 let score = adjust_score_from_tt(m.score(), self.tt.get_age_diff(tt_entry));
 
                 match get_score_type(tt_entry) {
-                    EXACT => {
+                    ScoreType::Exact => {
                         return score;
                     }
-                    UPPER_BOUND => {
+
+                    ScoreType::UpperBound => {
                         if score <= alpha {
                             return score;
                         }
                     }
 
-                    LOWER_BOUND => {
+                    ScoreType::LowerBound => {
                         if score > alpha {
                             alpha = score;
                             if alpha >= beta {
@@ -377,7 +373,6 @@ impl Search for Engine {
                             }
                         }
                     }
-                    _ => (),
                 };
             }
 
@@ -417,11 +412,11 @@ impl Search for Engine {
 
         let mut best_move = NO_MOVE;
         let mut best_score = MIN_SCORE;
-        let mut score_type = UPPER_BOUND;
+        let mut score_type = ScoreType::UpperBound;
         let mut evaluated_move_count = 0;
         let mut has_valid_moves = false;
 
-        let allow_reductions = depth > 2 && !is_in_check;
+        let allow_reductions = depth > 2 && !is_in_check && !m.is_promotion();
 
         // Futile move pruning
         let mut allow_futile_move_pruning = false;
@@ -452,12 +447,10 @@ impl Search for Engine {
                 }
             };
 
-            let target_piece_id = m.piece_id();
             let start = m.start();
             let end = m.end();
 
-            let (previous_piece, move_state) = self.board.perform_move(m);
-            let removed_piece_id = move_state & !EN_PASSANT;
+            let (previous_piece, removed_piece_id) = self.board.perform_move(m);
 
             let mut skip = self.board.is_in_check(player_color); // skip if move would put own king in check
 
@@ -465,6 +458,7 @@ impl Search for Engine {
             let mut gives_check = false;
 
             if !skip {
+                let target_piece_id = m.piece_id();
                 has_valid_moves = true;
                 gives_check = self.board.is_in_check(-player_color);
                 if removed_piece_id == EMPTY {
@@ -479,7 +473,7 @@ impl Search for Engine {
                             // Reduce more, if move has negative history or SEE score
                             reductions += 1;
                         }
-                    } else if allow_futile_move_pruning && !gives_check && target_piece_id as i8 == previous_piece.abs() {
+                    } else if allow_futile_move_pruning && !gives_check && !m.is_promotion() {
                         if !is_in_check && (own_moves_left <= 1 || (self.hh.has_negative_history(player_color, depth, start, end) && self.board.see_score(-player_color, start, end, target_piece_id, EMPTY) < 0)) {
                             // Prune futile move
                             skip = true;
@@ -501,7 +495,7 @@ impl Search for Engine {
             }
 
             if skip {
-                self.board.undo_move(m, previous_piece, move_state);
+                self.board.undo_move(m, previous_piece, removed_piece_id);
             } else {
                 if removed_piece_id == EMPTY {
                     self.hh.update_played_moves(depth, player_color, start, end);
@@ -516,7 +510,7 @@ impl Search for Engine {
                 };
                 let mut result = self.rec_find_best_move(a, -alpha, -player_color, depth - reductions - 1, ply + 1, false, gives_check);
                 if result == CANCEL_SEARCH {
-                    self.board.undo_move(m, previous_piece, move_state);
+                    self.board.undo_move(m, previous_piece, removed_piece_id);
                     return CANCEL_SEARCH;
                 }
 
@@ -524,13 +518,13 @@ impl Search for Engine {
                     // Repeat search without reduction and with full window
                     result = self.rec_find_best_move(-beta, -alpha, -player_color, depth - 1, ply + 1, false, gives_check);
                     if result == CANCEL_SEARCH {
-                        self.board.undo_move(m, previous_piece, move_state);
+                        self.board.undo_move(m, previous_piece, removed_piece_id);
                         return CANCEL_SEARCH;
                     }
                 }
 
                 let score = -result;
-                self.board.undo_move(m, previous_piece, move_state);
+                self.board.undo_move(m, previous_piece, removed_piece_id);
 
                 if score > best_score {
                     best_score = score;
@@ -539,11 +533,11 @@ impl Search for Engine {
                     // Alpha-beta pruning
                     if best_score > alpha {
                         alpha = best_score;
-                        score_type = EXACT;
+                        score_type = ScoreType::Exact;
                     }
 
                     if alpha >= beta {
-                        self.tt.write_entry(hash, depth, best_move.with_score(best_score), LOWER_BOUND);
+                        self.tt.write_entry(hash, depth, best_move.with_score(best_score), ScoreType::LowerBound);
 
                         if removed_piece_id == EMPTY {
                             self.hh.update(depth, ply, player_color, start, end, best_move);
@@ -654,7 +648,7 @@ impl Search for Engine {
             }
 
             let m = get_scored_move(entry);
-            if m == NO_MOVE || !self.is_likely_valid_move(self.board.active_player(), m) {
+            if m == NO_MOVE || !self.board.is_likely_valid_move(self.board.active_player(), m) {
                 return true;
             }
 
@@ -715,7 +709,7 @@ impl Search for Engine {
         }
 
         let active_player = self.board.active_player();
-        let is_valid_followup_move = next_move != NO_MOVE && self.is_likely_valid_move(active_player, next_move);
+        let is_valid_followup_move = next_move != NO_MOVE && self.board.is_likely_valid_move(active_player, next_move);
         let is_quiet = if is_valid_followup_move {
             self.is_quiet_pv(next_move, depth - 1)
         } else {
@@ -772,7 +766,7 @@ impl Search for Engine {
             self.board.undo_move(m, previous_piece, move_state);
 
             if score >= beta {
-                self.tt.write_entry(self.board.get_hash(), 60 - ply, m, LOWER_BOUND);
+                self.tt.write_entry(self.board.get_hash(), 60 - ply, m, ScoreType::LowerBound);
                 return beta;
             }
 
@@ -783,7 +777,7 @@ impl Search for Engine {
         }
 
         if best_move != NO_MOVE {
-            self.tt.write_entry(self.board.get_hash(), 60 - ply, best_move, EXACT);
+            self.tt.write_entry(self.board.get_hash(), 60 - ply, best_move, ScoreType::Exact);
         }
 
         alpha
@@ -825,7 +819,7 @@ impl Search for Engine {
         };
 
         let active_player = self.board.active_player();
-        let is_valid_followup_move = next_move != NO_MOVE && self.is_likely_valid_move(active_player, next_move);
+        let is_valid_followup_move = next_move != NO_MOVE && self.board.is_likely_valid_move(active_player, next_move);
         let followup_uci_moves = if is_valid_followup_move {
             format!(" {}", self.extract_pv(next_move, depth - 1))
         } else {
@@ -855,24 +849,6 @@ impl Search for Engine {
         0 // Stale mate
     }
 
-    fn is_likely_valid_move(&self, active_player: Color, m: Move) -> bool {
-        let previous_piece = self.board.get_item(m.start());
-
-        if previous_piece.signum() != active_player {
-            return false;
-        }
-
-        let removed_piece = self.board.get_item(m.end());
-        if removed_piece == EMPTY {
-            return true;
-        }
-
-        if removed_piece == K || removed_piece == -K {
-            return false;
-        }
-
-        removed_piece.signum() == -active_player
-    }
 
 }
 

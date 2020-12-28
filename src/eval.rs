@@ -94,6 +94,10 @@ impl Eval for Board {
         let white_pawns = self.get_bitboard(P);
         let black_pawns = self.get_bitboard(-P);
 
+        if white_pawns == 0 && black_pawns == 0 {
+            return interpolated_score;
+        }
+
         let white_queens = self.get_bitboard(Q);
         let black_queens = self.get_bitboard(-Q);
 

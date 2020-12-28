@@ -20,9 +20,9 @@ use crate::board::{Board, interpolate_score};
 use crate::colors::{Color};
 use crate::history_heuristics::HistoryHeuristics;
 use crate::move_gen::{generate_capture_moves, generate_moves};
-use crate::pieces::{EMPTY};
+use crate::pieces::{P, K, Q, N};
 use crate::score_util::{unpack_score, unpack_eg_score};
-use crate::moves::{Move, NO_MOVE};
+use crate::moves::{Move, NO_MOVE, MoveType};
 
 const CAPTURE_ORDER_SIZE: usize = 5 + 5 * 8 + 1;
 
@@ -270,36 +270,65 @@ fn evaluate_move_score(
 ) -> i32 {
     let start = m.start();
     let end = m.end();
-    let captured_piece = board.get_item(end);
 
-    if captured_piece == EMPTY {
-        let history_score = hh.get_history_score(active_player, start, end);
-        return if history_score == -1 {
-            // No history score -> use difference between piece square scores
-            let original_piece = board.get_item(start);
+    match m.typ() {
+        MoveType::Capture => {
+            let captured_piece = board.get_item(end);
+            let original_piece_id = m.piece_id();
+            let captured_piece_id = captured_piece.abs();
 
-            let start_packed_score = board.pst.get_packed_score(original_piece, start as usize);
-            let end_packed_score = board.pst.get_packed_score(original_piece, end as usize);
+            get_capture_order_score(original_piece_id as i32, captured_piece_id as i32)
 
-            let mg_diff = (unpack_score(end_packed_score) - unpack_score(start_packed_score)) as i32;
-            let eg_diff = (unpack_eg_score(end_packed_score) - unpack_eg_score(start_packed_score)) as i32;
+        }
 
-            let diff = interpolate_score(phase, mg_diff, eg_diff) * active_player as i32;
+        MoveType::KingCapture => {
+            let captured_piece = board.get_item(end);
+            let captured_piece_id = captured_piece.abs();
 
-            -4096 + diff
-        } else if history_score == 0 {
+            get_capture_order_score(K as i32, captured_piece_id as i32)
+        }
 
-            -5000
-        } else {
+        MoveType::PawnSpecial => {
+            if m.is_promotion() {
+                if m.piece_id() == Q {
+                    1000
+                } else if m.piece_id() == N {
+                    0
 
-            -3600 + history_score
+                } else {
+                    -5000
+                }
+
+            } else {
+                get_capture_order_score(P as i32, P as i32)
+            }
+        }
+
+        _ => {
+            let history_score = hh.get_history_score(active_player, start, end);
+            if history_score == -1 {
+                // No history score -> use difference between piece square scores
+                let original_piece = m.piece_id() * active_player;
+
+                let start_packed_score = board.pst.get_packed_score(original_piece, start as usize);
+                let end_packed_score = board.pst.get_packed_score(original_piece, end as usize);
+
+                let mg_diff = (unpack_score(end_packed_score) - unpack_score(start_packed_score)) as i32;
+                let eg_diff = (unpack_eg_score(end_packed_score) - unpack_eg_score(start_packed_score)) as i32;
+
+                let diff = interpolate_score(phase, mg_diff, eg_diff) * active_player as i32;
+
+                -4096 + diff
+            } else if history_score == 0 {
+
+                -5000
+            } else {
+
+                -3600 + history_score
+            }
+
         }
     }
-
-    let original_piece_id = m.piece_id();
-    let captured_piece_id = captured_piece.abs();
-
-    get_capture_order_score(original_piece_id as i32, captured_piece_id as i32)
 }
 
 fn sort_by_score_desc(moves: &mut Vec<Move>) {
