@@ -273,6 +273,11 @@ impl Search for Engine {
                 break;
             }
 
+            if (BLACK_MATE_SCORE - best_score.abs()) <= depth / 3 {
+                // stop searching, if a close mate has already been found
+                break;
+            }
+
             previous_best_move = best_move;
             previous_best_score = best_score;
 

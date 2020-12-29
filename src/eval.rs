@@ -30,52 +30,6 @@ pub trait Eval {
 
 const PASSED_PAWN_THRESHOLD: u32 = 4;
 
-#[inline]
-fn calc_hash(pattern: u64) -> u64 {
-    let mut hash = (pattern.wrapping_mul(54043197675929600) >> 12) ^ (pattern << 15) ^ (pattern << 20);
-    hash ^= hash.wrapping_mul(54043197675929600);
-
-    hash >> (64 - 13)
-}
-
-#[inline]
-pub fn calc_white_pawn_hash(pawns: u64, king_pos: i32) -> u64 {
-    let king_half = (king_pos & 7) / 4;
-    let pattern = if king_half == 0 {
-        ((pawns & 0xF000000000000000) >> 60) |
-            ((pawns & 0x00F0000000000000) >> 48) |
-            ((pawns & 0x0000F00000000000) >> 36) |
-            ((pawns & 0x000000F000000000) >> 24)
-
-    } else {
-        ((pawns & 0x0F00000000000000) >> 56) |
-            ((pawns & 0x000F000000000000) >> 44) |
-            ((pawns & 0x00000F0000000000) >> 32) |
-            ((pawns & 0x0000000F00000000) >> 20)
-    };
-
-    calc_hash(pattern) * (2 - king_half as u64)
-}
-
-#[inline]
-pub fn calc_black_pawn_hash(pawns: u64, king_pos: i32) -> u64 {
-    let king_half = (king_pos & 7) / 4;
-    let pattern = if king_half == 0 {
-        (pawns & 0x000000000000000F) |
-            ((pawns & 0x0000000000000F00) >> 4) |
-            ((pawns & 0x00000000000F0000) >> 8) |
-            ((pawns & 0x000000000F000000) >> 12)
-
-    } else {
-        ((pawns & 0x00000000000000F0) >> 4) |
-            ((pawns & 0x000000000000F000) >> 8) |
-            ((pawns & 0x0000000000F00000) >> 12) |
-            ((pawns & 0x00000000F0000000) >> 16)
-    };
-
-    calc_hash(pattern) * (king_half as u64 + 1)
-}
-
 
 impl Eval for Board {
     fn get_score(&self) -> i32 {
@@ -515,6 +469,53 @@ fn calc_doubled_pawn_penalty(pawns: u64, penalty: i32) -> i32 {
 
     doubled.count_ones() as i32 * penalty
 }
+
+#[inline]
+fn calc_hash(pattern: u64) -> u64 {
+    let mut hash = (pattern.wrapping_mul(54043197675929600) >> 12) ^ (pattern << 15) ^ (pattern << 20);
+    hash ^= hash.wrapping_mul(54043197675929600);
+
+    hash >> (64 - 13)
+}
+
+#[inline]
+pub fn calc_white_pawn_hash(pawns: u64, king_pos: i32) -> u64 {
+    let king_half = (king_pos & 7) / 4;
+    let pattern = if king_half == 0 {
+        ((pawns & 0xF000000000000000) >> 60) |
+            ((pawns & 0x00F0000000000000) >> 48) |
+            ((pawns & 0x0000F00000000000) >> 36) |
+            ((pawns & 0x000000F000000000) >> 24)
+
+    } else {
+        ((pawns & 0x0F00000000000000) >> 56) |
+            ((pawns & 0x000F000000000000) >> 44) |
+            ((pawns & 0x00000F0000000000) >> 32) |
+            ((pawns & 0x0000000F00000000) >> 20)
+    };
+
+    calc_hash(pattern) * (2 - king_half as u64)
+}
+
+#[inline]
+pub fn calc_black_pawn_hash(pawns: u64, king_pos: i32) -> u64 {
+    let king_half = (king_pos & 7) / 4;
+    let pattern = if king_half == 0 {
+        (pawns & 0x000000000000000F) |
+            ((pawns & 0x0000000000000F00) >> 4) |
+            ((pawns & 0x00000000000F0000) >> 8) |
+            ((pawns & 0x000000000F000000) >> 12)
+
+    } else {
+        ((pawns & 0x00000000000000F0) >> 4) |
+            ((pawns & 0x000000000000F000) >> 8) |
+            ((pawns & 0x0000000000F00000) >> 12) |
+            ((pawns & 0x00000000F0000000) >> 16)
+    };
+
+    calc_hash(pattern) * (king_half as u64 + 1)
+}
+
 
 #[cfg(test)]
 mod tests {

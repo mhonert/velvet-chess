@@ -110,8 +110,8 @@ impl TranspositionTable {
     }
 
     pub fn clear(&mut self) {
-        for i in 0..self.entries.len() {
-            self.entries[i] = 0;
+        for entry in self.entries.iter_mut() {
+            *entry = 0;
         }
     }
 }
