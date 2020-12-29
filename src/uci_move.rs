@@ -17,8 +17,8 @@
  */
 
 use crate::board::Board;
-use crate::pieces::{B, EMPTY, P, N, Q, R, K};
-use crate::moves::{Move, MoveType};
+use crate::pieces::{B, EMPTY, N, Q, R};
+use crate::moves::{Move};
 
 pub struct UCIMove {
     pub start: i8,
@@ -109,51 +109,12 @@ impl UCIMove {
     pub fn to_move(&self, board: &Board) -> Move {
         let start = self.start as i32;
         let end = self.end as i32;
-        let start_piece_id = board.get_item(start).abs();
-
-        let typ = match start_piece_id {
-            P => {
-                if (start - end).abs() == 16 {
-                    MoveType::PawnDoubleQuiet
-
-                } else if self.promotion != EMPTY {
-                    MoveType::PawnSpecial
-
-                } else if (start - end).abs() == 8 {
-                    MoveType::PawnQuiet
-
-                } else if board.get_item(end) == EMPTY {
-                    MoveType::PawnSpecial
-
-                } else {
-                    MoveType::Capture
-
-                }
-            },
-
-            K => {
-                if (start - end).abs() == 2 {
-                    MoveType::Castling
-                } else if board.get_item(end) == EMPTY {
-                    MoveType::KingQuiet
-                } else {
-                    MoveType::KingCapture
-                }
-            },
-
-            _ => {
-                if board.get_item(end) == EMPTY {
-                    MoveType::Quiet
-                } else {
-                    MoveType::Capture
-                }
-            }
-        };
+        let typ= board.get_move_type(start, end, self.promotion);
 
         let target_piece_id = if self.promotion != EMPTY {
             self.promotion
         } else {
-            start_piece_id
+            board.get_item(start).abs()
         };
 
         Move::new(typ, target_piece_id, start, end)

@@ -226,7 +226,6 @@ impl Engine {
             movetime != 0 || (time_left - (TIMEEXT_MULTIPLIER * self.timelimit_ms) <= 20) || movestogo == 1;
 
         let m = self.find_best_move(depth, is_strict_timelimit);
-        self.tt.increase_age();
         if m == NO_MOVE {
             println!("bestmove 0000")
         } else {

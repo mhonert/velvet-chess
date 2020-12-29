@@ -14,21 +14,21 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::moves::{Move, NO_MOVE};
+use crate::moves::{Move};
 use std::intrinsics::transmute;
 
 pub const MAX_HASH_SIZE_MB: i32 = 4096;
 
 // Transposition table entry
-// Bits 63 - 23: 41 highest bits of the hash
-const HASHCHECK_MASK: u64 = 0b1111111111111111111111111111111111111111100000000000000000000000;
+// Bits 63 - 38: 26 highest bits of the hash
+const HASHCHECK_MASK: u64 = 0b1111111111111111111111111100000000000000000000000000000000000000;
 
-// Bits 22 - 15: Depth
-pub const MAX_DEPTH: usize = 255;
-const DEPTH_BITSHIFT: i32 = 15;
-const DEPTH_MASK: u64 = 0b11111111;
+// Bits 37 - 32: Depth
+pub const MAX_DEPTH: usize = 63;
+const DEPTH_BITSHIFT: u32 = 32;
+const DEPTH_MASK: u64 = 0b111111;
 
-// Bits 14 - 13: Score Type
+// Bits 31 - 30: Score Type
 #[repr(u8)]
 #[derive(Clone, Copy)]
 pub enum ScoreType {
@@ -46,20 +46,15 @@ impl ScoreType {
     }
 }
 
-const SCORE_TYPE_BITSHIFT: u32 = 13;
+const SCORE_TYPE_BITSHIFT: u32 = 30;
 const SCORE_TYPE_MASK: u64 = 0b11;
 
-// Bits 12 - 0: Age
-const AGE_MASK: u64 = 0b1111111111111;
-
 pub const DEFAULT_SIZE_MB: u64 = 32;
-const PER_ENTRY_BYTE_SIZE: u64 = 8 + 4;
+const PER_ENTRY_BYTE_SIZE: u64 = 8;
 
 pub struct TranspositionTable {
     index_mask: u64,
-    entries: Vec<u64>,
-    moves: Vec<Move>,
-    age: i32,
+    entries: Vec<u64>
 }
 
 impl TranspositionTable {
@@ -67,8 +62,6 @@ impl TranspositionTable {
         let mut tt = TranspositionTable {
             index_mask: 0,
             entries: Vec::new(),
-            moves: Vec::new(),
-            age: 0,
         };
 
         tt.resize(size_mb, true);
@@ -87,53 +80,29 @@ impl TranspositionTable {
             self.index_mask = (size as u64) - 1;
 
             self.entries.resize(size, 0);
-            self.moves.resize(size, NO_MOVE);
-
             self.entries.shrink_to_fit();
-            self.moves.shrink_to_fit();
         }
-    }
-
-    pub fn increase_age(&mut self) {
-        self.age = (self.age + 1) & AGE_MASK as i32;
     }
 
     pub fn write_entry(&mut self, hash: u64, depth: i32, scored_move: Move, typ: ScoreType) {
-        let index = self.calc_index(hash);
-
-        let entry = unsafe { self.entries.get_unchecked_mut(index) };
-
-        if *entry != 0 && (*entry & AGE_MASK) as i32 == self.age && depth < get_depth(*entry) {
-            return;
-        }
-
         let mut new_entry: u64 = hash & HASHCHECK_MASK;
-        new_entry |= (depth << DEPTH_BITSHIFT) as u64;
+        new_entry |= (depth as u64) << DEPTH_BITSHIFT;
         new_entry |= (typ as u64) << SCORE_TYPE_BITSHIFT;
-        new_entry |= self.age as u64;
+        new_entry |= scored_move.to_bit29() as u64;
 
-        *entry = new_entry;
-        unsafe { *self.moves.get_unchecked_mut(index) = scored_move };
+        let index = self.calc_index(hash);
+        unsafe { *self.entries.get_unchecked_mut(index) = new_entry };
     }
 
-    pub fn get_entry(&self, hash: u64) -> u64 {
+    pub fn get_entry(&mut self, hash: u64) -> u64 {
         let index = self.calc_index(hash);
 
         let entry = unsafe { *self.entries.get_unchecked(index) };
-        if entry == 0 {
+        if entry == 0 || (entry & HASHCHECK_MASK) != (hash & HASHCHECK_MASK) {
             return 0;
         }
 
-        let age_diff = self.age - (entry & AGE_MASK) as i32;
-        if age_diff > 1 || (entry & HASHCHECK_MASK) != (hash & HASHCHECK_MASK) {
-            return 0;
-        }
-
-        (unsafe { *self.moves.get_unchecked(index) }.to_u32() as u64) << 32 | (entry & !HASHCHECK_MASK)
-    }
-
-    pub fn get_age_diff(&self, entry: u64) -> i32 {
-        self.age - (entry & AGE_MASK) as i32
+        entry
     }
 
     fn calc_index(&self, hash: u64) -> usize {
@@ -143,14 +112,12 @@ impl TranspositionTable {
     pub fn clear(&mut self) {
         for i in 0..self.entries.len() {
             self.entries[i] = 0;
-            self.moves[i] = NO_MOVE;
         }
-        self.age = 0;
     }
 }
 
-pub fn get_scored_move(entry: u64) -> Move {
-    Move::from_u32((entry >> 32) as u32)
+pub fn get_untyped_move(entry: u64) -> Move {
+    Move::from_bit29((entry & 0b00011111111111111111111111111111) as u32)
 }
 
 pub fn get_depth(entry: u64) -> i32 {
@@ -165,7 +132,7 @@ pub fn get_score_type(entry: u64) -> ScoreType {
 mod tests {
     use super::*;
     use crate::score_util::{MIN_SCORE, MAX_SCORE};
-    use crate::moves::MoveType;
+    use crate::moves::{MoveType, NO_MOVE};
 
     #[test]
     fn writes_entry() {
@@ -181,7 +148,7 @@ mod tests {
 
         let entry = tt.get_entry(hash);
 
-        assert_eq!(m, get_scored_move(entry));
+        assert_eq!(m.to_bit29(), get_untyped_move(entry).to_bit29());
         assert_eq!(depth, get_depth(entry));
         assert_eq!(typ as u8, get_score_type(entry) as u8);
     }
@@ -195,7 +162,7 @@ mod tests {
         tt.write_entry(hash, 1, m, ScoreType::Exact);
 
         let entry = tt.get_entry(hash);
-        assert_eq!(score, get_scored_move(entry).score());
+        assert_eq!(score, get_untyped_move(entry).score());
     }
 
     #[test]
@@ -207,6 +174,6 @@ mod tests {
         tt.write_entry(hash, 1, m, ScoreType::Exact);
 
         let entry = tt.get_entry(hash);
-        assert_eq!(score, get_scored_move(entry).score());
+        assert_eq!(score, get_untyped_move(entry).score());
     }
 }

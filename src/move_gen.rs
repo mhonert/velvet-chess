@@ -21,7 +21,7 @@ use crate::board::Board;
 use crate::boardpos::{BlackBoardPos, WhiteBoardPos};
 use crate::castling::Castling;
 use crate::colors::{Color, BLACK, WHITE};
-use crate::pieces::{B, K, N, P, Q, R};
+use crate::pieces::{B, K, N, P, Q, R, EMPTY};
 use crate::moves::{Move, MoveType};
 
 pub fn generate_moves(board: &Board, active_player: Color) -> Vec<Move> {
@@ -72,6 +72,74 @@ pub fn generate_moves(board: &Board, active_player: Color) -> Vec<Move> {
     }
 
     moves
+}
+
+pub fn is_likely_valid_move(board: &Board, active_player: Color, m: Move) -> bool {
+    let previous_piece = board.get_item(m.start());
+
+    if previous_piece.signum() != active_player {
+        return false;
+    }
+
+    let removed_piece = board.get_item(m.end());
+
+    if removed_piece == K || removed_piece == -K {
+        return false;
+    }
+
+    if removed_piece != EMPTY && removed_piece.signum() == active_player {
+        return false;
+    }
+
+    match previous_piece.abs() {
+        P => {
+            if m.is_en_passant() {
+                return removed_piece == EMPTY && board.can_enpassant(active_player, m.end() as u8);
+            }
+
+            let direction = (m.start() - m.end()).abs();
+            if (direction == 7) || (direction == 9) {
+                // Invalid capture?
+                removed_piece != EMPTY
+            } else {
+                // Invalid quiet move?
+                removed_piece == EMPTY
+            }
+        }
+
+        N => {
+            let attacks = get_knight_attacks(m.start());
+            (attacks & (1 << m.end())) != 0
+        }
+
+        B => {
+            let opponent_bb = board.get_all_piece_bitboard(-active_player);
+            let occupied = opponent_bb | board.get_all_piece_bitboard(active_player);
+            let attacks = get_bishop_attacks(occupied, m.start());
+            let empty = !occupied;
+            ((attacks & (empty | opponent_bb)) & (1 << m.end())) != 0
+        }
+
+        R => {
+            let opponent_bb = board.get_all_piece_bitboard(-active_player);
+            let occupied = opponent_bb | board.get_all_piece_bitboard(active_player);
+            let attacks = get_rook_attacks(occupied, m.start());
+            let empty = !occupied;
+            ((attacks & (empty | opponent_bb)) & (1 << m.end())) != 0
+        }
+
+        Q => {
+            let opponent_bb = board.get_all_piece_bitboard(-active_player);
+            let occupied = opponent_bb | board.get_all_piece_bitboard(active_player);
+            let attacks = get_queen_attacks(occupied, m.start());
+            let empty = !occupied;
+            ((attacks & (empty | opponent_bb)) & (1 << m.end())) != 0
+        }
+
+        _ => {
+            true
+        }
+    }
 }
 
 pub fn generate_capture_moves(board: &Board, active_player: Color) -> Vec<Move> {
@@ -479,6 +547,8 @@ mod tests {
         let mut board: Board = board_with_one_piece(WHITE, Q, 52);
         board.perform_move(Move::new(MoveType::KingQuiet, K, board.king_pos(WHITE), 53));
         board.add_piece(BLACK, R, 51);
+
+        board.perform_null_move(); // so WHITE is the active player
 
         let moves = generate_moves_for_pos(&mut board, WHITE, 52);
         assert_eq!(

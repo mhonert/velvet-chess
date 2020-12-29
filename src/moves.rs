@@ -52,13 +52,18 @@ impl Move {
     }
 
     #[inline]
-    pub fn to_u32(&self) -> u32 {
-        self.0
+    pub fn with_typ(&self, typ: MoveType) -> Move {
+        Move((typ as u32) | self.0)
     }
 
     #[inline]
-    pub fn from_u32(packed_move: u32) -> Move {
-        Move(packed_move)
+    pub fn to_bit29(&self) -> u32 {
+        (self.0 >> 3) & 0b00011111111111111111111111111111
+    }
+
+    #[inline]
+    pub fn from_bit29(packed_move: u32) -> Move {
+        Move(packed_move << 3)
     }
 
     #[inline]

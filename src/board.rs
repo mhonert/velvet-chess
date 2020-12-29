@@ -936,30 +936,49 @@ impl Board {
         unsafe { *self.king_pos.get_unchecked((color + 1) as usize) }
     }
 
-    pub fn is_likely_valid_move(&self, active_player: Color, m: Move) -> bool {
-        let previous_piece = self.get_item(m.start());
+    pub fn get_move_type(&self, start: i32, end: i32, promotion_piece_id: i8) -> MoveType {
+        let start_piece_id = self.get_item(start).abs();
 
-        if previous_piece.signum() != active_player {
-            return false;
-        }
+        let typ = match start_piece_id {
+            P => {
+                if (start - end).abs() == 16 {
+                    MoveType::PawnDoubleQuiet
 
-        let removed_piece = self.get_item(m.end());
-        if m.is_en_passant() {
-            // Check for invalid en passant move
-            if removed_piece != EMPTY || !self.can_enpassant(active_player, m.end() as u8) {
-                return false;
+                } else if promotion_piece_id == EMPTY || promotion_piece_id != start_piece_id {
+                    MoveType::PawnSpecial
+
+                } else if (start - end).abs() == 8 {
+                    MoveType::PawnQuiet
+
+                } else if self.get_item(end) == EMPTY {
+                    MoveType::PawnSpecial
+
+                } else {
+                    MoveType::Capture
+
+                }
+            },
+
+            K => {
+                if (start - end).abs() == 2 {
+                    MoveType::Castling
+                } else if self.get_item(end) == EMPTY {
+                    MoveType::KingQuiet
+                } else {
+                    MoveType::KingCapture
+                }
+            },
+
+            _ => {
+                if self.get_item(end) == EMPTY {
+                    MoveType::Quiet
+                } else {
+                    MoveType::Capture
+                }
             }
-        }
+        };
 
-        if removed_piece == EMPTY {
-            return true;
-        }
-
-        if removed_piece == K || removed_piece == -K {
-            return false;
-        }
-
-        removed_piece.signum() == -active_player
+        typ
     }
 
 }
@@ -1374,7 +1393,7 @@ mod tests {
             0,  0,  0,  K,  0,  0,  0,  0,
         ];
 
-        let mut board = Board::new(&items, BLACK, 0, None, 0, 1);
+        let mut board = Board::new(&items, WHITE, 0, None, 0, 1);
         let initial_hash = board.get_hash();
 
         board.perform_move(Move::new(MoveType::KingQuiet, K, 59, 60));

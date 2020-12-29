@@ -23,13 +23,14 @@ use crate::score_util::{
     BLACK_MATE_SCORE, MAX_SCORE,
     MIN_SCORE, WHITE_MATE_SCORE,
 };
-use crate::transposition_table::{get_depth, get_score_type, get_scored_move, MAX_DEPTH, ScoreType};
+use crate::transposition_table::{get_depth, get_score_type, get_untyped_move, MAX_DEPTH, ScoreType};
 use crate::uci_move::UCIMove;
 use std::cmp::{max, min};
 use std::time::{Duration, Instant};
 use crate::eval::Eval;
 use crate::move_sort::{SortedMoves, SortedLegalMoves};
 use crate::moves::{Move, NO_MOVE};
+use crate::move_gen::is_likely_valid_move;
 
 pub trait Search {
     fn find_best_move(&mut self, min_depth: i32, is_strict_timelimit: bool) -> Move;
@@ -340,19 +341,20 @@ impl Search for Engine {
         let hash = self.board.get_hash();
         let tt_entry = self.tt.get_entry(hash);
 
-        let mut m = get_scored_move(tt_entry);
+        let mut m = get_untyped_move(tt_entry);
 
         if m != NO_MOVE {
+            m = m.with_typ(self.board.get_move_type(m.start(), m.end(), m.piece_id()));
 
             let mut can_use_hash_score = get_depth(tt_entry) >= depth;
             // Validate hash move for additional protection against hash collisions
-            if !self.board.is_likely_valid_move(player_color, m) {
+            if !is_likely_valid_move(&self.board, player_color, m) {
                 m = NO_MOVE;
                 can_use_hash_score = false;
             }
 
             if can_use_hash_score {
-                let score = adjust_score_from_tt(m.score(), self.tt.get_age_diff(tt_entry));
+                let score = m.score();
 
                 match get_score_type(tt_entry) {
                     ScoreType::Exact => {
@@ -636,9 +638,6 @@ impl Search for Engine {
 
     // Updates the current position until it is quiet
     fn make_quiet_position(&mut self) -> bool {
-        self.tt.increase_age();
-        self.tt.increase_age();
-
         let _ = self.static_quiescence_search(MIN_SCORE, MAX_SCORE, 0) as i16;
 
         loop {
@@ -647,10 +646,12 @@ impl Search for Engine {
                 return true;
             }
 
-            let m = get_scored_move(entry);
-            if m == NO_MOVE || !self.board.is_likely_valid_move(self.board.active_player(), m) {
+            let mut m = get_untyped_move(entry);
+            if m == NO_MOVE || !is_likely_valid_move(&self.board, self.board.active_player(), m) {
                 return true;
             }
+
+            m = m.with_typ(self.board.get_move_type(m.start(), m.end(), m.piece_id()));
 
             self.board.perform_move(m);
             if self.board.is_in_check(self.board.active_player()) {
@@ -697,8 +698,8 @@ impl Search for Engine {
         }
 
         let entry = self.tt.get_entry(self.board.get_hash());
-        let next_move = if entry != 0 {
-            get_scored_move(entry)
+        let mut next_move = if entry != 0 {
+            get_untyped_move(entry)
         } else {
             NO_MOVE
         };
@@ -708,8 +709,10 @@ impl Search for Engine {
             return false;
         }
 
+        next_move = next_move.with_typ(self.board.get_move_type(m.start(), m.end(), m.piece_id()));
+
         let active_player = self.board.active_player();
-        let is_valid_followup_move = next_move != NO_MOVE && self.board.is_likely_valid_move(active_player, next_move);
+        let is_valid_followup_move = next_move != NO_MOVE && is_likely_valid_move(&self.board, active_player, next_move);
         let is_quiet = if is_valid_followup_move {
             self.is_quiet_pv(next_move, depth - 1)
         } else {
@@ -813,13 +816,14 @@ impl Search for Engine {
 
         let entry = self.tt.get_entry(self.board.get_hash());
         let next_move = if entry != 0 {
-            get_scored_move(entry)
+            let m = get_untyped_move(entry);
+            m.with_typ(self.board.get_move_type(m.start(), m.end(), m.piece_id()))
         } else {
             NO_MOVE
         };
 
         let active_player = self.board.active_player();
-        let is_valid_followup_move = next_move != NO_MOVE && self.board.is_likely_valid_move(active_player, next_move);
+        let is_valid_followup_move = next_move != NO_MOVE && is_likely_valid_move(&self.board, active_player, next_move);
         let followup_uci_moves = if is_valid_followup_move {
             format!(" {}", self.extract_pv(next_move, depth - 1))
         } else {
@@ -885,16 +889,6 @@ fn get_score_info(score: i32) -> String {
     }
 
     format!("cp {}", score)
-}
-
-fn adjust_score_from_tt(score: i32, age_diff: i32) -> i32 {
-    if score >= BLACK_MATE_SCORE - MAX_DEPTH as i32 {
-        return min(BLACK_MATE_SCORE, score + age_diff);
-    } else if score <= WHITE_MATE_SCORE + MAX_DEPTH as i32 {
-       return max(WHITE_MATE_SCORE, score - age_diff);
-    }
-
-    score
 }
 
 #[cfg(test)]
