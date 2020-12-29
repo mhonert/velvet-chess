@@ -55,10 +55,13 @@ const EG_BISHOP_PIN_BONUS: i32 = 9;
 const ROOK_PIN_BONUS: i32 = 6;
 const EG_ROOK_PIN_BONUS: i32 = 9;
 const UNCOVERED_PIECE_PENALTY: i32 = 5;
-const EG_PASSED_PAWN_BONUS: [i32; 4] = [117, 97, 55, 11];
-const PASSED_PAWN_BONUS: [i32; 4] = [0, 19, 12, 0];
-const PASSED_PAWN_KING_DEFENSE_BONUS: [i32; 8] = [11, 95, 72, 44, 28, 22, 31, 24];
-const PASSED_PAWN_KING_ATTACKED_PENALTY: [i32; 8] = [12, 100, 61, 36, 20, 0, 0, 7];
+const HALF_OPEN_FILE_BONUS: [i32; 4] = [0, 24, 20, 0];
+const EG_HALF_OPEN_FILE_BONUS: [i32; 4] = [6, 10, 3, 0];
+const PASSED_PAWN_BONUS: [i32; 5] = [107, 80, 43, 5, 17];
+const PAWN_KING_DEFENSE_BONUS: [i32; 8] = [0, 62, 57, 49, 43, 37, 36, 27];
+const PAWN_KING_ATTACKED_PENALTY: [i32; 8] = [0, 71, 52, 48, 41, 28, 25, 27];
+const PASSED_PAWN_KING_DEFENSE_BONUS: [i32; 8] = [0, 84, 65, 46, 35, 35, 45, 47];
+const PASSED_PAWN_KING_ATTACKED_PENALTY: [i32; 8] = [0, 72, 52, 32, 23, 16, 18, 24];
 const KING_DANGER_PIECE_PENALTY: [i32; 20] = [2, -6, 5, 1, 10, 21, 34, 58, 71, 104, 109, 165, 162, 166, 170, 166, 167, 168, 174, 169];
 const KING_THREAT_ADJUSTMENT: [i32; 128] = [-4, 5, -7, -9, -13, -11, -8, 6, 9, 15, 20, 24, -9, -6, -4, -5, -7, -10, -9, -8, -3, 2, 9, 19, 2, 4, 3, 5, -7, 2, 4, 17, 1, -7, -3, 1, -4, 4, 17, 30, -4, -7, 7, 17, -13, 4, 25, 36, -13, -12, -3, 7, -13, 2, 25, 50, -15, -2, 4, 14, -26, -3, 36, 68, 13, 11, 13, 26, 43, 42, 63, 83, 25, 30, 29, 50, 45, 72, 64, 181, 21, 25, 37, 57, 47, 55, 82, 93, 42, 34, 71, 73, 29, 101, 77, 220, -294, 198, 524, 504, 125, 619, 4, -23, 20, 379, -3, 536, 0, 13, 12, -9, 0, -1, 0, 0, 551, 1, 0, 0, 4, 635, 421, 1, 15, 0, 0, 1];
 const EG_KNIGHT_MOB_BONUS: [i32; 9] = [-130, -91, -64, -56, -49, -40, -42, -45, -56];
@@ -285,13 +288,28 @@ impl Options {
     }
 
     #[inline]
-    pub fn get_eg_passed_pawn_bonus(&self, index: usize) -> i32 {
-        unsafe { *EG_PASSED_PAWN_BONUS.get_unchecked(index) }
+    pub fn get_half_open_file_bonus(&self, index: usize) -> i32 {
+        unsafe { *HALF_OPEN_FILE_BONUS.get_unchecked(index) }
+    }
+    
+    #[inline]
+    pub fn get_eg_half_open_file_bonus(&self, index: usize) -> i32 {
+        unsafe { *EG_HALF_OPEN_FILE_BONUS.get_unchecked(index) }
     }
     
     #[inline]
     pub fn get_passed_pawn_bonus(&self, index: usize) -> i32 {
         unsafe { *PASSED_PAWN_BONUS.get_unchecked(index) }
+    }
+    
+    #[inline]
+    pub fn get_pawn_king_defense_bonus(&self, index: usize) -> i32 {
+        unsafe { *PAWN_KING_DEFENSE_BONUS.get_unchecked(index) }
+    }
+    
+    #[inline]
+    pub fn get_pawn_king_attacked_penalty(&self, index: usize) -> i32 {
+        unsafe { *PAWN_KING_ATTACKED_PENALTY.get_unchecked(index) }
     }
     
     #[inline]
