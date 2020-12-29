@@ -16,7 +16,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 use crate::board::Board;
-use crate::move_gen::{generate_moves};
+use crate::move_gen::MoveGenerator;
+use crate::moves::NO_MOVE;
+use crate::history_heuristics::HistoryHeuristics;
 
 /* Perft (performance test, move path enumeration) test helper function to verify the move generator.
   It generates all possible moves up to the specified depth and counts the number of leaf nodes.
@@ -24,7 +26,7 @@ use crate::move_gen::{generate_moves};
 
   Another use case for this function is to test the performance of the move generator.
 */
-pub fn perft(board: &mut Board, depth: i32) -> u64 {
+pub fn perft(movegen: &mut MoveGenerator, hh: &HistoryHeuristics, board: &mut Board, depth: i32) -> u64 {
     if depth == 0 {
         return 1;
     }
@@ -32,17 +34,19 @@ pub fn perft(board: &mut Board, depth: i32) -> u64 {
     let mut nodes: u64 = 0;
 
     let active_player = board.active_player();
-    let moves = generate_moves(board, active_player);
+    movegen.enter_ply(active_player, NO_MOVE, NO_MOVE, NO_MOVE);
 
-    for m in moves {
+    while let Some(m) = movegen.next_unsorted_move(hh, board) {
         let (previous_piece, removed_piece_id) = board.perform_move(m);
 
         if !board.is_in_check(active_player) {
-            nodes += perft(board, depth - 1);
+            nodes += perft(movegen, hh, board, depth - 1);
         }
 
         board.undo_move(m, previous_piece, removed_piece_id);
     }
+
+    movegen.leave_ply();
 
     nodes
 }

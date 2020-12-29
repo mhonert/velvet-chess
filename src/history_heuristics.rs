@@ -75,7 +75,7 @@ impl HistoryHeuristics {
     pub fn update(&mut self, depth: i32, ply: i32, color: Color, start: i32, end: i32, m: Move) {
         if depth >= HEURISTICS_THRESHOLD {
             let color_offset = if color == WHITE { 0 } else { 64 * 64 };
-            self.cut_off_history[(color_offset + start + end * 64) as usize] += 1;
+            unsafe { *self.cut_off_history.get_unchecked_mut((color_offset + start + end * 64) as usize) += 1 };
         }
         self.update_killer_moves(ply, m);
     }

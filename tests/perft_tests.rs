@@ -20,6 +20,8 @@ extern crate velvet;
 
 use velvet::fen::create_from_fen;
 use velvet::perft::perft;
+use velvet::move_gen::MoveGenerator;
+use velvet::history_heuristics::HistoryHeuristics;
 
 #[test]
 fn test_perft_startpos() {
@@ -82,6 +84,8 @@ fn test_perft_testpos6() {
 }
 
 fn perft_for_fen(fen: &str, depth: i32) -> u64 {
+    let mut movegen = MoveGenerator::new();
+    let hh = HistoryHeuristics::new();
     let mut board = create_from_fen(fen);
-    perft(&mut board, depth)
+    perft(&mut movegen, &hh, &mut board, depth)
 }

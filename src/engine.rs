@@ -17,10 +17,9 @@
  */
 
 use crate::board::Board;
-use crate::colors::{Color, WHITE, BLACK};
+use crate::colors::{WHITE, BLACK};
 use crate::fen::{create_from_fen, read_fen, write_fen, START_POS};
 use crate::history_heuristics::HistoryHeuristics;
-use crate::move_gen::{has_valid_moves};
 use crate::perft::perft;
 use crate::pieces::{Q, get_piece_value};
 use crate::search::Search;
@@ -36,6 +35,7 @@ use crate::eval::Eval;
 use crate::score_util::{MIN_SCORE, MAX_SCORE};
 use crate::random::Random;
 use crate::moves::{NO_MOVE, Move};
+use crate::move_gen::MoveGenerator;
 
 pub enum Message {
     NewGame,
@@ -83,6 +83,7 @@ impl EvalBoardPos {
 pub struct Engine {
     pub rx: Receiver<Message>,
     pub board: Board,
+    pub movegen: MoveGenerator,
     pub hh: HistoryHeuristics,
     pub tt: TranspositionTable,
 
@@ -123,6 +124,7 @@ impl Engine {
         Engine {
             rx,
             board: create_from_fen(&fen),
+            movegen: MoveGenerator::new(),
             hh: HistoryHeuristics::new(),
             tt: TranspositionTable::new(tt_size_mb),
             starttime: Instant::now(),
@@ -416,7 +418,7 @@ impl Engine {
     fn perft(&mut self, depth: i32) {
         let start = SystemTime::now();
 
-        let nodes = perft(&mut self.board, depth);
+        let nodes = perft(&mut self.movegen, &self.hh, &mut self.board, depth);
 
         let duration = match SystemTime::now().duration_since(start) {
             Ok(v) => v,
@@ -435,10 +437,6 @@ impl Engine {
 
     pub fn perform_move(&mut self, m: Move) {
         self.board.perform_move(m);
-    }
-
-    pub fn is_check_mate(&mut self, color: Color) -> bool {
-        is_check_mate(&mut self.board, color)
     }
 
     pub fn profile(&mut self) {
@@ -489,12 +487,4 @@ fn calc_timelimit(movetime: i32, time_left: i32, time_increment: i32, movestogo:
     } else {
         max(0, time_for_move + time_increment - 20)
     }
-}
-
-pub fn is_check_mate(board: &mut Board, player_color: Color) -> bool {
-    if !board.is_in_check(player_color) {
-        return false;
-    }
-
-    !has_valid_moves(board, player_color)
 }

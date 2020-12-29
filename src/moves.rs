@@ -19,6 +19,7 @@
 use std::intrinsics::transmute;
 use crate::moves::MoveType::PawnSpecial;
 use crate::pieces::P;
+use std::fmt;
 
 #[repr(u8)]
 #[derive(Clone, Copy)]
@@ -33,7 +34,7 @@ pub enum MoveType {
     Castling = 7,
 }
 
-#[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Debug)]
+#[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct Move(u32);
 
 impl Move {
@@ -118,6 +119,17 @@ impl Move {
         self.typ() as u8 == PawnSpecial as u8 && self.piece_id() == P
     }
 
+}
+
+impl fmt::Debug for Move {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Move")
+            .field("target-piece", &self.piece_id())
+            .field("start", &self.start())
+            .field("end", &self.end())
+            .field("score", &self.score())
+            .finish()
+    }
 }
 
 pub const NO_MOVE: Move = Move(0);
