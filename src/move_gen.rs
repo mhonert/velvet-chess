@@ -27,7 +27,7 @@ use crate::history_heuristics::HistoryHeuristics;
 use crate::score_util::{unpack_score, unpack_eg_score};
 use crate::transposition_table::MAX_DEPTH;
 
-const CAPTURE_ORDER_SIZE: usize = 5 + 5 * 8 + 1;
+const CAPTURE_ORDER_SIZE: usize = 5 + 5 * 6 + 1;
 
 const PRIMARY_KILLER_SCORE: i32 = -2267;
 const SECONDARY_KILLER_SCORE: i32 = -3350;
@@ -638,7 +638,7 @@ pub fn evaluate_move_order(phase: i32, hh: &HistoryHeuristics, board: &Board, ac
         MoveType::PawnSpecial => {
             // Promotion
             if m.piece_id() == Q {
-                1000
+                400
             } else if m.piece_id() == N {
                 0
 
@@ -729,7 +729,7 @@ fn sort_by_score_desc(moves: &mut Vec<Move>) {
 
 #[inline]
 fn get_capture_order_score(attacker_id: i32, victim_id: i32) -> i32 {
-    unsafe { *CAPTURE_ORDER_SCORES.get_unchecked(((attacker_id - 1) * 8 + (victim_id - 1)) as usize) }
+    unsafe { *CAPTURE_ORDER_SCORES.get_unchecked(((attacker_id - 1) * 6 + (victim_id - 1)) as usize) }
 }
 
 const fn calc_capture_order_scores() -> [i32; CAPTURE_ORDER_SIZE] {
@@ -741,7 +741,7 @@ const fn calc_capture_order_scores() -> [i32; CAPTURE_ORDER_SIZE] {
 
         let mut attacker = 5;
         while attacker >= 0 {
-            scores[(victim + attacker * 8) as usize] = score * 64;
+            scores[(victim + attacker * 6) as usize] = score * 16;
             score += 1;
 
             attacker -= 1;
