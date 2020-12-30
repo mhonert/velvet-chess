@@ -209,7 +209,7 @@ impl Search for Engine {
 
                 a = -(alpha + 1); // Search all other moves (after principal variation) with a zero window
 
-                self.movegen.update_move(m.with_score(score));
+                self.movegen.update_root_move(m.with_score(score));
                 scored_move_count += 1;
             }
 

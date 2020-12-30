@@ -81,29 +81,29 @@ impl MoveGenerator {
         self.entries[self.ply].next_capture_move(board)
     }
 
-    pub fn next_unsorted_move(&mut self, hh: &HistoryHeuristics, board: &mut Board) -> Option<Move> {
-        self.entries[self.ply].next_unsorted_move(hh, board)
-    }
-
-    pub fn update_move(&mut self, m: Move) {
-        self.entries[self.ply].update_move(m);
+    pub fn update_root_move(&mut self, m: Move) {
+        self.entries[self.ply].update_root_move(m);
     }
 
 }
 
 enum Stage {
     HashMove,
-    GeneratedMoves,
+    CaptureMoves,
+    QuietMoves
 }
 
 pub struct MoveList {
     scored_hash_move: Move,
     primary_killer: Move,
     secondary_killer: Move,
-    moves: Vec<Move>,
+    moves: Vec<Move>, // contains all moves on root level, but only quiet moves in all other cases
+    capture_moves: Vec<Move>, // not used on root level
     stage: Stage,
-    index: usize,
+    move_index: usize,
+    capture_index: usize,
     moves_generated: bool,
+    quiets_sorted: bool,
     active_player: Color,
     phase: i32,
 }
@@ -115,9 +115,12 @@ impl MoveList {
             primary_killer: NO_MOVE,
             secondary_killer: NO_MOVE,
             moves: Vec::with_capacity(64),
+            capture_moves: Vec::with_capacity(16),
             stage: Stage::HashMove,
-            index: 0,
+            move_index: 0,
+            capture_index: 0,
             moves_generated: false,
+            quiets_sorted: false,
             active_player: WHITE,
             phase: 0
         }
@@ -128,15 +131,19 @@ impl MoveList {
         self.primary_killer = primary_killer;
         self.secondary_killer = secondary_killer;
         self.moves.clear();
+        self.capture_moves.clear();
         self.moves_generated = false;
         self.active_player = active_player;
-        self.index = 0;
+        self.move_index = 0;
+        self.capture_index = 0;
+        self.quiets_sorted = false;
         self.stage = Stage::HashMove;
     }
 
     pub fn reset(&mut self) {
         self.stage = Stage::HashMove;
-        self.index = 0;
+        self.move_index = 0;
+        self.capture_index = 0;
     }
 
     pub fn resort(&mut self) {
@@ -144,29 +151,19 @@ impl MoveList {
     }
 
     #[inline]
-    pub fn add_moves(&mut self, board: &Board, hh: &HistoryHeuristics, typ: MoveType, piece: i8, pos: i32, target_bb: u64) {
+    pub fn add_moves(&mut self, typ: MoveType, piece: i8, pos: i32, target_bb: u64) {
         for end in BitBoard(target_bb) {
-            self.add_move(board, hh, typ, piece, pos, end as i32);
+            self.add_move(typ, piece, pos, end as i32);
         }
     }
 
     #[inline]
-    pub fn add_move(&mut self, board: &Board, hh: &HistoryHeuristics, typ: MoveType, piece: i8, start: i32, end: i32) {
-        let m = Move::new(typ, piece, start, end);
-
-        let score = if m == self.primary_killer {
-            PRIMARY_KILLER_SCORE
-        } else if m == self.secondary_killer {
-            SECONDARY_KILLER_SCORE
-        } else {
-            evaluate_move_order(self.phase, hh, board, self.active_player, m)
-        };
-
-        self.moves.push(m.with_score(score));
+    pub fn add_move(&mut self, typ: MoveType, piece: i8, start: i32, end: i32) {
+        self.moves.push(Move::new(typ, piece, start, end));
     }
 
-    pub fn update_move(&mut self, scored_move: Move) {
-        self.moves[self.index - 1] = scored_move;
+    pub fn update_root_move(&mut self, scored_move: Move) {
+        self.moves[self.move_index - 1] = scored_move;
     }
 
     #[inline]
@@ -180,14 +177,14 @@ impl MoveList {
     pub fn add_capture_move(&mut self, board: &Board, typ: MoveType, piece: i8, start: i32, end: i32) {
         let m = Move::new(typ, piece, start, end);
         let score = evaluate_capture_move_order(&board, m);
-        self.moves.push(m.with_score(score));
+        self.capture_moves.push(m.with_score(score));
     }
 
     pub fn next_move(&mut self, hh: &HistoryHeuristics, board: &mut Board) -> Option<Move> {
         match self.stage {
             Stage::HashMove => {
-                self.index = 0;
-                self.stage = Stage::GeneratedMoves;
+                self.capture_index = 0;
+                self.stage = Stage::CaptureMoves;
 
                 if self.scored_hash_move != NO_MOVE {
                     Some(self.scored_hash_move)
@@ -196,25 +193,71 @@ impl MoveList {
                 }
             },
 
-            Stage::GeneratedMoves => {
+            Stage::CaptureMoves => {
                 if !self.moves_generated {
-                    self.gen_moves(hh, board);
-                    sort_by_score_desc(&mut self.moves);
+                    self.gen_moves(board);
+                    sort_by_score_desc(&mut self.capture_moves);
 
                     self.moves_generated = true;
                 }
 
-                self.find_next_move_except_hash_move()
+                match self.find_next_capture_move_except_hash_move() {
+                    Some(m) => Some(m),
+                    None => {
+                        self.stage = Stage::QuietMoves;
+                        self.move_index = 0;
+
+                        if !self.quiets_sorted {
+                            self.sort_quiets(hh, board);
+                        }
+
+                        self.find_next_quiet_move_except_hash_move()
+                    }
+                }
+            }
+
+            Stage::QuietMoves => {
+                self.find_next_quiet_move_except_hash_move()
             }
 
         }
     }
 
+    fn sort_quiets(&mut self, hh: &HistoryHeuristics, board: &Board) {
+        for m in self.moves.iter_mut() {
+            let score = if *m == self.primary_killer {
+                PRIMARY_KILLER_SCORE
+            } else if *m == self.secondary_killer {
+                SECONDARY_KILLER_SCORE
+            } else {
+                evaluate_move_order(self.phase, hh, board, self.active_player, *m)
+            };
+
+            *m = m.with_score(score);
+        }
+
+        sort_by_score_desc(&mut self.moves);
+        self.quiets_sorted = true;
+    }
+
     #[inline]
-    fn find_next_move_except_hash_move(&mut self) -> Option<Move> {
-        while self.index < self.moves.len() {
-            let m = unsafe { *self.moves.get_unchecked(self.index) };
-            self.index += 1;
+    fn find_next_capture_move_except_hash_move(&mut self) -> Option<Move> {
+        while self.capture_index < self.capture_moves.len() {
+            let m = unsafe { *self.capture_moves.get_unchecked(self.capture_index) };
+            self.capture_index += 1;
+            if !m.is_same_move(self.scored_hash_move) {
+                return Some(m);
+            }
+        }
+
+        None
+    }
+
+    #[inline]
+    fn find_next_quiet_move_except_hash_move(&mut self) -> Option<Move> {
+        while self.move_index < self.moves.len() {
+            let m = unsafe { *self.moves.get_unchecked(self.move_index) };
+            self.move_index += 1;
             if !m.is_same_move(self.scored_hash_move) {
                 return Some(m);
             }
@@ -225,46 +268,42 @@ impl MoveList {
 
     pub fn next_legal_move(&mut self, hh: &HistoryHeuristics, board: &mut Board) -> Option<Move> {
         if !self.moves_generated {
-            self.gen_moves(hh, board);
+            self.gen_moves(board);
+            self.sort_quiets(hh, board);
+            self.moves.append(&mut self.capture_moves);
+
             let active_player = board.active_player();
             self.moves.retain(|&m| board.is_legal_move(active_player, m));
+
             sort_by_score_desc(&mut self.moves);
             self.moves_generated = true;
+            self.quiets_sorted = true;
         }
 
-        self.find_next_move()
-    }
-
-    pub fn next_capture_move(&mut self, board: &mut Board) -> Option<Move> {
-        if !self.moves_generated {
-            self.gen_capture_moves(board);
-            sort_by_score_desc(&mut self.moves);
-            self.moves_generated = true;
-        }
-
-        self.find_next_move()
-    }
-
-    pub fn next_unsorted_move(&mut self, hh: &HistoryHeuristics, board: &mut Board) -> Option<Move> {
-        if !self.moves_generated {
-            self.gen_moves(hh, board);
-            self.moves_generated = true;
-        }
-
-        self.find_next_move()
-    }
-
-    #[inline]
-    fn find_next_move(&mut self) -> Option<Move> {
-        if self.index < self.moves.len() {
-            self.index += 1;
-            Some(unsafe { *self.moves.get_unchecked(self.index - 1) })
+        if self.move_index < self.moves.len() {
+            self.move_index += 1;
+            Some(unsafe { *self.moves.get_unchecked(self.move_index - 1) })
         } else {
             None
         }
     }
 
-    fn gen_moves(&mut self, hh: &HistoryHeuristics, board: &Board) {
+    pub fn next_capture_move(&mut self, board: &mut Board) -> Option<Move> {
+        if !self.moves_generated {
+            self.gen_capture_moves(board);
+            sort_by_score_desc(&mut self.capture_moves);
+            self.moves_generated = true;
+        }
+
+        if self.capture_index < self.capture_moves.len() {
+            self.capture_index += 1;
+            Some(unsafe { *self.capture_moves.get_unchecked(self.capture_index - 1) })
+        } else {
+            None
+        }
+    }
+
+    fn gen_moves(&mut self, board: &Board) {
         self.phase = board.calc_phase_value();
 
         let active_player = self.active_player;
@@ -273,40 +312,40 @@ impl MoveList {
         let empty_bb = !occupied;
 
         if active_player == WHITE {
-            self.gen_white_king_moves(hh, board, board.king_pos(WHITE), opponent_bb, empty_bb);
+            self.gen_white_king_moves(board, board.king_pos(WHITE), opponent_bb, empty_bb);
 
             let pawns = board.get_bitboard(P);
 
-            self.gen_white_straight_pawn_moves(board, hh, pawns, empty_bb);
+            self.gen_white_straight_pawn_moves(pawns, empty_bb);
             self.gen_white_attack_pawn_moves(board, pawns, opponent_bb);
             self.gen_white_en_passant_moves(board, pawns);
         } else {
-            self.gen_black_king_moves(board, hh, board.king_pos(BLACK), opponent_bb, empty_bb);
+            self.gen_black_king_moves(board, board.king_pos(BLACK), opponent_bb, empty_bb);
 
             let pawns = board.get_bitboard(-P);
-            self.gen_black_straight_pawn_moves(board, hh, pawns, empty_bb);
+            self.gen_black_straight_pawn_moves(pawns, empty_bb);
             self.gen_black_attack_pawn_moves(board, pawns, opponent_bb);
             self.gen_black_en_passant_moves(board, pawns);
         }
 
         for pos in BitBoard(board.get_bitboard(N * active_player)) {
             let attacks = get_knight_attacks(pos as i32);
-            self.gen_piece_moves(board, hh, N, pos as i32, attacks, opponent_bb, empty_bb);
+            self.gen_piece_moves(board, N, pos as i32, attacks, opponent_bb, empty_bb);
         }
 
         for pos in BitBoard(board.get_bitboard(B * active_player)) {
             let attacks = get_bishop_attacks(occupied, pos as i32);
-            self.gen_piece_moves(board, hh, B, pos as i32, attacks, opponent_bb, empty_bb);
+            self.gen_piece_moves(board, B, pos as i32, attacks, opponent_bb, empty_bb);
         }
 
         for pos in BitBoard(board.get_bitboard(R * active_player)) {
             let attacks = get_rook_attacks(occupied, pos as i32);
-            self.gen_piece_moves(board, hh, R, pos as i32, attacks, opponent_bb, empty_bb);
+            self.gen_piece_moves(board, R, pos as i32, attacks, opponent_bb, empty_bb);
         }
 
         for pos in BitBoard(board.get_bitboard(Q * active_player)) {
             let attacks = get_queen_attacks(occupied, pos as i32);
-            self.gen_piece_moves(board, hh, Q, pos as i32, attacks, opponent_bb, empty_bb);
+            self.gen_piece_moves(board, Q, pos as i32, attacks, opponent_bb, empty_bb);
         }
     }
 
@@ -319,15 +358,9 @@ impl MoveList {
         if active_player == WHITE {
             self.gen_white_attack_pawn_moves(board, board.get_bitboard(P), opponent_bb);
 
-            let king_pos = board.king_pos(WHITE);
-            let king_targets = get_king_attacks(king_pos);
-            self.add_capture_moves(board, MoveType::KingCapture, K, king_pos, king_targets & opponent_bb);
         } else {
             self.gen_black_attack_pawn_moves(board, board.get_bitboard(-P), opponent_bb);
 
-            let king_pos = board.king_pos(BLACK);
-            let king_targets = get_king_attacks(king_pos);
-            self.add_capture_moves(board, MoveType::KingCapture, K, king_pos, king_targets & opponent_bb);
         }
 
         for pos in BitBoard(board.get_bitboard(N * active_player)) {
@@ -349,19 +382,23 @@ impl MoveList {
             let attacks = get_queen_attacks(occupied, pos as i32);
             self.add_capture_moves(board, MoveType::Capture, Q, pos as i32, attacks & opponent_bb);
         }
+
+        let king_pos = board.king_pos(active_player);
+        let king_targets = get_king_attacks(king_pos);
+        self.add_capture_moves(board, MoveType::KingCapture, K, king_pos, king_targets & opponent_bb);
     }
 
-    fn gen_white_straight_pawn_moves(&mut self, board: &Board, hh: &HistoryHeuristics, pawns: u64, empty_bb: u64) {
+    fn gen_white_straight_pawn_moves(&mut self, pawns: u64, empty_bb: u64) {
         // Single move
         let mut target_bb = (pawns >> 8) & empty_bb;
-        self.add_pawn_quiet_moves(board, hh, MoveType::PawnQuiet, target_bb, 8);
+        self.add_pawn_quiet_moves(MoveType::PawnQuiet, target_bb, 8);
 
         // Double move
         target_bb &= unsafe{ *PAWN_DOUBLE_MOVE_LINES.get_unchecked(WHITE as usize + 1) };
         target_bb >>= 8;
 
         target_bb &= empty_bb;
-        self.add_pawn_quiet_moves(board, hh, MoveType::PawnDoubleQuiet, target_bb, 16);
+        self.add_pawn_quiet_moves(MoveType::PawnDoubleQuiet, target_bb, 16);
     }
 
     fn gen_white_attack_pawn_moves(&mut self, board: &Board, pawns: u64, opponent_bb: u64) {
@@ -400,17 +437,17 @@ impl MoveList {
         }
     }
 
-    fn gen_black_straight_pawn_moves(&mut self, board: &Board, hh: &HistoryHeuristics, pawns: u64, empty_bb: u64) {
+    fn gen_black_straight_pawn_moves(&mut self, pawns: u64, empty_bb: u64) {
         // Single move
         let mut target_bb = (pawns << 8) & empty_bb;
-        self.add_pawn_quiet_moves(board, hh, MoveType::PawnQuiet, target_bb, -8);
+        self.add_pawn_quiet_moves(MoveType::PawnQuiet, target_bb, -8);
 
         // Double move
         target_bb &= unsafe { *PAWN_DOUBLE_MOVE_LINES.get_unchecked(((BLACK as i32) + 1) as usize) };
         target_bb <<= 8;
 
         target_bb &= empty_bb;
-        self.add_pawn_quiet_moves(board, hh, MoveType::PawnDoubleQuiet, target_bb, -16);
+        self.add_pawn_quiet_moves(MoveType::PawnDoubleQuiet, target_bb, -16);
     }
 
     fn gen_black_attack_pawn_moves(&mut self, board: &Board, pawns: u64, opponent_bb: u64) {
@@ -449,19 +486,19 @@ impl MoveList {
         }
     }
 
-    fn add_pawn_quiet_moves(&mut self, board: &Board, hh: &HistoryHeuristics, typ: MoveType, target_bb: u64, direction: i32) {
+    fn add_pawn_quiet_moves(&mut self, typ: MoveType, target_bb: u64, direction: i32) {
         for end in BitBoard(target_bb) {
             let start = end as i32 + direction;
 
             if end <= 7 || end >= 56 {
                 // Promotion
-                self.add_move(board, hh, MoveType::PawnSpecial, Q, start, end as i32);
-                self.add_move(board, hh, MoveType::PawnSpecial, N, start, end as i32);
-                self.add_move(board, hh, MoveType::PawnSpecial, R, start, end as i32);
-                self.add_move(board, hh, MoveType::PawnSpecial, B, start, end as i32);
+                self.add_move(MoveType::PawnSpecial, Q, start, end as i32);
+                self.add_move(MoveType::PawnSpecial, N, start, end as i32);
+                self.add_move(MoveType::PawnSpecial, R, start, end as i32);
+                self.add_move(MoveType::PawnSpecial, B, start, end as i32);
             } else {
                 // Normal move
-                self.add_move(board, hh, typ, P, start, end as i32);
+                self.add_move(typ, P, start, end as i32);
             }
         }
     }
@@ -483,14 +520,14 @@ impl MoveList {
         }
     }
 
-    fn gen_white_king_moves(&mut self, hh: &HistoryHeuristics, board: &Board, pos: i32, opponent_bb: u64, empty_bb: u64) {
+    fn gen_white_king_moves(&mut self, board: &Board, pos: i32, opponent_bb: u64, empty_bb: u64) {
         let king_targets = get_king_attacks(pos);
 
         // Captures
         self.add_capture_moves(board, MoveType::KingCapture, K, pos, king_targets & opponent_bb);
 
         // Normal moves
-        self.add_moves(board, hh, MoveType::KingQuiet, K, pos, king_targets & empty_bb);
+        self.add_moves(MoveType::KingQuiet, K, pos, king_targets & empty_bb);
 
         // // Castling moves
         if pos != WhiteBoardPos::KingStart as i32 {
@@ -498,22 +535,22 @@ impl MoveList {
         }
 
         if board.can_castle(Castling::WhiteKingSide) && is_kingside_castling_valid_for_white(board, empty_bb) {
-            self.add_move(board, hh, MoveType::Castling, K, pos, pos + 2);
+            self.add_move(MoveType::Castling, K, pos, pos + 2);
         }
 
         if board.can_castle(Castling::WhiteQueenSide) && is_queenside_castling_valid_for_white(board, empty_bb) {
-            self.add_move(board, hh, MoveType::Castling, K, pos, pos - 2);
+            self.add_move(MoveType::Castling, K, pos, pos - 2);
         }
     }
 
-    fn gen_black_king_moves(&mut self, board: &Board, hh: &HistoryHeuristics, pos: i32, opponent_bb: u64, empty_bb: u64) {
+    fn gen_black_king_moves(&mut self, board: &Board, pos: i32, opponent_bb: u64, empty_bb: u64) {
         let king_targets = get_king_attacks(pos);
 
         // Captures
         self.add_capture_moves(board, MoveType::KingCapture, K, pos, king_targets & opponent_bb);
 
         // Normal moves
-        self.add_moves(board, hh, MoveType::KingQuiet, K, pos, king_targets & empty_bb);
+        self.add_moves(MoveType::KingQuiet, K, pos, king_targets & empty_bb);
 
         // Castling moves
         if pos != BlackBoardPos::KingStart as i32 {
@@ -521,17 +558,17 @@ impl MoveList {
         }
 
         if board.can_castle(Castling::BlackKingSide) && is_kingside_castling_valid_for_black(board, empty_bb) {
-            self.add_move(board, hh, MoveType::Castling, K, pos, pos + 2);
+            self.add_move(MoveType::Castling, K, pos, pos + 2);
         }
 
         if board.can_castle(Castling::BlackQueenSide) && is_queenside_castling_valid_for_black(board, empty_bb) {
-            self.add_move(board, hh, MoveType::Castling, K, pos, pos - 2);
+            self.add_move(MoveType::Castling, K, pos, pos - 2);
         }
     }
 
-    fn gen_piece_moves(&mut self, board: &Board, hh: &HistoryHeuristics, piece: i8, pos: i32, targets: u64, opponent_bb: u64, empty_bb: u64) {
+    fn gen_piece_moves(&mut self, board: &Board, piece: i8, pos: i32, targets: u64, opponent_bb: u64, empty_bb: u64) {
         self.add_capture_moves(board, MoveType::Capture, piece, pos, targets & opponent_bb);
-        self.add_moves(board, hh, MoveType::Quiet, piece, pos, targets & empty_bb);
+        self.add_moves(MoveType::Quiet, piece, pos, targets & empty_bb);
     }
 }
 
