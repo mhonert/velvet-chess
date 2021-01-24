@@ -13,6 +13,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
+from random import shuffle
 
 from engine import Engine
 from dataclasses import dataclass
@@ -21,74 +22,120 @@ import yaml
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from time import time
 import sys
-from typing import List
+from typing import List, Dict
 import copy
 from common import TuningOption, Config
+import chess
 
 
-# Uses "Texel's Tuning Method" for tuning evaluation parameters
-# see https://www.chessprogramming.org/Texel%27s_Tuning_Method for a detailed description of the method
+def parse_move_score(board, entry) -> (str, int):
+    # Sample entry: Bb5=9
+    parts = entry.strip().rsplit("=", maxsplit=1)
+    if len(parts) != 2:
+        return None
+
+    san_move = parts[0]
+    score = int(parts[1])
+
+    try:
+        move = board.parse_san(san_move)
+    except ValueError:
+        log.warning("Invalid entry: %s", entry)
+        return None
+
+    return move.uci(), score
 
 
 @dataclass
 class TestPosition:
     fen: str
-    result: float
-    score: int = 0
+    best_score: int
+    solutions: Dict[str, int]
 
 
-# Read test positions in format: FEN result
-# result may be "1-0" for a white win, "0-1" for a black win or "1/2" for a draw
-def read_fens(fen_file) -> List[TestPosition]:
+def read_epd(epd_file) -> List[TestPosition]:
     test_positions = []
-    with open(fen_file, 'r') as file:
-
+    i = 0
+    with open(epd_file, 'r') as file:
         # Sample line:
-        # rnbqkb1r/1p2ppp1/p2p1n2/2pP3p/4P3/5N2/PPP1QPPP/RNB1KB1R w KQkq - 0 1 1-0
+        # r2qk2r/pp1n1p2/2n1p2p/2bp3P/7p/2N1PQ1P/PPPB1P2/R3KB1R w KQkq - bm O-O-O; bm O-O-O; c0 "O-O-O=10, Bb5=9, Be2=9, Rg1=8";
         for line in file:
-            fen = line[:-5]
-            result_str = line[line.rfind(" "):].strip()
-            result = float(result_str)
-            test_positions.append(TestPosition(fen, result))
+            i += 1
+            if i % 2 != 0:
+                continue
+            parts = line.rstrip().split(";")
+            if len(parts) == 5:
+                del parts[1]
+            if len(parts) != 4:
+                log.warning("Invalid line with %i parts: %s", len(parts), line)
+                continue
+
+            fen = parts[0]
+            if "bm " in fen:
+                fen = fen[:fen.rindex("bm ")]  # remove best move part 'bm ...'
+
+            if "id " in fen:
+                fen = fen[:fen.rindex("id ")]  # remove id part 'id ...'
+
+            fen += "0 1"
+
+            board = chess.Board(fen)
+            solution_str = parts[2]
+            if not solution_str.startswith(' c0 "'):
+                log.warning("Missing ' c0 \"' comment in line %s", line)
+
+            solution_str = solution_str[5:len(solution_str) - 1]
+
+            solutions = list(filter(None.__ne__, [parse_move_score(board, entry) for entry in solution_str.split(",")]))
+
+            if len(solutions) > 0:
+                test_positions.append(TestPosition(fen, solutions[0][1], dict(solutions)))
+            else:
+                log.warning("Skipped position, because it has no valid solution comment: %s", line)
 
     return test_positions
 
 
-def run_engine(k: float, engine: Engine, tuning_options: List[TuningOption]) -> (int, float):
+@dataclass
+class TuningResult:
+    value: int
+    score: int
+
+
+def run_engine(engine: Engine, tuning_options: List[TuningOption]) -> (int, int):
     try:
-
-        if not engine.is_prepared:
-            engine.is_prepared = True
-            is_first = True
-            for chunk in make_chunks(engine.test_positions, 512):
-                fens = "prepare_eval "
-                for pos in chunk:
-                    if not is_first:
-                        fens += ";"
-                    else:
-                        is_first = False
-                    fens += pos.fen + ":" + str(pos.result)
-
-                engine.send_command(fens)
-                engine.wait_for_command("prepared")
 
         for option in tuning_options:
             if option.is_tuning:
                 engine.send_command("setoption name {} value {}".format(option.name, option.value))
 
-        engine.send_command("isready")
-        engine.wait_for_command("readyok")
+        score = 0
+        max_score = 0
 
-        engine.send_command("eval " + str(k))
-        result = engine.wait_for_command("result")
+        # shuffle(engine.test_positions)
 
-        [pos_str, error_str] = result[len("result "):].split(":")
+        for pos in engine.test_positions[:250]:
+            engine.send_command("ucinewgame")
+
+            engine.send_command("isready")
+            engine.wait_for_command("readyok")
+
+            engine.send_command("position fen " + pos.fen)
+
+            engine.send_command("go movetime 500")
+            result = engine.wait_for_command("bestmove")
+
+            engine_solution = result[len("bestmove "):].split(" ")[0]
+            solution_score = pos.solutions.get(engine_solution, 0)
+
+            score += solution_score
+            max_score += pos.best_score
 
         for option in tuning_options:
             if option.is_tuning:
                 engine.send_command("setoption name {} value {}".format(option.name, option.prev_value))
 
-        return int(pos_str), float(error_str)
+        return (score, max_score)
 
     except Exception as error:
         engine.stop()
@@ -128,13 +175,15 @@ def run_pass(config: Config, tuning_options: List[TuningOption], engines: List[E
 
     log.debug("Starting pass")
 
+    total_max_score = 0
+    total_score = 0
+
     tick1 = time()
+
     with ThreadPoolExecutor(max_workers=config.concurrent_workers) as executor:
         for engine in engines:
-            futures.append(executor.submit(run_engine, config.k, engine, tuning_options))
+            futures.append(executor.submit(run_engine, engine, tuning_options))
 
-        errors = .0
-        positions = 0
         for future in as_completed(futures):
             if future.exception():
                 log.exception("Worker was cancelled", future.exception())
@@ -143,13 +192,13 @@ def run_pass(config: Config, tuning_options: List[TuningOption], engines: List[E
             if future.cancelled():
                 sys.exit("Worker was cancelled - possible engine bug? try enabling the debug_log output and re-run the tuner")
 
-            (p, e) = future.result()
-            errors += e
-            positions += p
+            (score, max_score) = future.result()
+            total_score += score
+            total_max_score += max_score
 
-    log.debug("Calc evals duration: %.2fs", time() - tick1)
+    log.info("Calc evals duration: %.2fs", time() - tick1)
 
-    return errors / float(positions)
+    return 1.0 - (float(total_score) / float(total_max_score))
 
 
 def run_apply_options(config: Config, tuning_options: List[TuningOption], engines: List[Engine]):
@@ -278,23 +327,8 @@ def main():
         log.getLogger().setLevel(log.DEBUG)
     log.info("- use %i concurrent engine processes", config.concurrent_workers)
 
-    # Scaling factor (calculated for Velvet Chess engine)
-    # K = 1.342224
-    # K = 0.6
-
-    # config.k = 0.843
-    # config.k = 0.789999
-    #config.k = 1.342224
-    # config.k = 0.920004
-    # config.k = 1.5
-    # config.k = 1.1
-    # config.k = 1.322
-    # config.k = 1.0313
-    config.k = 1.603
-    # config.k = 0.8425
-
     log.info("Reading test positions ...")
-    all_test_positions = read_fens(config.test_positions_file)
+    all_test_positions = read_epd(config.test_positions_file)
 
     log.info("Read %i test positions", len(all_test_positions))
 
@@ -349,25 +383,6 @@ def main():
         low_improvements = 0
 
         local_best_err = run_pass(config, best_options, engines)
-
-        # Calculate K (scaling factor)
-        # last_e = 10000000.0
-        # k = 0.5
-        # for step in [0.1, 0.01, 0.001, 0.0001, 0.00001, 0.000001, 0.0000001]:
-        #     log.info("Next step: %f", step)
-        #     while True:
-        #         previous_k = k
-        #         k += step
-        #         config.k = k
-        #         e = run_pass(config, best_options, engines)
-        #         log.info("Check k = %.8f -> e = %.8f, last_e = %.8f", k, e, last_e)
-        #         if e > last_e:
-        #             k = previous_k
-        #             break
-        #         last_e = e
-        #
-        # log.info("=> k = %.8f", k)
-        # return
 
         init_err = local_best_err
 

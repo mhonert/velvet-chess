@@ -1,5 +1,6 @@
 /target
 .idea
 fen
+epd
 __pycache__
 build.sh
