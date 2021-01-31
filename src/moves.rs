@@ -18,11 +18,11 @@
 
 use std::intrinsics::transmute;
 use crate::moves::MoveType::PawnSpecial;
-use crate::pieces::P;
+use crate::pieces::{P};
 use std::fmt;
 
 #[repr(u8)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub enum MoveType {
     PawnQuiet = 0,
     Quiet = 1,

@@ -26,7 +26,7 @@ use crate::history_heuristics::HistoryHeuristics;
 
   Another use case for this function is to test the performance of the move generator.
 */
-pub fn perft(movegen: &mut MoveGenerator, hh: &HistoryHeuristics, board: &mut Board, depth: i32) -> u64 {
+pub fn perft(movegen: &mut MoveGenerator, hh: &mut HistoryHeuristics, board: &mut Board, depth: i32) -> u64 {
     if depth == 0 {
         return 1;
     }

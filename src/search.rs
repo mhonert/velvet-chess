@@ -29,7 +29,7 @@ use std::cmp::{max, min};
 use std::time::{Duration, Instant};
 use crate::eval::Eval;
 use crate::moves::{Move, NO_MOVE};
-use crate::move_gen::is_likely_valid_move;
+use crate::move_gen::{is_likely_valid_move, NEGATIVE_HISTORY_SCORE};
 
 pub trait Search {
     fn find_best_move(&mut self, min_depth: i32, is_strict_timelimit: bool) -> Move;
@@ -218,6 +218,10 @@ impl Search for Engine {
             let total_duration = current_time.duration_since(self.starttime);
             let remaining_time = self.timelimit_ms - total_duration.as_millis() as i32;
 
+            if depth >= self.depth_limit {
+                iteration_cancelled = true;
+            }
+
             if !iteration_cancelled {
                 if previous_best_move != NO_MOVE {
                     score_fluctuations = score_fluctuations * 100 / self.board.options.get_timeext_score_fluctuation_reductions();
@@ -226,9 +230,7 @@ impl Search for Engine {
                 }
 
                 self.cancel_possible = depth >= min_depth;
-                if self.cancel_possible
-                    && (remaining_time <= (iteration_duration.as_millis() as i32 * 2))
-                {
+                if self.cancel_possible && (remaining_time <= (iteration_duration.as_millis() as i32 * 2)) {
                     // Not enough time left for another iteration
 
                     if is_strict_timelimit
@@ -303,8 +305,8 @@ impl Search for Engine {
             let total_duration = current_time.duration_since(self.starttime);
 
             if self.cancel_possible {
-                if total_duration.as_millis() as i32 >= self.timelimit_ms {
-                    // Cancel search if the time limit has been reached
+                if self.node_count >= self.node_limit || total_duration.as_millis() as i32 >= self.timelimit_ms {
+                    // Cancel search if the node or time limit has been reached
                     return CANCEL_SEARCH;
                 } else if self.is_search_stopped() {
                     self.is_stopped = true;
@@ -435,7 +437,7 @@ impl Search for Engine {
         self.movegen.enter_ply(player_color, m, primary_killer, secondary_killer);
 
         loop {
-            m = match self.movegen.next_move(&self.hh, &mut self.board) {
+            m = match self.movegen.next_move(&mut self.hh, &mut self.board) {
                 Some(next_move) => next_move,
                 None => {
                     if fail_high && has_valid_moves {
@@ -468,19 +470,19 @@ impl Search for Engine {
                 has_valid_moves = true;
                 gives_check = self.board.is_in_check(-player_color);
                 if removed_piece_id == EMPTY {
-                    let own_moves_left = depth / 2;
                     if allow_reductions
                         && !gives_check
                         && evaluated_move_count > LMR_THRESHOLD
                         && !self.board.is_pawn_move_close_to_promotion(previous_piece, end, opponent_pieces) {
                         // Reduce search depth for late moves (i.e. after trying the most promising moves)
                         reductions = LMR_REDUCTIONS;
-                        if self.hh.has_negative_history(player_color, depth, start, end) {
+                        if m.score() == NEGATIVE_HISTORY_SCORE {
                             // Reduce more, if move has negative history or SEE score
                             reductions += 1;
                         }
                     } else if allow_futile_move_pruning && !gives_check && !m.is_promotion() {
-                        if !is_in_check && (own_moves_left <= 1 || (self.hh.has_negative_history(player_color, depth, start, end) && self.board.see_score(-player_color, start, end, target_piece_id, EMPTY) < 0)) {
+                        let own_moves_left = depth / 2;
+                        if !is_in_check && (own_moves_left <= 1 || (m.score() == NEGATIVE_HISTORY_SCORE && self.board.see_score(-player_color, start, end, target_piece_id, EMPTY) < 0)) {
                             // Prune futile move
                             skip = true;
                             if prune_low_score > best_score {
@@ -490,7 +492,7 @@ impl Search for Engine {
                             // Reduce futile move
                             reductions = FUTILE_MOVE_REDUCTIONS;
                         }
-                    } else if self.hh.has_negative_history(player_color, depth, start, end) || self.board.see_score(-player_color, start, end, target_piece_id, EMPTY) < 0 {
+                    } else if m.score() == NEGATIVE_HISTORY_SCORE || self.board.see_score(-player_color, start, end, target_piece_id, EMPTY) < 0 {
                         // Reduce search depth for moves with negative history or negative SEE score
                         reductions = LOSING_MOVE_REDUCTIONS;
                     }
@@ -504,7 +506,7 @@ impl Search for Engine {
                 self.board.undo_move(m, previous_piece, removed_piece_id);
             } else {
                 if removed_piece_id == EMPTY {
-                    self.hh.update_played_moves(depth, player_color, start, end);
+                    self.hh.update_played_moves(depth, player_color, m.piece_id(), end);
                 }
 
                 evaluated_move_count += 1;
@@ -548,7 +550,7 @@ impl Search for Engine {
                         self.tt.write_entry(hash, depth, best_move.with_score(best_score), ScoreType::LowerBound);
 
                         if removed_piece_id == EMPTY {
-                            self.hh.update(depth, ply, player_color, start, end, best_move);
+                            self.hh.update(depth, ply, player_color, end, best_move);
                         }
 
                         self.movegen.leave_ply();

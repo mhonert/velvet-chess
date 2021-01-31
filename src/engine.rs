@@ -23,7 +23,7 @@ use crate::history_heuristics::HistoryHeuristics;
 use crate::perft::perft;
 use crate::pieces::{Q, get_piece_value};
 use crate::search::Search;
-use crate::transposition_table::{TranspositionTable, DEFAULT_SIZE_MB};
+use crate::transposition_table::{TranspositionTable, DEFAULT_SIZE_MB, MAX_DEPTH};
 use crate::uci_move::UCIMove;
 use std::cmp::max;
 use std::process::exit;
@@ -49,6 +49,7 @@ pub enum Message {
         binc: i32,
         movetime: i32,
         movestogo: i32,
+        nodes: u64
     },
     Perft(i32),
     IsReady,
@@ -89,6 +90,8 @@ pub struct Engine {
 
     pub starttime: Instant,
     pub timelimit_ms: i32,
+    pub node_limit: u64,
+    pub depth_limit: i32,
 
     pub cancel_possible: bool,
     pub node_count: u64,
@@ -129,6 +132,8 @@ impl Engine {
             tt: TranspositionTable::new(tt_size_mb),
             starttime: Instant::now(),
             timelimit_ms: 0,
+            node_limit: u64::max_value(),
+            depth_limit: MAX_DEPTH as i32,
             cancel_possible: false,
             node_count: 0,
             log_every_second: false,
@@ -174,8 +179,8 @@ impl Engine {
 
             Message::IsReady => self.is_ready(),
 
-            Message::Go { depth, wtime, btime, winc, binc, movetime, movestogo} =>
-                self.go(depth, wtime, btime, winc, binc, movetime, movestogo),
+            Message::Go { depth, wtime, btime, winc, binc, movetime, movestogo, nodes } =>
+                self.go(depth, wtime, btime, winc, binc, movetime, movestogo, nodes),
 
             Message::PrepareEval(fens) => self.prepare_eval(fens),
 
@@ -211,7 +216,8 @@ impl Engine {
         true
     }
 
-    fn go(&mut self, depth: i32, wtime: i32, btime: i32, winc: i32, binc: i32, movetime: i32, movestogo: i32) {
+    fn go(&mut self, depth: i32, wtime: i32, btime: i32, winc: i32, binc: i32, movetime: i32, movestogo: i32, nodes: u64) {
+        self.depth_limit = depth;
         self.timelimit_ms = if self.board.active_player() == WHITE {
             calc_timelimit(movetime, wtime, winc, movestogo)
         } else {
@@ -224,10 +230,11 @@ impl Engine {
             btime
         };
 
-        let is_strict_timelimit =
-            movetime != 0 || (time_left - (TIMEEXT_MULTIPLIER * self.timelimit_ms) <= 20) || movestogo == 1;
+        self.node_limit = nodes;
 
-        let m = self.find_best_move(depth, is_strict_timelimit);
+        let is_strict_timelimit = movetime > 0 || (time_left - (TIMEEXT_MULTIPLIER * self.timelimit_ms) <= 20) || movestogo == 1;
+
+        let m = self.find_best_move(3, is_strict_timelimit);
         if m == NO_MOVE {
             println!("bestmove 0000")
         } else {
@@ -418,7 +425,7 @@ impl Engine {
     fn perft(&mut self, depth: i32) {
         let start = SystemTime::now();
 
-        let nodes = perft(&mut self.movegen, &self.hh, &mut self.board, depth);
+        let nodes = perft(&mut self.movegen, &mut self.hh, &mut self.board, depth);
 
         let duration = match SystemTime::now().duration_since(start) {
             Ok(v) => v,
@@ -441,7 +448,7 @@ impl Engine {
 
     pub fn profile(&mut self) {
         println!("Profiling ...");
-        self.go(10, 500, 500, 0, 0, 500, 2);
+        self.go(MAX_DEPTH as i32, -1, -1, 0, 0, -1, 1, 500000); // search 500.000 nodes
         exit(0);
     }
 
@@ -474,17 +481,23 @@ impl Engine {
     }
 }
 
+const TIME_SAFETY_MARGIN_MS: i32 = 20;
+
 fn calc_timelimit(movetime: i32, time_left: i32, time_increment: i32, movestogo: i32) -> i32 {
+    if movetime == -1 && time_left == -1 {
+        return i32::max_value()
+    }
+
     if movetime > 0 {
-        return max(0, movetime - 20);
+        return max(0, movetime - TIME_SAFETY_MARGIN_MS);
     }
 
     let time_for_move = time_left / max(1, movestogo);
     let time_bonus = if movestogo > 1 { time_increment / 2 } else { 0 };
 
-    if time_for_move + time_bonus >= time_left {
-        max(0, time_for_move - 20)
+    if time_for_move + time_bonus + TIME_SAFETY_MARGIN_MS >= time_left {
+        max(0, time_for_move - TIME_SAFETY_MARGIN_MS)
     } else {
-        max(0, time_for_move + time_increment - 20)
+        max(0, time_for_move + time_increment)
     }
 }

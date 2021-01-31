@@ -18,7 +18,7 @@
 
 use crate::engine::Message;
 use crate::fen::START_POS;
-use crate::transposition_table::{DEFAULT_SIZE_MB, MAX_HASH_SIZE_MB};
+use crate::transposition_table::{DEFAULT_SIZE_MB, MAX_HASH_SIZE_MB, MAX_DEPTH};
 use crate::uci_move::UCIMove;
 use std::io;
 use std::str::FromStr;
@@ -199,33 +199,30 @@ fn perft(tx: &Sender<Message>, parts: Vec<&str>) {
 }
 
 fn go(tx: &Sender<Message>, parts: Vec<&str>) {
-    if parts.is_empty() {
-        println!("perft cmd: missing depth");
-        return;
-    }
-
-    if parts.contains(&"infinite") {
+    if parts.is_empty() || parts.contains(&"infinite") {
         send_message(
             tx,
             Message::Go {
-                depth: 3,
-                wtime: 0,
-                btime: 0,
+                depth: MAX_DEPTH as i32,
+                wtime: -1,
+                btime: -1,
                 winc: 0,
                 binc: 0,
                 movetime: i32::max_value(),
                 movestogo: 1,
+                nodes: u64::max_value(),
             }
         );
         return;
     }
 
-    let depth = extract_option(&parts, "depth", 3);
-    let wtime = extract_option(&parts, "wtime", 0);
-    let btime = extract_option(&parts, "btime", 0);
+    let depth = extract_option(&parts, "depth", MAX_DEPTH as i32);
+    let wtime = extract_option(&parts, "wtime", -1);
+    let btime = extract_option(&parts, "btime", -1);
     let winc = extract_option(&parts, "winc", 0);
     let binc = extract_option(&parts, "binc", 0);
-    let movetime = extract_option(&parts, "movetime", 0);
+    let nodes = extract_option(&parts, "nodes", u64::max_value());
+    let movetime = extract_option(&parts, "movetime", -1);
     let movestogo = extract_option(&parts, "movestogo", 40);
 
     if depth <= 0 {
@@ -243,6 +240,7 @@ fn go(tx: &Sender<Message>, parts: Vec<&str>) {
             binc,
             movetime,
             movestogo,
+            nodes
         },
     );
 }
@@ -311,14 +309,14 @@ fn fen(tx: &Sender<Message>) {
     send_message(tx, Message::Fen);
 }
 
-fn extract_option(parts: &Vec<&str>, name: &str, default_value: i32) -> i32 {
+fn extract_option<T: std::str::FromStr>(parts: &Vec<&str>, name: &str, default_value: T) -> T {
     match parts.iter().position(|&item| item == name) {
         Some(pos) => {
             if pos + 1 >= parts.len() {
                 return default_value;
             }
 
-            match i32::from_str(parts[pos + 1]) {
+            match T::from_str(parts[pos + 1]) {
                 Ok(value) => value,
                 Err(_) => default_value,
             }

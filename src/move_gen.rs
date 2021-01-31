@@ -23,7 +23,7 @@ use crate::castling::Castling;
 use crate::colors::{Color, BLACK, WHITE};
 use crate::pieces::{B, K, N, P, Q, R, EMPTY};
 use crate::moves::{Move, MoveType, NO_MOVE};
-use crate::history_heuristics::HistoryHeuristics;
+use crate::history_heuristics::{HistoryHeuristics};
 use crate::score_util::{unpack_score, unpack_eg_score};
 use crate::transposition_table::MAX_DEPTH;
 
@@ -31,6 +31,8 @@ const CAPTURE_ORDER_SIZE: usize = 5 + 5 * 6 + 1;
 
 const PRIMARY_KILLER_SCORE: i32 = -2267;
 const SECONDARY_KILLER_SCORE: i32 = -3350;
+
+pub const NEGATIVE_HISTORY_SCORE: i32 = -5000;
 
 const CAPTURE_ORDER_SCORES: [i32; CAPTURE_ORDER_SIZE] = calc_capture_order_scores();
 
@@ -52,11 +54,13 @@ impl MoveGenerator {
         }
     }
 
+    #[inline(always)]
     pub fn enter_ply(&mut self, active_player: Color, scored_hash_move: Move, primary_killer: Move, secondary_killer: Move) {
         self.ply += 1;
         self.entries[self.ply].init(active_player, scored_hash_move, primary_killer, secondary_killer);
     }
 
+    #[inline(always)]
     pub fn leave_ply(&mut self) {
         self.ply -= 1;
     }
@@ -69,6 +73,7 @@ impl MoveGenerator {
         self.entries[self.ply].resort();
     }
 
+    #[inline(always)]
     pub fn next_move(&mut self, hh: &HistoryHeuristics, board: &mut Board) -> Option<Move> {
         self.entries[self.ply].next_move(hh, board)
     }
@@ -77,6 +82,7 @@ impl MoveGenerator {
         self.entries[self.ply].next_legal_move(hh, board)
     }
 
+    #[inline(always)]
     pub fn next_capture_move(&mut self, board: &mut Board) -> Option<Move> {
         self.entries[self.ply].next_capture_move(board)
     }
@@ -122,7 +128,7 @@ impl MoveList {
             moves_generated: false,
             quiets_sorted: false,
             active_player: WHITE,
-            phase: 0
+            phase: 0,
         }
     }
 
@@ -130,6 +136,7 @@ impl MoveList {
         self.scored_hash_move = scored_hash_move;
         self.primary_killer = primary_killer;
         self.secondary_killer = secondary_killer;
+
         self.moves.clear();
         self.capture_moves.clear();
         self.moves_generated = false;
@@ -180,46 +187,49 @@ impl MoveList {
         self.capture_moves.push(m.with_score(score));
     }
 
+    #[inline(always)]
     pub fn next_move(&mut self, hh: &HistoryHeuristics, board: &mut Board) -> Option<Move> {
-        match self.stage {
-            Stage::HashMove => {
-                self.capture_index = 0;
-                self.stage = Stage::CaptureMoves;
+        loop {
+            match self.stage {
+                Stage::HashMove => {
+                    self.capture_index = 0;
+                    self.stage = Stage::CaptureMoves;
 
-                if self.scored_hash_move != NO_MOVE {
-                    Some(self.scored_hash_move)
-                } else {
-                    self.next_move(hh, board)
-                }
-            },
+                    if self.scored_hash_move != NO_MOVE {
+                        return Some(self.scored_hash_move);
+                    }
+                },
 
-            Stage::CaptureMoves => {
-                if !self.moves_generated {
-                    self.gen_moves(board);
-                    sort_by_score_desc(&mut self.capture_moves);
+                Stage::CaptureMoves => {
+                    if !self.moves_generated {
+                        self.gen_moves(board);
+                        sort_by_score_desc(&mut self.capture_moves);
 
-                    self.moves_generated = true;
-                }
+                        self.moves_generated = true;
+                    }
 
-                match self.find_next_capture_move_except_hash_move() {
-                    Some(m) => Some(m),
-                    None => {
-                        self.stage = Stage::QuietMoves;
-                        self.move_index = 0;
+                    match self.find_next_capture_move_except_hash_move() {
+                        Some(m) => {
+                            return Some(m);
+                        },
 
-                        if !self.quiets_sorted {
-                            self.sort_quiets(hh, board);
+                        None => {
+                            self.stage = Stage::QuietMoves;
+                            self.move_index = 0;
+
+                            if !self.quiets_sorted {
+                                self.sort_quiets(hh, board);
+                            }
+
+                            return self.find_next_quiet_move_except_hash_move();
                         }
-
-                        self.find_next_quiet_move_except_hash_move()
                     }
                 }
-            }
 
-            Stage::QuietMoves => {
-                self.find_next_quiet_move_except_hash_move()
+                Stage::QuietMoves => {
+                    return self.find_next_quiet_move_except_hash_move();
+                }
             }
-
         }
     }
 
@@ -288,6 +298,7 @@ impl MoveList {
         }
     }
 
+    #[inline(always)]
     pub fn next_capture_move(&mut self, board: &mut Board) -> Option<Move> {
         if !self.moves_generated {
             self.gen_capture_moves(board);
@@ -685,15 +696,17 @@ pub fn evaluate_move_order(phase: i32, hh: &HistoryHeuristics, board: &Board, ac
         }
 
         _ => {
-            let start = m.start();
             let end = m.end();
 
-            let history_score = hh.get_history_score(active_player, start, end);
-            if history_score == -1 {
+            let history_score = hh.get_history_score(active_player, m.piece_id(), end);
+            if history_score == 0 {
+                NEGATIVE_HISTORY_SCORE
+
+            } else if history_score == -1 {
                 // No history score -> use difference between piece square scores
                 let original_piece = m.piece_id() * active_player;
 
-                let start_packed_score = board.pst.get_packed_score(original_piece, start as usize);
+                let start_packed_score = board.pst.get_packed_score(original_piece, m.start() as usize);
                 let end_packed_score = board.pst.get_packed_score(original_piece, end as usize);
 
                 let mg_diff = (unpack_score(end_packed_score) - unpack_score(start_packed_score)) as i32;
@@ -702,9 +715,6 @@ pub fn evaluate_move_order(phase: i32, hh: &HistoryHeuristics, board: &Board, ac
                 let diff = interpolate_score(phase, mg_diff, eg_diff) * active_player as i32;
 
                 -4096 + diff
-            } else if history_score == 0 {
-
-                -5000
             } else {
 
                 -3600 + history_score
@@ -713,7 +723,6 @@ pub fn evaluate_move_order(phase: i32, hh: &HistoryHeuristics, board: &Board, ac
         }
     }
 }
-
 
 // Evaluate score for capture move ordering
 fn evaluate_capture_move_order(board: &Board, m: Move) -> i32 {
@@ -725,7 +734,7 @@ fn evaluate_capture_move_order(board: &Board, m: Move) -> i32 {
                 } else if m.piece_id() == N {
                     0
                 } else {
-                    -5000
+                    NEGATIVE_HISTORY_SCORE - 1
                 }
             } else {
                 // En Passant
@@ -847,14 +856,14 @@ mod tests {
     }
 
     fn generate_moves_for_pos(board: &mut Board, color: Color, pos: i32) -> Vec<Move> {
-        let hh = HistoryHeuristics::new();
+        let mut hh = HistoryHeuristics::new();
         let mut ml = MoveList::new();
         ml.init(color, NO_MOVE, NO_MOVE, NO_MOVE);
 
         let mut moves = Vec::new();
 
         loop {
-            let m = ml.next_move(&hh, board);
+            let m = ml.next_move(&mut hh, board);
 
             if let Some(m) = m {
                 moves.push(m);

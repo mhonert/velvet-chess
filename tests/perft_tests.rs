@@ -85,7 +85,7 @@ fn test_perft_testpos6() {
 
 fn perft_for_fen(fen: &str, depth: i32) -> u64 {
     let mut movegen = MoveGenerator::new();
-    let hh = HistoryHeuristics::new();
+    let mut hh = HistoryHeuristics::new();
     let mut board = create_from_fen(fen);
-    perft(&mut movegen, &hh, &mut board, depth)
+    perft(&mut movegen, &mut hh, &mut board, depth)
 }

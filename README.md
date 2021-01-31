@@ -7,7 +7,7 @@
 **Velvet Chess Engine** is a UCI chess engine written in [Rust](https://www.rust-lang.org).
 > It is based upon my other web-based chess engine [Wasabi](https://github.com/mhonert/chess), which is written in AssemblyScript.
 
-It is currently ranked in the range of 2500-2600 ELO in the Computer Chess Rating Lists (CCRL).
+It is currently ranked in the range of 2600-2700 ELO in the Computer Chess Rating Lists (CCRL).
 
 ### Usage
 

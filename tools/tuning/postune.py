@@ -114,7 +114,7 @@ def run_engine(engine: Engine, tuning_options: List[TuningOption]) -> (int, int)
 
         # shuffle(engine.test_positions)
 
-        for pos in engine.test_positions[:250]:
+        for pos in engine.test_positions[:500]:
             engine.send_command("ucinewgame")
 
             engine.send_command("isready")
@@ -122,7 +122,7 @@ def run_engine(engine: Engine, tuning_options: List[TuningOption]) -> (int, int)
 
             engine.send_command("position fen " + pos.fen)
 
-            engine.send_command("go movetime 500")
+            engine.send_command("go nodes 1000000")
             result = engine.wait_for_command("bestmove")
 
             engine_solution = result[len("bestmove "):].split(" ")[0]
