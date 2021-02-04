@@ -95,6 +95,7 @@ impl Search for Engine {
         // Use iterative deepening, i.e. increase the search depth after each iteration
         for depth in min(min_depth, 2)..(MAX_DEPTH as i32) {
             self.current_depth = depth;
+            self.max_reached_depth = 0;
 
             let mut best_score: i32 = MIN_SCORE;
 
@@ -122,10 +123,10 @@ impl Search for Engine {
                         self.log_every_second = true;
                         self.last_log_time = now;
                         let uci_move = UCIMove::from_encoded_move(&self.board, m).to_uci();
-                        let base_stats = self.get_base_stats(total_duration);
                         println!(
-                            "info depth {}{} currmove {} currmovenumber {}",
-                            depth, base_stats, uci_move, move_num
+                            "info d\
+                            epth {} currmove {} currmovenumber {}",
+                            depth, uci_move, move_num
                         );
                     }
                 }
@@ -194,8 +195,9 @@ impl Search for Engine {
                     if self.log_every_second {
                         let pv = self.extract_pv(best_move, depth - 1);
                         println!(
-                            "info depth {} score {} pv {}",
+                            "info depth {} seldepth {} score {} pv {}",
                             depth,
+                            self.max_reached_depth,
                             get_score_info(best_score),
                             pv
                         );
@@ -256,9 +258,12 @@ impl Search for Engine {
                 best_score = previous_best_score;
             }
 
+            let seldepth = self.max_reached_depth;
+
             println!(
-                "info depth {} score {}{} pv {}",
+                "info depth {} seldepth {} score {}{} pv {}",
                 depth,
+                seldepth,
                 get_score_info(best_score),
                 self.get_base_stats(total_duration),
                 self.extract_pv(best_move, depth - 1)
@@ -299,6 +304,10 @@ impl Search for Engine {
     // Recursively calls itself with alternating player colors to
     // find the best possible move in response to the current board position.
     fn rec_find_best_move(&mut self, mut alpha: i32, beta: i32, player_color: Color, mut depth: i32, ply: i32, null_move_performed: bool, is_in_check: bool) -> i32 {
+        if ply > self.max_reached_depth {
+            self.max_reached_depth = ply;
+        }
+
         if self.node_count >= self.next_check_node_count {
             self.next_check_node_count = self.node_count + 20000;
             let current_time = Instant::now();
@@ -317,7 +326,7 @@ impl Search for Engine {
             if depth > 3 && self.log_every_second && current_time.duration_since(self.last_log_time).as_millis() >= 1000 {
                 self.last_log_time = current_time;
                 let base_stats = self.get_base_stats(total_duration);
-                println!("info depth {}{}", self.current_depth, base_stats);
+                println!("info depth {} seldepth {}{}", self.current_depth, self.max_reached_depth, base_stats);
             }
         }
 
@@ -396,7 +405,7 @@ impl Search for Engine {
         // Null move reductions
         let original_depth = depth;
         if !is_pv && !null_move_performed && depth > 3 && !is_in_check {
-            let r = if depth > 6 { 4 } else { 3 };
+            let r = log2((depth * 3 - 3) as u32);
             self.board.perform_null_move();
             let result = self.rec_find_best_move(-beta, -beta + 1, -player_color, depth - r - 1, ply + 1, true, false);
             self.board.undo_null_move();
@@ -404,10 +413,10 @@ impl Search for Engine {
                 return CANCEL_SEARCH;
             }
             if -result >= beta {
-                depth -= 4;
+                depth -= r;
                 fail_high = true;
 
-                if depth <= 0 {
+                if depth <= 1 {
                     return self.quiescence_search(player_color, alpha, beta, ply);
                 }
             }
@@ -422,7 +431,7 @@ impl Search for Engine {
         let mut evaluated_move_count = 0;
         let mut has_valid_moves = false;
 
-        let allow_reductions = depth > 2 && !is_in_check && !m.is_promotion();
+        let allow_reductions = depth > 2 && !is_in_check && !m.is_queen_promotion();
 
         // Futile move pruning
         let mut allow_futile_move_pruning = false;
@@ -474,12 +483,13 @@ impl Search for Engine {
                         && !gives_check
                         && evaluated_move_count > LMR_THRESHOLD
                         && !self.board.is_pawn_move_close_to_promotion(previous_piece, end, opponent_pieces) {
-                        // Reduce search depth for late moves (i.e. after trying the most promising moves)
+
                         reductions = LMR_REDUCTIONS;
+
                         if m.score() == NEGATIVE_HISTORY_SCORE {
-                            // Reduce more, if move has negative history or SEE score
                             reductions += 1;
                         }
+
                     } else if allow_futile_move_pruning && !gives_check && !m.is_promotion() {
                         let own_moves_left = depth / 2;
                         if !is_in_check && (own_moves_left <= 1 || (m.score() == NEGATIVE_HISTORY_SCORE && self.board.see_score(-player_color, start, end, target_piece_id, EMPTY) < 0)) {
@@ -516,6 +526,7 @@ impl Search for Engine {
                 } else {
                     -beta
                 };
+
                 let mut result = self.rec_find_best_move(a, -alpha, -player_color, depth - reductions - 1, ply + 1, false, gives_check);
                 if result == CANCEL_SEARCH {
                     self.board.undo_move(m, previous_piece, removed_piece_id);
@@ -579,6 +590,9 @@ impl Search for Engine {
 
     fn quiescence_search(&mut self, active_player: Color, mut alpha: i32, beta: i32, ply: i32) -> i32 {
         self.node_count += 1;
+        if ply > self.max_reached_depth {
+            self.max_reached_depth = ply;
+        }
 
         if self.board.is_engine_draw() {
             return 0;
@@ -840,7 +854,7 @@ impl Search for Engine {
         };
 
         let active_player = self.board.active_player();
-        let is_valid_followup_move = next_move != NO_MOVE && is_likely_valid_move(&self.board, active_player, next_move);
+        let is_valid_followup_move = next_move != NO_MOVE && !self.board.is_in_check(-active_player) && is_likely_valid_move(&self.board, active_player, next_move);
         let followup_uci_moves = if is_valid_followup_move {
             format!(" {}", self.extract_pv(next_move, depth - 1))
         } else {
@@ -886,6 +900,11 @@ fn get_score_info(score: i32) -> String {
     }
 
     format!("cp {}", score)
+}
+
+#[inline]
+fn log2(i: u32) -> i32 {
+    (32 - i.leading_zeros()) as i32 - 1
 }
 
 #[cfg(test)]
@@ -961,4 +980,12 @@ mod tests {
     fn to_fen(active_player: Color, items: &[i8; 64]) -> String {
         write_fen(&Board::new(items, active_player, 0, None, 0, 1))
     }
+
+    #[test]
+    fn calc_log2() {
+        for i in 1..65536 {
+            assert_eq!(log2(i), (i as f32).log2() as i32)
+        }
+    }
+
 }

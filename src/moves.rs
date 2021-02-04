@@ -18,7 +18,7 @@
 
 use std::intrinsics::transmute;
 use crate::moves::MoveType::PawnSpecial;
-use crate::pieces::{P};
+use crate::pieces::{P, Q};
 use std::fmt;
 
 #[repr(u8)]
@@ -112,6 +112,11 @@ impl Move {
     #[inline]
     pub fn is_promotion(&self) -> bool {
         self.typ() as u8 == PawnSpecial as u8 && self.piece_id() != P
+    }
+
+    #[inline]
+    pub fn is_queen_promotion(&self) -> bool {
+        self.typ() as u8 == PawnSpecial as u8 && self.piece_id() == Q
     }
 
     #[inline]

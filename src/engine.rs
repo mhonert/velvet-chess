@@ -99,6 +99,7 @@ pub struct Engine {
     pub last_log_time: Instant,
     pub next_check_node_count: u64,
     pub current_depth: i32,
+    pub max_reached_depth: i32,
 
     pub is_stopped: bool,
 
@@ -140,6 +141,7 @@ impl Engine {
             last_log_time: Instant::now(),
             next_check_node_count: 0,
             current_depth: 0,
+            max_reached_depth: 0,
             is_stopped: false,
             options_modified: false,
             test_positions: Vec::new(),
