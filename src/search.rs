@@ -34,7 +34,7 @@ use crate::move_gen::{is_likely_valid_move, NEGATIVE_HISTORY_SCORE};
 pub trait Search {
     fn find_best_move(&mut self, min_depth: i32, is_strict_timelimit: bool) -> Move;
 
-    fn rec_find_best_move(&mut self, alpha: i32, beta: i32, player_color: Color, depth: i32, ply: i32, null_move_performed: bool, is_in_check: bool) -> i32;
+    fn rec_find_best_move(&mut self, alpha: i32, beta: i32, player_color: Color, depth: i32, ply: i32, null_move_performed: bool, is_in_check: bool, capture_pos: i32) -> i32;
 
     fn quiescence_search(&mut self, player_color: Color, alpha: i32, beta: i32, ply: i32) -> i32;
 
@@ -136,13 +136,13 @@ impl Search for Engine {
                 let gives_check = self.board.is_in_check(-player_color);
 
                 // Use principal variation search
-                let mut result = self.rec_find_best_move(a, -alpha, -player_color, depth - 1, 1, false, gives_check);
+                let mut result = self.rec_find_best_move(a, -alpha, -player_color, depth - 1, 1, false, gives_check, -1);
                 if result == CANCEL_SEARCH {
                     iteration_cancelled = true;
                 } else {
                     // Repeat search if it falls outside the window
                     if -result > alpha && -result < beta {
-                        result = self.rec_find_best_move(-beta, -alpha, -player_color, depth - 1, 1, false, gives_check);
+                        result = self.rec_find_best_move(-beta, -alpha, -player_color, depth - 1, 1, false, gives_check, -1);
                         if result == CANCEL_SEARCH {
                             iteration_cancelled = true;
                         }
@@ -303,7 +303,7 @@ impl Search for Engine {
 
     // Recursively calls itself with alternating player colors to
     // find the best possible move in response to the current board position.
-    fn rec_find_best_move(&mut self, mut alpha: i32, beta: i32, player_color: Color, mut depth: i32, ply: i32, null_move_performed: bool, is_in_check: bool) -> i32 {
+    fn rec_find_best_move(&mut self, mut alpha: i32, beta: i32, player_color: Color, mut depth: i32, ply: i32, null_move_performed: bool, is_in_check: bool, capture_pos: i32) -> i32 {
         if ply > self.max_reached_depth {
             self.max_reached_depth = ply;
         }
@@ -407,7 +407,7 @@ impl Search for Engine {
         if !is_pv && !null_move_performed && depth > 3 && !is_in_check {
             let r = log2((depth * 3 - 3) as u32);
             self.board.perform_null_move();
-            let result = self.rec_find_best_move(-beta, -beta + 1, -player_color, depth - r - 1, ply + 1, true, false);
+            let result = self.rec_find_best_move(-beta, -beta + 1, -player_color, depth - r - 1, ply + 1, true, false, -1);
             self.board.undo_null_move();
             if result == CANCEL_SEARCH {
                 return CANCEL_SEARCH;
@@ -430,6 +430,8 @@ impl Search for Engine {
         let mut score_type = ScoreType::UpperBound;
         let mut evaluated_move_count = 0;
         let mut has_valid_moves = false;
+        
+        let mut is_search_repeated = false;
 
         let allow_reductions = depth > 2 && !is_in_check && !m.is_queen_promotion();
 
@@ -454,6 +456,7 @@ impl Search for Engine {
                         depth = original_depth;
                         fail_high = false;
                         evaluated_move_count = 0;
+                        is_search_repeated = true;
 
                         self.movegen.reset();
                         continue;
@@ -472,6 +475,7 @@ impl Search for Engine {
             let mut skip = self.board.is_in_check(player_color); // skip if move would put own king in check
 
             let mut reductions = 0;
+            let mut extensions = 0;
             let mut gives_check = false;
 
             if !skip {
@@ -515,8 +519,19 @@ impl Search for Engine {
             if skip {
                 self.board.undo_move(m, previous_piece, removed_piece_id);
             } else {
+                let mut new_capture_pos = -1;
                 if removed_piece_id == EMPTY {
                     self.hh.update_played_moves(depth, player_color, m.piece_id(), end);
+                } else {
+                    if end == capture_pos {
+                        // Reduce search depth for all following moves, if current move is a recapture
+                        extensions += 1;
+                        if !is_search_repeated {
+                            depth -= 1;
+                        }
+                    }
+
+                    new_capture_pos = end;
                 }
 
                 evaluated_move_count += 1;
@@ -527,7 +542,7 @@ impl Search for Engine {
                     -beta
                 };
 
-                let mut result = self.rec_find_best_move(a, -alpha, -player_color, depth - reductions - 1, ply + 1, false, gives_check);
+                let mut result = self.rec_find_best_move(a, -alpha, -player_color, depth + extensions - reductions - 1, ply + 1, false, gives_check, new_capture_pos);
                 if result == CANCEL_SEARCH {
                     self.board.undo_move(m, previous_piece, removed_piece_id);
                     self.movegen.leave_ply();
@@ -536,7 +551,7 @@ impl Search for Engine {
 
                 if -result > alpha && (-result < beta || reductions > 0) {
                     // Repeat search without reduction and with full window
-                    result = self.rec_find_best_move(-beta, -alpha, -player_color, depth - 1, ply + 1, false, gives_check);
+                    result = self.rec_find_best_move(-beta, -alpha, -player_color, depth + extensions - 1, ply + 1, false, gives_check, new_capture_pos);
                     if result == CANCEL_SEARCH {
                         self.board.undo_move(m, previous_piece, removed_piece_id);
                         self.movegen.leave_ply();
