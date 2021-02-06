@@ -131,7 +131,7 @@ impl Search for Engine {
                     }
                 }
 
-                let (previous_piece, move_state) = self.board.perform_move(m);
+                let (previous_piece, removed_piece_id) = self.board.perform_move(m);
 
                 let gives_check = self.board.is_in_check(-player_color);
 
@@ -149,7 +149,7 @@ impl Search for Engine {
                     }
                 }
 
-                self.board.undo_move(m, previous_piece, move_state);
+                self.board.undo_move(m, previous_piece, removed_piece_id);
 
                 if iteration_cancelled {
                     if best_move != NO_MOVE && previous_best_move != NO_MOVE {
@@ -289,7 +289,7 @@ impl Search for Engine {
             beta = previous_beta;
 
             self.movegen.reset();
-            self.movegen.resort();
+            self.movegen.resort(current_best_move);
         }
 
         self.movegen.leave_ply();

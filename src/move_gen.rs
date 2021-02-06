@@ -69,8 +69,8 @@ impl MoveGenerator {
         self.entries[self.ply].reset();
     }
 
-    pub fn resort(&mut self) {
-        self.entries[self.ply].resort();
+    pub fn resort(&mut self, best_move: Move) {
+        self.entries[self.ply].resort(best_move);
     }
 
     #[inline(always)]
@@ -153,8 +153,17 @@ impl MoveList {
         self.capture_index = 0;
     }
 
-    pub fn resort(&mut self) {
-        sort_by_score_desc(&mut self.moves);
+    pub fn resort(&mut self, best_move: Move) {
+        let mut best_move_idx = 0;
+        for i in 0..self.moves.len() {
+            if self.moves[i].is_same_move(best_move) {
+                best_move_idx = i;
+                break;
+            }
+        }
+
+        self.moves.remove(best_move_idx);
+        self.moves.insert(0, best_move);
     }
 
     #[inline]
