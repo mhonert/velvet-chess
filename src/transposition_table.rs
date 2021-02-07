@@ -16,6 +16,7 @@
 
 use crate::moves::{Move};
 use std::intrinsics::transmute;
+use crate::score_util::{WHITE_MATE_SCORE, BLACK_MATE_SCORE};
 
 pub const MAX_HASH_SIZE_MB: i32 = 4096;
 
@@ -84,6 +85,7 @@ impl TranspositionTable {
         }
     }
 
+    // Important: mate scores must be stored relative to the current node, not relative to the root node
     pub fn write_entry(&mut self, hash: u64, depth: i32, scored_move: Move, typ: ScoreType) {
         let mut new_entry: u64 = hash & HASHCHECK_MASK;
         new_entry |= (depth as u64) << DEPTH_BITSHIFT;
@@ -118,6 +120,30 @@ impl TranspositionTable {
 
 pub fn get_untyped_move(entry: u64) -> Move {
     Move::from_bit29((entry & 0b00011111111111111111111111111111) as u32)
+}
+
+#[inline]
+// Convert current-node-relative mate scores to root-relative mate scores
+pub fn to_root_relative_score(ply: i32, score: i32) -> i32 {
+    if score <= WHITE_MATE_SCORE + MAX_DEPTH as i32 {
+        score + ply
+    } else if score >= BLACK_MATE_SCORE - MAX_DEPTH as i32 {
+        score - ply
+    } else {
+        score
+    }
+}
+
+#[inline]
+// Convert root-relative mate scores to current-node-relative mate scores
+pub fn from_root_relative_score(ply: i32, score: i32) -> i32 {
+    if score <= WHITE_MATE_SCORE + MAX_DEPTH as i32 {
+        score - ply
+    } else if score >= BLACK_MATE_SCORE - MAX_DEPTH as i32 {
+        score + ply
+    } else {
+        score
+    }
 }
 
 pub fn get_depth(entry: u64) -> i32 {

@@ -23,7 +23,7 @@ use crate::score_util::{
     BLACK_MATE_SCORE, MAX_SCORE,
     MIN_SCORE, WHITE_MATE_SCORE,
 };
-use crate::transposition_table::{get_depth, get_score_type, get_untyped_move, MAX_DEPTH, ScoreType};
+use crate::transposition_table::{get_depth, get_score_type, get_untyped_move, MAX_DEPTH, ScoreType, to_root_relative_score, from_root_relative_score};
 use crate::uci_move::UCIMove;
 use std::cmp::{max, min};
 use std::time::{Duration, Instant};
@@ -369,7 +369,7 @@ impl Search for Engine {
             }
 
             if can_use_hash_score {
-                let score = m.score();
+                let score = to_root_relative_score(ply, m.score());
 
                 match get_score_type(tt_entry) {
                     ScoreType::Exact => {
@@ -573,7 +573,7 @@ impl Search for Engine {
                     }
 
                     if alpha >= beta {
-                        self.tt.write_entry(hash, depth, best_move.with_score(best_score), ScoreType::LowerBound);
+                        self.tt.write_entry(hash, depth, best_move.with_score(from_root_relative_score(ply, best_score)), ScoreType::LowerBound);
 
                         if removed_piece_id == EMPTY {
                             self.hh.update(depth, ply, player_color, end, best_move);
@@ -591,14 +591,14 @@ impl Search for Engine {
         if !has_valid_moves {
             if is_in_check {
                 // Check mate
-                return WHITE_MATE_SCORE + ply;
+                best_score = WHITE_MATE_SCORE + ply;
+            } else {
+                // Stale mate
+                best_score = 0;
             }
-
-            // Stale mate
-            return 0;
         }
 
-        self.tt.write_entry(hash, depth, best_move.with_score(best_score), score_type);
+        self.tt.write_entry(hash, depth, best_move.with_score(from_root_relative_score(ply, best_score)), score_type);
 
         best_score
     }
