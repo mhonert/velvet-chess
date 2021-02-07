@@ -31,22 +31,16 @@ pub trait Eval {
 impl Eval for Board {
     fn get_score(&self) -> i32 {
         let phase = self.calc_phase_value();
-        let mut interpolated_score = interpolate_score(phase, self.state.score as i32, self.state.eg_score as i32);
 
-        if interpolated_score > self.options.get_full_eval_threshold() {
-            // skip full evaluation if material advantage is already very large
-            return interpolated_score;
-        }
-
-        let mut score = 0;
-        let mut eg_score = 0;
+        let mut score = self.state.score as i32;
+        let mut eg_score = self.state.eg_score as i32;
 
         // Add bonus for pawns which form a shield in front of the king
         let white_pawns = self.get_bitboard(P);
         let black_pawns = self.get_bitboard(-P);
 
         if white_pawns == 0 && black_pawns == 0 {
-            return interpolated_score;
+            return interpolate_score(phase, score, eg_score);
         }
 
         let white_queens = self.get_bitboard(Q);
@@ -350,7 +344,7 @@ impl Eval for Board {
 
         // Interpolate between opening/mid-game score and end game score for a smooth eval score transition
 
-        interpolated_score += interpolate_score(phase, score, eg_score);
+        let mut interpolated_score = interpolate_score(phase, score, eg_score);
 
         // Perform evaluations which apply to all game phases
 
