@@ -36,6 +36,7 @@ use crate::score_util::{MIN_SCORE, MAX_SCORE};
 use crate::random::Random;
 use crate::moves::{NO_MOVE, Move};
 use crate::move_gen::MoveGenerator;
+use crate::tuning::Tuning;
 
 pub enum Message {
     NewGame,
