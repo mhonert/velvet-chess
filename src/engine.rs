@@ -96,7 +96,6 @@ pub struct Engine {
 
     pub cancel_possible: bool,
     pub node_count: u64,
-    pub log_every_second: bool,
     pub last_log_time: Instant,
     pub next_check_node_count: u64,
     pub current_depth: i32,
@@ -138,7 +137,6 @@ impl Engine {
             depth_limit: MAX_DEPTH as i32,
             cancel_possible: false,
             node_count: 0,
-            log_every_second: false,
             last_log_time: Instant::now(),
             next_check_node_count: 0,
             current_depth: 0,

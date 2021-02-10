@@ -42,8 +42,6 @@ pub fn start_uci_loop(tx: &Sender<Message>) {
         let parts: Vec<&str> = line.split_whitespace().collect();
         for (i, part) in parts.iter().enumerate() {
             match part.to_lowercase().as_str() {
-                "fen" => fen(tx),
-
                 "go" => go(tx, parts[i + 1..].to_vec()),
 
                 "isready" => is_ready(tx),
@@ -79,6 +77,8 @@ pub fn start_uci_loop(tx: &Sender<Message>) {
                 "printtestpositions" => print_test_positions(tx),
 
                 "resettestpositions" => reset_test_positions(tx),
+
+                "printfen" => fen(tx),
 
                 _ => {
                     // Skip unknown commands

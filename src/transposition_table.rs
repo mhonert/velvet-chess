@@ -125,9 +125,9 @@ pub fn get_untyped_move(entry: u64) -> Move {
 #[inline]
 // Convert current-node-relative mate scores to root-relative mate scores
 pub fn to_root_relative_score(ply: i32, score: i32) -> i32 {
-    if score <= WHITE_MATE_SCORE + MAX_DEPTH as i32 * 2 {
+    if score <= WHITE_MATE_SCORE + MAX_DEPTH as i32 * 3 {
         score + ply
-    } else if score >= BLACK_MATE_SCORE - MAX_DEPTH as i32 * 2 {
+    } else if score >= BLACK_MATE_SCORE - MAX_DEPTH as i32 * 3 {
         score - ply
     } else {
         score
