@@ -1,5 +1,4 @@
 /*
- * Velvet Chess Engine
  * Copyright (C) 2020 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
@@ -109,6 +108,7 @@ pub struct MoveList {
     move_index: usize,
     capture_index: usize,
     moves_generated: bool,
+    quiets_scored: bool,
     quiets_sorted: bool,
     active_player: Color,
     phase: i32,
@@ -126,6 +126,7 @@ impl MoveList {
             move_index: 0,
             capture_index: 0,
             moves_generated: false,
+            quiets_scored: false,
             quiets_sorted: false,
             active_player: WHITE,
             phase: 0,
@@ -143,6 +144,7 @@ impl MoveList {
         self.active_player = active_player;
         self.move_index = 0;
         self.capture_index = 0;
+        self.quiets_scored = false;
         self.quiets_sorted = false;
         self.stage = Stage::HashMove;
     }
@@ -226,8 +228,8 @@ impl MoveList {
                             self.stage = Stage::QuietMoves;
                             self.move_index = 0;
 
-                            if !self.quiets_sorted {
-                                self.sort_quiets(hh, board);
+                            if !self.quiets_scored {
+                                self.score_quiets(hh, board);
                             }
 
                             return self.find_next_quiet_move_except_hash_move();
@@ -242,7 +244,7 @@ impl MoveList {
         }
     }
 
-    fn sort_quiets(&mut self, hh: &HistoryHeuristics, board: &Board) {
+    fn score_quiets(&mut self, hh: &HistoryHeuristics, board: &Board) {
         for m in self.moves.iter_mut() {
             let score = if *m == self.primary_killer {
                 PRIMARY_KILLER_SCORE
@@ -255,8 +257,7 @@ impl MoveList {
             *m = m.with_score(score);
         }
 
-        sort_by_score_desc(&mut self.moves);
-        self.quiets_sorted = true;
+        self.quiets_scored = true;
     }
 
     #[inline]
@@ -275,6 +276,10 @@ impl MoveList {
     #[inline]
     fn find_next_quiet_move_except_hash_move(&mut self) -> Option<Move> {
         while self.move_index < self.moves.len() {
+            if !self.quiets_sorted {
+                self.quiets_sorted = sort_partial_by_score_desc(self.move_index, &mut self.moves);
+            }
+
             let m = unsafe { *self.moves.get_unchecked(self.move_index) };
             self.move_index += 1;
             if !m.is_same_move(self.scored_hash_move) {
@@ -288,7 +293,8 @@ impl MoveList {
     pub fn next_legal_move(&mut self, hh: &HistoryHeuristics, board: &mut Board) -> Option<Move> {
         if !self.moves_generated {
             self.gen_moves(board);
-            self.sort_quiets(hh, board);
+            self.score_quiets(hh, board);
+            sort_by_score_desc(&mut self.moves);
             self.moves.append(&mut self.capture_moves);
 
             let active_player = board.active_player();
@@ -761,7 +767,6 @@ fn evaluate_capture_move_order(board: &Board, m: Move) -> i32 {
     }
 }
 
-
 fn sort_by_score_desc(moves: &mut Vec<Move>) {
     // Basic insertion sort
     for i in 1..moves.len() {
@@ -779,6 +784,34 @@ fn sort_by_score_desc(moves: &mut Vec<Move>) {
         }
         unsafe { *moves.get_unchecked_mut((j + 1) as usize) = x };
     }
+}
+
+
+fn sort_partial_by_score_desc(movenum: usize, moves: &mut Vec<Move>) -> bool {
+    let mut max_score = unsafe { (*moves.get_unchecked(movenum)).score() };
+    let mut max_index = movenum;
+
+    let mut is_sorted = true;
+
+    for i in (movenum + 1)..moves.len() {
+        let x = unsafe { *moves.get_unchecked(i) };
+        let x_score = x.score();
+
+        if x_score <= max_score {
+            continue;
+        }
+
+        is_sorted = false;
+
+        max_score = x_score;
+        max_index = i;
+    }
+
+    if max_index != movenum {
+        moves.swap(movenum, max_index);
+    }
+
+    is_sorted
 }
 
 
@@ -858,6 +891,28 @@ mod tests {
         );
     }
 
+    #[test]
+    fn partial_sorting() {
+        let m1 = Move::new(MoveType::Quiet, Q, 1, 2).with_score(1);
+        let m2 = Move::new(MoveType::Quiet, Q, 1, 3).with_score(2);
+        let m3 = Move::new(MoveType::Quiet, Q, 1, 5).with_score(3);
+        let m4 = Move::new(MoveType::Quiet, Q, 1, 4).with_score(4);
+
+        let mut moves = vec!(m1, m2, m3, m4);
+
+        sort_partial_by_score_desc(0, &mut moves);
+        assert_eq!(moves[0], m4);
+
+        sort_partial_by_score_desc(1, &mut moves);
+        assert_eq!(moves[1], m3);
+
+        sort_partial_by_score_desc(2, &mut moves);
+        assert_eq!(moves[2], m2);
+
+        sort_partial_by_score_desc(3, &mut moves);
+        assert_eq!(moves[3], m1);
+    }
+
     fn board_with_one_piece(color: Color, piece_id: i8, pos: i32) -> Board {
         let mut items = ONLY_KINGS;
         items[pos as usize] = piece_id * color;
@@ -887,5 +942,6 @@ mod tests {
             .filter(|&m| board.is_legal_move(color, m))
             .collect()
     }
+
 
 }
