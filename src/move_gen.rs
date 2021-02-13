@@ -337,23 +337,6 @@ impl MoveList {
         let occupied = opponent_bb | board.get_all_piece_bitboard(active_player);
         let empty_bb = !occupied;
 
-        if active_player == WHITE {
-            self.gen_white_king_moves(board, board.king_pos(WHITE), opponent_bb, empty_bb);
-
-            let pawns = board.get_bitboard(P);
-
-            self.gen_white_straight_pawn_moves(pawns, empty_bb);
-            self.gen_white_attack_pawn_moves(board, pawns, opponent_bb);
-            self.gen_white_en_passant_moves(board, pawns);
-        } else {
-            self.gen_black_king_moves(board, board.king_pos(BLACK), opponent_bb, empty_bb);
-
-            let pawns = board.get_bitboard(-P);
-            self.gen_black_straight_pawn_moves(pawns, empty_bb);
-            self.gen_black_attack_pawn_moves(board, pawns, opponent_bb);
-            self.gen_black_en_passant_moves(board, pawns);
-        }
-
         for pos in BitBoard(board.get_bitboard(N * active_player)) {
             let attacks = get_knight_attacks(pos as i32);
             self.gen_piece_moves(board, N, pos as i32, attacks, opponent_bb, empty_bb);
@@ -372,6 +355,23 @@ impl MoveList {
         for pos in BitBoard(board.get_bitboard(Q * active_player)) {
             let attacks = get_queen_attacks(occupied, pos as i32);
             self.gen_piece_moves(board, Q, pos as i32, attacks, opponent_bb, empty_bb);
+        }
+
+        if active_player == WHITE {
+            self.gen_white_king_moves(board, board.king_pos(WHITE), opponent_bb, empty_bb);
+
+            let pawns = board.get_bitboard(P);
+            self.gen_white_attack_pawn_moves(board, pawns, opponent_bb);
+            self.gen_white_straight_pawn_moves(pawns, empty_bb);
+            self.gen_white_en_passant_moves(board, pawns);
+
+        } else {
+            self.gen_black_king_moves(board, board.king_pos(BLACK), opponent_bb, empty_bb);
+
+            let pawns = board.get_bitboard(-P);
+            self.gen_black_straight_pawn_moves(pawns, empty_bb);
+            self.gen_black_attack_pawn_moves(board, pawns, opponent_bb);
+            self.gen_black_en_passant_moves(board, pawns);
         }
     }
 
