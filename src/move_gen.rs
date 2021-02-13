@@ -713,7 +713,7 @@ pub fn evaluate_move_order(phase: i32, hh: &HistoryHeuristics, board: &Board, ac
         _ => {
             let end = m.end();
 
-            let history_score = hh.get_history_score(active_player, m.piece_id(), end);
+            let history_score = hh.get_history_score(active_player, m);
             if history_score == 0 {
                 NEGATIVE_HISTORY_SCORE
 

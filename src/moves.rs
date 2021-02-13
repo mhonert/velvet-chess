@@ -37,34 +37,56 @@ pub enum MoveType {
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct Move(u32);
 
+const PIECE_MASK: u32 = 0b111;
+
+const TYPE_SHIFT: u32 = 29;
+const TYPE_MASK: u32 = 0b111 << TYPE_SHIFT;
+
+const END_SHIFT: u32 = 3;
+const END_MASK: u32 = 0b111111 << END_SHIFT;
+
+const START_SHIFT: u32 = 9;
+const START_MASK: u32 = 0b111111 << START_SHIFT;
+
+const MOVE_ONLY_MASK: u32 = 0b11100000000000000111111111111111;
+
+const SCORE_ONLY_MASK: u32 = !MOVE_ONLY_MASK;
+
+const SCORE_SHIFT: u32 = 15;
+
 impl Move {
     #[inline]
     pub fn new(typ: MoveType, piece: i8, start: i32, end: i32) -> Self {
-        Move((typ as u32) | ((piece.abs() as u32) << 3) | ((start as u32) << 6) | ((end as u32) << 12))
+        Move((piece.abs() as u32) | ((end as u32) << END_SHIFT) | ((start as u32) << START_SHIFT) | ((typ as u32) << TYPE_SHIFT))
     }
 
     #[inline]
     pub fn with_score(&self, score: i32) -> Move {
         if score < 0 {
-            Move(self.0 & 0x3FFFF | 0x80000000 | ((-score as u32) << 18))
+            Move((self.0 & MOVE_ONLY_MASK) | ((0b10000000000000 | (-score as u32)) << SCORE_SHIFT))
         } else {
-            Move(self.0 & 0x3FFFF | (score as u32) << 18)
+            Move((self.0 & MOVE_ONLY_MASK) | ((score as u32) << SCORE_SHIFT))
         }
     }
 
     #[inline]
     pub fn with_typ(&self, typ: MoveType) -> Move {
-        Move((typ as u32) | self.0)
+        Move(((typ as u32) << TYPE_SHIFT) | (self.0 & !TYPE_MASK))
+    }
+
+    #[inline]
+    pub fn to_index(&self, mask: usize) -> usize {
+        self.0 as usize & mask
     }
 
     #[inline]
     pub fn to_bit29(&self) -> u32 {
-        (self.0 >> 3) & 0b00011111111111111111111111111111
+        self.0 & 0b00011111111111111111111111111111
     }
 
     #[inline]
     pub fn from_bit29(packed_move: u32) -> Move {
-        Move(packed_move << 3)
+        Move(packed_move)
     }
 
     #[inline]
@@ -75,37 +97,37 @@ impl Move {
     /// Checks, whether the two moves are the same (except for the score)
     #[inline]
     pub fn is_same_move(&self, m: Move) -> bool {
-        (self.0 & 0x3FFFF) == (m.0 & 0x3FFFF)
+        (self.0 & MOVE_ONLY_MASK) == (m.0 & MOVE_ONLY_MASK)
     }
 
     #[inline]
     pub fn typ(&self) -> MoveType {
         unsafe {
-            transmute((self.0 & 0x7) as u8)
+            transmute((self.0 >> TYPE_SHIFT) as u8)
         }
     }
 
     #[inline]
     pub fn piece_id(&self) -> i8 {
-        ((self.0 >> 3) & 0x7) as i8
+        (self.0 & PIECE_MASK) as i8
     }
 
     #[inline]
     pub fn start(&self) -> i32 {
-        ((self.0 >> 6) & 0x3F) as i32
+        ((self.0 & START_MASK) >> START_SHIFT) as i32
     }
 
     #[inline]
     pub fn end(&self) -> i32 {
-        ((self.0 >> 12) & 0x3F) as i32
+        ((self.0 & END_MASK) >> END_SHIFT) as i32
     }
 
     #[inline]
     pub fn score(&self) -> i32 {
-        if self.0 & 0x80000000 != 0 {
-            -(((self.0 & 0x7FFC0000) >> 18) as i32)
+        if self.0 & (0b10000000000000 << SCORE_SHIFT) != 0 {
+            -(((self.0 & (0b01111111111111 << SCORE_SHIFT)) >> SCORE_SHIFT) as i32)
         } else {
-            (self.0 >> 18) as i32
+            ((self.0 & SCORE_ONLY_MASK) >> SCORE_SHIFT) as i32
         }
     }
 

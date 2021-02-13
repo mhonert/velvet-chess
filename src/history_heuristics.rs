@@ -20,15 +20,15 @@ use crate::colors::{Color, WHITE};
 use crate::transposition_table::MAX_DEPTH;
 use crate::moves::{Move, NO_MOVE};
 
-const HISTORY_SIZE: usize = 2 * 7 * 64;
+const HISTORY_SIZE: usize = 2 * 8 * 64;
 
 const HEURISTICS_THRESHOLD: i32 = 5;
 
 pub struct HistoryHeuristics {
-    primary_killers: [Move; MAX_DEPTH],
-    secondary_killers: [Move; MAX_DEPTH],
-    cut_off_history: [u64; HISTORY_SIZE],
-    played_move_history: [u64; HISTORY_SIZE],
+    primary_killers: Vec<Move>,
+    secondary_killers: Vec<Move>,
+    cut_off_history: Vec<u64>,
+    played_move_history: Vec<u64>,
     entries: u64
 }
 
@@ -41,10 +41,10 @@ impl Default for HistoryHeuristics {
 impl HistoryHeuristics {
     pub fn new() -> Self {
         Self {
-            primary_killers: [NO_MOVE; MAX_DEPTH],
-            secondary_killers: [NO_MOVE; MAX_DEPTH],
-            cut_off_history: [0; HISTORY_SIZE],
-            played_move_history: [0; HISTORY_SIZE],
+            primary_killers: vec!(NO_MOVE; MAX_DEPTH),
+            secondary_killers: vec!(NO_MOVE; MAX_DEPTH),
+            cut_off_history: vec!(0; HISTORY_SIZE),
+            played_move_history: vec!(0; HISTORY_SIZE),
             entries: 0
         }
     }
@@ -74,10 +74,10 @@ impl HistoryHeuristics {
     }
 
     #[inline]
-    pub fn update(&mut self, depth: i32, ply: i32, color: Color, end: i32, m: Move) {
+    pub fn update(&mut self, depth: i32, ply: i32, color: Color, m: Move) {
         if depth >= HEURISTICS_THRESHOLD {
-            let color_offset = if color == WHITE { 0 } else { 7 * 64 };
-            unsafe { *self.cut_off_history.get_unchecked_mut((color_offset + (m.piece_id() as i32) * 64 + end) as usize) += 1 };
+            let color_offset = if color == WHITE { 0 } else { HISTORY_SIZE / 2 };
+            unsafe { *self.cut_off_history.get_unchecked_mut(color_offset + m.to_index(0x1FF)) += 1 };
         }
         self.update_killer_moves(ply, m);
     }
@@ -92,20 +92,20 @@ impl HistoryHeuristics {
     }
 
     #[inline]
-    pub fn update_played_moves(&mut self, depth: i32, color: Color, piece_id: i8, end: i32) {
+    pub fn update_played_moves(&mut self, depth: i32, color: Color, m: Move) {
         if depth >= HEURISTICS_THRESHOLD {
             self.entries += 1;
-            let color_offset = if color == WHITE { 0 } else { 7 * 64 };
+            let color_offset = if color == WHITE { 0 } else { HISTORY_SIZE / 2 };
             unsafe {
-                *self.played_move_history.get_unchecked_mut((color_offset + (piece_id as i32) * 64 + end) as usize) += 1;
+                *self.played_move_history.get_unchecked_mut(color_offset + m.to_index(0x1FF)) += 1;
             }
         }
     }
 
     #[inline]
-    pub fn get_history_score(&self, color: Color, piece_id: i8, end: i32) -> i32 {
-        let color_offset = if color == WHITE { 0 } else { 7 * 64 };
-        let index = (color_offset + (piece_id as i32) * 64 + end) as usize;
+    pub fn get_history_score(&self, color: Color, m: Move) -> i32 {
+        let color_offset = if color == WHITE { 0 } else { HISTORY_SIZE / 2 };
+        let index = color_offset + m.to_index(0x1FF);
 
         let move_count = unsafe { *self.played_move_history.get_unchecked(index) };
         if move_count <= (self.entries / 2304) {
@@ -128,8 +128,8 @@ mod tests {
 
         let move_a = Move::new(MoveType::Quiet, Q, 1, 2);
         let move_b = Move::new(MoveType::Quiet, R, 4, 5);
-        hh.update(3, 1, WHITE, 2, move_a);
-        hh.update(3, 1, WHITE, 5, move_b);
+        hh.update(3, 1, WHITE, move_a);
+        hh.update(3, 1, WHITE, move_b);
 
         let primary_killer = hh.get_primary_killer(1);
         let secondary_killer = hh.get_secondary_killer(1);

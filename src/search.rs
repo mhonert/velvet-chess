@@ -514,7 +514,7 @@ impl Search for Engine {
             } else {
                 let mut new_capture_pos = -1;
                 if removed_piece_id == EMPTY {
-                    self.hh.update_played_moves(depth, player_color, m.piece_id(), end);
+                    self.hh.update_played_moves(depth, player_color, m);
                 } else {
                     if end == capture_pos {
                         // Reduce search depth for all following moves, if current move is a recapture
@@ -563,7 +563,7 @@ impl Search for Engine {
                         self.tt.write_entry(hash, depth, best_move.with_score(from_root_relative_score(ply, best_score)), ScoreType::LowerBound);
 
                         if removed_piece_id == EMPTY {
-                            self.hh.update(depth, ply, player_color, end, best_move);
+                            self.hh.update(depth, ply, player_color, best_move);
                         }
 
                         self.movegen.leave_ply();
