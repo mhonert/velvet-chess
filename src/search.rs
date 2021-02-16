@@ -475,17 +475,7 @@ impl Search for Engine {
                         && evaluated_move_count > LMR_THRESHOLD
                         && !self.board.is_pawn_move_close_to_promotion(previous_piece, end, opponent_pieces) {
 
-                        if is_pv {
-                            reductions = 1;
-                            
-                        } else {
-                            reductions = log2((evaluated_move_count + depth) as u32 / 4) + log2((depth * evaluated_move_count / 128) as u32 + 1);
-
-                        }
-
-                        if m.score() == NEGATIVE_HISTORY_SCORE {
-                            reductions += 1;
-                        }
+                        reductions = if m.score() == NEGATIVE_HISTORY_SCORE { 3 } else { 2 };
 
                     } else if allow_futile_move_pruning && !gives_check && !m.is_promotion() {
                         let own_moves_left = depth / 2;

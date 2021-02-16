@@ -18,7 +18,6 @@
 
 use crate::board::{Board, interpolate_score};
 use crate::pieces::{P, N, B, R, Q};
-use crate::castling::Castling;
 use crate::colors::{WHITE, BLACK};
 use crate::bitboard::{black_left_pawn_attacks, black_right_pawn_attacks, white_left_pawn_attacks, white_right_pawn_attacks, BitBoard, get_white_king_shield, get_black_king_shield, get_king_danger_zone, get_knight_attacks, get_bishop_attacks, get_vertical_attacks, get_rook_attacks, get_queen_attacks, get_white_pawn_freepath, get_white_pawn_freesides, get_black_pawn_freepath, get_black_pawn_freesides};
 use std::cmp::{max, min};
@@ -78,33 +77,6 @@ impl Eval for Board {
                     let pattern_bonus = self.options.get_king_pawn_pattern_bonus(hash as usize);
                     score -= pattern_bonus
                 }
-            }
-        }
-
-        // Castling
-        if self.has_white_castled() {
-            score += self.options.get_castling_bonus();
-        } else {
-            if !self.can_castle(Castling::WhiteQueenSide) {
-                score -= self.options.get_lost_queenside_castling_penalty()
-            }
-
-            if !self.can_castle(Castling::WhiteKingSide) {
-                score -= self.options.get_lost_kingside_castling_penalty();
-
-            }
-        }
-
-        if self.has_black_castled() {
-            score -= self.options.get_castling_bonus();
-        } else {
-            if !self.can_castle(Castling::BlackQueenSide) {
-                score += self.options.get_lost_queenside_castling_penalty()
-            }
-
-            if !self.can_castle(Castling::BlackKingSide) {
-                score += self.options.get_lost_kingside_castling_penalty();
-
             }
         }
 

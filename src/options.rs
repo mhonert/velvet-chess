@@ -41,9 +41,6 @@ const QUEEN_KING_THREAT: i32 = 3;
 const ROOK_KING_THREAT: i32 = 2;
 const BISHOP_KING_THREAT: i32 = 1;
 const KNIGHT_KING_THREAT: i32 = 1;
-const CASTLING_BONUS: i32 = 29;
-const LOST_QUEENSIDE_CASTLING_PENALTY: i32 = 28;
-const LOST_KINGSIDE_CASTLING_PENALTY: i32 = 53;
 const DOUBLED_PAWN_PENALTY: i32 = 21;
 const PAWN_COVER_BONUS: i32 = 8;
 const ROOK_ON_HALF_OPEN_FILE_BONUS: i32 = 13;
@@ -201,24 +198,6 @@ impl Options {
     #[inline]
     pub fn get_knight_king_threat(&self) -> i32 {
         KNIGHT_KING_THREAT
-    }
-
-
-    #[inline]
-    pub fn get_castling_bonus(&self) -> i32 {
-        CASTLING_BONUS
-    }
-
-
-    #[inline]
-    pub fn get_lost_queenside_castling_penalty(&self) -> i32 {
-        LOST_QUEENSIDE_CASTLING_PENALTY
-    }
-
-
-    #[inline]
-    pub fn get_lost_kingside_castling_penalty(&self) -> i32 {
-        LOST_KINGSIDE_CASTLING_PENALTY
     }
 
 
