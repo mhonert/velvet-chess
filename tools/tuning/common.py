@@ -111,26 +111,8 @@ class Config:
         cfg_stream = open(config_file, "r")
 
         cfg = yaml.safe_load(cfg_stream)
-        engine_cfg = get_config(cfg, "engine", "Missing 'engine' configuration")
-
-        self.engine_cmd = get_config(engine_cfg, "cmd", "Missing 'engine > cmd' configuration")
 
         options = get_config(cfg, "options", "Missing 'options' configuration")
-
-        self.debug_log = bool(options.get("debug_log", False))
-
-        self.test_positions_file = get_config(options, "test_positions_file",
-                                              "Missing 'options.test_positions_file' configuration")
-
-        self.concurrent_workers = int(options.get("concurrency", 1))
-        if self.concurrent_workers <= 0:
-            sys.exit("Invalid value for 'options > concurrency': " + options.get("concurrency"))
-
-        if self.concurrent_workers >= os.cpu_count():
-            log.warning("Configured 'options > concurrency' to be >= the number of logical CPU cores")
-            log.info("It is recommended to set concurrency to the number of physical CPU cores - 1")
-
-        self.starting_resolution = int(options.get("starting_resolution", 1))
 
         included_options = set(options.get("tune", []))
 

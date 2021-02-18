@@ -24,6 +24,12 @@ use crate::colors::{Color, BLACK, WHITE};
 use crate::pieces::{B, K, N, P, Q, R, get_piece_value};
 use crate::score_util::{pack_scores};
 
+const QS_SEE_THRESHOLD: i32 = 104;
+const QS_PRUNE_MARGIN: i32 = 650;
+const TIMEEXT_SCORE_CHANGE_THRESHOLD: i32 = 80;
+const TIMEEXT_SCORE_FLUCTUATION_THRESHOLD: i32 = 130;
+const TIMEEXT_SCORE_FLUCTUATION_REDUCTIONS: i32 = 90;
+const RAZOR_MARGIN: i32 = 130;
 const KING_PAWN_PHASE_THRESHOLD: i32 = 21;
 const KING_SHIELD_BONUS: i32 = 20;
 const EG_KING_SHIELD_BONUS: i32 = 11;
@@ -31,12 +37,6 @@ const FULL_EVAL_THRESHOLD: i32 = 1150;
 const QUEEN_IMBALANCE_PENALTY: i32 = 219;
 const EG_QUEEN_IMBALANCE_PENALTY: i32 = -112;
 const FUTILITY_MARGIN_MULTIPLIER: i32 = 51;
-const QS_SEE_THRESHOLD: i32 = 104;
-const QS_PRUNE_MARGIN: i32 = 650;
-const TIMEEXT_SCORE_CHANGE_THRESHOLD: i32 = 80;
-const TIMEEXT_SCORE_FLUCTUATION_THRESHOLD: i32 = 130;
-const TIMEEXT_SCORE_FLUCTUATION_REDUCTIONS: i32 = 90;
-const RAZOR_MARGIN: i32 = 130;
 const QUEEN_KING_THREAT: i32 = 3;
 const ROOK_KING_THREAT: i32 = 2;
 const BISHOP_KING_THREAT: i32 = 1;
@@ -100,6 +100,42 @@ impl Options {
     
 
     #[inline]
+    pub fn get_qs_see_threshold(&self) -> i32 {
+        QS_SEE_THRESHOLD
+    }
+
+
+    #[inline]
+    pub fn get_qs_prune_margin(&self) -> i32 {
+        QS_PRUNE_MARGIN
+    }
+
+
+    #[inline]
+    pub fn get_timeext_score_change_threshold(&self) -> i32 {
+        TIMEEXT_SCORE_CHANGE_THRESHOLD
+    }
+
+
+    #[inline]
+    pub fn get_timeext_score_fluctuation_threshold(&self) -> i32 {
+        TIMEEXT_SCORE_FLUCTUATION_THRESHOLD
+    }
+
+
+    #[inline]
+    pub fn get_timeext_score_fluctuation_reductions(&self) -> i32 {
+        TIMEEXT_SCORE_FLUCTUATION_REDUCTIONS
+    }
+
+
+    #[inline]
+    pub fn get_razor_margin(&self) -> i32 {
+        RAZOR_MARGIN
+    }
+
+
+    #[inline]
     pub fn get_king_pawn_phase_threshold(&self) -> i32 {
         KING_PAWN_PHASE_THRESHOLD
     }
@@ -138,42 +174,6 @@ impl Options {
     #[inline]
     pub fn get_futility_margin_multiplier(&self) -> i32 {
         FUTILITY_MARGIN_MULTIPLIER
-    }
-
-
-    #[inline]
-    pub fn get_qs_see_threshold(&self) -> i32 {
-        QS_SEE_THRESHOLD
-    }
-
-
-    #[inline]
-    pub fn get_qs_prune_margin(&self) -> i32 {
-        QS_PRUNE_MARGIN
-    }
-
-
-    #[inline]
-    pub fn get_timeext_score_change_threshold(&self) -> i32 {
-        TIMEEXT_SCORE_CHANGE_THRESHOLD
-    }
-
-
-    #[inline]
-    pub fn get_timeext_score_fluctuation_threshold(&self) -> i32 {
-        TIMEEXT_SCORE_FLUCTUATION_THRESHOLD
-    }
-
-
-    #[inline]
-    pub fn get_timeext_score_fluctuation_reductions(&self) -> i32 {
-        TIMEEXT_SCORE_FLUCTUATION_REDUCTIONS
-    }
-
-
-    #[inline]
-    pub fn get_razor_margin(&self) -> i32 {
-        RAZOR_MARGIN
     }
 
 

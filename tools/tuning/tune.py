@@ -14,6 +14,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+from argparse import ArgumentParser
 from engine import Engine
 from dataclasses import dataclass
 import logging as log
@@ -274,24 +275,28 @@ def main():
     log.basicConfig(stream=sys.stdout, level=log.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
     config = Config("config.yml")
+
+    parser = ArgumentParser()
+    parser.add_argument("-e", "--engine", dest="engine_cmd", help="Engine command", required=True)
+    parser.add_argument("-t", "--testfile", dest="test_positions_file", help="Test position file", required=True)
+    parser.add_argument("-r", "--starting_resolution", dest="starting_resolution", help="Starting resolution", default=10)
+    parser.add_argument("-c", "--concurrency", dest="concurrency", help="Concurrency - should be <= physical CPU core count", default=8)
+    parser.add_argument("-d", "--debug", dest="debug", help="Enable debug logging", default=False)
+
+    args = parser.parse_args()
+    config.engine_cmd = args.engine_cmd
+    config.test_positions_file = args.test_positions_file
+    config.starting_resolution = args.starting_resolution
+    config.concurrent_workers = args.concurrency
+    config.debug_log = args.debug
+
     if config.debug_log:
         log.getLogger().setLevel(log.DEBUG)
+
     log.info("- use %i concurrent engine processes", config.concurrent_workers)
 
     # Scaling factor (calculated for Velvet Chess engine)
-    # K = 1.342224
-    # K = 0.6
-
-    # config.k = 0.843
-    # config.k = 0.789999
-    #config.k = 1.342224
-    # config.k = 0.920004
-    # config.k = 1.5
-    # config.k = 1.1
-    # config.k = 1.322
-    # config.k = 1.0313
     config.k = 1.603
-    # config.k = 0.8425
 
     log.info("Reading test positions ...")
     all_test_positions = read_fens(config.test_positions_file)

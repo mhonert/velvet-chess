@@ -36,8 +36,6 @@ def main(mode: str = "tuning"):
     log.basicConfig(stream=sys.stdout, level=log.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
     config = Config("config.yml", False)
-    if config.debug_log:
-        log.getLogger().setLevel(log.DEBUG)
 
     log.info("Generating code from config.yml for %s mode ...", mode)
 
