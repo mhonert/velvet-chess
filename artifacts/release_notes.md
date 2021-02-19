@@ -1,18 +1,22 @@
 
-This is the second release of the Velvet Chess Engine :sparkles: 
+This release mainly focussed on search-related performance optimizations and improvements :zap: 
 > It is based upon my previous web-based engine Wasabi, which can be played [**here**](https://mhonert.github.io/chess).
 
 ## Changes
-- Simplified and improved passed pawn evaluation
+- Optimized move generation and perform/undo move logic
 - Replaced null-move pruning with a null-move reduction approach
-- Increased (theoretical) maximum search depth
-- Replaced *classical* line attack generation with obstruction difference algorithm
-- Improved and optimized tuning tool
-- Re-tuned all evaluation parameters with a set of 7 million test positions from self-play games
-- Bonus for rooks on (half) open files
-- Improved move sorting
-- Improved mobility evaluation
-- Improved king safety evaluation
+- Reduced transposition table entry size from 12 to 8 bytes
+- Refactored move generation and move sorting to reduce memory allocation overhead 
+- Sort quiet moves incrementally
+- Improve history heuristic tables
+- Reduce search depth for remaining moves, after a recapture move
+- Null move: reduce more for higher remaining search depths 
+- Move best root move to the top of the move list instead of sorting by scores
+- Fix relative mate scores in transposition table
+- Optimize margins for futile move reductions
+- UCI support
+  - Output seldepth info
+  - support 'nodes' parameter in 'go' command
 
 ## Installation
 - Download the suitable executable for your platform (Linux or Windows) and CPU generation

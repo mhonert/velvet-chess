@@ -99,9 +99,6 @@ tuning:
   - name: EgQueenImbalancePenalty
     value: -112
 
-  - name: FutilityMarginMultiplier
-    value: 51
-
   - name: QueenKingThreat
     value: 3
 

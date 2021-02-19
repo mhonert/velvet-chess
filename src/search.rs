@@ -423,8 +423,9 @@ impl Search for Engine {
         // Futile move pruning
         let mut allow_futile_move_pruning = false;
         let mut prune_low_score = 0;
-        if !is_pv && depth <= 4 {
-            prune_low_score = self.board.get_score() * player_color as i32 + depth * self.board.options.get_futility_margin_multiplier();
+        if !is_pv && depth <= 6 {
+            let margin = (6 << depth) * 4 + 16;
+            prune_low_score = self.board.get_score() * player_color as i32 + margin;
             allow_futile_move_pruning = prune_low_score <= alpha;
         }
 
@@ -753,7 +754,7 @@ mod tests {
     use super::*;
     use crate::board::Board;
     use crate::engine::Message;
-    use crate::fen::write_fen;
+    use crate::fen::{write_fen};
     use crate::pieces::{K, R};
     use std::sync::mpsc;
     use crate::moves::NO_MOVE;

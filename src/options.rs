@@ -36,7 +36,6 @@ const EG_KING_SHIELD_BONUS: i32 = 11;
 const FULL_EVAL_THRESHOLD: i32 = 1150;
 const QUEEN_IMBALANCE_PENALTY: i32 = 219;
 const EG_QUEEN_IMBALANCE_PENALTY: i32 = -112;
-const FUTILITY_MARGIN_MULTIPLIER: i32 = 51;
 const QUEEN_KING_THREAT: i32 = 3;
 const ROOK_KING_THREAT: i32 = 2;
 const BISHOP_KING_THREAT: i32 = 1;
@@ -168,12 +167,6 @@ impl Options {
     #[inline]
     pub fn get_eg_queen_imbalance_penalty(&self) -> i32 {
         EG_QUEEN_IMBALANCE_PENALTY
-    }
-
-
-    #[inline]
-    pub fn get_futility_margin_multiplier(&self) -> i32 {
-        FUTILITY_MARGIN_MULTIPLIER
     }
 
 
