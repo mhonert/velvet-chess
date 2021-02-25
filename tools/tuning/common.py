@@ -25,67 +25,36 @@ import yaml
 class TuningOption:
     name: str
     value: int
-    history: List[float]
+    prev_value: int
     is_part: bool = False
     orig_name: str = ""
     minimum: Optional[int] = None
     maximum: Optional[int] = None
-    skip_early: int = 64
+    skip_early: int = 4
     steps: int = 1
-    direction: int = 1
-    improvement: float = .0
-    has_improved: bool = True
     iteration: int = -1
-    fails: int = 0
-    prev_value: int = 0
-    rel_improvement: float = .0
+    fails_in_row: int = 0
     improvements: int = 0
+    improvement: float = .0
     skip: bool = False
-    ever_improved: bool = False
     is_tuning = False
 
-    def improved(self, diff):
-        self.ever_improved = True
-        self.fails = 0
-        self.improvement = diff
-
-        self.history.append(diff)
-        self.adjust_steps()
+    def improved(self, err: float, improvement):
         self.improvements += 1
+        self.is_tuning = False
+        self.improvement = improvement
+        self.fails_in_row = 0
 
-        self.has_improved = True
+        log.info("%.8f > Change %s from %d to %d", err, self.name, self.prev_value, self.value)
 
-        log.info(" > Change %s from %d to %d (%d): %.8f", self.name, self.prev_value, self.value, self.steps * self.direction, self.improvement)
+    def not_improved(self):
+        self.fails_in_row += 1
+        self.value = self.prev_value
+        self.is_tuning = False
+        self.improvement *= 0.5
 
-    def not_improved(self, reset):
-        self.fails += 1
-        if not self.ever_improved and self.fails >= self.skip_early:
-            self.skip = True
-
-        self.value = self.prev_value  # Restore previous value
-        self.has_improved = False
-        if not reset:
-            return
-
-        if self.fails == 1:
-            self.improvement /= 100
-        else:
-            self.improvement = 0
-
-        self.history = self.history[-1:]
-        self.rel_improvement = 0
-        self.steps = 1
-
-    def adjust_steps(self):
-        if len(self.history) < 2:
-            return
-
-        log.debug("%s: %d - %.8f", self.name, self.value, self.improvement)
-
-        self.rel_improvement = self.history[-1] / self.history[-2]
-        steps = self.history[-1] * (len(self.history) - 1) / self.history[0]
-        self.steps = min(10, max(1, int(steps)))
-        # log.debug("%s: %f", self.name, self.steps)
+    def should_skip(self):
+        return self.fails_in_row >= self.skip_early
 
 
 def get_config(cfg: Dict, key: str, msg: str):

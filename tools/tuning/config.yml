@@ -4,10 +4,9 @@ options:
     - EgQueenImbalancePenalty
     - PawnCoverBonus
 
-    - KingPawnPhaseThreshold
-
     - KingShieldBonus
-    - KingPawnPatternBonus
+    - EgKingShieldBonus
+
     - DoubledPawnPenalty
 
     - BishopPinBonus
@@ -22,14 +21,13 @@ options:
     - EgRookOnHalfOpenFileBonus
     - EgRookOnOpenFileBonus
 
-    - HalfOpenFileBonus
-    - EgHalfOpenFileBonus
-
     - PassedPawnBonus
     - PawnKingDefenseBonus
     - PawnKingAttackedPenalty
     - PassedPawnKingDefenseBonus
     - PassedPawnKingAttackedPenalty
+    - HalfOpenFileBonus
+    - EgHalfOpenFileBonus
 
     - KingDangerPiecePenalty
     - KingThreatAdjustment
@@ -77,27 +75,7 @@ tuning:
   - name: RazorMargin
     value: 130
 
-  # Eval options:
-
-  - name: KingPawnPhaseThreshold
-    min: 1
-    max: 40
-    value: 21
-
-  - name: KingShieldBonus
-    value: 20
-
-  - name: EgKingShieldBonus
-    value: 11
-
-  - name: FullEvalThreshold
-    value: 1150
-
-  - name: QueenImbalancePenalty
-    value: 219
-
-  - name: EgQueenImbalancePenalty
-    value: -112
+  # Fixed eval options:
 
   - name: QueenKingThreat
     value: 3
@@ -111,89 +89,109 @@ tuning:
   - name: KnightKingThreat
     value: 1
 
-  - name: DoubledPawnPenalty
+  - name: KingPawnPhaseThreshold
+    min: 1
+    max: 40
     value: 21
+
+  # Tunable eval options:
+
+  - name: KingShieldBonus
+    value: 16
+
+  - name: EgKingShieldBonus
+    value: 17
+
+  - name: QueenImbalancePenalty
+    value: 219
+
+  - name: EgQueenImbalancePenalty
+    value: -85
+
+  - name: DoubledPawnPenalty
+    value: 20
 
   - name: PawnCoverBonus
     value: 8
 
   - name: RookOnHalfOpenFileBonus
-    value: 13
+    value: 11
 
   - name: RookOnOpenFileBonus
-    value: 14
+    value: 19
 
   - name: EgRookOnHalfOpenFileBonus
-    value: -5
+    value: -4
 
   - name: EgRookOnOpenFileBonus
-    value: -1
+    value: -3
 
   - name: BishopPinBonus
-    value: 24
+    value: 25
 
   - name: EgBishopPinBonus
     value: 9
 
   - name: RookPinBonus
-    value: 6
+    value: 4
 
   - name: EgRookPinBonus
-    value: 9
+    value: 11
 
   - name: UncoveredPiecePenalty
-    value: 5
+    value: 4
 
-  - name: HalfOpenFileBonus
-    min: 0
-    value: [0, 24, 20, 0]
-  - name: EgHalfOpenFileBonus
-    min: 0
-    value: [6, 10, 3, 0]
   - name: PassedPawnBonus
     min: 0
-    value: [107, 80, 43, 5, 17]
+    value: [81, 99, 63, 26]
   - name: PawnKingDefenseBonus
     min: 0
-    value: [0, 62, 57, 49, 43, 37, 36, 27]
+    value: [1, 24, 18, 12, 7, 3, 1, 0]
   - name: PawnKingAttackedPenalty
     min: 0
-    value: [0, 71, 52, 48, 41, 28, 25, 27]
+    value: [2, 40, 21, 17, 10, 0, 0, 1]
   - name: PassedPawnKingDefenseBonus
     min: 0
-    value: [0, 84, 65, 46, 35, 35, 45, 47]
+    value: [2, 54, 37, 15, 2, 0, 12, 6]
   - name: PassedPawnKingAttackedPenalty
     min: 0
-    value: [0, 72, 52, 32, 23, 16, 18, 24]
-
+    value: [4, 62, 42, 21, 12, 1, 1, 7]
+  - name: HalfOpenFileBonus
+    min: 0
+    value: [0, 23, 22, 1]
+  - name: EgHalfOpenFileBonus
+    min: 0
+    value: [59, 19, 10, 6]
   - name: KingDangerPiecePenalty
-    value: [2, -6, 5, 1, 10, 21, 34, 58, 71, 104, 109, 165, 162, 166, 170, 166, 167, 168, 174, 169]
+    value: [0, 0, 1, -1, 8, 20, 35, 58, 72, 102, 114, 115, 116, 117, 118, 119, 121,
+      121, 122, 123]
   - name: KingThreatAdjustment
-    value: [-4, 5, -7, -9, -13, -11, -8, 6, 9, 15, 20, 24, -9, -6, -4, -5, -7, -10,
-      -9, -8, -3, 2, 9, 19, 2, 4, 3, 5, -7, 2, 4, 17, 1, -7, -3, 1, -4, 4, 17, 30, -4,
-      -7, 7, 17, -13, 4, 25, 36, -13, -12, -3, 7, -13, 2, 25, 50, -15, -2, 4, 14, -26,
-      -3, 36, 68, 13, 11, 13, 26, 43, 42, 63, 83, 25, 30, 29, 50, 45, 72, 64, 181, 21,
-      25, 37, 57, 47, 55, 82, 93, 42, 34, 71, 73, 29, 101, 77, 220, -294, 198, 524,
-      504, 125, 619, 4, -23, 20, 379, -3, 536, 0, 13, 12, -9, 0, -1, 0, 0, 551, 1, 0,
-      0, 4, 635, 421, 1, 15, 0, 0, 1]
+    value: [0, 0, 0, 0, -9, -6, -4, 11, 14, 19, 24, 29, -5, -2, -1, -1, -4, -6, -5,
+      -3, -1, 4, 11, 22, 3, 5, 5, 8, -5, 4, 6, 20, 3, -6, -2, 2, -1, 7, 18, 33, -2,
+      -4, 8, 20, -11, 7, 28, 40, -12, -11, -2, 8, -14, 2, 25, 50, -16, -3, 3, 15, -25,
+      -1, 37, 71, 15, 13, 15, 28, 47, 45, 67, 86, 28, 33, 32, 53, 48, 75, 68, 191, 22,
+      26, 39, 59, 47, 55, 83, 93, 41, 34, 71, 73, 30, 102, 82, 221, -284, 203, 379,
+      387, 26, 533, 0, 0, 0, 268, -3, 443, 2, 2, 0, 0, 2, 0, 0, -2, 305, -1, 3, 0, 0,
+      520, 255, 0, 2, 1, -2, -1]
   - name: EgKnightMobBonus
-    value: [-130, -91, -64, -56, -49, -40, -42, -45, -56]
+    value: [-121, -80, -56, -47, -41, -32, -33, -37, -48]
   - name: EgBishopMobBonus
-    value: [-111, -80, -65, -52, -43, -34, -28, -25, -24, -24, -25, -31, -21, -39]
+    value: [-100, -70, -55, -43, -34, -25, -19, -17, -14, -14, -17, -22, -13, -30]
   - name: EgRookMobBonus
-    value: [-28, -20, -25, -25, -17, -14, -13, -13, -3, 1, 8, 16, 18, 18, 0]
+    value: [-22, -9, -13, -15, -7, -4, -2, -3, 6, 11, 19, 27, 29, 30, 14]
   - name: EgQueenMobBonus
-    value: [-225, -75, -65, -53, -52, -34, -28, -20, -22, -13, -11, 0, 3, 9, 13, 18,
-      16, 11, 12, 7, -9, -42, -45, -91, -55, -65, -140, -226]
+    value: [-231, -75, -74, -56, -51, -38, -32, -22, -22, -15, -12, -3, -1, 9, 14, 16,
+      13, 11, 15, 5, -9, -35, -41, -73, -41, -45, -83, -48]
   - name: KnightMobBonus
-    value: [-13, 8, 16, 24, 30, 34, 40, 46, 61]
+    value: [-14, 6, 15, 23, 30, 34, 39, 46, 60]
   - name: BishopMobBonus
-    value: [20, 24, 34, 39, 46, 51, 56, 60, 66, 75, 81, 102, 96, 153]
+    value: [18, 23, 33, 38, 45, 50, 55, 60, 65, 72, 82, 102, 97, 151]
   - name: RookMobBonus
-    value: [-26, -16, -12, -8, -8, -3, 4, 9, 8, 13, 15, 12, 14, 24, 63]
+    value: [-24, -13, -6, -3, -4, 1, 6, 12, 12, 15, 16, 13, 16, 24, 55]
   - name: QueenMobBonus
-    value: [1, -17, -13, -13, -7, -8, -5, -4, 1, 2, 5, 3, 4, 5, 3, 5, 8, 16, 19, 27,
-      45, 94, 93, 170, 122, 154, 301, 472]
+    value: [4, -14, -9, -10, -5, -5, -2, -1, 3, 4, 7, 5, 7, 5, 2, 7, 11, 16, 17, 26,
+      44, 83, 87, 138, 93, 107, 132, 12]
+
   - name: EgPawnPst
     value: [3, 3, 6, 2, -18, -7, -7, 0, 28, 60, 58, 19, 41, 38, 88, 72, 26, 31, 14,
       9, -3, 5, 13, 17, 17, 10, 1, -16, -20, -16, 4, -8, 6, 7, -14, -21, -23, -16, -6,

@@ -30,44 +30,43 @@ const TIMEEXT_SCORE_CHANGE_THRESHOLD: i32 = 80;
 const TIMEEXT_SCORE_FLUCTUATION_THRESHOLD: i32 = 130;
 const TIMEEXT_SCORE_FLUCTUATION_REDUCTIONS: i32 = 90;
 const RAZOR_MARGIN: i32 = 130;
-const KING_PAWN_PHASE_THRESHOLD: i32 = 21;
-const KING_SHIELD_BONUS: i32 = 20;
-const EG_KING_SHIELD_BONUS: i32 = 11;
-const FULL_EVAL_THRESHOLD: i32 = 1150;
-const QUEEN_IMBALANCE_PENALTY: i32 = 219;
-const EG_QUEEN_IMBALANCE_PENALTY: i32 = -112;
 const QUEEN_KING_THREAT: i32 = 3;
 const ROOK_KING_THREAT: i32 = 2;
 const BISHOP_KING_THREAT: i32 = 1;
 const KNIGHT_KING_THREAT: i32 = 1;
-const DOUBLED_PAWN_PENALTY: i32 = 21;
+const KING_PAWN_PHASE_THRESHOLD: i32 = 21;
+const KING_SHIELD_BONUS: i32 = 16;
+const EG_KING_SHIELD_BONUS: i32 = 17;
+const QUEEN_IMBALANCE_PENALTY: i32 = 219;
+const EG_QUEEN_IMBALANCE_PENALTY: i32 = -85;
+const DOUBLED_PAWN_PENALTY: i32 = 20;
 const PAWN_COVER_BONUS: i32 = 8;
-const ROOK_ON_HALF_OPEN_FILE_BONUS: i32 = 13;
-const ROOK_ON_OPEN_FILE_BONUS: i32 = 14;
-const EG_ROOK_ON_HALF_OPEN_FILE_BONUS: i32 = -5;
-const EG_ROOK_ON_OPEN_FILE_BONUS: i32 = -1;
-const BISHOP_PIN_BONUS: i32 = 24;
+const ROOK_ON_HALF_OPEN_FILE_BONUS: i32 = 11;
+const ROOK_ON_OPEN_FILE_BONUS: i32 = 19;
+const EG_ROOK_ON_HALF_OPEN_FILE_BONUS: i32 = -4;
+const EG_ROOK_ON_OPEN_FILE_BONUS: i32 = -3;
+const BISHOP_PIN_BONUS: i32 = 25;
 const EG_BISHOP_PIN_BONUS: i32 = 9;
-const ROOK_PIN_BONUS: i32 = 6;
-const EG_ROOK_PIN_BONUS: i32 = 9;
-const UNCOVERED_PIECE_PENALTY: i32 = 5;
-const HALF_OPEN_FILE_BONUS: [i32; 4] = [0, 24, 20, 0];
-const EG_HALF_OPEN_FILE_BONUS: [i32; 4] = [6, 10, 3, 0];
-const PASSED_PAWN_BONUS: [i32; 5] = [107, 80, 43, 5, 17];
-const PAWN_KING_DEFENSE_BONUS: [i32; 8] = [0, 62, 57, 49, 43, 37, 36, 27];
-const PAWN_KING_ATTACKED_PENALTY: [i32; 8] = [0, 71, 52, 48, 41, 28, 25, 27];
-const PASSED_PAWN_KING_DEFENSE_BONUS: [i32; 8] = [0, 84, 65, 46, 35, 35, 45, 47];
-const PASSED_PAWN_KING_ATTACKED_PENALTY: [i32; 8] = [0, 72, 52, 32, 23, 16, 18, 24];
-const KING_DANGER_PIECE_PENALTY: [i32; 20] = [2, -6, 5, 1, 10, 21, 34, 58, 71, 104, 109, 165, 162, 166, 170, 166, 167, 168, 174, 169];
-const KING_THREAT_ADJUSTMENT: [i32; 128] = [-4, 5, -7, -9, -13, -11, -8, 6, 9, 15, 20, 24, -9, -6, -4, -5, -7, -10, -9, -8, -3, 2, 9, 19, 2, 4, 3, 5, -7, 2, 4, 17, 1, -7, -3, 1, -4, 4, 17, 30, -4, -7, 7, 17, -13, 4, 25, 36, -13, -12, -3, 7, -13, 2, 25, 50, -15, -2, 4, 14, -26, -3, 36, 68, 13, 11, 13, 26, 43, 42, 63, 83, 25, 30, 29, 50, 45, 72, 64, 181, 21, 25, 37, 57, 47, 55, 82, 93, 42, 34, 71, 73, 29, 101, 77, 220, -294, 198, 524, 504, 125, 619, 4, -23, 20, 379, -3, 536, 0, 13, 12, -9, 0, -1, 0, 0, 551, 1, 0, 0, 4, 635, 421, 1, 15, 0, 0, 1];
-const EG_KNIGHT_MOB_BONUS: [i32; 9] = [-130, -91, -64, -56, -49, -40, -42, -45, -56];
-const EG_BISHOP_MOB_BONUS: [i32; 14] = [-111, -80, -65, -52, -43, -34, -28, -25, -24, -24, -25, -31, -21, -39];
-const EG_ROOK_MOB_BONUS: [i32; 15] = [-28, -20, -25, -25, -17, -14, -13, -13, -3, 1, 8, 16, 18, 18, 0];
-const EG_QUEEN_MOB_BONUS: [i32; 28] = [-225, -75, -65, -53, -52, -34, -28, -20, -22, -13, -11, 0, 3, 9, 13, 18, 16, 11, 12, 7, -9, -42, -45, -91, -55, -65, -140, -226];
-const KNIGHT_MOB_BONUS: [i32; 9] = [-13, 8, 16, 24, 30, 34, 40, 46, 61];
-const BISHOP_MOB_BONUS: [i32; 14] = [20, 24, 34, 39, 46, 51, 56, 60, 66, 75, 81, 102, 96, 153];
-const ROOK_MOB_BONUS: [i32; 15] = [-26, -16, -12, -8, -8, -3, 4, 9, 8, 13, 15, 12, 14, 24, 63];
-const QUEEN_MOB_BONUS: [i32; 28] = [1, -17, -13, -13, -7, -8, -5, -4, 1, 2, 5, 3, 4, 5, 3, 5, 8, 16, 19, 27, 45, 94, 93, 170, 122, 154, 301, 472];
+const ROOK_PIN_BONUS: i32 = 4;
+const EG_ROOK_PIN_BONUS: i32 = 11;
+const UNCOVERED_PIECE_PENALTY: i32 = 4;
+const PASSED_PAWN_BONUS: [i32; 4] = [81, 99, 63, 26];
+const PAWN_KING_DEFENSE_BONUS: [i32; 8] = [1, 24, 18, 12, 7, 3, 1, 0];
+const PAWN_KING_ATTACKED_PENALTY: [i32; 8] = [2, 40, 21, 17, 10, 0, 0, 1];
+const PASSED_PAWN_KING_DEFENSE_BONUS: [i32; 8] = [2, 54, 37, 15, 2, 0, 12, 6];
+const PASSED_PAWN_KING_ATTACKED_PENALTY: [i32; 8] = [4, 62, 42, 21, 12, 1, 1, 7];
+const HALF_OPEN_FILE_BONUS: [i32; 4] = [0, 23, 22, 1];
+const EG_HALF_OPEN_FILE_BONUS: [i32; 4] = [59, 19, 10, 6];
+const KING_DANGER_PIECE_PENALTY: [i32; 20] = [0, 0, 1, -1, 8, 20, 35, 58, 72, 102, 114, 115, 116, 117, 118, 119, 121, 121, 122, 123];
+const KING_THREAT_ADJUSTMENT: [i32; 128] = [0, 0, 0, 0, -9, -6, -4, 11, 14, 19, 24, 29, -5, -2, -1, -1, -4, -6, -5, -3, -1, 4, 11, 22, 3, 5, 5, 8, -5, 4, 6, 20, 3, -6, -2, 2, -1, 7, 18, 33, -2, -4, 8, 20, -11, 7, 28, 40, -12, -11, -2, 8, -14, 2, 25, 50, -16, -3, 3, 15, -25, -1, 37, 71, 15, 13, 15, 28, 47, 45, 67, 86, 28, 33, 32, 53, 48, 75, 68, 191, 22, 26, 39, 59, 47, 55, 83, 93, 41, 34, 71, 73, 30, 102, 82, 221, -284, 203, 379, 387, 26, 533, 0, 0, 0, 268, -3, 443, 2, 2, 0, 0, 2, 0, 0, -2, 305, -1, 3, 0, 0, 520, 255, 0, 2, 1, -2, -1];
+const EG_KNIGHT_MOB_BONUS: [i32; 9] = [-121, -80, -56, -47, -41, -32, -33, -37, -48];
+const EG_BISHOP_MOB_BONUS: [i32; 14] = [-100, -70, -55, -43, -34, -25, -19, -17, -14, -14, -17, -22, -13, -30];
+const EG_ROOK_MOB_BONUS: [i32; 15] = [-22, -9, -13, -15, -7, -4, -2, -3, 6, 11, 19, 27, 29, 30, 14];
+const EG_QUEEN_MOB_BONUS: [i32; 28] = [-231, -75, -74, -56, -51, -38, -32, -22, -22, -15, -12, -3, -1, 9, 14, 16, 13, 11, 15, 5, -9, -35, -41, -73, -41, -45, -83, -48];
+const KNIGHT_MOB_BONUS: [i32; 9] = [-14, 6, 15, 23, 30, 34, 39, 46, 60];
+const BISHOP_MOB_BONUS: [i32; 14] = [18, 23, 33, 38, 45, 50, 55, 60, 65, 72, 82, 102, 97, 151];
+const ROOK_MOB_BONUS: [i32; 15] = [-24, -13, -6, -3, -4, 1, 6, 12, 12, 15, 16, 13, 16, 24, 55];
+const QUEEN_MOB_BONUS: [i32; 28] = [4, -14, -9, -10, -5, -5, -2, -1, 3, 4, 7, 5, 7, 5, 2, 7, 11, 16, 17, 26, 44, 83, 87, 138, 93, 107, 132, 12];
 const EG_PAWN_PST: [i32; 64] = [3, 3, 6, 2, -18, -7, -7, 0, 28, 60, 58, 19, 41, 38, 88, 72, 26, 31, 14, 9, -3, 5, 13, 17, 17, 10, 1, -16, -20, -16, 4, -8, 6, 7, -14, -21, -23, -16, -6, -16, -2, -3, -9, -9, -13, -7, -14, -17, 2, 7, -6, 3, -1, -8, -14, -15, -9, 3, -3, 0, 0, 0, 0, 1];
 const PAWN_PST: [i32; 64] = [8, -2, 0, 1, -5, 0, 0, 0, 183, 133, 137, 122, 71, 44, -31, -40, 3, 11, 46, 34, 37, 43, 57, 5, -24, -16, -16, -6, 10, 3, -7, -9, -29, -23, -16, -14, -2, -1, -10, -26, -30, -25, -27, -18, -11, -23, 1, -27, -23, -19, -18, -26, -11, 8, 21, -21, 3, -6, -1, 13, 0, 0, 7, 0];
 const EG_KNIGHT_PST: [i32; 64] = [-12, -47, -36, -58, -43, -48, -57, -66, -21, -13, -18, -21, -25, -54, -43, -35, -15, -27, -6, -15, -29, -41, -47, -42, -22, -14, -8, -12, -10, -13, -13, -39, -19, -16, -4, -6, -4, -5, -21, -19, -35, -22, -27, -14, -18, -32, -35, -28, -56, -27, -37, -35, -32, -31, -21, -25, -84, -40, -28, -37, -31, -41, -45, -59];
@@ -135,42 +134,6 @@ impl Options {
 
 
     #[inline]
-    pub fn get_king_pawn_phase_threshold(&self) -> i32 {
-        KING_PAWN_PHASE_THRESHOLD
-    }
-
-
-    #[inline]
-    pub fn get_king_shield_bonus(&self) -> i32 {
-        KING_SHIELD_BONUS
-    }
-
-
-    #[inline]
-    pub fn get_eg_king_shield_bonus(&self) -> i32 {
-        EG_KING_SHIELD_BONUS
-    }
-
-
-    #[inline]
-    pub fn get_full_eval_threshold(&self) -> i32 {
-        FULL_EVAL_THRESHOLD
-    }
-
-
-    #[inline]
-    pub fn get_queen_imbalance_penalty(&self) -> i32 {
-        QUEEN_IMBALANCE_PENALTY
-    }
-
-
-    #[inline]
-    pub fn get_eg_queen_imbalance_penalty(&self) -> i32 {
-        EG_QUEEN_IMBALANCE_PENALTY
-    }
-
-
-    #[inline]
     pub fn get_queen_king_threat(&self) -> i32 {
         QUEEN_KING_THREAT
     }
@@ -191,6 +154,36 @@ impl Options {
     #[inline]
     pub fn get_knight_king_threat(&self) -> i32 {
         KNIGHT_KING_THREAT
+    }
+
+
+    #[inline]
+    pub fn get_king_pawn_phase_threshold(&self) -> i32 {
+        KING_PAWN_PHASE_THRESHOLD
+    }
+
+
+    #[inline]
+    pub fn get_king_shield_bonus(&self) -> i32 {
+        KING_SHIELD_BONUS
+    }
+
+
+    #[inline]
+    pub fn get_eg_king_shield_bonus(&self) -> i32 {
+        EG_KING_SHIELD_BONUS
+    }
+
+
+    #[inline]
+    pub fn get_queen_imbalance_penalty(&self) -> i32 {
+        QUEEN_IMBALANCE_PENALTY
+    }
+
+
+    #[inline]
+    pub fn get_eg_queen_imbalance_penalty(&self) -> i32 {
+        EG_QUEEN_IMBALANCE_PENALTY
     }
 
 
@@ -260,16 +253,6 @@ impl Options {
     }
 
     #[inline]
-    pub fn get_half_open_file_bonus(&self, index: usize) -> i32 {
-        unsafe { *HALF_OPEN_FILE_BONUS.get_unchecked(index) }
-    }
-    
-    #[inline]
-    pub fn get_eg_half_open_file_bonus(&self, index: usize) -> i32 {
-        unsafe { *EG_HALF_OPEN_FILE_BONUS.get_unchecked(index) }
-    }
-    
-    #[inline]
     pub fn get_passed_pawn_bonus(&self, index: usize) -> i32 {
         unsafe { *PASSED_PAWN_BONUS.get_unchecked(index) }
     }
@@ -292,6 +275,16 @@ impl Options {
     #[inline]
     pub fn get_passed_pawn_king_attacked_penalty(&self, index: usize) -> i32 {
         unsafe { *PASSED_PAWN_KING_ATTACKED_PENALTY.get_unchecked(index) }
+    }
+    
+    #[inline]
+    pub fn get_half_open_file_bonus(&self, index: usize) -> i32 {
+        unsafe { *HALF_OPEN_FILE_BONUS.get_unchecked(index) }
+    }
+    
+    #[inline]
+    pub fn get_eg_half_open_file_bonus(&self, index: usize) -> i32 {
+        unsafe { *EG_HALF_OPEN_FILE_BONUS.get_unchecked(index) }
     }
     
     #[inline]
