@@ -17,6 +17,7 @@
  */
 
 use crate::bitboard::Direction::{Horizontal, AntiDiagonal, Vertical, Diagonal};
+use crate::colors::{Color, WHITE};
 
 
 pub struct BitBoard(pub u64);
@@ -245,6 +246,14 @@ const fn is_border(pos: i32) -> bool {
 }
 
 // Pawn attack move patterns
+
+pub fn get_pawn_attacks(pawns: u64, color: Color) -> u64 {
+    if color == WHITE {
+        white_left_pawn_attacks(pawns) | white_right_pawn_attacks(pawns)
+    } else {
+        black_left_pawn_attacks(pawns) | black_right_pawn_attacks(pawns)
+    }
+}
 
 pub fn white_left_pawn_attacks(pawns: u64) -> u64 {
     (pawns & 0xfefefefefefefefe) >> 9 // mask right column

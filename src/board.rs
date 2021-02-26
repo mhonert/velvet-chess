@@ -16,7 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::bitboard::{black_left_pawn_attacks, black_right_pawn_attacks, white_left_pawn_attacks, white_right_pawn_attacks, DARK_COLORED_FIELD_PATTERN, LIGHT_COLORED_FIELD_PATTERN, get_knight_attacks, get_king_attacks, get_white_pawn_freepath, get_black_pawn_freepath, get_bishop_attacks, get_rook_attacks};
+use crate::bitboard::{black_left_pawn_attacks, black_right_pawn_attacks, white_left_pawn_attacks, white_right_pawn_attacks, DARK_COLORED_FIELD_PATTERN, LIGHT_COLORED_FIELD_PATTERN, get_knight_attacks, get_king_attacks, get_white_pawn_freepath, get_black_pawn_freepath, get_bishop_attacks, get_rook_attacks, get_pawn_attacks};
 use crate::boardpos::{BlackBoardPos, WhiteBoardPos};
 use crate::castling::{Castling, clear_castling_bits};
 use crate::colors::{Color, BLACK, WHITE};
@@ -627,62 +627,31 @@ impl Board {
         let occupied_bb = self.get_occupancy_bitboard();
         let target_bb = 1 << pos as u64;
 
-        if opponent_color == WHITE {
-            // Check knights
-            if self.get_bitboard(N) & get_knight_attacks(pos) != 0 {
-                return true;
-            }
+        // Check knights
+        if self.get_bitboard(N * opponent_color) & get_knight_attacks(pos) != 0 {
+            return true;
+        }
 
-            // Check diagonal
-            let queens = self.get_bitboard(Q);
-            if (self.get_bitboard(B) | queens) & get_bishop_attacks(occupied_bb, pos) != 0 {
-                return true;
-            }
+        // Check diagonal
+        let queens = self.get_bitboard(Q * opponent_color);
+        if (self.get_bitboard(B * opponent_color) | queens) & get_bishop_attacks(occupied_bb, pos) != 0 {
+            return true;
+        }
 
-            // Check orthogonal
-            if (self.get_bitboard(R) | queens) & get_rook_attacks(occupied_bb, pos) != 0 {
-                return true;
-            }
+        // Check orthogonal
+        if (self.get_bitboard(R * opponent_color) | queens) & get_rook_attacks(occupied_bb, pos) != 0 {
+            return true;
+        }
 
-            // Check pawns
-            let white_pawns = self.get_bitboard(P);
-            if (white_left_pawn_attacks(white_pawns) | white_right_pawn_attacks(white_pawns)) & target_bb != 0 {
-                return true;
-            }
+        // Check pawns
+        let pawns = self.get_bitboard(P * opponent_color);
+        if get_pawn_attacks(pawns, opponent_color) & target_bb != 0 {
+            return true;
+        }
 
-            // Check king
-            if get_king_attacks(self.king_pos(WHITE)) & target_bb != 0 {
-                return true;
-            }
-
-        } else {
-            // Check knights
-            if self.get_bitboard(-N) & get_knight_attacks(pos) != 0 {
-                return true;
-            }
-
-            // Check diagonal
-            let queens = self.get_bitboard(-Q);
-            if (self.get_bitboard(-B) | queens) & get_bishop_attacks(occupied_bb, pos) != 0 {
-                return true;
-            }
-
-            // Check orthogonal
-            if (self.get_bitboard(-R) | queens) & get_rook_attacks(occupied_bb, pos) != 0 {
-                return true;
-            }
-
-            // Check pawns
-            let black_pawns = self.get_bitboard(-P);
-            if (black_left_pawn_attacks(black_pawns) | black_right_pawn_attacks(black_pawns)) & target_bb != 0 {
-                return true;
-            }
-
-            // Check king
-            if get_king_attacks(self.king_pos(BLACK)) & target_bb != 0 {
-                return true;
-            }
-
+        // Check king
+        if get_king_attacks(self.king_pos(opponent_color)) & target_bb != 0 {
+            return true;
         }
 
         false
