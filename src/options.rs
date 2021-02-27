@@ -36,11 +36,10 @@ const BISHOP_KING_THREAT: i32 = 1;
 const KNIGHT_KING_THREAT: i32 = 1;
 const KING_PAWN_PHASE_THRESHOLD: i32 = 21;
 const KING_SHIELD_BONUS: i32 = 16;
-const EG_KING_SHIELD_BONUS: i32 = 17;
 const QUEEN_IMBALANCE_PENALTY: i32 = 219;
 const EG_QUEEN_IMBALANCE_PENALTY: i32 = -85;
 const DOUBLED_PAWN_PENALTY: i32 = 20;
-const PAWN_COVER_BONUS: i32 = 8;
+const PAWN_COVER_BONUS: i32 = 9;
 const ROOK_ON_HALF_OPEN_FILE_BONUS: i32 = 11;
 const ROOK_ON_OPEN_FILE_BONUS: i32 = 19;
 const EG_ROOK_ON_HALF_OPEN_FILE_BONUS: i32 = -4;
@@ -49,7 +48,6 @@ const BISHOP_PIN_BONUS: i32 = 25;
 const EG_BISHOP_PIN_BONUS: i32 = 9;
 const ROOK_PIN_BONUS: i32 = 4;
 const EG_ROOK_PIN_BONUS: i32 = 11;
-const UNCOVERED_PIECE_PENALTY: i32 = 4;
 const PASSED_PAWN_BONUS: [i32; 4] = [81, 99, 63, 26];
 const PAWN_KING_DEFENSE_BONUS: [i32; 8] = [1, 24, 18, 12, 7, 3, 1, 0];
 const PAWN_KING_ATTACKED_PENALTY: [i32; 8] = [2, 40, 21, 17, 10, 0, 0, 1];
@@ -170,12 +168,6 @@ impl Options {
 
 
     #[inline]
-    pub fn get_eg_king_shield_bonus(&self) -> i32 {
-        EG_KING_SHIELD_BONUS
-    }
-
-
-    #[inline]
     pub fn get_queen_imbalance_penalty(&self) -> i32 {
         QUEEN_IMBALANCE_PENALTY
     }
@@ -244,12 +236,6 @@ impl Options {
     #[inline]
     pub fn get_eg_rook_pin_bonus(&self) -> i32 {
         EG_ROOK_PIN_BONUS
-    }
-
-
-    #[inline]
-    pub fn get_uncovered_piece_penalty(&self) -> i32 {
-        UNCOVERED_PIECE_PENALTY
     }
 
     #[inline]

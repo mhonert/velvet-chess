@@ -48,38 +48,6 @@ impl Eval for Board {
         let white_king = self.king_pos(WHITE);
         let black_king = self.king_pos(BLACK);
 
-        // White king shield pawn structure
-        if black_queens != 0 {
-            let white_king_shield = (white_pawns & get_white_king_shield(white_king)).count_ones() as i32;
-            score += white_king_shield * self.options.get_king_shield_bonus();
-            eg_score += white_king_shield * self.options.get_eg_king_shield_bonus();
-
-            if phase >= self.options.get_king_pawn_phase_threshold() {
-                let king_row = white_king / 8;
-                if king_row >= 5 {
-                    let hash = calc_white_pawn_hash(white_pawns, white_king);
-                    let pattern_bonus = self.options.get_king_pawn_pattern_bonus(hash as usize);
-                    score += pattern_bonus;
-                }
-            }
-        }
-
-        // Black king shield pawn structure
-        if white_queens != 0 {
-            let black_king_shield = (black_pawns & get_black_king_shield(black_king)).count_ones() as i32;
-            score -= black_king_shield * self.options.get_king_shield_bonus();
-            eg_score -= black_king_shield * self.options.get_eg_king_shield_bonus();
-
-            if phase >= self.options.get_king_pawn_phase_threshold() {
-                let king_row = black_king / 8;
-                if king_row <= 2 {
-                    let hash = calc_black_pawn_hash(black_pawns, black_king);
-                    let pattern_bonus = self.options.get_king_pawn_pattern_bonus(hash as usize);
-                    score -= pattern_bonus
-                }
-            }
-        }
-
         let white_rooks = self.get_bitboard(R);
         let black_rooks = self.get_bitboard(-R);
 
@@ -102,15 +70,11 @@ impl Eval for Board {
 
         let white_safe_targets = empty_or_black & !black_pawn_attacks;
 
-        let mut white_attacks = white_pawn_attacks;
-        let mut black_attacks = black_pawn_attacks;
-
         // Knights
         let mut white_knight_threat = 0;
         let white_knights = self.get_bitboard(N);
         for pos in BitBoard(white_knights) {
             let possible_moves = get_knight_attacks(pos as i32);
-            white_attacks |= possible_moves;
 
             let move_count = (possible_moves & white_safe_targets).count_ones();
             score += self.options.get_knight_mob_bonus(move_count as usize);
@@ -129,7 +93,6 @@ impl Eval for Board {
         let mut black_knight_threat = 0;
         for pos in BitBoard(black_knights) {
             let possible_moves = get_knight_attacks(pos as i32);
-            black_attacks |= possible_moves;
 
             let move_count = (possible_moves & black_safe_targets).count_ones();
             score -= self.options.get_knight_mob_bonus(move_count as usize);
@@ -148,7 +111,6 @@ impl Eval for Board {
         let white_bishops = self.get_bitboard(B);
         for pos in BitBoard(white_bishops) {
             let possible_moves = get_bishop_attacks(occupied, pos as i32);
-            white_attacks |= possible_moves;
 
             let move_count = (possible_moves & white_safe_targets).count_ones();
             score += self.options.get_bishop_mob_bonus(move_count as usize);
@@ -170,7 +132,6 @@ impl Eval for Board {
         let black_bishops = self.get_bitboard(-B);
         for pos in BitBoard(black_bishops) {
             let possible_moves = get_bishop_attacks(occupied, pos as i32);
-            black_attacks |= possible_moves;
 
             let move_count = (possible_moves & black_safe_targets).count_ones();
             score -= self.options.get_bishop_mob_bonus(move_count as usize);
@@ -204,7 +165,6 @@ impl Eval for Board {
             }
 
             let possible_moves = get_rook_attacks(occupied, pos as i32);
-            white_attacks |= possible_moves;
 
             let move_count = (possible_moves & white_safe_targets).count_ones();
             score += self.options.get_rook_mob_bonus(move_count as usize);
@@ -237,7 +197,6 @@ impl Eval for Board {
             }
 
             let possible_moves = get_rook_attacks(occupied, pos as i32);
-            black_attacks |= possible_moves;
 
             let move_count = (possible_moves & black_safe_targets).count_ones();
             score -= self.options.get_rook_mob_bonus(move_count as usize);
@@ -258,7 +217,6 @@ impl Eval for Board {
         let mut white_queen_threats = 0;
         for pos in BitBoard(white_queens) {
             let possible_moves = get_queen_attacks(occupied, pos as i32);
-            white_attacks |= possible_moves;
 
             let move_count = (possible_moves & white_safe_targets).count_ones();
             score += self.options.get_queen_mob_bonus(move_count as usize);
@@ -277,7 +235,6 @@ impl Eval for Board {
         let mut black_queen_threats = 0;
         for pos in BitBoard(black_queens) {
             let possible_moves = get_queen_attacks(occupied, pos as i32);
-            black_attacks |= possible_moves;
 
             let move_count = (possible_moves & black_safe_targets).count_ones();
             score -= self.options.get_queen_mob_bonus(move_count as usize);
@@ -307,18 +264,40 @@ impl Eval for Board {
             eg_score += self.options.get_eg_queen_imbalance_penalty();
         }
 
-        // Uncovered piece penalty
-        let uncovered_white_pieces = (white_pieces & !white_attacks).count_ones() as i32;
-        score -= uncovered_white_pieces * self.options.get_uncovered_piece_penalty();
-
-        let uncovered_black_pieces = (black_pieces & !black_attacks).count_ones() as i32;
-        score += uncovered_black_pieces * self.options.get_uncovered_piece_penalty();
-
         // Interpolate between opening/mid-game score and end game score for a smooth eval score transition
-
         let mut interpolated_score = interpolate_score(phase, score, eg_score);
 
         // Perform evaluations which apply to all game phases
+
+        // White king shield pawn structure
+        if black_queens != 0 {
+            let white_king_shield = (white_pawns & get_white_king_shield(white_king)).count_ones() as i32;
+            interpolated_score += white_king_shield * self.options.get_king_shield_bonus();
+
+            if phase >= self.options.get_king_pawn_phase_threshold() {
+                let king_row = white_king / 8;
+                if king_row >= 5 {
+                    let hash = calc_white_pawn_hash(white_pawns, white_king);
+                    let pattern_bonus = self.options.get_king_pawn_pattern_bonus(hash as usize);
+                    interpolated_score += pattern_bonus;
+                }
+            }
+        }
+
+        // Black king shield pawn structure
+        if white_queens != 0 {
+            let black_king_shield = (black_pawns & get_black_king_shield(black_king)).count_ones() as i32;
+            interpolated_score -= black_king_shield * self.options.get_king_shield_bonus();
+
+            if phase >= self.options.get_king_pawn_phase_threshold() {
+                let king_row = black_king / 8;
+                if king_row <= 2 {
+                    let hash = calc_black_pawn_hash(black_pawns, black_king);
+                    let pattern_bonus = self.options.get_king_pawn_pattern_bonus(hash as usize);
+                    interpolated_score -= pattern_bonus
+                }
+            }
+        }
 
         // Pawn cover bonus
         let white_pawns_and_knights = white_pawns | white_knights;

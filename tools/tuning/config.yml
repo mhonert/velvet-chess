@@ -5,7 +5,6 @@ options:
     - PawnCoverBonus
 
     - KingShieldBonus
-    - EgKingShieldBonus
 
     - DoubledPawnPenalty
 
@@ -13,8 +12,6 @@ options:
     - EgBishopPinBonus
     - RookPinBonus
     - EgRookPinBonus
-
-    - UncoveredPiecePenalty
 
     - RookOnHalfOpenFileBonus
     - RookOnOpenFileBonus
@@ -99,9 +96,6 @@ tuning:
   - name: KingShieldBonus
     value: 16
 
-  - name: EgKingShieldBonus
-    value: 17
-
   - name: QueenImbalancePenalty
     value: 219
 
@@ -112,7 +106,7 @@ tuning:
     value: 20
 
   - name: PawnCoverBonus
-    value: 8
+    value: 9
 
   - name: RookOnHalfOpenFileBonus
     value: 11
@@ -137,9 +131,6 @@ tuning:
 
   - name: EgRookPinBonus
     value: 11
-
-  - name: UncoveredPiecePenalty
-    value: 4
 
   - name: PassedPawnBonus
     min: 0
