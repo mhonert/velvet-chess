@@ -55,8 +55,7 @@ const PASSED_PAWN_KING_DEFENSE_BONUS: [i32; 8] = [2, 54, 37, 15, 2, 0, 12, 6];
 const PASSED_PAWN_KING_ATTACKED_PENALTY: [i32; 8] = [4, 62, 42, 21, 12, 1, 1, 7];
 const HALF_OPEN_FILE_BONUS: [i32; 4] = [0, 23, 22, 1];
 const EG_HALF_OPEN_FILE_BONUS: [i32; 4] = [59, 19, 10, 6];
-const KING_DANGER_PIECE_PENALTY: [i32; 20] = [0, 0, 1, -1, 8, 20, 35, 58, 72, 102, 114, 115, 116, 117, 118, 119, 121, 121, 122, 123];
-const KING_THREAT_ADJUSTMENT: [i32; 128] = [0, 0, 0, 0, -9, -6, -4, 11, 14, 19, 24, 29, -5, -2, -1, -1, -4, -6, -5, -3, -1, 4, 11, 22, 3, 5, 5, 8, -5, 4, 6, 20, 3, -6, -2, 2, -1, 7, 18, 33, -2, -4, 8, 20, -11, 7, 28, 40, -12, -11, -2, 8, -14, 2, 25, 50, -16, -3, 3, 15, -25, -1, 37, 71, 15, 13, 15, 28, 47, 45, 67, 86, 28, 33, 32, 53, 48, 75, 68, 191, 22, 26, 39, 59, 47, 55, 83, 93, 41, 34, 71, 73, 30, 102, 82, 221, -284, 203, 379, 387, 26, 533, 0, 0, 0, 268, -3, 443, 2, 2, 0, 0, 2, 0, 0, -2, 305, -1, 3, 0, 0, 520, 255, 0, 2, 1, -2, -1];
+const KING_THREAT_BY_PIECE_COMBO: [i32; 64] = [10, 0, 3, 2, 1, 9, 6, 8, 3, 0, 11, 14, 24, 3, 1, 0, 2, 2, 6, 8, 4, 14, 6, 25, 12, 16, 21, 31, 46, 54, 55, 64, 14, 17, 147, 26, 44, 27, 39, 54, 59, 76, 93, 95, 108, 83, 173, 99, 249, 1, 210, 1, 871, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0];
 const EG_KNIGHT_MOB_BONUS: [i32; 9] = [-121, -80, -56, -47, -41, -32, -33, -37, -48];
 const EG_BISHOP_MOB_BONUS: [i32; 14] = [-100, -70, -55, -43, -34, -25, -19, -17, -14, -14, -17, -22, -13, -30];
 const EG_ROOK_MOB_BONUS: [i32; 15] = [-22, -9, -13, -15, -7, -4, -2, -3, 6, 11, 19, 27, 29, 30, 14];
@@ -274,13 +273,8 @@ impl Options {
     }
     
     #[inline]
-    pub fn get_king_danger_piece_penalty(&self, index: usize) -> i32 {
-        unsafe { *KING_DANGER_PIECE_PENALTY.get_unchecked(index) }
-    }
-    
-    #[inline]
-    pub fn get_king_threat_adjustment(&self, index: usize) -> i32 {
-        unsafe { *KING_THREAT_ADJUSTMENT.get_unchecked(index) }
+    pub fn get_king_threat_by_piece_combo(&self, index: usize) -> i32 {
+        unsafe { *KING_THREAT_BY_PIECE_COMBO.get_unchecked(index) }
     }
     
     #[inline]

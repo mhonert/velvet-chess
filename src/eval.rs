@@ -20,11 +20,12 @@ use crate::board::{Board, interpolate_score};
 use crate::pieces::{P, N, B, R, Q};
 use crate::colors::{WHITE, BLACK};
 use crate::bitboard::{black_left_pawn_attacks, black_right_pawn_attacks, white_left_pawn_attacks, white_right_pawn_attacks, BitBoard, get_white_king_shield, get_black_king_shield, get_king_danger_zone, get_knight_attacks, get_bishop_attacks, get_vertical_attacks, get_rook_attacks, get_queen_attacks, get_white_pawn_freepath, get_white_pawn_freesides, get_black_pawn_freepath, get_black_pawn_freesides};
-use std::cmp::{max, min};
+use std::cmp::{max};
 
 pub trait Eval {
     fn get_score(&self) -> i32;
     fn eval_passed_pawns(&self, white_pieces: u64, black_pieces: u64, white_pawns: u64, black_pawns: u64) -> (i32, i32);
+    fn king_threat(&self, pawn_threats: u32, minor_threats: u32, rook_threats: u32, queen_threats: u32) -> i32;
 }
 
 impl Eval for Board {
@@ -62,16 +63,13 @@ impl Eval for Board {
         let white_pawn_attacks = white_left_pawn_attacks(white_pawns) | white_right_pawn_attacks(white_pawns);
         let black_pawn_attacks = black_left_pawn_attacks(black_pawns) | black_right_pawn_attacks(black_pawns);
 
-        let mut threat_to_white_king = 0;
-        let mut threat_to_black_king = 0;
-
         let black_king_danger_zone = get_king_danger_zone(black_king);
         let white_king_danger_zone = get_king_danger_zone(white_king);
 
         let white_safe_targets = empty_or_black & !black_pawn_attacks;
 
         // Knights
-        let mut white_knight_threat = 0;
+        let mut white_minor_threats = 0;
         let white_knights = self.get_bitboard(N);
         for pos in BitBoard(white_knights) {
             let possible_moves = get_knight_attacks(pos as i32);
@@ -81,8 +79,7 @@ impl Eval for Board {
             eg_score += self.options.get_eg_knight_mob_bonus(move_count as usize);
 
             if possible_moves & black_king_danger_zone != 0 {
-                threat_to_black_king += self.options.get_knight_king_threat();
-                white_knight_threat = 1;
+                white_minor_threats += 1;
             }
         }
 
@@ -90,7 +87,7 @@ impl Eval for Board {
         let black_safe_targets = empty_or_white & !white_pawn_attacks;
 
         let black_knights = self.get_bitboard(-N);
-        let mut black_knight_threat = 0;
+        let mut black_minor_threats = 0;
         for pos in BitBoard(black_knights) {
             let possible_moves = get_knight_attacks(pos as i32);
 
@@ -99,15 +96,13 @@ impl Eval for Board {
             eg_score -= self.options.get_eg_knight_mob_bonus(move_count as usize);
 
             if possible_moves & white_king_danger_zone != 0 {
-                threat_to_white_king += self.options.get_knight_king_threat();
-                black_knight_threat = 1;
+                black_minor_threats += 1;
             }
         }
 
         let mut pinnable_black_pieces = black_knights | black_rooks;
 
         // Bishops
-        let mut white_bishop_threat = 0;
         let white_bishops = self.get_bitboard(B);
         for pos in BitBoard(white_bishops) {
             let possible_moves = get_bishop_attacks(occupied, pos as i32);
@@ -117,8 +112,7 @@ impl Eval for Board {
             eg_score += self.options.get_eg_bishop_mob_bonus(move_count as usize);
 
             if possible_moves & black_king_danger_zone != 0 {
-                threat_to_black_king += self.options.get_bishop_king_threat();
-                white_bishop_threat = 1;
+                white_minor_threats += 1;
             }
 
             if possible_moves & pinnable_black_pieces != 0 {
@@ -128,7 +122,6 @@ impl Eval for Board {
         }
 
         let mut pinnable_white_pieces = white_knights | white_rooks;
-        let mut black_bishop_threat = 0;
         let black_bishops = self.get_bitboard(-B);
         for pos in BitBoard(black_bishops) {
             let possible_moves = get_bishop_attacks(occupied, pos as i32);
@@ -138,8 +131,7 @@ impl Eval for Board {
             eg_score -= self.options.get_eg_bishop_mob_bonus(move_count as usize);
 
             if possible_moves & white_king_danger_zone != 0 {
-                threat_to_white_king += self.options.get_bishop_king_threat();
-                black_bishop_threat = 1;
+                black_minor_threats += 1;
             }
 
             if possible_moves & pinnable_white_pieces != 0 {
@@ -149,7 +141,7 @@ impl Eval for Board {
         }
 
         // Rooks
-        let mut white_rook_threat = 0;
+        let mut white_rook_threats = 0;
         pinnable_black_pieces = black_knights | black_bishops;
         for pos in BitBoard(white_rooks) {
             // Rook on (half) open file?
@@ -171,8 +163,7 @@ impl Eval for Board {
             eg_score += self.options.get_eg_rook_mob_bonus(move_count as usize);
 
             if possible_moves & black_king_danger_zone != 0 {
-                threat_to_black_king += self.options.get_rook_king_threat();
-                white_rook_threat = 1;
+                white_rook_threats += 1;
             }
 
             if possible_moves & pinnable_black_pieces != 0 {
@@ -181,7 +172,7 @@ impl Eval for Board {
             }
         }
 
-        let mut black_rook_threat = 0;
+        let mut black_rook_threats = 0;
         pinnable_white_pieces = white_knights | white_bishops;
         for pos in BitBoard(black_rooks) {
             // Rook on (half) open file?
@@ -203,8 +194,7 @@ impl Eval for Board {
             eg_score -= self.options.get_eg_rook_mob_bonus(move_count as usize);
 
             if possible_moves & white_king_danger_zone != 0 {
-                threat_to_white_king += self.options.get_rook_king_threat();
-                black_rook_threat = 1;
+                black_rook_threats += 1;
             }
 
             if possible_moves & pinnable_white_pieces != 0 {
@@ -223,7 +213,6 @@ impl Eval for Board {
             eg_score += self.options.get_eg_queen_mob_bonus(move_count as usize);
 
             if possible_moves & black_king_danger_zone != 0 {
-                threat_to_black_king += self.options.get_queen_king_threat();
                 white_queen_threats += 1;
             }
         }
@@ -241,7 +230,6 @@ impl Eval for Board {
             eg_score -= self.options.get_eg_queen_mob_bonus(move_count as usize);
 
             if possible_moves & white_king_danger_zone != 0 {
-                threat_to_white_king += self.options.get_queen_king_threat();
                 black_queen_threats += 1;
             }
         }
@@ -313,30 +301,11 @@ impl Eval for Board {
         interpolated_score += calc_doubled_pawn_penalty(black_pawns, self.options.get_doubled_pawn_penalty());
 
         // King threat (uses king threat values from mobility evaluation)
+        let white_pawn_threats = (white_pawn_attacks & black_king_danger_zone).count_ones();
+        interpolated_score += self.king_threat(white_pawn_threats, white_minor_threats, white_rook_threats, white_queen_threats);
 
-        if threat_to_black_king > 1 {
-            let white_pawn_threats = min(3, (white_pawn_attacks & black_king_danger_zone).count_ones());
-            let threat_pattern = white_pawn_threats |
-                white_knight_threat << 2 |
-                white_bishop_threat << 3 |
-                white_rook_threat << 4 |
-                min(3, white_queen_threats) << 5;
-
-            interpolated_score += self.options.get_king_danger_piece_penalty(threat_to_black_king as usize);
-            interpolated_score += self.options.get_king_threat_adjustment(threat_pattern as usize);
-        }
-
-        if threat_to_white_king > 1 {
-            let black_pawn_threats = min(3, (black_pawn_attacks & white_king_danger_zone).count_ones());
-            let threat_pattern = black_pawn_threats |
-                black_knight_threat << 2 |
-                black_bishop_threat << 3 |
-                black_rook_threat << 4 |
-                min(3, black_queen_threats) << 5;
-
-            interpolated_score -= self.options.get_king_danger_piece_penalty(threat_to_white_king as usize);
-            interpolated_score -= self.options.get_king_threat_adjustment(threat_pattern as usize);
-        }
+        let black_pawn_threats = (black_pawn_attacks & white_king_danger_zone).count_ones();
+        interpolated_score -= self.king_threat(black_pawn_threats, black_minor_threats, black_rook_threats, black_queen_threats);
 
         interpolated_score
     }
@@ -402,7 +371,24 @@ impl Eval for Board {
 
         (score, eg_score)
     }
+
+    #[inline]
+    fn king_threat(&self, pawn_threats: u32, minor_threats: u32, rook_threats: u32, queen_threats: u32) -> i32 {
+        let threat_combo = unsafe { PAWN_COMBO_INDEXES.get_unchecked(pawn_threats as usize) } +
+            unsafe { MINOR_COMBO_INDEXES.get_unchecked(minor_threats as usize ) } +
+            unsafe { ROOK_COMBO_INDEXES.get_unchecked(rook_threats as usize ) } +
+            unsafe { QUEEN_COMBO_INDEXES.get_unchecked(queen_threats as usize ) };
+        self.options.get_king_threat_by_piece_combo(threat_combo as usize)
+    }
 }
+
+// Numbers offsets for different piece types and number of pieces that can be combined
+// to an index into the king threat value table.
+// These are prime numbers to ensure that the resulting index for each piece combination is unique.
+const PAWN_COMBO_INDEXES: [u32; 8] = [0, 1, 3, 3, 3, 3, 3, 3];
+const MINOR_COMBO_INDEXES: [u32; 8] = [0, 5, 7, 11, 11, 11, 11, 11];
+const ROOK_COMBO_INDEXES: [u32; 8] = [0, 13, 17, 17, 17, 17, 17, 17];
+const QUEEN_COMBO_INDEXES: [u32; 8] = [0, 19, 23, 23, 23, 23, 23, 23];
 
 #[inline]
 fn calc_doubled_pawn_penalty(pawns: u64, penalty: i32) -> i32 {
@@ -464,7 +450,7 @@ pub fn calc_black_pawn_hash(pawns: u64, king_pos: i32) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fen::create_from_fen;
+    use crate::fen::{create_from_fen};
 
     #[test]
     fn check_correct_eval_score_for_mirrored_pos() {
@@ -486,4 +472,5 @@ mod tests {
         assert_eq!(calc_white_pawn_hash(0b11100000_11010000_10110000_01110000_00000000_00000000_00000000_00000000, 56),
                    calc_black_pawn_hash(0b00000000_00000000_00000000_00000000_01110000_10110000_11010000_11100000, 7));
     }
+
 }
