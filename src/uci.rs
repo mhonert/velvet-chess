@@ -26,6 +26,8 @@ use std::sync::mpsc::Sender;
 use std::thread::sleep;
 use std::time::Duration;
 use crate::options::parse_set_option;
+use crate::magics::{find_magics, find_sparse_rook_magics, find_sparse_bishop_magics};
+use crate::uci::MagicNumPiece::{Rooks, Bishops};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const AUTHOR: &str = "Martin Honert";
@@ -79,6 +81,12 @@ pub fn start_uci_loop(tx: &Sender<Message>) {
                 "resettestpositions" => reset_test_positions(tx),
 
                 "printfen" => fen(tx),
+
+                "magics" => find_magics(),
+
+                "sparse_rook_magics" => calc_magics(Rooks, parts[i + 1..].to_vec()),
+
+                "sparse_bishop_magics" => calc_magics(Bishops, parts[i + 1..].to_vec()),
 
                 _ => {
                     // Skip unknown commands
@@ -307,6 +315,37 @@ fn profile(tx: &Sender<Message>) {
 
 fn fen(tx: &Sender<Message>) {
     send_message(tx, Message::Fen);
+}
+
+enum MagicNumPiece {
+    Rooks,
+    Bishops
+}
+
+fn calc_magics(piece: MagicNumPiece, parts: Vec<&str>) {
+    if parts.is_empty() {
+        println!("calc_magics requires a pos number");
+        return;
+    }
+
+    let pos_str = parts[0];
+    let pos = match i32::from_str(pos_str) {
+        Ok(p) => p,
+        Err(e) => {
+            println!("Could not parse pos number {}: {}", pos_str, e);
+            return;
+        }
+    };
+
+    if pos < 0 || pos > 63 {
+        println!("Position must be in the range of 0..+63");
+        return;
+    }
+
+    match piece {
+        Rooks => find_sparse_rook_magics(pos),
+        Bishops => find_sparse_bishop_magics(pos)
+    }
 }
 
 fn extract_option<T: std::str::FromStr>(parts: &Vec<&str>, name: &str, default_value: T) -> T {

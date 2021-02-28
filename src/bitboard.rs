@@ -19,7 +19,6 @@
 use crate::bitboard::Direction::{Horizontal, AntiDiagonal, Vertical, Diagonal};
 use crate::colors::{Color, WHITE};
 
-
 pub struct BitBoard(pub u64);
 
 impl Iterator for BitBoard {
