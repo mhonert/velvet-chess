@@ -57,25 +57,15 @@ pub fn get_king_attacks(pos: i32) -> u64 {
 }
 
 #[inline]
-pub fn get_bishop_attacks(occupied: u64, pos: i32) -> u64 {
+pub fn gen_bishop_attacks(occupied: u64, pos: i32) -> u64 {
     get_line_attacks(occupied, unsafe { LINE_MASKS.get_unchecked(pos as usize + (Diagonal as usize * 64)) })
     | get_line_attacks(occupied, unsafe { LINE_MASKS.get_unchecked(pos as usize + (AntiDiagonal as usize * 64)) })
 }
 
 #[inline]
-pub fn get_rook_attacks(occupied: u64, pos: i32) -> u64 {
+pub fn gen_rook_attacks(occupied: u64, pos: i32) -> u64 {
     get_line_attacks(occupied, unsafe { LINE_MASKS.get_unchecked(pos as usize + (Horizontal as usize * 64)) })
     | get_line_attacks(occupied, unsafe { LINE_MASKS.get_unchecked(pos as usize + (Vertical as usize * 64)) })
-}
-
-#[inline]
-pub fn get_vertical_attacks(occupied: u64, pos: i32) -> u64 {
-    get_line_attacks(occupied, unsafe { LINE_MASKS.get_unchecked(pos as usize + (Vertical as usize * 64)) })
-}
-
-#[inline]
-pub fn get_queen_attacks(occupied: u64, pos: i32) -> u64 {
-    get_bishop_attacks(occupied, pos) | get_rook_attacks(occupied, pos)
 }
 
 #[inline]

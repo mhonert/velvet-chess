@@ -24,12 +24,12 @@ pub mod history_heuristics;
 pub mod move_gen;
 pub mod perft;
 pub mod uci;
+pub mod magics;
 
 mod bitboard;
 mod boardpos;
 mod castling;
 mod colors;
-mod magics;
 mod moves;
 mod options;
 mod pieces;

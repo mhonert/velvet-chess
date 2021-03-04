@@ -16,7 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::bitboard::{black_left_pawn_attacks, black_right_pawn_attacks, white_left_pawn_attacks, white_right_pawn_attacks, DARK_COLORED_FIELD_PATTERN, LIGHT_COLORED_FIELD_PATTERN, get_knight_attacks, get_king_attacks, get_white_pawn_freepath, get_black_pawn_freepath, get_bishop_attacks, get_rook_attacks, get_pawn_attacks};
+use crate::bitboard::{black_left_pawn_attacks, black_right_pawn_attacks, white_left_pawn_attacks, white_right_pawn_attacks, DARK_COLORED_FIELD_PATTERN, LIGHT_COLORED_FIELD_PATTERN, get_knight_attacks, get_king_attacks, get_white_pawn_freepath, get_black_pawn_freepath, get_pawn_attacks};
 use crate::boardpos::{BlackBoardPos, WhiteBoardPos};
 use crate::castling::{Castling, clear_castling_bits};
 use crate::colors::{Color, BLACK, WHITE};
@@ -26,6 +26,7 @@ use crate::score_util::{unpack_eg_score, unpack_score};
 use crate::options::{Options, PieceSquareTables};
 use crate::zobrist::{piece_zobrist_key, player_zobrist_key, castling_zobrist_key, enpassant_zobrist_key};
 use crate::moves::{Move, MoveType};
+use crate::magics::{get_bishop_attacks, get_rook_attacks};
 
 const MAX_GAME_HALFMOVES: usize = 5898 * 2;
 
@@ -981,6 +982,7 @@ mod tests {
     use super::*;
     use crate::castling::Castling;
     use crate::moves::MoveType;
+    use crate::magics::initialize_magics;
 
     #[test]
     fn update_hash_when_piece_moves() {
@@ -1276,6 +1278,7 @@ mod tests {
 
     #[test]
     fn recognizes_white_in_check() {
+        initialize_magics();
         #[rustfmt::skip]
         let items: [i8; 64] = [
             0,  0,  0, -K,  0,  0,  0,  0,
@@ -1295,6 +1298,7 @@ mod tests {
 
     #[test]
     fn recognizes_black_in_check() {
+        initialize_magics();
         #[rustfmt::skip]
         let items: [i8; 64] = [
             0,  0,  0, -K,  0,  0,  0,  0,

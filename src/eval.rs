@@ -19,8 +19,9 @@
 use crate::board::{Board, interpolate_score};
 use crate::pieces::{P, N, B, R, Q};
 use crate::colors::{WHITE, BLACK};
-use crate::bitboard::{black_left_pawn_attacks, black_right_pawn_attacks, white_left_pawn_attacks, white_right_pawn_attacks, BitBoard, get_white_king_shield, get_black_king_shield, get_king_danger_zone, get_knight_attacks, get_bishop_attacks, get_vertical_attacks, get_rook_attacks, get_queen_attacks, get_white_pawn_freepath, get_white_pawn_freesides, get_black_pawn_freepath, get_black_pawn_freesides};
+use crate::bitboard::{black_left_pawn_attacks, black_right_pawn_attacks, white_left_pawn_attacks, white_right_pawn_attacks, BitBoard, get_white_king_shield, get_black_king_shield, get_king_danger_zone, get_knight_attacks, get_white_pawn_freepath, get_white_pawn_freesides, get_black_pawn_freepath, get_black_pawn_freesides};
 use std::cmp::{max};
+use crate::magics::{get_bishop_attacks, get_rook_attacks, get_queen_attacks};
 
 pub trait Eval {
     fn get_score(&self) -> i32;
@@ -35,7 +36,6 @@ impl Eval for Board {
         let mut score = self.state.score as i32;
         let mut eg_score = self.state.eg_score as i32;
 
-        // Add bonus for pawns which form a shield in front of the king
         let white_pawns = self.get_bitboard(P);
         let black_pawns = self.get_bitboard(-P);
 
@@ -145,7 +145,7 @@ impl Eval for Board {
         pinnable_black_pieces = black_knights | black_bishops;
         for pos in BitBoard(white_rooks) {
             // Rook on (half) open file?
-            let front_columns = get_vertical_attacks(0, pos as i32);
+            let front_columns = get_white_pawn_freepath(pos as i32);
             if front_columns & white_pawns == 0 {
                 score += self.options.get_rook_on_half_open_file_bonus();
                 eg_score += self.options.get_eg_rook_on_half_open_file_bonus();
@@ -176,7 +176,7 @@ impl Eval for Board {
         pinnable_white_pieces = white_knights | white_bishops;
         for pos in BitBoard(black_rooks) {
             // Rook on (half) open file?
-            let front_columns = get_vertical_attacks(0, pos as i32);
+            let front_columns = get_black_pawn_freepath(pos as i32);
             if front_columns & black_pawns == 0 {
                 score -= self.options.get_rook_on_half_open_file_bonus();
                 eg_score -= self.options.get_eg_rook_on_half_open_file_bonus();
@@ -451,9 +451,12 @@ pub fn calc_black_pawn_hash(pawns: u64, king_pos: i32) -> u64 {
 mod tests {
     use super::*;
     use crate::fen::{create_from_fen};
+    use crate::magics::initialize_magics;
 
     #[test]
     fn check_correct_eval_score_for_mirrored_pos() {
+        initialize_magics();
+
         assert_eq!(create_from_fen("8/8/8/5k2/4r1p1/6P1/3K1P2/8 b - - 0 80").get_score(),
                    -create_from_fen("8/3k1p2/6p1/4R1P1/5K2/8/8/8 w - - 0 80").get_score());
     }

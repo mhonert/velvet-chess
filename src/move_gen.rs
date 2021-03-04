@@ -15,7 +15,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::bitboard::{BLACK_KING_SIDE_CASTLING_BIT_PATTERN, BLACK_QUEEN_SIDE_CASTLING_BIT_PATTERN, PAWN_DOUBLE_MOVE_LINES, WHITE_KING_SIDE_CASTLING_BIT_PATTERN, WHITE_QUEEN_SIDE_CASTLING_BIT_PATTERN, BitBoard, get_knight_attacks, get_bishop_attacks, get_rook_attacks, get_queen_attacks, get_king_attacks};
+use crate::bitboard::{BLACK_KING_SIDE_CASTLING_BIT_PATTERN, BLACK_QUEEN_SIDE_CASTLING_BIT_PATTERN, PAWN_DOUBLE_MOVE_LINES, WHITE_KING_SIDE_CASTLING_BIT_PATTERN, WHITE_QUEEN_SIDE_CASTLING_BIT_PATTERN, BitBoard, get_knight_attacks, get_king_attacks};
 use crate::board::{Board, interpolate_score};
 use crate::boardpos::{BlackBoardPos, WhiteBoardPos};
 use crate::castling::Castling;
@@ -25,6 +25,7 @@ use crate::moves::{Move, MoveType, NO_MOVE};
 use crate::history_heuristics::{HistoryHeuristics};
 use crate::score_util::{unpack_score, unpack_eg_score};
 use crate::transposition_table::MAX_DEPTH;
+use crate::magics::{get_bishop_attacks, get_rook_attacks, get_queen_attacks};
 
 const CAPTURE_ORDER_SIZE: usize = 5 + 5 * 6 + 1;
 
@@ -844,6 +845,7 @@ const fn calc_capture_order_scores() -> [i32; CAPTURE_ORDER_SIZE] {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::magics::initialize_magics;
 
     #[rustfmt::skip]
     const ONLY_KINGS: [i8; 64] = [
@@ -868,6 +870,8 @@ mod tests {
 
     #[test]
     pub fn white_queen_moves() {
+        initialize_magics();
+
         let mut board: Board = board_with_one_piece(WHITE, Q, 28);
 
         let moves = generate_moves_for_pos(&mut board, WHITE, 28);
@@ -877,6 +881,8 @@ mod tests {
 
     #[test]
     pub fn exclude_illegal_moves() {
+        initialize_magics();
+
         let mut board: Board = board_with_one_piece(WHITE, Q, 52);
         board.perform_move(Move::new(MoveType::KingQuiet, K, board.king_pos(WHITE), 53));
         board.add_piece(BLACK, R, 51);

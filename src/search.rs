@@ -759,9 +759,12 @@ mod tests {
     use std::sync::mpsc;
     use crate::moves::NO_MOVE;
     use crate::colors::{BLACK, WHITE};
+    use crate::magics::initialize_magics;
 
     #[test]
     fn finds_mate_in_one() {
+        initialize_magics();
+
         #[rustfmt::skip]
         let items: [i8; 64] = [
             0,  0,  0,  0,  K,  0,  0,  0,
@@ -791,6 +794,8 @@ mod tests {
 
     #[test]
     fn finds_mate_in_two() {
+        initialize_magics();
+
         #[rustfmt::skip]
         let items: [i8; 64] = [
             0,  0,  0,  0, -K,  0,  0,  0,
