@@ -16,7 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-// Auto-generated file (see tools/tuning/gencode.py)
+// Auto-generated file (see bin/tuning/gencode.py)
 
 use std::sync::mpsc::Sender;
 use crate::engine::Message;

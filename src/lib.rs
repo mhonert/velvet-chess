@@ -16,6 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+pub mod bitboard;
 pub mod board;
 pub mod engine;
 pub mod eval;
@@ -24,17 +25,16 @@ pub mod history_heuristics;
 pub mod move_gen;
 pub mod perft;
 pub mod uci;
-pub mod magics;
+pub mod random;
 
-mod bitboard;
 mod boardpos;
 mod castling;
 mod colors;
+pub mod magics;
 mod moves;
 mod options;
 mod pieces;
 mod pos_history;
-mod random;
 mod score_util;
 mod search;
 mod tuning;

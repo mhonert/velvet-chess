@@ -1194,6 +1194,7 @@ mod tests {
 
     #[test]
     fn find_bishop_attack() {
+        initialize_magics();
         #[rustfmt::skip]
         let items: [i8; 64] = [
             0,  0,  0, -K,  0,  0,  0,  0,
@@ -1215,6 +1216,7 @@ mod tests {
 
     #[test]
     fn find_rook_attack() {
+        initialize_magics();
         #[rustfmt::skip]
         let items: [i8; 64] = [
             0,  0,  0, -K,  0,  0,  0,  0,
@@ -1236,6 +1238,7 @@ mod tests {
 
     #[test]
     fn find_queen_attack() {
+        initialize_magics();
         #[rustfmt::skip]
         let items: [i8; 64] = [
             0,  0,  0, -K,  0,  0,  0,  0,

@@ -138,6 +138,37 @@ const fn calculate_single_move_patterns(directions: [i32; 8]) -> [u64; 64] {
     patterns
 }
 
+pub fn create_blocker_permutations(permutations: &mut Vec<u64>, prev_blockers: u64, blockers: u64) {
+    permutations.push(blockers | prev_blockers);
+
+    let mut rem_blockers = blockers;
+    while rem_blockers != 0 {
+        let pos = rem_blockers.trailing_zeros();
+        rem_blockers ^= 1 << pos as u64;
+        create_blocker_permutations(permutations, (prev_blockers | blockers) & ((1 << pos as u64) - 1), rem_blockers);
+    }
+}
+
+pub fn mask_without_outline(mut mask: u64, pos: u32) -> u64 {
+    if pos & 7 > 0 {
+        mask &= !0b00000001_00000001_00000001_00000001_00000001_00000001_00000001_00000001;
+    }
+
+    if pos & 7 < 7 {
+        mask &= !0b10000000_10000000_10000000_10000000_10000000_10000000_10000000_10000000;
+    }
+
+    if pos / 8 > 0 {
+        mask &= !0b00000000_00000000_00000000_00000000_00000000_00000000_00000000_11111111;
+    }
+
+    if pos / 8 < 7 {
+        mask &= !0b11111111_00000000_00000000_00000000_00000000_00000000_00000000_00000000;
+    }
+
+    mask
+}
+
 
 // Patterns for line movers (Bishop, Rook, Queen)
 #[repr(usize)]

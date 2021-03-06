@@ -426,7 +426,7 @@ impl Engine {
     fn perft(&mut self, depth: i32) {
         let start = SystemTime::now();
 
-        let nodes = perft(&mut self.movegen, &mut self.hh, &mut self.board, depth);
+        let nodes = perft(&mut self.movegen, &mut self.board, depth);
 
         let duration = match SystemTime::now().duration_since(start) {
             Ok(v) => v,

@@ -78,6 +78,11 @@ impl MoveGenerator {
         self.entries[self.ply].next_move(hh, board)
     }
 
+    #[inline(always)]
+    pub fn next_unsorted_move(&mut self, board: &mut Board) -> Option<Move> {
+        self.entries[self.ply].next_unsorted_move(board)
+    }
+
     pub fn next_legal_move(&mut self, hh: &HistoryHeuristics, board: &mut Board) -> Option<Move> {
         self.entries[self.ply].next_legal_move(hh, board)
     }
@@ -220,9 +225,9 @@ impl MoveList {
                         self.moves_generated = true;
                     }
 
-                    match self.find_next_capture_move_except_hash_move() {
+                    return match self.find_next_capture_move_except_hash_move() {
                         Some(m) => {
-                            return Some(m);
+                            Some(m)
                         },
 
                         None => {
@@ -233,13 +238,48 @@ impl MoveList {
                                 self.score_quiets(hh, board);
                             }
 
-                            return self.find_next_quiet_move_except_hash_move();
+                            self.find_next_quiet_move_except_hash_move()
                         }
                     }
                 }
 
                 Stage::QuietMoves => {
                     return self.find_next_quiet_move_except_hash_move();
+                }
+            }
+        }
+    }
+
+    #[inline(always)]
+    pub fn next_unsorted_move(&mut self, board: &mut Board) -> Option<Move> {
+        loop {
+            match self.stage {
+                Stage::HashMove => {
+                    self.capture_index = 0;
+                    self.stage = Stage::CaptureMoves;
+                    if !self.moves_generated {
+                        self.gen_moves(board);
+                        self.moves_generated = true;
+                    }
+                },
+
+                Stage::CaptureMoves => {
+                    return match self.find_next_capture_move_except_hash_move() {
+                        Some(m) => {
+                            Some(m)
+                        },
+
+                        None => {
+                            self.stage = Stage::QuietMoves;
+                            self.move_index = 0;
+
+                            self.find_next_unsorted_quiet_move()
+                        }
+                    }
+                }
+
+                Stage::QuietMoves => {
+                    return self.find_next_unsorted_quiet_move();
                 }
             }
         }
@@ -286,6 +326,17 @@ impl MoveList {
             if !m.is_same_move(self.scored_hash_move) {
                 return Some(m);
             }
+        }
+
+        None
+    }
+
+    #[inline]
+    fn find_next_unsorted_quiet_move(&mut self) -> Option<Move> {
+        if self.move_index < self.moves.len() {
+            let m = unsafe { *self.moves.get_unchecked(self.move_index) };
+            self.move_index += 1;
+            return Some(m);
         }
 
         None
