@@ -69,6 +69,11 @@ pub fn gen_rook_attacks(occupied: u64, pos: i32) -> u64 {
 }
 
 #[inline]
+pub fn get_column_mask(pos: i32) -> u64 {
+    0b10000000_10000000_10000000_10000000_10000000_10000000_10000000_10000000 >> (pos & 7) as u64
+}
+
+#[inline]
 pub fn get_white_pawn_freepath(pos: i32) -> u64 {
     unsafe { *WHITE_PAWN_FREEPATH.get_unchecked(pos as usize) }
 }
@@ -445,4 +450,23 @@ const fn create_king_danger_zone_patterns() -> [u64; 64] {
     }
 
     patterns
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    pub fn gets_column_mask() {
+        for offset in (0..63).step_by(8) {
+            assert_eq!(get_column_mask(0 + offset), 0b10000000_10000000_10000000_10000000_10000000_10000000_10000000_10000000);
+            assert_eq!(get_column_mask(1 + offset), 0b01000000_01000000_01000000_01000000_01000000_01000000_01000000_01000000);
+            assert_eq!(get_column_mask(2 + offset), 0b00100000_00100000_00100000_00100000_00100000_00100000_00100000_00100000);
+            assert_eq!(get_column_mask(3 + offset), 0b00010000_00010000_00010000_00010000_00010000_00010000_00010000_00010000);
+            assert_eq!(get_column_mask(4 + offset), 0b00001000_00001000_00001000_00001000_00001000_00001000_00001000_00001000);
+            assert_eq!(get_column_mask(5 + offset), 0b00000100_00000100_00000100_00000100_00000100_00000100_00000100_00000100);
+            assert_eq!(get_column_mask(6 + offset), 0b00000010_00000010_00000010_00000010_00000010_00000010_00000010_00000010);
+            assert_eq!(get_column_mask(7 + offset), 0b00000001_00000001_00000001_00000001_00000001_00000001_00000001_00000001);
+        }
+    }
 }

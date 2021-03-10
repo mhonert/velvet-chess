@@ -24,7 +24,6 @@ use velvet::random::Random;
 use std::{env};
 use std::str::FromStr;
 use std::process::exit;
-use velvet::magics::{initialize_attacks, EMPTY_MAGIC};
 use std::fs::File;
 use std::io::{BufReader, BufRead, BufWriter, Write};
 
@@ -32,8 +31,7 @@ enum Command {
     FastMagics,
     SearchRookMagics(i32, fn(&[u64], u32) -> i32),
     SearchBishopMagics(i32, fn(&[u64], u32) -> i32),
-    PackRooks(String, String),
-    PackBishops(String, String, String),
+    PackAttacks(String, String, String),
 }
 
 fn main() {
@@ -46,21 +44,13 @@ fn main() {
     let cmd: Command =
         match args[0].as_str() {
             "fast" => Command::FastMagics,
-            "packrooks" => {
-                if args.len() < 3 {
-                    print!("Missing file arguments");
-                    print_usage();
-                    exit(0);
-                }
-                Command::PackRooks(args[1].to_string(), args[2].to_string())
-            },
-            "packbishops" => {
+            "packattacks" => {
                 if args.len() < 4 {
                     print!("Missing file arguments");
                     print_usage();
                     exit(0);
                 }
-                Command::PackBishops(args[1].to_string(), args[2].to_string(), args[3].to_string())
+                Command::PackAttacks(args[1].to_string(), args[2].to_string(), args[3].to_string())
             },
             "search" => {
                 if args.len() < 4 {
@@ -123,12 +113,8 @@ fn main() {
             find_bishop_magics(pos, score_fn);
         },
 
-        Command::PackRooks(candidate_file, rook_file) => {
-            pack_rook_attack_tables(candidate_file, rook_file);
-        },
-
-        Command::PackBishops(candidate_file, rook_file, output_file) => {
-            pack_bishop_attack_tables(candidate_file, rook_file, output_file);
+        Command::PackAttacks(rook_candidates, bishop_candidates, output_file) => {
+            pack_attack_tables(rook_candidates, bishop_candidates, output_file);
         }
     }
 }
@@ -137,11 +123,10 @@ fn print_usage() {
     println!("Commands:");
     println!("  fast\n   - calculates and prints a set of magic numbers with fixed shifts for for rooks (12) and bishops (9)");
     println!("  search [sparse|dense] [rook|bishop] {{pos}}\n   - searches for magics for a specific board square (0-63)");
-    println!("  packrooks <rook-candidates-input-file> <packed-rook-output-file>\n   - finds magic number combinations and offsets for a minimal attack table size");
-    println!("  packbishops <bishop-candidates-input-file> <packed-rook-input-file> <packed-bishop-output-file>\n   - reads the packed rook magics and finds matching bishop magic number combinations for a minimal attack table size");
+    println!("  pack <rook-candidates-input-file> <bishop-candidates-input-file <packed-magics-output-file>\n   - finds magic number combinations and offsets for a minimal attack table size");
 }
 
-fn pack_rook_attack_tables(candidates_file: String, rook_out_file: String) {
+fn pack_attack_tables(rook_candidates_file: String, bishop_candidates_file: String, out_file: String) {
     let duration = match SystemTime::now().duration_since(UNIX_EPOCH) {
         Ok(d) => d,
         Err(e) => panic!("Duration time error: {}", e)
@@ -149,23 +134,26 @@ fn pack_rook_attack_tables(candidates_file: String, rook_out_file: String) {
     let mut rnd = Random::new_with_seed((duration.as_micros() & 0xFFFFFFFFFFFFFFFF) as u64);
 
     println!("Reading rook magic candidates ...");
-    let rook_magic_candidates = read_magic_candidates(candidates_file);
+    let rook_magic_candidates = read_magic_candidates(rook_candidates_file);
+    let rook_candidate_count = rook_magic_candidates.len();
 
-    let candidate_count = rook_magic_candidates.len();
-    if candidate_count == 0 {
-        panic!("file did not contain any magic number candidates");
-    }
+    println!("Reading bishop magic candidates ...");
+    let bishop_magic_candidates = read_magic_candidates(bishop_candidates_file);
+    let bishop_candidate_count = bishop_magic_candidates.len();
+    println!("{} bishop magic candidates", bishop_candidate_count);
 
-    let mut rook_attacks: Vec<[u64; 64 * 4096]> = Vec::with_capacity(candidate_count);
-    for _ in 0..candidate_count {
-        rook_attacks.push([u64::max_value(); 64 * 4096]);
-    }
-
+    println!("Initializing rook attacks ...");
+    let mut rook_attacks: Vec<Vec<u64>> = Vec::with_capacity(rook_candidate_count);
     initialize_rook_attacks(&rook_magic_candidates, &mut rook_attacks);
+
+    println!("Initializing bishop attacks ...");
+    let mut bishop_attacks: Vec<Vec<u64>> = Vec::with_capacity(bishop_candidate_count);
+    initialize_bishop_attacks(&bishop_magic_candidates, &mut bishop_attacks);
 
     let mut attacks: Vec<u64> = vec!(u64::max_value(); 4096 * 64);
 
-    optimize_rook_attacks(rook_out_file, &mut rnd, &rook_magic_candidates, &rook_attacks, &mut attacks, 4096);
+    println!("Optimizing attack table ...");
+    optimize_attacks(out_file, &mut rnd, &rook_magic_candidates, &rook_attacks, &bishop_magic_candidates, &bishop_attacks, &mut attacks);
 }
 
 fn read_magic_candidates(file_name: String) -> Vec<[u64; 64]> {
@@ -175,7 +163,7 @@ fn read_magic_candidates(file_name: String) -> Vec<[u64; 64]> {
 
     for line in reader.lines() {
         let line = line.expect("Could not read line");
-        if line.trim().is_empty() || line.trim().starts_with("#") {
+        if line.trim().is_empty() || line.trim().starts_with('#') {
             // skip empty lines and comments
             continue;
         }
@@ -191,6 +179,10 @@ fn read_magic_candidates(file_name: String) -> Vec<[u64; 64]> {
         candidates.push(magics_arr);
     }
 
+    if candidates.is_empty() {
+        panic!("file did not contain any magic number candidates");
+    }
+
     candidates
 }
 
@@ -200,97 +192,119 @@ fn parse_magics_str(magics: String) -> Vec<u64> {
         .collect()
 }
 
-fn pack_bishop_attack_tables(bishop_file: String, rook_file: String, output_file: String) {
-    let (mut magics_data, mut offset_data, mut len_data) = (String::new(), String::new(), String::new());
-    let file = File::open(rook_file).expect("Unable to open packed rook magics file");
-    let mut reader = BufReader::new(file);
-    reader.read_line(&mut magics_data).expect("Could not read magics data from packed rook magics file");
-    reader.read_line(&mut offset_data).expect("Could not read offset data from packed rook magics file");
-    reader.read_line(&mut len_data).expect("Could not read len data from packed rook magics file");
-
-    println!("Reading packed rook magics ...");
-    let packed_rook_magics: Vec<u64> = parse_magics_str(magics_data);
-
-    if packed_rook_magics.len() != 64 {
-        panic!("Expected 64 magic numbers in file");
+fn indexer(candidate_count: i32) -> impl Fn (i32, i32, i32, i32) -> usize {
+    move |prev_pos: i32, prev_candidate: i32, pos: i32, candidate: i32| {
+        (prev_pos
+        + prev_candidate * 128
+        + pos * 128 * candidate_count
+        + candidate * 128 * candidate_count * 128) as usize
     }
-
-    let packed_rook_offsets: Vec<u32>  = offset_data.splitn(64, ',').map(|s| u32::from_str(s.trim()).expect("Could not parse offset number")).collect();
-    if packed_rook_offsets.len() != 64 {
-        panic!("Invalid number of magic numbers in file");
-    }
-
-    let rook_table_length = i32::from_str(&len_data.trim()).expect("Could not parse len data");
-
-
-    println!("Reading bishop magic number ...");
-    let bishop_magics = read_magic_candidates(bishop_file);
-    if bishop_magics.len() == 0 {
-        panic!("There must be at least one bishop magic candidate in the input file");
-    }
-    let mut bishop_attacks: Vec<[u64; 64 * 512]> = Vec::with_capacity(bishop_magics.len());
-    initialize_bishop_attacks(&bishop_magics, &mut bishop_attacks);
-
-    let mut attacks: Vec<u64> = vec!(u64::max_value(); 4096 * 64);
-    initialize_attacks(gen_rook_attacks, &packed_rook_magics, &packed_rook_offsets, &mut attacks, &mut [EMPTY_MAGIC; 64], 12);
-
-    optimize_bishop_attacks(output_file, &bishop_magics, &bishop_attacks, &mut attacks, 512, rook_table_length);
 }
 
-fn optimize_rook_attacks(rook_file: String, rnd: &mut Random, magic_candidates: &[[u64; 64]], src_attacks: &[[u64; 4096 * 64]], attacks: &mut Vec<u64>, size: usize) {
-    let candidate_count = magic_candidates.len();
+fn optimize_attacks(output_file: String, rnd: &mut Random,
+                    rook_magic_candidates: &[[u64; 64]], rook_attacks: &[Vec<u64>],
+                    bishop_magic_candidates: &[[u64; 64]], bishop_attacks: &[Vec<u64>],
+                    attacks: &mut Vec<u64>) {
+
+    let rook_candidate_count = rook_magic_candidates.len();
+    let bishop_candidate_count = bishop_magic_candidates.len();
+    let candidate_count = rook_candidate_count + bishop_candidate_count;
+
+    let idx = indexer(candidate_count as i32);
+
+    let mut lowest_max_index = i32::max_value();
+
+    let mut follow_up_scores: Vec<i32> = vec!(0; candidate_count * 128 * candidate_count * 128);
+    let mut already_checked: Vec<bool> = vec!(false; candidate_count * 128 * candidate_count * 128);
 
     let mut current_index = 0;
 
-    let mut best_offsets: Vec<usize>;
-    let mut lowest_max_index = i32::max_value();
-    let mut magic_nums: Vec<u64> = vec!(0; 64);
+    let mut rook_offsets: Vec<usize> = vec!(0; 64);
+    let mut rook_candidates: Vec<i32> = vec!(0; 64);
 
-    let mut follow_up_scores: Vec<i32> = vec!(8; candidate_count * candidate_count * 64 * 64);
+    let mut bishop_offsets: Vec<usize> = vec!(0; 64);
+    let mut bishop_candidates: Vec<i32> = vec!(0; 64);
+
+    let mut random_count: u64 = 0;
+    let mut selected_count: u64 = 0;
 
     loop {
-        attacks.fill(u64::max_value());
+        attacks.iter_mut().take(current_index as usize).for_each(|e| *e = u64::max_value());
+
+        current_index = 0;
 
         let mut max_index: i32 = 0;
         let mut found_pos = false;
         let mut best_offset = 0;
-        let mut offsets: Vec<usize> = vec!(0; 64);
-        let mut candidates: Vec<i32> = vec!(0; 64);
         let mut finished: HashSet<i32> = HashSet::new();
         let mut prev_pos: i32 = -1;
         let mut prev_candidate: i32 = -1;
+        let mut prev_index = current_index;
 
-        while finished.len() < 64 {
+        while finished.len() < 128 {
             let mut lowest_index = i32::max_value();
             let mut src_pos;
             let mut src_candidate;
-            let mut follow_up_threshold = 8;
-            let mut follow_up_index = -1;
-            let mut best_so_far = 4096;
+
+
+            // Find next position to check
+            let mut min_score = 0;
+            if prev_pos >= 0 {
+                min_score = 4096;
+                for sp in 0..128 {
+                    let cc = if sp > 63 { rook_candidate_count } else { bishop_candidate_count };
+                    for sc in 0..cc {
+                        let i = idx(prev_pos, prev_candidate, sp, sc as i32);
+                        if already_checked[i] {
+                            let score = follow_up_scores[i];
+                            min_score = min(score, min_score);
+                        }
+                    }
+                }
+            }
+
+            let mut follow_up_threshold = min_score;
+
             loop {
-                src_pos = (rnd.rand32() & 63) as i32;
-                src_candidate = (rnd.rand32() % candidate_count as u32) as i32;
+                let r = rnd.rand32();
+                src_pos = (r & 127) as i32;
+                let cc = if src_pos > 63 { rook_candidate_count } else { bishop_candidate_count };
+                src_candidate = ((r / 128) % cc as u32) as i32;
 
                 if finished.contains(&src_pos) {
                     continue;
                 }
 
-                if prev_pos != -1 {
-                    follow_up_index = prev_pos * 64 * candidate_count as i32 * prev_candidate + src_pos * candidate_count as i32 + src_candidate;
-                    let follow_up_score = follow_up_scores[follow_up_index as usize];
-                    if follow_up_score > follow_up_threshold || follow_up_score > best_so_far * 2 {
-                        best_so_far = min(best_so_far, follow_up_score);
-                        follow_up_threshold += 2;
+                if !finished.is_empty() {
+
+                    let i = idx(prev_pos, prev_candidate, src_pos, src_candidate);
+                    if !already_checked[i] {
+                        random_count += 1;
+                        break;
+                    }
+
+                    let follow_up_score = follow_up_scores[i];
+                    if follow_up_score > follow_up_threshold {
+                        follow_up_threshold += 3;
                         continue;
                     }
 
+                    selected_count += 1;
+                    break;
                 }
 
                 break;
             }
 
-            let src_offset = src_pos as usize * size;
+            let size = if src_pos > 63 { 4096 } else { 512 };
 
+            let src_offset = (src_pos & 63) as usize * size;
+            let src_attacks = if src_pos > 63 { &rook_attacks[src_candidate as usize] } else { &bishop_attacks[src_candidate as usize] };
+
+            let offsets = if src_pos > 63 { &mut rook_offsets } else { &mut bishop_offsets };
+            let candidates = if src_pos > 63 { &mut rook_candidates } else { &mut bishop_candidates };
+
+            // Check position
             found_pos = false;
             for offset_adj in (-(src_offset as i32))..(current_index - (src_offset as i32) + size as i32) {
                 let mut is_valid = true;
@@ -301,7 +315,7 @@ fn optimize_rook_attacks(rook_file: String, rnd: &mut Random, magic_candidates: 
                 }
 
                 for i in 0..size {
-                    let attack = src_attacks[src_candidate as usize][src_offset + i];
+                    let attack = src_attacks[src_offset + i];
                     let index = (src_offset as i32 + offset_adj + i as i32) as usize;
                     if index >= attacks.len() {
                         is_valid = false;
@@ -334,12 +348,22 @@ fn optimize_rook_attacks(rook_file: String, rnd: &mut Random, magic_candidates: 
                 break;
             }
 
-            offsets[src_pos as usize] = (best_offset + src_pos * size as i32) as usize;
-            candidates[src_pos as usize] = src_candidate;
+            offsets[src_pos as usize & 63] = (best_offset + (src_pos & 63) * size as i32) as usize;
+            candidates[src_pos as usize & 63] = src_candidate;
             finished.insert(src_pos);
-            if follow_up_index >= 0 {
-                follow_up_scores[follow_up_index as usize] = (follow_up_scores[follow_up_index as usize] + lowest_index - current_index) / 2;
+            if prev_pos >= 0 && !finished.is_empty() {
+                let tmp_score = max(0, lowest_index - prev_index);
+
+                let i = idx(prev_pos, prev_candidate, src_pos, src_candidate);
+                if already_checked[i]  {
+                    follow_up_scores[i] = (follow_up_scores[i] + tmp_score) / 2;
+                } else {
+                    follow_up_scores[i] = tmp_score;
+                    already_checked[i] = true;
+                }
             }
+
+            prev_index = current_index;
             current_index = lowest_index + 1;
             prev_pos = src_pos;
             prev_candidate = src_candidate;
@@ -347,148 +371,47 @@ fn optimize_rook_attacks(rook_file: String, rnd: &mut Random, magic_candidates: 
 
         if found_pos && max_index < lowest_max_index {
             lowest_max_index = max_index;
-            best_offsets = offsets;
 
-            for i in 0..64 {
-                magic_nums[i] = magic_candidates[candidates[i] as usize][i];
-            }
-            println!("Current Best {} - {:?}",
+            let total_count = selected_count + random_count;
+
+            println!("Current Best {} - Stats: {:3} / {:3}",
                      lowest_max_index,
-                     (0..candidate_count).map(|n| candidates.iter().filter(|&&c| c == n as i32).count()).collect::<Vec<usize>>());
+                     (selected_count * 1000) / total_count, (random_count * 1000) / total_count);
+                     // (0..candidate_count).map(|n| candidates.iter().filter(|&&c| c == n as i32).count()).collect::<Vec<usize>>());
 
-            let file = File::create(&rook_file).expect("Could not create output file");
+            let file = File::create(&output_file).expect("Could not create output file");
             let mut writer = BufWriter::new(file);
+
+            let magic_nums: Vec<u64> = rook_candidates.iter().enumerate().map(|(i, &c)| rook_magic_candidates[c as usize][i]).collect();
+            let magics_str = magic_nums.iter().map(|&n| format!("0x{:016x}", n)).collect::<Vec<String>>().join(", ");
+            writeln!(writer, "Rooks:")
+                .expect("Could not write rooks to output file");
+            writeln!(writer, "{}", magics_str)
+                .expect("Could not write magics to output file");
+            writeln!(writer, "{}", rook_offsets.iter().map(|&n| format!("{}", n)).collect::<Vec<String>>().join(", "))
+                .expect("Could not write offsets to output file");
+
+            writeln!(writer, "-----------------------------------------------------------------------------------------------------------------")
+                .expect("Could not write bishops to output file");
+            writeln!(writer, "Bishops:")
+                .expect("Could not write to output file");
+            let magic_nums: Vec<u64> = bishop_candidates.iter().enumerate().map(|(i, &c)| bishop_magic_candidates[c as usize][i]).collect();
             let magics_str = magic_nums.iter().map(|&n| format!("0x{:016x}", n)).collect::<Vec<String>>().join(", ");
             writeln!(writer, "{}", magics_str)
                 .expect("Could not write magics to output file");
-            writeln!(writer, "{}", best_offsets.iter().map(|&n| format!("{}", n)).collect::<Vec<String>>().join(", "))
+            writeln!(writer, "{}", bishop_offsets.iter().map(|&n| format!("{}", n)).collect::<Vec<String>>().join(", "))
                 .expect("Could not write offsets to output file");
+
+            writeln!(writer, "-----------------------------------------------------------------------------------------------------------------")
+                .expect("Could not write to output file");
             write!(writer, "{}", lowest_max_index)
                 .expect("Could not write len to output file");
+
+            selected_count = 0;
+            random_count = 0;
         }
 
     }
-}
-
-
-fn optimize_bishop_attacks(bishop_file: String, bishop_candidates: &[[u64; 64]], src_attacks: &Vec<[u64; 64 * 512]>, attacks: &mut Vec<u64>, size: usize, mut curr_table_length: i32) {
-
-    let mut offsets: Vec<usize> = vec!(0; 64);
-    let mut candidates: Vec<i32> = vec!(0; 64);
-    let mut finished: HashSet<i32> = HashSet::new();
-    let mut best_pos = 0;
-    let mut best_candidate = 0;
-    let mut best_offset = 0;
-    let mut best_index = 0;
-
-    let mut backup = vec!(0; size);
-
-    for iteration in 0..64 {
-        let mut lowest_gap_count = i32::max_value();
-        for src_pos in 0..64 {
-            if finished.contains(&src_pos) {
-                continue;
-            }
-
-            for src_candidate in 0..(src_attacks.len()) {
-                let src_offset = src_pos as usize * size;
-
-                let mut max_index: i32 = 0;
-                for offset_adj in (-(src_offset as i32))..(curr_table_length - (src_offset as i32) + size as i32) {
-                    let mut last_pos = 0;
-                    let mut is_valid = true;
-                    let start_index = src_offset as i32 + offset_adj;
-                    let end_index = src_offset as i32 + offset_adj + (size as i32 - 1);
-                    if start_index < 0 || end_index >= (attacks.len() as i32) {
-                        continue;
-                    }
-
-                    for i in 0..size {
-                        let attack = src_attacks[src_candidate][src_offset + i];
-                        let index = (src_offset as i32 + offset_adj + i as i32) as usize;
-                        if index >= attacks.len() {
-                            is_valid = false;
-                            break;
-                        }
-
-                        backup[i] = attacks[index];
-
-                        if attack == u64::max_value() {
-                            continue;
-                        }
-
-                        if attacks[index] != u64::max_value() && attacks[index] != attack {
-                            is_valid = false;
-                            break;
-                        }
-
-                        attacks[index] = attack;
-                        max_index = max(index as i32, max_index);
-                        last_pos = i;
-                    }
-
-                    if is_valid { // Could transfer all attack values without collision
-                        let mut gap_count = 0;
-                        for pos in 0..=last_pos {
-                            let index = (src_offset as i32 + offset_adj + pos as i32) as usize;
-                            if attacks[index] == u64::max_value() {
-                                gap_count += 1;
-                            }
-                        }
-
-                        if gap_count < lowest_gap_count {
-                            lowest_gap_count = gap_count;
-                            best_index = max_index;
-                            curr_table_length = max(best_index, curr_table_length);
-                            best_pos = src_pos;
-                            best_candidate = src_candidate;
-                            best_offset = offset_adj;
-                        }
-                    }
-
-                    // Revert
-                    for pos in 0..=last_pos {
-                        let index = (src_offset as i32 + offset_adj + pos as i32) as usize;
-                        attacks[index] = backup[pos];
-                    }
-                }
-            }
-        }
-
-        // Apply best
-        println!("{}: Best {} / {} / {} / {}: {}", iteration, best_pos, best_candidate, best_offset, lowest_gap_count, best_index);
-        let src_offset = best_pos as usize * size;
-        for pos in 0..size {
-            let index = (src_offset as i32 + best_offset + pos as i32) as usize;
-            let attack = src_attacks[best_candidate][src_offset + pos];
-            if attack != u64::max_value() {
-                attacks[index] = attack;
-            }
-        }
-        offsets[best_pos as usize] = (best_offset + best_pos * size as i32) as usize;
-        candidates[best_pos as usize] = best_candidate as i32;
-        finished.insert(best_pos);
-        curr_table_length = max(best_index + 1, curr_table_length);
-    }
-
-    println!("Finished");
-    println!("{:?}", offsets);
-    println!("{}", curr_table_length);
-
-    let mut magic_nums: Vec<u64> = vec!(0; 64);
-    for i in 0..64 {
-        magic_nums[i] = bishop_candidates[candidates[i] as usize][i];
-    }
-
-    let file = File::create(&bishop_file).expect("Could not create output file");
-    let mut writer = BufWriter::new(file);
-    let magics_str = magic_nums.iter().map(|&n| format!("0x{:016x}", n)).collect::<Vec<String>>().join(", ");
-    writeln!(writer, "{}", magics_str)
-        .expect("Could not write magics to output file");
-    writeln!(writer, "{}", offsets.iter().map(|&n| format!("{}", n)).collect::<Vec<String>>().join(", "))
-        .expect("Could not write offsets to output file");
-    write!(writer, "{}", curr_table_length)
-        .expect("Could not write len to output file");
 }
 
 fn fast_magics() {
@@ -664,31 +587,29 @@ fn dense_table_score(table: &[u64], shift: u32) -> i32 {
         trailing_gap += 1;
     }
 
-    let mut gap_score: i32 = 0;
-    let mut current_gap_size = 0;
-    for i in 0..size {
-        if table[i] != u64::max_value() {
-            if current_gap_size >= 20 {
-                gap_score += current_gap_size;
-            }
-            current_gap_size = 0;
-        } else {
-            current_gap_size += 1;
-        }
-    }
-
-    (leading_gap + trailing_gap) * 20 + gap_score
+    // let mut biggest_gap = 0;
+    // let mut current_gap_size = 0;
+    // for i in start..end {
+    //     if table[i] != u64::max_value() {
+    //         biggest_gap = max(biggest_gap, current_gap_size);
+    //         current_gap_size = 0;
+    //     } else {
+    //         current_gap_size += 1;
+    //     }
+    // }
+    //
+    (leading_gap + trailing_gap).pow(2) + sparse_table_score(table, shift) / 16
 }
 
 fn sparse_table_score(table: &[u64], shift: u32) -> i32 {
     let size = 1 << shift;
-    let mut gaps: i32 = 0;
+    let mut gap_score: i32 = 0;
 
     let mut current_gap_size = 0;
     for i in 0..size {
         if table[i] != u64::max_value() {
-            if current_gap_size >= 20 {
-                gaps += 1;
+            if current_gap_size >= 16 {
+                gap_score += current_gap_size * current_gap_size;
             }
             current_gap_size = 0;
         } else {
@@ -696,12 +617,13 @@ fn sparse_table_score(table: &[u64], shift: u32) -> i32 {
         }
     }
 
-    gaps
+    gap_score
 }
 
-fn initialize_rook_attacks(magic_candidates: &[[u64; 64]], rook_attacks: &mut Vec<[u64; 64 * 4096]>) {
+fn initialize_rook_attacks(magic_candidates: &[[u64; 64]], rook_attacks: &mut Vec<Vec<u64>>) {
     for i in 0..(magic_candidates.len()) {
         let mut offset = 0;
+        let mut attacks = vec!(u64::max_value(); 64 * 4096);
 
         for pos in 0..64 {
             let move_mask = gen_rook_attacks(0, pos);
@@ -712,25 +634,25 @@ fn initialize_rook_attacks(magic_candidates: &[[u64; 64]], rook_attacks: &mut Ve
             let mut permutations: Vec<u64> = Vec::with_capacity(1 << blocker_count);
             create_blocker_permutations(&mut permutations, 0, block_mask);
 
-            let magic_num = magic_candidates[i as usize][pos as usize];
+            let magic_num = magic_candidates[i][pos as usize];
 
             for &p in permutations.iter() {
                 let move_targets = gen_rook_attacks(p, pos);
 
                 let index = (p.wrapping_mul(magic_num)) >> (64 - 12);
-                rook_attacks[i as usize][index as usize + offset] = move_targets;
+                attacks[index as usize + offset] = move_targets;
             }
 
             offset += 4096;
         }
+        rook_attacks.push(attacks);
     }
 }
 
-fn initialize_bishop_attacks(bishop_magics: &[[u64; 64]], bishop_attacks: &mut Vec<[u64; 64 * 512]>) {
-
-    for i in 0..(bishop_magics.len()) {
+fn initialize_bishop_attacks(magic_candidates: &[[u64; 64]], bishop_attacks: &mut Vec<Vec<u64>>) {
+    for i in 0..(magic_candidates.len()) {
         let mut offset = 0;
-        let mut attacks = [u64::max_value(); 64 * 512];
+        let mut attacks = vec!(u64::max_value(); 64 * 512);
         for pos in 0..64 {
             let move_mask = gen_bishop_attacks(0, pos);
             let block_mask = mask_without_outline(move_mask, pos as u32);
@@ -740,8 +662,7 @@ fn initialize_bishop_attacks(bishop_magics: &[[u64; 64]], bishop_attacks: &mut V
             let mut permutations: Vec<u64> = Vec::with_capacity(1 << blocker_count);
             create_blocker_permutations(&mut permutations, 0, block_mask);
 
-
-            let magic_num = bishop_magics[i][pos as usize];
+            let magic_num = magic_candidates[i][pos as usize];
 
             for &p in permutations.iter() {
                 let move_targets = gen_bishop_attacks(p, pos);

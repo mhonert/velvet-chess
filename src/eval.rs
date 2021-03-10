@@ -19,7 +19,7 @@
 use crate::board::{Board, interpolate_score};
 use crate::pieces::{P, N, B, R, Q};
 use crate::colors::{WHITE, BLACK};
-use crate::bitboard::{black_left_pawn_attacks, black_right_pawn_attacks, white_left_pawn_attacks, white_right_pawn_attacks, BitBoard, get_white_king_shield, get_black_king_shield, get_king_danger_zone, get_knight_attacks, get_white_pawn_freepath, get_white_pawn_freesides, get_black_pawn_freepath, get_black_pawn_freesides};
+use crate::bitboard::{black_left_pawn_attacks, black_right_pawn_attacks, white_left_pawn_attacks, white_right_pawn_attacks, BitBoard, get_white_king_shield, get_black_king_shield, get_king_danger_zone, get_knight_attacks, get_white_pawn_freepath, get_white_pawn_freesides, get_black_pawn_freepath, get_black_pawn_freesides, get_column_mask};
 use std::cmp::{max};
 use crate::magics::{get_bishop_attacks, get_rook_attacks, get_queen_attacks};
 
@@ -145,12 +145,12 @@ impl Eval for Board {
         pinnable_black_pieces = black_knights | black_bishops;
         for pos in BitBoard(white_rooks) {
             // Rook on (half) open file?
-            let front_columns = get_white_pawn_freepath(pos as i32);
-            if front_columns & white_pawns == 0 {
+            let rook_column_mask = get_column_mask(pos as i32);
+            if rook_column_mask & white_pawns == 0 {
                 score += self.options.get_rook_on_half_open_file_bonus();
                 eg_score += self.options.get_eg_rook_on_half_open_file_bonus();
 
-                if front_columns & black_pawns == 0 {
+                if rook_column_mask & black_pawns == 0 {
                     score += self.options.get_rook_on_open_file_bonus();
                     eg_score += self.options.get_eg_rook_on_open_file_bonus();
                 }
@@ -176,12 +176,12 @@ impl Eval for Board {
         pinnable_white_pieces = white_knights | white_bishops;
         for pos in BitBoard(black_rooks) {
             // Rook on (half) open file?
-            let front_columns = get_black_pawn_freepath(pos as i32);
-            if front_columns & black_pawns == 0 {
+            let rook_column_mask = get_column_mask(pos as i32);
+            if rook_column_mask & black_pawns == 0 {
                 score -= self.options.get_rook_on_half_open_file_bonus();
                 eg_score -= self.options.get_eg_rook_on_half_open_file_bonus();
 
-                if front_columns & white_pawns == 0 {
+                if rook_column_mask & white_pawns == 0 {
                     score -= self.options.get_rook_on_open_file_bonus();
                     eg_score -= self.options.get_eg_rook_on_open_file_bonus();
                 }
