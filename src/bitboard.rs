@@ -36,8 +36,6 @@ impl Iterator for BitBoard {
 
 const KNIGHT_ATTACKS: [u64; 64] = calculate_single_move_patterns([21, 19, 12, 8, -12, -21, -19, -8]);
 const KING_ATTACKS: [u64; 64] = calculate_single_move_patterns([1, 10, -1, -10, 9, 11, -9, -11]);
-const WHITE_PAWN_FREEPATH: [u64; 64] = create_pawn_free_path_patterns(-1);
-const BLACK_PAWN_FREEPATH: [u64; 64] = create_pawn_free_path_patterns(1);
 const WHITE_PAWN_FREESIDES: [u64; 64] = create_pawn_free_sides_patterns(-1);
 const BLACK_PAWN_FREESIDES: [u64; 64]= create_pawn_free_sides_patterns(1);
 const WHITE_KING_SHIELD: [u64; 64]= create_king_shield_patterns(-1);
@@ -70,17 +68,29 @@ pub fn gen_rook_attacks(occupied: u64, pos: i32) -> u64 {
 
 #[inline]
 pub fn get_column_mask(pos: i32) -> u64 {
-    0b10000000_10000000_10000000_10000000_10000000_10000000_10000000_10000000 >> (pos & 7) as u64
+    0b00000001_00000001_00000001_00000001_00000001_00000001_00000001_00000001 << (pos & 7) as u64
+}
+
+#[inline]
+/// Returns a mask where all bits in rows before the given position are set
+fn get_lower_block_mask(pos: i32) -> u64 {
+    0b00000000_11111111_11111111_11111111_11111111_11111111_11111111_11111111 >> (56 - pos / 8 * 8)
+}
+
+#[inline]
+/// Returns a mask where all bits in rows after the given position are set
+fn get_upper_block_mask(pos: i32) -> u64 {
+    0b11111111_11111111_11111111_11111111_11111111_11111111_11111111_00000000u64.wrapping_shl((pos / 8 * 8) as u32)
 }
 
 #[inline]
 pub fn get_white_pawn_freepath(pos: i32) -> u64 {
-    unsafe { *WHITE_PAWN_FREEPATH.get_unchecked(pos as usize) }
+    get_column_mask(pos) & get_lower_block_mask(pos)
 }
 
 #[inline]
 pub fn get_black_pawn_freepath(pos: i32) -> u64 {
-    unsafe { *BLACK_PAWN_FREEPATH.get_unchecked(pos as usize) }
+    get_column_mask(pos) & get_upper_block_mask(pos)
 }
 
 #[inline]
@@ -320,27 +330,6 @@ pub const LIGHT_COLORED_FIELD_PATTERN: u64 =
 pub const DARK_COLORED_FIELD_PATTERN: u64 =
     0b10101010_10101010_10101010_10101010_10101010_10101010_10101010_10101010;
 
-// Patterns to check, whether the path in front of the pawn is free (i.e. not blocked by opponent pieces)
-const fn create_pawn_free_path_patterns(direction: i32) -> [u64; 64] {
-    let mut patterns: [u64; 64] = [0; 64];
-    let mut pos = 0;
-    while pos < 64 {
-        let mut row = pos / 8;
-        let col = pos & 7;
-        let mut pattern: u64 = 0;
-
-        while row >= 1 && row <= 6 {
-            row += direction;
-            pattern |= 1 << ((row * 8 + col) as u64);
-        }
-        patterns[pos as usize] = pattern;
-
-        pos += 1;
-    }
-
-    patterns
-}
-
 // Patterns to check, whether the sides of the path in front of the pawn is free (i.e. not controlled by opponent pawns)
 const fn create_pawn_free_sides_patterns(direction: i32) -> [u64; 64] {
     let mut patterns: [u64; 64] = [0; 64];
@@ -459,14 +448,39 @@ mod tests {
     #[test]
     pub fn gets_column_mask() {
         for offset in (0..63).step_by(8) {
-            assert_eq!(get_column_mask(0 + offset), 0b10000000_10000000_10000000_10000000_10000000_10000000_10000000_10000000);
-            assert_eq!(get_column_mask(1 + offset), 0b01000000_01000000_01000000_01000000_01000000_01000000_01000000_01000000);
-            assert_eq!(get_column_mask(2 + offset), 0b00100000_00100000_00100000_00100000_00100000_00100000_00100000_00100000);
-            assert_eq!(get_column_mask(3 + offset), 0b00010000_00010000_00010000_00010000_00010000_00010000_00010000_00010000);
-            assert_eq!(get_column_mask(4 + offset), 0b00001000_00001000_00001000_00001000_00001000_00001000_00001000_00001000);
-            assert_eq!(get_column_mask(5 + offset), 0b00000100_00000100_00000100_00000100_00000100_00000100_00000100_00000100);
-            assert_eq!(get_column_mask(6 + offset), 0b00000010_00000010_00000010_00000010_00000010_00000010_00000010_00000010);
-            assert_eq!(get_column_mask(7 + offset), 0b00000001_00000001_00000001_00000001_00000001_00000001_00000001_00000001);
+            assert_eq!(get_column_mask(0 + offset), 0b00000001_00000001_00000001_00000001_00000001_00000001_00000001_00000001);
+            assert_eq!(get_column_mask(1 + offset), 0b00000010_00000010_00000010_00000010_00000010_00000010_00000010_00000010);
+            assert_eq!(get_column_mask(2 + offset), 0b00000100_00000100_00000100_00000100_00000100_00000100_00000100_00000100);
+            assert_eq!(get_column_mask(3 + offset), 0b00001000_00001000_00001000_00001000_00001000_00001000_00001000_00001000);
+            assert_eq!(get_column_mask(4 + offset), 0b00010000_00010000_00010000_00010000_00010000_00010000_00010000_00010000);
+            assert_eq!(get_column_mask(5 + offset), 0b00100000_00100000_00100000_00100000_00100000_00100000_00100000_00100000);
+            assert_eq!(get_column_mask(6 + offset), 0b01000000_01000000_01000000_01000000_01000000_01000000_01000000_01000000);
+            assert_eq!(get_column_mask(7 + offset), 0b10000000_10000000_10000000_10000000_10000000_10000000_10000000_10000000);
         }
     }
+
+    #[test]
+    pub fn gets_lower_block_mask() {
+        assert_eq!(get_lower_block_mask(0),  0b00000000_00000000_00000000_00000000_00000000_00000000_00000000_00000000);
+        assert_eq!(get_lower_block_mask(8),  0b00000000_00000000_00000000_00000000_00000000_00000000_00000000_11111111);
+        assert_eq!(get_lower_block_mask(16), 0b00000000_00000000_00000000_00000000_00000000_00000000_11111111_11111111);
+        assert_eq!(get_lower_block_mask(24), 0b00000000_00000000_00000000_00000000_00000000_11111111_11111111_11111111);
+        assert_eq!(get_lower_block_mask(32), 0b00000000_00000000_00000000_00000000_11111111_11111111_11111111_11111111);
+        assert_eq!(get_lower_block_mask(40), 0b00000000_00000000_00000000_11111111_11111111_11111111_11111111_11111111);
+        assert_eq!(get_lower_block_mask(48), 0b00000000_00000000_11111111_11111111_11111111_11111111_11111111_11111111);
+        assert_eq!(get_lower_block_mask(56), 0b00000000_11111111_11111111_11111111_11111111_11111111_11111111_11111111);
+    }
+
+    #[test]
+    pub fn gets_upper_block_mask() {
+        assert_eq!(get_upper_block_mask(0),  0b11111111_11111111_11111111_11111111_11111111_11111111_11111111_00000000);
+        assert_eq!(get_upper_block_mask(8),  0b11111111_11111111_11111111_11111111_11111111_11111111_00000000_00000000);
+        assert_eq!(get_upper_block_mask(16), 0b11111111_11111111_11111111_11111111_11111111_00000000_00000000_00000000);
+        assert_eq!(get_upper_block_mask(24), 0b11111111_11111111_11111111_11111111_00000000_00000000_00000000_00000000);
+        assert_eq!(get_upper_block_mask(32), 0b11111111_11111111_11111111_00000000_00000000_00000000_00000000_00000000);
+        assert_eq!(get_upper_block_mask(40), 0b11111111_11111111_00000000_00000000_00000000_00000000_00000000_00000000);
+        assert_eq!(get_upper_block_mask(48), 0b11111111_00000000_00000000_00000000_00000000_00000000_00000000_00000000);
+        assert_eq!(get_upper_block_mask(56), 0b00000000_00000000_00000000_00000000_00000000_00000000_00000000_00000000);
+    }
+
 }
