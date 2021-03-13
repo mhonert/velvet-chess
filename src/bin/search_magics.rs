@@ -16,20 +16,22 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 use std::cmp::{max, min};
 use velvet::bitboard::{gen_rook_attacks, gen_bishop_attacks, create_blocker_permutations, mask_without_outline};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH, Duration};
 use velvet::random::Random;
-use std::{env};
-use std::str::FromStr;
+use std::{env, thread};
 use std::process::exit;
 use std::fs::File;
 use std::io::{BufReader, BufRead, BufWriter, Write};
+use std::sync::mpsc;
+use std::sync::mpsc::Sender;
+use std::str::FromStr;
 
 enum Command {
-    SearchRookMagics(i32, fn(&[u64], u32) -> i32),
-    SearchBishopMagics(i32, fn(&[u64], u32) -> i32),
+    SearchRookMagics(usize, fn(&[u64], u32) -> i32, String),
+    SearchBishopMagics(usize, fn(&[u64], u32) -> i32, String),
     PackAttacks(String, String, String),
 }
 
@@ -51,24 +53,10 @@ fn main() {
                 Command::PackAttacks(args[1].to_string(), args[2].to_string(), args[3].to_string())
             },
             "search" => {
-                if args.len() < 4 {
+                if args.len() < 5 {
                     print!("Missing arguments");
                     print_usage();
                     exit(0);
-                }
-                let pos = match i32::from_str(args[3].as_str()) {
-                    Ok(pos) => pos,
-                    Err(e) => {
-                        println!("Could not parse position {}: {}", args[3], e);
-                        print_usage();
-                        exit(1);
-                    }
-                };
-
-                if !(0..=63).contains(&pos) {
-                    println!("Position must be in the range of 0..63");
-                    print_usage();
-                    exit(1);
                 }
 
                 let score_fn = if args[1] == "sparse" {
@@ -81,10 +69,14 @@ fn main() {
                     exit(1);
                 };
 
+                let set_count = usize::from_str(&args[3]).expect("Could not prase set_count parameter");
+
+                let output_file = args[4].to_string();
+
                 if args[2] == "rook" {
-                    Command::SearchRookMagics(pos, score_fn)
+                    Command::SearchRookMagics(set_count, score_fn, output_file)
                 } else if args[2] == "bishop" {
-                    Command::SearchBishopMagics(pos, score_fn)
+                    Command::SearchBishopMagics(set_count, score_fn, output_file)
                 } else {
                     println!("Piece must be either rook or bishop");
                     print_usage();
@@ -99,12 +91,12 @@ fn main() {
         };
 
     match cmd {
-        Command::SearchRookMagics(pos, score_fn) => {
-            find_rook_magics(pos, score_fn);
+        Command::SearchRookMagics(set_size, score_fn, output_file) => {
+            find_magics(PieceType::Rook, set_size, score_fn, output_file);
         },
 
-        Command::SearchBishopMagics(pos, score_fn) => {
-            find_bishop_magics(pos, score_fn);
+        Command::SearchBishopMagics(set_size, score_fn, output_file) => {
+            find_magics(PieceType::Bishop, set_size, score_fn, output_file);
         },
 
         Command::PackAttacks(rook_candidates, bishop_candidates, output_file) => {
@@ -115,8 +107,10 @@ fn main() {
 
 fn print_usage() {
     println!("Commands:");
-    println!("  search [sparse|dense] [rook|bishop] {{pos}}\n   - searches for magics for a specific board square (0-63)");
-    println!("  pack <rook-candidates-input-file> <bishop-candidates-input-file <packed-magics-output-file>\n   - finds magic number combinations and offsets for a minimal attack table size");
+    println!("  search [sparse|dense] [rook|bishop] <set-count> <output-file>\n   \
+    - searches for sets of magic numbers (sparse = many small gaps in the resulting attack table, dense = few bigger gaps)");
+    println!("  pack <rook-candidates-input-file> <bishop-candidates-input-file <packed-magics-output-file>\n   \
+    - finds magic number combinations and offsets for a minimal attack table size");
 }
 
 fn pack_attack_tables(rook_candidates_file: String, bishop_candidates_file: String, out_file: String) {
@@ -393,7 +387,7 @@ fn optimize_attacks(output_file: String, rnd: &mut Random,
             write_offsets(&mut writer, &bishop_offsets);
 
             write_heading(&mut writer, "Attack table size");
-            write!(writer, "{}", lowest_max_index).expect("Could not write len to output file");
+            write!(writer, "{}", lowest_max_index + 1).expect("Could not write len to output file");
 
             selected_count = 0;
             random_count = 0;
@@ -436,18 +430,97 @@ fn indexer(candidate_count: i32) -> impl Fn (i32, i32, i32, i32) -> usize {
     }
 }
 
-
-fn find_rook_magics(pos: i32, magic_num_score: fn(&[u64], u32) -> i32) {
-    find_magics(pos, gen_rook_attacks, 12, 0xFF801FFFFFFFFFFF, false, magic_num_score);
+#[derive(Copy, Clone)]
+enum PieceType {
+    Rook,
+    Bishop
 }
 
-fn find_bishop_magics(pos: i32, magic_num_score: fn(&[u64], u32) -> i32) {
-    find_magics(pos, gen_bishop_attacks, 9, u64::max_value(), true, magic_num_score);
+#[derive(Copy, Clone)]
+struct MagicResult {
+    score: i32, pos: i32, magic: u64
 }
 
-fn find_magics(pos: i32, gen_attacks: fn(u64, i32) -> u64, shift: u32, magic_mask07: u64, sparse_random: bool,
-               magic_num_score: fn(&[u64], u32) -> i32) {
-    println!("Searching magic numbers for position {} ...", pos);
+fn find_magics(piece: PieceType, set_size: usize, magic_num_score: fn(&[u64], u32) -> i32, output_file: String) {
+    println!("Searching magic numbers ...");
+    let (tx, rx) = mpsc::channel::<MagicResult>();
+
+    spawn_search_threads(&tx, set_size, piece, magic_num_score);
+
+    let mut results: Vec<VecDeque<MagicResult>> = Vec::with_capacity(64);
+    for _ in 0..64 {
+        results.push(VecDeque::with_capacity(set_size));
+    }
+
+    for result in rx {
+        let pos = result.pos as usize;
+
+        if results[pos].len() < set_size {
+            while results[pos].len() < set_size {
+                results[pos].push_front(result);
+            }
+        } else {
+            results[pos].pop_back();
+            results[pos].push_front(result);
+        }
+
+        let mut magics: Vec<[u64; 64]> = vec!([0; 64]; set_size);
+        let mut best_scores: Vec<i64> = vec!(0; set_size);
+
+        let mut found_magics_for_all_pos = true;
+        for pos in 0..64 {
+            if results[pos].is_empty() {
+                found_magics_for_all_pos = false;
+                break;
+            }
+
+            for set in 0..set_size {
+                magics[set][pos] = results[pos][set].magic;
+                best_scores[set] += results[pos][set].score as i64;
+            }
+        }
+
+        if !found_magics_for_all_pos {
+            continue;
+        }
+
+        let file = File::create(&output_file).expect("Could not create output file");
+        let mut writer = BufWriter::new(file);
+
+        for set in 0..set_size {
+            let magics_str = magics[set]
+                .iter()
+                .map(|&n| format!("0x{:016x}", n))
+                .collect::<Vec<String>>()
+                .join(", ");
+
+            writeln!(writer, "{}", magics_str).expect("Could not write magics to output file");
+            writeln!(writer).expect("Could not write to output file");
+        }
+
+        println!("Scores: {}", best_scores.iter().map(|&s| format!("{:⋆>6}", (s / 10000))).collect::<Vec<_>>().join(", "));
+    }
+}
+
+fn spawn_search_threads(tx: &Sender<MagicResult>, set_size: usize, piece: PieceType, magic_num_score: fn(&[u64], u32) -> i32) {
+    for pos in 0..64 {
+        thread::sleep(Duration::from_millis(pos as u64 * 10));
+        let tx2 = tx.clone();
+        thread::spawn(move || {
+            match piece {
+                PieceType::Rook =>
+                    find_magics_for_pos(&tx2, set_size, pos, gen_rook_attacks, 12, 0xFF801FFFFFFFFFFF, magic_num_score),
+
+                PieceType::Bishop =>
+                    find_magics_for_pos(&tx2, set_size, pos, gen_bishop_attacks, 9, u64::max_value(), magic_num_score)
+            }
+        });
+    }
+}
+
+fn find_magics_for_pos(tx: &Sender<MagicResult>, set_size: usize, pos: i32,
+                       gen_attacks: fn(u64, i32) -> u64, shift: u32, magic_mask07: u64,
+                       magic_num_score: fn(&[u64], u32) -> i32) {
     let duration = match SystemTime::now().duration_since(UNIX_EPOCH) {
         Ok(d) => d,
         Err(e) => panic!("Duration time error: {}", e)
@@ -468,13 +541,10 @@ fn find_magics(pos: i32, gen_attacks: fn(u64, i32) -> u64, shift: u32, magic_mas
     let mut move_target_table: Vec<u64> = vec!(u64::max_value(); 1 << shift);
 
     let mut best_gap_count = -1;
+    let mut same_score_count = 0;
 
     loop {
-        let mut magic_num = r.rand64();
-        if sparse_random {
-            magic_num &= r.rand64();
-        }
-        magic_num &= magic_mask;
+        let mut magic_num = r.rand64() & r.rand64() & magic_mask;
 
         let is_valid = validate_magic_num(&permutations, gen_attacks, &mut move_target_table, pos, magic_num, shift);
         if !is_valid {
@@ -483,10 +553,6 @@ fn find_magics(pos: i32, gen_attacks: fn(u64, i32) -> u64, shift: u32, magic_mas
 
         // Found a magic number candidate
         let gap_count = magic_num_score(&move_target_table, shift);
-        if gap_count > best_gap_count {
-            best_gap_count = gap_count;
-            println!("{:2} - Best: ({:016x}): {:4}", pos, magic_num, best_gap_count);
-        }
 
         // -> Toggle some bits to check, if the fill count can be reduced
         let mut local_best_gap_count = gap_count;
@@ -515,9 +581,18 @@ fn find_magics(pos: i32, gen_attacks: fn(u64, i32) -> u64, shift: u32, magic_mas
                 break;
             }
         }
-        if local_best_gap_count > best_gap_count {
+        if local_best_gap_count >= best_gap_count {
+            if local_best_gap_count == best_gap_count {
+                same_score_count += 1;
+            } else {
+                same_score_count = 0;
+            }
+
             best_gap_count = local_best_gap_count;
-            println!("{:2} - Best: ({:016x}): {:4}", pos, magic_num, best_gap_count);
+
+            if same_score_count < set_size {
+                tx.send(MagicResult{score: best_gap_count, pos, magic: magic_num}).expect("Could not send result");
+            }
         }
     }
 }
