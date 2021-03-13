@@ -36,8 +36,6 @@ impl Iterator for BitBoard {
 
 const KNIGHT_ATTACKS: [u64; 64] = calculate_single_move_patterns([21, 19, 12, 8, -12, -21, -19, -8]);
 const KING_ATTACKS: [u64; 64] = calculate_single_move_patterns([1, 10, -1, -10, 9, 11, -9, -11]);
-const WHITE_PAWN_FREESIDES: [u64; 64] = create_pawn_free_sides_patterns(-1);
-const BLACK_PAWN_FREESIDES: [u64; 64]= create_pawn_free_sides_patterns(1);
 const WHITE_KING_SHIELD: [u64; 64]= create_king_shield_patterns(-1);
 const BLACK_KING_SHIELD: [u64; 64]= create_king_shield_patterns(1);
 const KING_DANGER_ZONE: [u64; 64]= create_king_danger_zone_patterns();
@@ -72,6 +70,14 @@ pub fn get_column_mask(pos: i32) -> u64 {
 }
 
 #[inline]
+pub fn get_column_side_mask(pos: i32) -> u64 {
+    let col_mask = get_column_mask(pos);
+    let left_mask = (col_mask & 0b01111111_01111111_01111111_01111111_01111111_01111111_01111111_01111111) << 1;
+    let right_mask = (col_mask & 0b11111110_11111110_11111110_11111110_11111110_11111110_11111110_11111110) >> 1;
+    left_mask | right_mask
+}
+
+#[inline]
 /// Returns a mask where all bits in rows before the given position are set
 fn get_lower_block_mask(pos: i32) -> u64 {
     0b00000000_11111111_11111111_11111111_11111111_11111111_11111111_11111111 >> (56 - pos / 8 * 8)
@@ -95,12 +101,12 @@ pub fn get_black_pawn_freepath(pos: i32) -> u64 {
 
 #[inline]
 pub fn get_white_pawn_freesides(pos: i32) -> u64 {
-    unsafe { *WHITE_PAWN_FREESIDES.get_unchecked(pos as usize) }
+    get_column_side_mask(pos) & get_lower_block_mask(pos)
 }
 
 #[inline]
 pub fn get_black_pawn_freesides(pos: i32) -> u64 {
-    unsafe { *BLACK_PAWN_FREESIDES.get_unchecked(pos as usize) }
+    get_column_side_mask(pos) & get_upper_block_mask(pos)
 }
 
 #[inline]
@@ -330,33 +336,6 @@ pub const LIGHT_COLORED_FIELD_PATTERN: u64 =
 pub const DARK_COLORED_FIELD_PATTERN: u64 =
     0b10101010_10101010_10101010_10101010_10101010_10101010_10101010_10101010;
 
-// Patterns to check, whether the sides of the path in front of the pawn is free (i.e. not controlled by opponent pawns)
-const fn create_pawn_free_sides_patterns(direction: i32) -> [u64; 64] {
-    let mut patterns: [u64; 64] = [0; 64];
-    let mut pos = 0;
-    while pos < 64 {
-        let mut row = pos / 8;
-        let col = pos & 7;
-        let mut pattern: u64 = 0;
-
-        while row >= 1 && row <= 6 {
-            row += direction;
-            if col - 1 >= 0 {
-                pattern |= 1 << ((row * 8 + (col - 1)) as u64);
-            }
-
-            if col + 1 < 8 {
-                pattern |= 1 << ((row * 8 + (col + 1)) as u64);
-            }
-        }
-        patterns[pos as usize] = pattern;
-
-        pos += 1;
-    }
-
-    patterns
-}
-
 // Pawn shield in front of king
 const fn create_king_shield_patterns(direction: i32) -> [u64; 64] {
     let mut patterns: [u64; 64] = [0; 64];
@@ -443,6 +422,7 @@ const fn create_king_danger_zone_patterns() -> [u64; 64] {
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
 
     #[test]
@@ -456,6 +436,20 @@ mod tests {
             assert_eq!(get_column_mask(5 + offset), 0b00100000_00100000_00100000_00100000_00100000_00100000_00100000_00100000);
             assert_eq!(get_column_mask(6 + offset), 0b01000000_01000000_01000000_01000000_01000000_01000000_01000000_01000000);
             assert_eq!(get_column_mask(7 + offset), 0b10000000_10000000_10000000_10000000_10000000_10000000_10000000_10000000);
+        }
+    }
+
+    #[test]
+    pub fn gets_column_side_mask() {
+        for offset in (0..63).step_by(8) {
+            assert_eq!(get_column_side_mask(0 + offset), 0b00000010_00000010_00000010_00000010_00000010_00000010_00000010_00000010);
+            assert_eq!(get_column_side_mask(1 + offset), 0b00000101_00000101_00000101_00000101_00000101_00000101_00000101_00000101);
+            assert_eq!(get_column_side_mask(2 + offset), 0b00001010_00001010_00001010_00001010_00001010_00001010_00001010_00001010);
+            assert_eq!(get_column_side_mask(3 + offset), 0b00010100_00010100_00010100_00010100_00010100_00010100_00010100_00010100);
+            assert_eq!(get_column_side_mask(4 + offset), 0b00101000_00101000_00101000_00101000_00101000_00101000_00101000_00101000);
+            assert_eq!(get_column_side_mask(5 + offset), 0b01010000_01010000_01010000_01010000_01010000_01010000_01010000_01010000);
+            assert_eq!(get_column_side_mask(6 + offset), 0b10100000_10100000_10100000_10100000_10100000_10100000_10100000_10100000);
+            assert_eq!(get_column_side_mask(7 + offset), 0b01000000_01000000_01000000_01000000_01000000_01000000_01000000_01000000);
         }
     }
 
