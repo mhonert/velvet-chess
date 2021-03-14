@@ -395,17 +395,17 @@ impl MoveList {
         }
 
         for pos in BitBoard(board.get_bitboard(B * active_player)) {
-            let attacks = get_bishop_attacks(occupied, pos as i32);
+            let attacks = get_bishop_attacks(empty_bb, pos as i32);
             self.gen_piece_moves(board, B, pos as i32, attacks, opponent_bb, empty_bb);
         }
 
         for pos in BitBoard(board.get_bitboard(R * active_player)) {
-            let attacks = get_rook_attacks(occupied, pos as i32);
+            let attacks = get_rook_attacks(empty_bb, pos as i32);
             self.gen_piece_moves(board, R, pos as i32, attacks, opponent_bb, empty_bb);
         }
 
         for pos in BitBoard(board.get_bitboard(Q * active_player)) {
-            let attacks = get_queen_attacks(occupied, pos as i32);
+            let attacks = get_queen_attacks(empty_bb, pos as i32);
             self.gen_piece_moves(board, Q, pos as i32, attacks, opponent_bb, empty_bb);
         }
 
@@ -432,6 +432,7 @@ impl MoveList {
 
         let opponent_bb = board.get_all_piece_bitboard(-active_player);
         let occupied = opponent_bb | board.get_all_piece_bitboard(active_player);
+        let empty_bb = !occupied;
 
         if active_player == WHITE {
             self.gen_white_attack_pawn_moves(board, board.get_bitboard(P), opponent_bb);
@@ -447,17 +448,17 @@ impl MoveList {
         }
 
         for pos in BitBoard(board.get_bitboard(B * active_player)) {
-            let attacks = get_bishop_attacks(occupied, pos as i32);
+            let attacks = get_bishop_attacks(empty_bb, pos as i32);
             self.add_capture_moves(board, MoveType::Capture, B, pos as i32, attacks & opponent_bb);
         }
 
         for pos in BitBoard(board.get_bitboard(R * active_player)) {
-            let attacks = get_rook_attacks(occupied, pos as i32);
+            let attacks = get_rook_attacks(empty_bb, pos as i32);
             self.add_capture_moves(board, MoveType::Capture, R, pos as i32, attacks & opponent_bb);
         }
 
         for pos in BitBoard(board.get_bitboard(Q * active_player)) {
-            let attacks = get_queen_attacks(occupied, pos as i32);
+            let attacks = get_queen_attacks(empty_bb, pos as i32);
             self.add_capture_moves(board, MoveType::Capture, Q, pos as i32, attacks & opponent_bb);
         }
 
@@ -692,24 +693,24 @@ pub fn is_likely_valid_move(board: &Board, active_player: Color, m: Move) -> boo
         B => {
             let opponent_bb = board.get_all_piece_bitboard(-active_player);
             let occupied = opponent_bb | board.get_all_piece_bitboard(active_player);
-            let attacks = get_bishop_attacks(occupied, m.start());
             let empty = !occupied;
+            let attacks = get_bishop_attacks(empty, m.start());
             ((attacks & (empty | opponent_bb)) & (1 << m.end())) != 0
         }
 
         R => {
             let opponent_bb = board.get_all_piece_bitboard(-active_player);
             let occupied = opponent_bb | board.get_all_piece_bitboard(active_player);
-            let attacks = get_rook_attacks(occupied, m.start());
             let empty = !occupied;
+            let attacks = get_rook_attacks(empty, m.start());
             ((attacks & (empty | opponent_bb)) & (1 << m.end())) != 0
         }
 
         Q => {
             let opponent_bb = board.get_all_piece_bitboard(-active_player);
             let occupied = opponent_bb | board.get_all_piece_bitboard(active_player);
-            let attacks = get_queen_attacks(occupied, m.start());
             let empty = !occupied;
+            let attacks = get_queen_attacks(empty, m.start());
             ((attacks & (empty | opponent_bb)) & (1 << m.end())) != 0
         }
 

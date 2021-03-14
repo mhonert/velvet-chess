@@ -105,7 +105,7 @@ impl Eval for Board {
         // Bishops
         let white_bishops = self.get_bitboard(B);
         for pos in BitBoard(white_bishops) {
-            let possible_moves = get_bishop_attacks(occupied, pos as i32);
+            let possible_moves = get_bishop_attacks(empty_board, pos as i32);
 
             let move_count = (possible_moves & white_safe_targets).count_ones();
             score += self.options.get_bishop_mob_bonus(move_count as usize);
@@ -124,7 +124,7 @@ impl Eval for Board {
         let mut pinnable_white_pieces = white_knights | white_rooks;
         let black_bishops = self.get_bitboard(-B);
         for pos in BitBoard(black_bishops) {
-            let possible_moves = get_bishop_attacks(occupied, pos as i32);
+            let possible_moves = get_bishop_attacks(empty_board, pos as i32);
 
             let move_count = (possible_moves & black_safe_targets).count_ones();
             score -= self.options.get_bishop_mob_bonus(move_count as usize);
@@ -156,7 +156,7 @@ impl Eval for Board {
                 }
             }
 
-            let possible_moves = get_rook_attacks(occupied, pos as i32);
+            let possible_moves = get_rook_attacks(empty_board, pos as i32);
 
             let move_count = (possible_moves & white_safe_targets).count_ones();
             score += self.options.get_rook_mob_bonus(move_count as usize);
@@ -187,7 +187,7 @@ impl Eval for Board {
                 }
             }
 
-            let possible_moves = get_rook_attacks(occupied, pos as i32);
+            let possible_moves = get_rook_attacks(empty_board, pos as i32);
 
             let move_count = (possible_moves & black_safe_targets).count_ones();
             score -= self.options.get_rook_mob_bonus(move_count as usize);
@@ -206,7 +206,7 @@ impl Eval for Board {
         // Queens
         let mut white_queen_threats = 0;
         for pos in BitBoard(white_queens) {
-            let possible_moves = get_queen_attacks(occupied, pos as i32);
+            let possible_moves = get_queen_attacks(empty_board, pos as i32);
 
             let move_count = (possible_moves & white_safe_targets).count_ones();
             score += self.options.get_queen_mob_bonus(move_count as usize);
@@ -223,7 +223,7 @@ impl Eval for Board {
 
         let mut black_queen_threats = 0;
         for pos in BitBoard(black_queens) {
-            let possible_moves = get_queen_attacks(occupied, pos as i32);
+            let possible_moves = get_queen_attacks(empty_board, pos as i32);
 
             let move_count = (possible_moves & black_safe_targets).count_ones();
             score -= self.options.get_queen_mob_bonus(move_count as usize);

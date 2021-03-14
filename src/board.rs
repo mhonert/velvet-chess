@@ -625,7 +625,7 @@ impl Board {
     }
 
     pub fn is_attacked(&self, opponent_color: Color, pos: i32) -> bool {
-        let occupied_bb = self.get_occupancy_bitboard();
+        let empty_bb = !self.get_occupancy_bitboard();
         let target_bb = 1 << pos as u64;
 
         // Check knights
@@ -635,12 +635,12 @@ impl Board {
 
         // Check diagonal
         let queens = self.get_bitboard(Q * opponent_color);
-        if (self.get_bitboard(B * opponent_color) | queens) & get_bishop_attacks(occupied_bb, pos) != 0 {
+        if (self.get_bitboard(B * opponent_color) | queens) & get_bishop_attacks(empty_bb, pos) != 0 {
             return true;
         }
 
         // Check orthogonal
-        if (self.get_bitboard(R * opponent_color) | queens) & get_rook_attacks(occupied_bb, pos) != 0 {
+        if (self.get_bitboard(R * opponent_color) | queens) & get_rook_attacks(empty_bb, pos) != 0 {
             return true;
         }
 
@@ -663,7 +663,7 @@ impl Board {
     }
 
     // Returns the position of the smallest attacker or -1 if there is no attacker
-    pub fn find_smallest_attacker(&self, occupied_bb: u64, opp_color: Color, pos: i32) -> i32 {
+    pub fn find_smallest_attacker(&self, empty_bb: u64, occupied_bb: u64, opp_color: Color, pos: i32) -> i32 {
         let target_bb = 1 << pos as u64;
         if opp_color == WHITE {
             // Check pawns
@@ -683,7 +683,7 @@ impl Board {
 
             // Check bishops
             let bishops = self.get_bitboard(B) & occupied_bb;
-            let bishop_attacks = get_bishop_attacks(occupied_bb, pos);
+            let bishop_attacks = get_bishop_attacks(empty_bb, pos);
             let attacking_bishops = bishops & bishop_attacks;
             if attacking_bishops != 0 {
                 return attacking_bishops.trailing_zeros() as i32;
@@ -691,7 +691,7 @@ impl Board {
 
             // Check rooks
             let rooks = self.get_bitboard(R) & occupied_bb;
-            let rook_attacks = get_rook_attacks(occupied_bb, pos);
+            let rook_attacks = get_rook_attacks(empty_bb, pos);
             let attacking_rooks = rooks & rook_attacks;
             if attacking_rooks != 0 {
                 return attacking_rooks.trailing_zeros() as i32;
@@ -731,7 +731,7 @@ impl Board {
 
             // Check bishops
             let bishops = self.get_bitboard(-B) & occupied_bb;
-            let bishop_attacks = get_bishop_attacks(occupied_bb, pos);
+            let bishop_attacks = get_bishop_attacks(empty_bb, pos);
             let attacking_bishops = bishops & bishop_attacks;
             if attacking_bishops != 0 {
                 return attacking_bishops.trailing_zeros() as i32;
@@ -739,7 +739,7 @@ impl Board {
 
             // Check rooks
             let rooks = self.get_bitboard(-R) & occupied_bb;
-            let rook_attacks = get_rook_attacks(occupied_bb, pos);
+            let rook_attacks = get_rook_attacks(empty_bb, pos);
             let attacking_rooks = rooks & rook_attacks;
             if attacking_rooks != 0 {
                 return attacking_rooks.trailing_zeros() as i32;
@@ -846,8 +846,9 @@ impl Board {
         let mut trophy_piece_score = get_piece_value_unchecked(own_piece_id as usize);
 
         loop {
+            let empty = !occupied;
             // Opponent attack
-            let attacker_pos = self.find_smallest_attacker(occupied, opp_color, target);
+            let attacker_pos = self.find_smallest_attacker(empty, occupied, opp_color, target);
             if attacker_pos < 0 {
                 return score as i32;
             }
@@ -860,7 +861,7 @@ impl Board {
             occupied &= !(1 << attacker_pos);
 
             // Own attack
-            let own_attacker_pos = self.find_smallest_attacker(occupied, -opp_color, target);
+            let own_attacker_pos = self.find_smallest_attacker(empty, occupied, -opp_color, target);
             if own_attacker_pos < 0 {
                 return score as i32;
             }
@@ -1104,7 +1105,7 @@ mod tests {
         let board = Board::new(&items, WHITE, 0, None, 0, 1);
         assert_eq!(
             34,
-            board.find_smallest_attacker(board.get_occupancy_bitboard(), WHITE, 27)
+            board.find_smallest_attacker(!board.get_occupancy_bitboard(), board.get_occupancy_bitboard(), WHITE, 27)
         );
     }
 
@@ -1125,7 +1126,7 @@ mod tests {
         let board = Board::new(&items, WHITE, 0, None, 0, 1);
         assert_eq!(
             36,
-            board.find_smallest_attacker(board.get_occupancy_bitboard(), WHITE, 27)
+            board.find_smallest_attacker(!board.get_occupancy_bitboard(), board.get_occupancy_bitboard(), WHITE, 27)
         );
     }
 
@@ -1146,7 +1147,7 @@ mod tests {
         let board = Board::new(&items, BLACK, 0, None, 0, 1);
         assert_eq!(
             20,
-            board.find_smallest_attacker(board.get_occupancy_bitboard(), BLACK, 27)
+            board.find_smallest_attacker(!board.get_occupancy_bitboard(), board.get_occupancy_bitboard(), BLACK, 27)
         );
     }
 
@@ -1167,7 +1168,7 @@ mod tests {
         let board = Board::new(&items, BLACK, 0, None, 0, 1);
         assert_eq!(
             18,
-            board.find_smallest_attacker(board.get_occupancy_bitboard(), BLACK, 27)
+            board.find_smallest_attacker(!board.get_occupancy_bitboard(), board.get_occupancy_bitboard(), BLACK, 27)
         );
     }
 
@@ -1188,7 +1189,7 @@ mod tests {
         let board = Board::new(&items, WHITE, 0, None, 0, 1);
         assert_eq!(
             37,
-            board.find_smallest_attacker(board.get_occupancy_bitboard(), WHITE, 27)
+            board.find_smallest_attacker(!board.get_occupancy_bitboard(), board.get_occupancy_bitboard(), WHITE, 27)
         );
     }
 
@@ -1210,7 +1211,7 @@ mod tests {
         let board = Board::new(&items, WHITE, 0, None, 0, 1);
         assert_eq!(
             45,
-            board.find_smallest_attacker(board.get_occupancy_bitboard(), WHITE, 27)
+            board.find_smallest_attacker(!board.get_occupancy_bitboard(), board.get_occupancy_bitboard(), WHITE, 27)
         );
     }
 
@@ -1232,7 +1233,7 @@ mod tests {
         let board = Board::new(&items, WHITE, 0, None, 0, 1);
         assert_eq!(
             24,
-            board.find_smallest_attacker(board.get_occupancy_bitboard(), WHITE, 27)
+            board.find_smallest_attacker(!board.get_occupancy_bitboard(), board.get_occupancy_bitboard(), WHITE, 27)
         );
     }
 
@@ -1254,7 +1255,7 @@ mod tests {
         let board = Board::new(&items, WHITE, 0, None, 0, 1);
         assert_eq!(
             29,
-            board.find_smallest_attacker(board.get_occupancy_bitboard(), WHITE, 27)
+            board.find_smallest_attacker(!board.get_occupancy_bitboard(), board.get_occupancy_bitboard(), WHITE, 27)
         );
     }
 
@@ -1275,7 +1276,7 @@ mod tests {
         let board = Board::new(&items, WHITE, 0, None, 0, 1);
         assert_eq!(
             35,
-            board.find_smallest_attacker(board.get_occupancy_bitboard(), WHITE, 27)
+            board.find_smallest_attacker(!board.get_occupancy_bitboard(), board.get_occupancy_bitboard(), WHITE, 27)
         );
     }
 
