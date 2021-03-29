@@ -842,13 +842,13 @@ impl Board {
         captured_piece_id: i8,
     ) -> i32 {
         let mut score = get_piece_value_unchecked(captured_piece_id as usize);
-        let mut occupied = self.get_occupancy_bitboard() & !(1 << from as u64);
+        let mut occupied_bb = self.get_occupancy_bitboard() & !(1 << from as u64);
         let mut trophy_piece_score = get_piece_value_unchecked(own_piece_id as usize);
 
         loop {
-            let empty = !occupied;
+            let empty_bb = !occupied_bb;
             // Opponent attack
-            let attacker_pos = self.find_smallest_attacker(empty, occupied, opp_color, target);
+            let attacker_pos = self.find_smallest_attacker(empty_bb, occupied_bb, opp_color, target);
             if attacker_pos < 0 {
                 return score as i32;
             }
@@ -858,10 +858,10 @@ impl Board {
                 return score as i32;
             }
 
-            occupied &= !(1 << attacker_pos);
+            occupied_bb &= !(1 << attacker_pos);
 
             // Own attack
-            let own_attacker_pos = self.find_smallest_attacker(empty, occupied, -opp_color, target);
+            let own_attacker_pos = self.find_smallest_attacker(empty_bb, occupied_bb, -opp_color, target);
             if own_attacker_pos < 0 {
                 return score as i32;
             }
@@ -872,7 +872,7 @@ impl Board {
                 return score as i32;
             }
 
-            occupied &= !(1 << own_attacker_pos);
+            occupied_bb &= !(1 << own_attacker_pos);
         }
     }
 

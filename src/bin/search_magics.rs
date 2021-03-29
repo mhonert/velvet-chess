@@ -17,7 +17,7 @@
  */
 
 use std::collections::{VecDeque};
-use std::cmp::{max, min};
+use std::cmp::{max};
 use velvet::bitboard::{gen_rook_attacks, gen_bishop_attacks, create_blocker_permutations, mask_without_outline};
 use std::time::{SystemTime, UNIX_EPOCH, Duration, Instant};
 use velvet::random::Random;
@@ -169,8 +169,6 @@ fn parse_magics_str(magics: String) -> Vec<u64> {
 
 const UNCHECKED: i32 = i32::min_value();
 
-const COMBOS: usize = 3;
-
 /// optimize_attacks compares different combinations of rook and bishop magic numbers with the
 /// goal of finding a minimal, combined attack table.
 /// The size reduction is achieved by overlapping the attack table entries without collisions.
@@ -180,28 +178,12 @@ fn optimize_attacks(output_file: String,
                     rook_magic_candidates: &[[u64; 64]], rook_attacks: &[BitVec],
                     bishop_magic_candidates: &[[u64; 64]], bishop_attacks: &[BitVec]) {
 
-    let duration = match SystemTime::now().duration_since(UNIX_EPOCH) {
-        Ok(d) => d,
-        Err(e) => panic!("Duration time error: {}", e)
-    };
-    let mut rnd = Random::new_with_seed((duration.as_micros() & 0xFFFFFFFFFFFFFFFF) as u64);
-
     let mut attacks = BitVec::new((4096 + 512) * 64);
 
     let rook_candidate_count = rook_magic_candidates.len();
     let bishop_candidate_count = bishop_magic_candidates.len();
-    let max_candidate_count = max(rook_candidate_count, bishop_candidate_count);
-
-    let primes = calc_primes(128 * max_candidate_count);
-    let max_prime_combo: u64 = primes.iter().rev().take(COMBOS).sum();
-    let max_prime = 128 * max_candidate_count;
 
     let mut lowest_max_index = i32::max_value();
-
-    let mut follow_up_scores: Vec<i32> = vec!(UNCHECKED; max_prime_combo as usize * max_prime);
-    let mut score_counts: Vec<i64> = vec!(0; max_prime_combo as usize * max_prime);
-
-    let mut selection = Vec::<(u64, i32, i32, i32)>::with_capacity(64);
 
     let mut rook_offsets: Vec<usize> = vec!(0; 64);
     let mut rook_candidate_selection: Vec<i32> = vec!(0; 64);
@@ -209,181 +191,54 @@ fn optimize_attacks(output_file: String,
     let mut bishop_offsets: Vec<usize> = vec!(0; 64);
     let mut bishop_candidate_selection: Vec<i32> = vec!(0; 64);
 
-    let mut random_count: u64 = 0;
-    let mut selected_count: u64 = 0;
+    let mut scores = ScoreHistory::new(rook_candidate_count, bishop_candidate_count);
 
-    let mut iterations: u64 = 0;
-
+    let mut iterations = 0;
     let start_time = Instant::now();
 
-    let mut finished: Vec<bool> = vec!(false; 128);
-    let mut finished_count;
-
-    let mut last_check = start_time;
-
-    let mut past_max_indexes = VecDeque::<i32>::with_capacity(COMBOS);
-    let mut past_selections = VecDeque::<u64>::with_capacity(COMBOS);
-
     loop {
-        iterations += 1;
         attacks.clear();
-        selection.clear();
-        finished.fill(false);
-        past_selections.clear();
-        finished_count = 0;
+        scores.clear_iteration();
 
         let mut max_index: i32 = 0;
 
-        while finished_count < 128 {
-            let mut src_pos;
-            let mut src_candidate;
+        while !scores.is_iteration_finished() {
+            let (src_pos, src_candidate) = scores.choose_next_pos();
 
-            // Find next position to check
-            let mut min_score = 0;
-            let mut avg_score = 1;
-            let mut prev_primes = 0;
-            if past_selections.len() == COMBOS - 1 {
-                min_score = 16384;
-                let mut all_scores: i64 = 0;
-                let mut count: i64 = 0;
-                prev_primes = past_selections.iter().sum();
-                for sp in 0..128 {
-                    let cc = if sp > 63 { rook_candidate_count } else { bishop_candidate_count };
-                    for sc in 0..cc {
-                        let i = (prev_primes as usize * max_prime) + (sp * max_candidate_count + sc);
-                        let score = follow_up_scores[i];
-                        if score != UNCHECKED {
-                            min_score = min(score, min_score);
-                            all_scores += score as i64;
-                            count += 1;
-                        }
-                    }
-                }
-
-                if count > 0 {
-                    avg_score = (all_scores / count) as i32;
-                } else {
-                    min_score = 0;
-                }
-            }
-
-            let mut follow_up_threshold = min_score;
-            let step_size = if min_score > 0 { max(1, (avg_score / min_score).abs()) } else { 1 };
-            // let step_size = 3;
-            // let step_size = 1;
-
-            loop {
-                let r = rnd.rand32();
-                src_pos = (r & 127) as i32;
-                while finished[src_pos as usize] {
-                    src_pos = (src_pos + 1) & 127;
-                }
-
-                let cc = if src_pos > 63 { rook_candidate_count } else { bishop_candidate_count };
-                src_candidate = ((r / 128) % cc as u32) as i32;
-
-                if prev_primes > 0 {
-                    let i = (prev_primes as usize * max_prime) + (src_pos as usize * max_candidate_count + src_candidate as usize);
-
-                    let follow_up_score = follow_up_scores[i];
-                    if follow_up_score == UNCHECKED {
-                        random_count += 1;
-                        break;
-                    }
-
-                    if follow_up_score > follow_up_threshold {
-                        follow_up_threshold += step_size;
-                        continue;
-                    }
-
-                    selected_count += 1;
-                    break;
-                }
-
-                random_count += 1;
-
-                break;
-            }
-
-            let size = if src_pos > 63 { 4096 } else { 512 };
-
-            let src_offset = (src_pos & 63) as usize * size;
             let src_attacks = if src_pos > 63 { &rook_attacks[src_candidate as usize] } else { &bishop_attacks[src_candidate as usize] };
 
             let offsets = if src_pos > 63 { &mut rook_offsets } else { &mut bishop_offsets };
             let candidates = if src_pos > 63 { &mut rook_candidate_selection } else { &mut bishop_candidate_selection };
 
             // Check position
-            let index = attacks.insert(src_attacks, src_offset, size);
-            let local_max_index = (index + size) as i32;
+            let size = if src_pos > 63 { 4096 } else { 512 };
+            let src_offset = (src_pos & 63) as usize * size;
+            let (index, start_index, end_index) = attacks.insert(src_attacks, src_offset, size);
+            let local_max_index = (index + size - 1) as i32;
 
             let best_offset = index as i32 - src_offset as i32;
 
             offsets[src_pos as usize & 63] = (best_offset + (src_pos & 63) * size as i32) as usize;
             candidates[src_pos as usize & 63] = src_candidate;
-            finished[src_pos as usize] = true;
-            finished_count += 1;
 
-
-            let selection_prime = primes[src_pos as usize * max_candidate_count + src_candidate as usize];
-            past_selections.push_front(selection_prime);
-            if past_selections.len() > COMBOS - 1 {
-                past_selections.pop_back();
-            }
+            let prev_index = max_index;
             max_index = max(max_index, local_max_index);
-            selection.push((selection_prime, max_index, src_pos, src_candidate));
+            scores.add(src_pos, src_candidate, max_index, prev_index, start_index, end_index);
 
-            attacks.set_lower_bound(max(0, (max_index - (8192)) / 64) as usize);
+            if src_pos < 64 && max_index > (4096 * 3) {
+                attacks.set_lower_bound(max_index as usize - (4096 * 3));
+            }
         }
 
-        // Adjust follow up scores
-        let total_length_score = (max_index as i64 - 50000).pow(2) / 5120000;
-
-        past_selections.clear();
-        past_max_indexes.clear();
-
-        let mut start_index = 0;
-        for &(s, max_index, pos, candidate) in selection.iter() {
-            past_selections.push_front(s);
-            past_max_indexes.push_front(max_index);
-            if past_selections.len() > COMBOS {
-                past_selections.pop_back();
-                past_max_indexes.pop_back();
-            }
-            if past_selections.len() < COMBOS {
-                continue;
-            }
-
-            let combo_score = max_index - start_index;
-            start_index = past_max_indexes[COMBOS - 1];
-            let sel_combo = past_selections.iter().skip(1).sum::<u64>() as usize;
-            let i = sel_combo * max_prime as usize + (pos * max_candidate_count as i32 + candidate) as usize;
-            // let score = total_length_score as i64;
-            // let score = combo_score as i64 + total_length_score;
-            let score = combo_score as i64;
-            let all_scores = (follow_up_scores[i]) as i64;
-            let score_count = score_counts[i];
-            follow_up_scores[i] = ((all_scores * score_count + score) / (score_count + 1)) as i32;
-            score_counts[i] += 1;
-        }
-
-        if last_check.elapsed().as_millis() >= 30000 {
-            let duration = start_time.elapsed().as_millis();
-            if duration > 0 {
-                let per_sec = iterations as f64 * 1000f64 / duration as f64;
-                println!("Iterations ({}) per second: {}", iterations, per_sec);
-            }
-            last_check = Instant::now();
-        }
+        scores.finish_iteration(&attacks);
+        iterations += 1;
 
         if max_index < lowest_max_index {
             lowest_max_index = max_index;
 
-            let total_count = selected_count + random_count;
-
-            println!("Current Best {} - Stats: {:4} / {:4}",
-                     lowest_max_index,
-                     (selected_count * 1000) / total_count, (random_count * 1000) / total_count);
+            let duration = start_time.elapsed().as_millis();
+            let ips = if duration > 0 { iterations * 1000 / duration } else { 0 };
+            println!("Current Best {} - Stats: {} / {} ips ({})", lowest_max_index, scores.stats(), ips, iterations);
 
             let file = File::create(&output_file).expect("Could not create output file");
             let mut writer = BufWriter::new(file);
@@ -398,11 +253,7 @@ fn optimize_attacks(output_file: String,
 
             write_heading(&mut writer, "Attack table size");
             write!(writer, "{}", lowest_max_index + 1).expect("Could not write len to output file");
-
-            selected_count = 0;
-            random_count = 0;
         }
-
     }
 }
 
@@ -461,8 +312,13 @@ fn find_magics(piece: PieceType, set_size: usize, magic_num_score: fn(&[u64], u3
                 results[pos].push_front(result);
             }
         } else {
-            results[pos].pop_back();
-            results[pos].push_front(result);
+            for i in 0..set_size {
+                if result.score >= results[pos][i].score {
+                    results[pos].insert(i, result);
+                    results[pos].pop_back();
+                    break;
+                }
+            }
         }
 
         let mut magics: Vec<[u64; 64]> = vec!([0; 64]; set_size);
@@ -541,8 +397,10 @@ fn find_magics_for_pos(tx: &Sender<MagicResult>, set_size: usize, pos: i32,
 
     let mut move_target_table: Vec<u64> = vec!(u64::max_value(); 1 << shift);
 
-    let mut best_gap_count = -1;
-    let mut same_score_count = 0;
+    let mut best_scores = VecDeque::<i32>::with_capacity(set_size);
+    for _ in 0..set_size {
+        best_scores.push_back(-1);
+    }
 
     loop {
         let mut magic_num = r.rand64() & r.rand64() & magic_mask;
@@ -582,18 +440,17 @@ fn find_magics_for_pos(tx: &Sender<MagicResult>, set_size: usize, pos: i32,
                 break;
             }
         }
-        if local_best_gap_count >= best_gap_count {
-            if local_best_gap_count == best_gap_count {
-                same_score_count += 1;
-            } else {
-                same_score_count = 0;
+
+        if local_best_gap_count > *best_scores.back().unwrap() {
+            for i in 0..set_size {
+                if local_best_gap_count >= best_scores[i] {
+                    best_scores.insert(i, local_best_gap_count);
+                    best_scores.pop_back();
+                    break;
+                }
             }
 
-            best_gap_count = local_best_gap_count;
-
-            if same_score_count < set_size {
-                tx.send(MagicResult{score: best_gap_count, pos, magic: magic_num}).expect("Could not send result");
-            }
+            tx.send(MagicResult{score: local_best_gap_count, pos, magic: magic_num}).expect("Could not send result");
         }
     }
 }
@@ -641,30 +498,42 @@ fn dense_table_score(table: &[u64], shift: u32) -> i32 {
         trailing_gap += 1;
     }
 
-    let mut gap_score: i32 = 0;
+    let mut middle_gap_score: i32 = 0;
     let mut current_gap_size: i32 = 0;
+    let mut middle_gap_count = 0;
+
     for i in start..end {
-        if table[i] == u64::max_value() {
+        if table[i] != u64::max_value() {
             if current_gap_size >= 16 {
-                gap_score += current_gap_size.pow(2);
+                middle_gap_score += current_gap_size.pow(2);
+                middle_gap_count += 1;
             }
+
             current_gap_size = 0;
         } else {
             current_gap_size += 1;
         }
     }
+    if current_gap_size >= 16 {
+        middle_gap_score += current_gap_size.pow(2);
+        middle_gap_count += 1;
+    }
 
-    (leading_gap + trailing_gap).pow(2) + gap_score / 4
+    if middle_gap_count > 0 {
+        leading_gap.pow(2) + trailing_gap.pow(2) + middle_gap_score / middle_gap_count
+    } else {
+        leading_gap.pow(2) + trailing_gap.pow(2)
+    }
 }
 
 fn sparse_table_score(table: &[u64], shift: u32) -> i32 {
     let size = 1 << shift;
     let mut gap_score: i32 = 0;
-
     let mut current_gap_size = 0;
+
     for i in 0..size {
-        if table[i] == u64::max_value() {
-            if current_gap_size >= 16 {
+        if table[i] != u64::max_value() {
+            if current_gap_size >= 8 {
                 gap_score += 1;
             }
             current_gap_size = 0;
@@ -673,23 +542,18 @@ fn sparse_table_score(table: &[u64], shift: u32) -> i32 {
         }
     }
 
-    if current_gap_size >= 16 {
+    if current_gap_size >= 8 {
         gap_score += 1;
     }
 
-    gap_score
+    gap_score * 1000
 }
 
-struct BitVec(pub Vec<u64>, usize);
+struct BitVec(pub Vec<u64>, usize, usize);
 
 impl BitVec {
     pub fn new(len: usize) -> Self {
-        BitVec(vec!(0; (len + 64 - 1) / 64), 0)
-    }
-
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.0.len() * 64
+        BitVec(vec!(0; (len + 64 - 1) / 64), 0, 0)
     }
 
     #[inline]
@@ -710,25 +574,30 @@ impl BitVec {
     pub fn clear(&mut self) {
         self.0.fill(0);
         self.1 = 0;
+        self.2 = 0;
+    }
+
+    fn set_lower_bound(&mut self, low: usize) {
+        self.2 = low;
     }
 
     fn update_lower_bound(&mut self) {
-        while self.0[self.1] == u64::max_value() {
-            self.1 += 1;
+        let mut i = self.1 / 64;
+        while self.0[i] == u64::max_value() {
+            i += 1;
+        }
+        if i > 0 {
+            self.1 = max(self.1, i * 64);
         }
     }
 
-    fn set_lower_bound(&mut self, bound: usize) {
-        self.1 = max(self.1, bound);
-    }
-
-    fn insert(&mut self, source: &BitVec, source_offset: usize, width: usize) -> usize {
+    fn insert(&mut self, source: &BitVec, source_offset: usize, width: usize) -> (usize, usize, usize) {
 
         self.update_lower_bound();
 
         let source_dword = source_offset / 64;
 
-        let mut offset = self.1 * 64;
+        let mut offset = if width == 4096 { max(self.1, self.2) } else { self.1 };
 
         loop {
 
@@ -767,13 +636,19 @@ impl BitVec {
 
             if !collision {
                 // Apply
+                let mut min_index = offset + width;
+                let mut max_index = offset;
                 for i in 0..width {
                     if source.get(source_offset + i) {
                         self.set(offset + i);
+                        if offset + i < min_index {
+                            min_index = offset + i;
+                        }
+                        max_index = offset + i;
                     }
                 }
 
-                return offset;
+                return (offset, min_index, max_index);
             }
 
             offset += 1;
@@ -822,37 +697,196 @@ fn initialize_attacks(shift: usize, magic_candidate_sets: &[[u64; 64]], gen_atta
     attacks
 }
 
-fn is_prime(value: u64) -> bool {
-    if value < 2 {
-        return false;
-    }
+#[derive(Copy, Clone)]
+struct Selection {
+    pos: i32,
+    candidate: i32,
+    max_index: i32,
+    prev_index: i32,
+    insert_start: usize,
+    insert_end: usize,
+}
 
-    for i in 2..value {
-        if value % i == 0 {
-            return false;
+struct ScoreHistory {
+    rnd: Random,
+    finished: Vec<bool>,
+    finished_count: i16,
+    finished_rooks: i16,
+    scores: Vec<i32>,
+    counts: Vec<i64>,
+    index_multiplier: usize,
+    selection: Vec<Selection>,
+    rook_candidate_count: usize,
+    bishop_candidate_count: usize,
+    max_candidate_count: usize,
+    random_count: u64,
+    selected_count: u64,
+}
+
+impl ScoreHistory {
+    fn new(rook_candidate_count: usize, bishop_candidate_count: usize) -> ScoreHistory {
+        let duration = match SystemTime::now().duration_since(UNIX_EPOCH) {
+            Ok(d) => d,
+            Err(e) => panic!("Duration time error: {}", e)
+        };
+
+        let max_candidate_count = rook_candidate_count + bishop_candidate_count;
+
+        let index_multiplier = (128 + 1) * (max_candidate_count + 1);
+
+        ScoreHistory{
+            rnd: Random::new_with_seed((duration.as_micros() & 0xFFFFFFFFFFFFFFFF) as u64),
+            finished: vec!(false; 128),
+            finished_count: 0,
+            finished_rooks: 0,
+            scores: vec!(UNCHECKED; index_multiplier * index_multiplier),
+            counts: vec!(0; index_multiplier * index_multiplier),
+            index_multiplier,
+            selection: Vec::with_capacity(65),
+            rook_candidate_count,
+            bishop_candidate_count,
+            max_candidate_count,
+            random_count: 0,
+            selected_count: 0,
         }
     }
 
-    true
-}
+    fn clear_iteration(&mut self) {
+        self.selection.clear();
+        self.selection.push(Selection{pos: -1, candidate: -1, max_index: 0, prev_index: 0, insert_start: 0, insert_end: 0 });
+        self.finished.fill(false);
+        self.finished_count = 0;
+        self.finished_rooks = 0;
+    }
 
-fn calc_primes(n: usize) -> Vec<u64> {
-    let mut primes = Vec::with_capacity(n);
+    fn is_iteration_finished(&self) -> bool {
+        self.finished_count >= 128
+    }
 
-    let mut v = 1;
-    'prime: while primes.len() < n {
-        v += 1;
+    fn index(&self, prev_pos: i32, prev_candidate: i32, pos: i32, candidate: i32) -> usize {
+        ((prev_pos + 1) as usize * (self.max_candidate_count + 1) + (prev_candidate + 1) as usize) * self.index_multiplier
+            + (pos as usize * (self.max_candidate_count + 1) + candidate as usize)
+    }
 
-        for i in 2..v {
-            if v % i == 0 {
-                continue 'prime;
+    fn choose_next_pos(&mut self) -> (i32, i32) {
+        let finished_bishops = self.finished_count - self.finished_rooks;
+        let skip_bishops = if self.finished_rooks == 0 || finished_bishops == 64 { true } else if self.finished_rooks < 64 { self.rnd.rand32() & 31 > 2 } else { false };
+
+        let prev = &self.selection[self.selection.len() - 1];
+        let prev_pos = prev.pos;
+        let prev_candidate = prev.candidate;
+
+        let mut candidate_scores = Vec::<(i32, i32, i32)>::with_capacity(64 * self.max_candidate_count);
+
+        if skip_bishops {
+            for pos in 64..128 {
+                if self.finished[pos as usize] {
+                    continue;
+                }
+
+                for candidate in 0..self.rook_candidate_count {
+                    let i = self.index(prev_pos, prev_candidate, pos, candidate as i32);
+                    let score = self.scores[i];
+                    candidate_scores.push((score, pos, candidate as i32));
+                }
+            }
+        } else {
+            for pos in 0..64 {
+                if self.finished[pos as usize] {
+                    continue;
+                }
+
+                for candidate in 0..self.bishop_candidate_count {
+                    let i = self.index(prev_pos, prev_candidate, pos, candidate as i32);
+                    let score = self.scores[i];
+                    candidate_scores.push((score, pos, candidate as i32));
+                }
             }
         }
 
-        primes.push(v);
+        candidate_scores.sort_unstable_by_key(|e| e.0);
+        if candidate_scores[0].0 == UNCHECKED {
+            self.random_count += 1;
+            return (candidate_scores[0].1, candidate_scores[0].2)
+        }
+
+        let min_score = candidate_scores.iter().map(|i| i.0 as i64).min().unwrap() as i32;
+        let avg_score = (candidate_scores.iter().map(|i| i.0 as i64).sum::<i64>() / candidate_scores.len() as i64) as i32;
+
+        let step_size = if min_score > 0 { max(1, (avg_score / min_score).abs()) } else { 1 };
+
+        let mut threshold = min_score;
+
+        loop {
+            let i = self.rnd.rand32() as usize % candidate_scores.len();
+
+            if candidate_scores[i].0 == UNCHECKED {
+                self.random_count += 1;
+                return (candidate_scores[i].1, candidate_scores[i].2)
+            }
+
+            if candidate_scores[i].0 > threshold {
+                threshold += step_size;
+                continue;
+            }
+
+            self.selected_count += 1;
+            return (candidate_scores[i].1, candidate_scores[i].2)
+        }
+
     }
 
-    primes
+    fn add(&mut self, pos: i32, candidate: i32, max_index: i32, prev_index: i32, insert_start: usize, insert_end: usize) {
+
+        self.selection.push(Selection{pos, candidate, max_index, prev_index, insert_start, insert_end});
+
+        self.finished[pos as usize] = true;
+        self.finished_count += 1;
+
+        if pos > 63 {
+            self.finished_rooks += 1;
+        }
+    }
+
+    fn finish_iteration(&mut self, attacks: &BitVec) {
+        let max_index = self.selection[self.selection.len() - 1].max_index;
+        let base_score = max_index - 80000;
+
+        for (prev, curr) in self.selection.iter().zip(self.selection.iter().skip(1)) {
+            let mut gap_score: i32 = 0;
+            for i in curr.insert_start..curr.insert_end {
+                if !attacks.get(i) {
+                    gap_score += 1;
+                }
+            }
+            for i in prev.insert_start..prev.insert_end {
+                if !attacks.get(i) {
+                    gap_score += 1;
+                }
+            }
+
+            let curr_width = curr.insert_end - curr.insert_start;
+            let prev_width = prev.insert_end - prev.insert_start;
+
+            let score = base_score + gap_score + (curr.max_index - prev.prev_index).abs() - (curr_width + prev_width) as i32;
+
+            let index = self.index(prev.pos, prev.candidate, curr.pos, curr.candidate);
+            let all_scores = (self.scores[index]) as i64;
+            let score_count = self.counts[index];
+            let new_score = ((all_scores * score_count + score as i64) / (score_count + 1)) as i32;
+            self.scores[index] = new_score;
+            self.counts[index] += 1;
+        }
+    }
+
+    fn stats(&self) -> String {
+        let total_count = self.selected_count + self.random_count;
+        if total_count == 0 {
+            return "".to_string()
+        }
+
+        format!("{:4} / {:4}", (self.selected_count * 1000) / total_count, (self.random_count * 1000) / total_count)
+    }
 }
 
 #[cfg(test)]
@@ -860,7 +894,7 @@ mod tests {
     use super::*;
 
     #[test]
-    pub fn bitvec_insert() {
+    pub fn test_bitvec_insert() {
         let mut target = BitVec::new(2 * 64);
 
         for i in 0..60 {
@@ -878,13 +912,8 @@ mod tests {
         source.set(5);
         source.set(7);
 
-        let index = target.insert(&source, 0, 64);
+        let (index, _, _) = target.insert(&source, 0, 64);
 
         assert_eq!(index, 58);
-    }
-
-    #[test]
-    pub fn test_is_prime() {
-        assert_eq!(calc_primes(7), [2, 3, 5, 7, 11, 13, 17]);
     }
 }
