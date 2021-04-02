@@ -16,7 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-// Auto-generated file (see bin/tuning/gencode.py)
+// Auto-generated file (see tools/tuning/gencode.py)
 
 use std::sync::mpsc::Sender;
 use crate::engine::Message;
@@ -55,7 +55,7 @@ const PASSED_PAWN_KING_DEFENSE_BONUS: [i32; 8] = [2, 54, 37, 15, 2, 0, 12, 6];
 const PASSED_PAWN_KING_ATTACKED_PENALTY: [i32; 8] = [4, 62, 42, 21, 12, 1, 1, 7];
 const HALF_OPEN_FILE_BONUS: [i32; 4] = [0, 23, 22, 1];
 const EG_HALF_OPEN_FILE_BONUS: [i32; 4] = [59, 19, 10, 6];
-const KING_THREAT_BY_PIECE_COMBO: [i32; 64] = [10, 0, 3, 2, 1, 9, 6, 8, 3, 0, 11, 14, 24, 3, 1, 0, 2, 2, 6, 8, 4, 14, 6, 25, 12, 16, 21, 31, 46, 54, 55, 64, 14, 17, 147, 26, 44, 27, 39, 54, 59, 76, 93, 95, 108, 83, 173, 99, 249, 1, 210, 1, 871, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0];
+const KING_THREAT_BY_PIECE_COMBO: [i32; 128] = [7, 5, 8, 9, 11, 0, 5, 0, 4, 3, 9, 20, 10, 10, 14, 30, 0, 0, 3, 8, 25, 34, 19, 38, 6, 6, 20, 41, 32, 34, 33, 54, 7, 1, 17, 41, 13, 22, 21, 56, 16, 27, 34, 67, 30, 46, 49, 123, 2, 0, 29, 93, 36, 69, 51, 111, 44, 81, 65, 153, 62, 74, 71, 135, 0, 0, 3, 2, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 19, 26, 62, 80, 43, 51, 79, 153, 50, 71, 94, 115, 83, 94, 126, 221, 0, 0, 77, 163, 83, 68, 168, 122, 91, 131, 142, 218, 131, 138, 108, 443];
 const EG_KNIGHT_MOB_BONUS: [i32; 9] = [-121, -80, -56, -47, -41, -32, -33, -37, -48];
 const EG_BISHOP_MOB_BONUS: [i32; 14] = [-100, -70, -55, -43, -34, -25, -19, -17, -14, -14, -17, -22, -13, -30];
 const EG_ROOK_MOB_BONUS: [i32; 15] = [-22, -9, -13, -15, -7, -4, -2, -3, 6, 11, 19, 27, 29, 30, 14];
