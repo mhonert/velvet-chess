@@ -48,8 +48,8 @@ impl Tuning for Engine {
             let previous_piece_id = previous_piece.abs();
             let captured_piece_id = self.board.get_item(m.end()).abs();
 
-            // skip capture moves with a SEE score below the given threshold
-            if self.board.see_score(-self.board.active_player(), m.start(), m.end(), previous_piece_id, captured_piece_id) > 0 {
+            // only skip capture moves with a negative SEE score
+            if !self.board.has_negative_see(-self.board.active_player(), m.start(), m.end(), previous_piece_id, captured_piece_id, 0, self.board.get_occupancy_bitboard()) {
                 self.movegen.leave_ply();
                 return false;
             }
@@ -155,7 +155,7 @@ impl Tuning for Engine {
             let captured_piece_id = self.board.get_item(end).abs();
 
             // skip capture moves with a SEE score below the given threshold
-            if captured_piece_id != EMPTY && self.board.see_score(-active_player, start, end, previous_piece_id, captured_piece_id) < 0 {
+            if captured_piece_id != EMPTY && self.board.has_negative_see(-active_player, start, end, previous_piece_id, captured_piece_id, 0, self.board.get_occupancy_bitboard()) {
                 continue;
             }
 

@@ -833,16 +833,18 @@ impl Board {
        - a negative integer for losing captures
        - a 0 otherwise
     */
-    pub fn see_score(
+    pub fn has_negative_see(
         &mut self,
         opp_color: Color,
         from: i32,
         target: i32,
         own_piece_id: i8,
         captured_piece_id: i8,
-    ) -> i32 {
+        threshold: i16,
+        mut occupied_bb: u64,
+    ) -> bool {
         let mut score = get_piece_value_unchecked(captured_piece_id as usize);
-        let mut occupied_bb = self.get_occupancy_bitboard() & !(1 << from as u64);
+        occupied_bb &= !(1 << from as u64);
         let mut trophy_piece_score = get_piece_value_unchecked(own_piece_id as usize);
 
         loop {
@@ -850,12 +852,12 @@ impl Board {
             // Opponent attack
             let attacker_pos = self.find_smallest_attacker(empty_bb, occupied_bb, opp_color, target);
             if attacker_pos < 0 {
-                return score as i32;
+                return score < threshold;
             }
             score -= trophy_piece_score;
             trophy_piece_score = get_piece_value_unchecked(self.get_item(attacker_pos).abs() as usize);
             if score + trophy_piece_score < 0 {
-                return score as i32;
+                return score < threshold;
             }
 
             occupied_bb &= !(1 << attacker_pos);
@@ -863,13 +865,13 @@ impl Board {
             // Own attack
             let own_attacker_pos = self.find_smallest_attacker(empty_bb, occupied_bb, -opp_color, target);
             if own_attacker_pos < 0 {
-                return score as i32;
+                return score < threshold;
             }
 
             score += trophy_piece_score;
             trophy_piece_score = get_piece_value_unchecked(self.get_item(own_attacker_pos).abs() as usize);
             if score - trophy_piece_score > 0 {
-                return score as i32;
+                return score < threshold;
             }
 
             occupied_bb &= !(1 << own_attacker_pos);
@@ -1335,7 +1337,7 @@ mod tests {
         ];
 
         let mut board = Board::new(&items, WHITE, 0, None, 0, 1);
-        assert!(board.see_score(BLACK, 52, 44, R, P) > 0);
+        assert!(!board.has_negative_see(BLACK, 52, 44, R, P, 0, board.get_occupancy_bitboard()));
     }
 
     #[test]
@@ -1353,7 +1355,7 @@ mod tests {
         ];
 
         let mut board = Board::new(&items, BLACK, 0, None, 0, 1);
-        assert!(board.see_score(WHITE, 52, 44, R, P) > 0);
+        assert!(!board.has_negative_see(WHITE, 52, 44, R, P, 0, board.get_occupancy_bitboard()));
     }
 
     #[test]

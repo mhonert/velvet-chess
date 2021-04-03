@@ -18,7 +18,7 @@
 
 use crate::colors::{Color};
 use crate::engine::Engine;
-use crate::pieces::{EMPTY, R};
+use crate::pieces::{EMPTY, R, P};
 use crate::score_util::{
     BLACK_MATE_SCORE, MAX_SCORE,
     MIN_SCORE, WHITE_MATE_SCORE,
@@ -289,9 +289,7 @@ impl Search for Engine {
     // Recursively calls itself with alternating player colors to
     // find the best possible move in response to the current board position.
     fn rec_find_best_move(&mut self, mut alpha: i32, beta: i32, player_color: Color, mut depth: i32, ply: i32, null_move_performed: bool, is_in_check: bool, capture_pos: i32) -> i32 {
-        if ply > self.max_reached_depth {
-            self.max_reached_depth = ply;
-        }
+        self.max_reached_depth = max(ply, self.max_reached_depth);
 
         if self.node_count >= self.next_check_node_count {
             self.next_check_node_count = self.node_count + 20000;
@@ -435,6 +433,8 @@ impl Search for Engine {
 
         let mut a = -beta;
 
+        let occupied_bb = self.board.get_occupancy_bitboard();
+
         loop {
             m = match self.movegen.next_move(&mut self.hh, &mut self.board) {
                 Some(next_move) => next_move,
@@ -480,7 +480,7 @@ impl Search for Engine {
 
                     } else if allow_futile_move_pruning && !gives_check && !m.is_promotion() {
                         let own_moves_left = depth / 2;
-                        if !is_in_check && (own_moves_left <= 1 || (m.score() == NEGATIVE_HISTORY_SCORE && self.board.see_score(-player_color, start, end, target_piece_id, EMPTY) < 0)) {
+                        if !is_in_check && (own_moves_left <= 1 || (m.score() == NEGATIVE_HISTORY_SCORE && self.board.has_negative_see(-player_color, start, end, target_piece_id, EMPTY, 0, occupied_bb))) {
                             // Prune futile move
                             skip = true;
                             if prune_low_score > best_score {
@@ -490,11 +490,11 @@ impl Search for Engine {
                             // Reduce futile move
                             reductions = FUTILE_MOVE_REDUCTIONS;
                         }
-                    } else if m.score() == NEGATIVE_HISTORY_SCORE || self.board.see_score(-player_color, start, end, target_piece_id, EMPTY) < 0 {
+                    } else if m.score() == NEGATIVE_HISTORY_SCORE || self.board.has_negative_see(-player_color, start, end, target_piece_id, EMPTY, 0, occupied_bb) {
                         // Reduce search depth for moves with negative history or negative SEE score
                         reductions = LOSING_MOVE_REDUCTIONS;
                     }
-                } else if removed_piece_id < previous_piece.abs() as i8 && self.board.see_score(-player_color, start, end, target_piece_id, removed_piece_id) < 0 {
+                } else if removed_piece_id < previous_piece.abs() as i8 && self.board.has_negative_see(-player_color, start, end, target_piece_id, removed_piece_id, 0, occupied_bb) {
                     // Reduce search depth for capture moves with negative SEE score
                     reductions = 1;
                 }
@@ -612,25 +612,25 @@ impl Search for Engine {
 
         self.movegen.enter_ply(active_player, NO_MOVE, NO_MOVE, NO_MOVE);
 
-        let mut threshold = alpha - position_score - self.board.options.get_qs_see_threshold();
+        let mut threshold = (alpha - position_score - self.board.options.get_qs_see_threshold()) as i16;
+
+        let occupied_bb = self.board.get_occupancy_bitboard();
 
         while let Some(m) = self.movegen.next_capture_move(&mut self.board) {
-            let target_piece_id = m.piece_id();
-            let start = m.start();
-            let end = m.end();
-            let previous_piece = self.board.get_item(start);
-            let previous_piece_id = previous_piece.abs();
 
-            let captured_piece_id = self.board.get_item(end).abs();
+            if !m.is_promotion() {
+                let end = m.end();
+                let captured_piece_id = self.board.get_item(end).abs();
+                if prune_low_captures && captured_piece_id < R {
+                    continue;
+                }
 
-            if prune_low_captures && target_piece_id as i8 == previous_piece_id && captured_piece_id < R {
-                continue;
-            }
+                let start = m.start();
 
-
-            // skip capture moves with a SEE score below the given threshold
-            if self.board.see_score(-active_player, start, end, previous_piece_id, captured_piece_id) <= threshold {
-                continue;
+                // skip capture moves with a SEE score below the given threshold
+                if self.board.has_negative_see(-active_player, start, end, m.piece_id(), captured_piece_id, threshold, occupied_bb) {
+                    continue;
+                }
             }
 
             let (previous_piece, move_state) = self.board.perform_move(m);
@@ -651,7 +651,7 @@ impl Search for Engine {
 
             if score > alpha {
                 alpha = score;
-                threshold = alpha - position_score - self.board.options.get_qs_see_threshold();
+                threshold = (alpha - position_score - self.board.options.get_qs_see_threshold()) as i16;
             }
         }
 
