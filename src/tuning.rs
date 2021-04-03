@@ -24,7 +24,7 @@ use crate::transposition_table::{get_untyped_move, ScoreType};
 use crate::moves::{Move, NO_MOVE};
 use crate::move_gen::{is_likely_valid_move};
 
-// Code for generating quiet training positions for tuningg
+// Code for generating quiet training positions for tuning
 pub trait Tuning {
     fn is_quiet_position(&mut self) -> bool;
 
