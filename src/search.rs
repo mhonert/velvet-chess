@@ -106,7 +106,7 @@ impl Search for Engine {
             while let Some(m) = self.movegen.next_legal_move(&self.hh, &mut self.board) {
                 move_num += 1;
 
-                if depth > 12 {
+                if self.node_count > 1000000 {
                     let now = Instant::now();
 
                     let total_duration = now.duration_since(self.starttime);
@@ -436,7 +436,7 @@ impl Search for Engine {
         let occupied_bb = self.board.get_occupancy_bitboard();
 
         loop {
-            m = match self.movegen.next_move(&mut self.hh, &mut self.board) {
+            m = match self.movegen.next_move(&self.hh, &mut self.board) {
                 Some(next_move) => next_move,
                 None => {
                     if fail_high && has_valid_moves {
@@ -478,21 +478,20 @@ impl Search for Engine {
 
                         reductions = if m.score() == NEGATIVE_HISTORY_SCORE { 3 } else { 2 };
 
-                    } else if allow_futile_move_pruning && !gives_check && !m.is_promotion() {
-                        let own_moves_left = depth / 2;
-                        if !is_in_check && (own_moves_left <= 1 || (m.score() == NEGATIVE_HISTORY_SCORE && self.board.has_negative_see(-player_color, start, end, target_piece_id, EMPTY, 0, occupied_bb))) {
-                            // Prune futile move
-                            skip = true;
-                            if prune_low_score > best_score {
-                                best_score = prune_low_score; // remember score with added margin for cases when all moves are pruned
-                            }
-                        } else {
-                            // Reduce futile move
-                            reductions = FUTILE_MOVE_REDUCTIONS;
-                        }
+                    } else if allow_futile_move_pruning && !gives_check && !m.is_queen_promotion() {
+                        // Reduce futile move
+                        reductions = FUTILE_MOVE_REDUCTIONS;
                     } else if m.score() == NEGATIVE_HISTORY_SCORE || self.board.has_negative_see(-player_color, start, end, target_piece_id, EMPTY, 0, occupied_bb) {
                         // Reduce search depth for moves with negative history or negative SEE score
                         reductions = LOSING_MOVE_REDUCTIONS;
+                    }
+
+                    if allow_futile_move_pruning && !is_in_check && !gives_check && reductions >= (depth - 1) {
+                        // Prune futile move
+                        skip = true;
+                        if prune_low_score > best_score {
+                            best_score = prune_low_score; // remember score with added margin for cases when all moves are pruned
+                        }
                     }
                 } else if removed_piece_id < previous_piece.abs() as i8 && self.board.has_negative_see(-player_color, start, end, target_piece_id, removed_piece_id, 0, occupied_bb) {
                     // Reduce search depth for capture moves with negative SEE score
@@ -618,19 +617,24 @@ impl Search for Engine {
 
         while let Some(m) = self.movegen.next_capture_move(&mut self.board) {
 
-            if !m.is_promotion() {
-                let end = m.end();
-                let captured_piece_id = self.board.get_item(end).abs();
+            let end = m.end();
+            let captured_piece_id = self.board.get_item(end).abs();
+            let previous_piece_id;
+            if !m.is_queen_promotion() {
                 if prune_low_captures && captured_piece_id < R {
                     continue;
                 }
 
-                let start = m.start();
+                previous_piece_id = m.piece_id();
+            } else {
+                previous_piece_id = P;
+            }
 
-                // skip capture moves with a SEE score below the given threshold
-                if self.board.has_negative_see(-active_player, start, end, m.piece_id(), captured_piece_id, threshold, occupied_bb) {
-                    continue;
-                }
+            let start = m.start();
+
+            // skip capture moves with a SEE score below the given threshold
+            if self.board.has_negative_see(-active_player, start, end, previous_piece_id, captured_piece_id, threshold, occupied_bb) {
+                continue;
             }
 
             let (previous_piece, move_state) = self.board.perform_move(m);
