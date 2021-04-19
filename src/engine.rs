@@ -111,6 +111,7 @@ pub struct Engine {
 }
 
 pub const TIMEEXT_MULTIPLIER: i32 = 5;
+const MAX_TIMELIMIT_MS: i32 = i32::max_value();
 
 pub fn spawn_engine_thread() -> Sender<Message> {
     let (tx, rx) = mpsc::channel::<Message>();
@@ -233,7 +234,8 @@ impl Engine {
 
         self.node_limit = nodes;
 
-        let is_strict_timelimit = movetime > 0 || (time_left - (TIMEEXT_MULTIPLIER * self.timelimit_ms) <= 20) || movestogo == 1;
+        let is_strict_timelimit = movetime > 0 || self.timelimit_ms == MAX_TIMELIMIT_MS
+            || movestogo == 1 || (time_left - (TIMEEXT_MULTIPLIER * self.timelimit_ms) <= 20);
 
         let m = self.find_best_move(3, is_strict_timelimit);
         if m == NO_MOVE {
@@ -486,7 +488,7 @@ const TIME_SAFETY_MARGIN_MS: i32 = 20;
 
 fn calc_timelimit(movetime: i32, time_left: i32, time_increment: i32, movestogo: i32) -> i32 {
     if movetime == -1 && time_left == -1 {
-        return i32::max_value()
+        return MAX_TIMELIMIT_MS;
     }
 
     if movetime > 0 {

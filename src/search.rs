@@ -352,7 +352,7 @@ impl Search for Engine {
                 m = m.with_typ(self.board.get_move_type(m.start(), m.end(), m.piece_id()));
 
                 // Validate hash move for additional protection against hash collisions
-                if !m.is_same_move(NO_MOVE) && !is_likely_valid_move(&self.board, player_color, m) {
+                if !is_likely_valid_move(&self.board, player_color, m) {
                     m = NO_MOVE;
                     can_use_hash_score = false;
                 }
