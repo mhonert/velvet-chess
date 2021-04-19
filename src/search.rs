@@ -339,16 +339,23 @@ impl Search for Engine {
         let hash = self.board.get_hash();
         let tt_entry = self.tt.get_entry(hash);
 
-        let mut m = get_untyped_move(tt_entry);
+        let mut m = NO_MOVE;
 
-        if m != NO_MOVE {
-            m = m.with_typ(self.board.get_move_type(m.start(), m.end(), m.piece_id()));
-
+        if tt_entry != 0 {
             let mut can_use_hash_score = get_depth(tt_entry) >= depth;
-            // Validate hash move for additional protection against hash collisions
-            if !is_likely_valid_move(&self.board, player_color, m) {
+
+            m = get_untyped_move(tt_entry);
+            if m.is_same_move(NO_MOVE) {
                 m = NO_MOVE;
-                can_use_hash_score = false;
+
+            } else {
+                m = m.with_typ(self.board.get_move_type(m.start(), m.end(), m.piece_id()));
+
+                // Validate hash move for additional protection against hash collisions
+                if !m.is_same_move(NO_MOVE) && !is_likely_valid_move(&self.board, player_color, m) {
+                    m = NO_MOVE;
+                    can_use_hash_score = false;
+                }
             }
 
             if can_use_hash_score {
