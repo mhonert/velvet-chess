@@ -22,7 +22,6 @@ use crate::pieces::{EMPTY};
 use crate::score_util::{ MAX_SCORE, MIN_SCORE };
 use crate::transposition_table::{get_untyped_move, ScoreType};
 use crate::moves::{Move, NO_MOVE};
-use crate::move_gen::{is_likely_valid_move};
 
 // Code for generating quiet training positions for tuning
 pub trait Tuning {
@@ -75,9 +74,10 @@ impl Tuning for Engine {
             return false;
         }
 
+        let active_player = self.board.active_player();
         let entry = self.tt.get_entry(self.board.get_hash());
-        let mut next_move = if entry != 0 {
-            get_untyped_move(entry)
+        let next_move = if entry != 0 {
+            self.movegen.sanitize_move(&self.board, active_player, get_untyped_move(entry))
         } else {
             NO_MOVE
         };
@@ -87,10 +87,7 @@ impl Tuning for Engine {
             return false;
         }
 
-        next_move = next_move.with_typ(self.board.get_move_type(m.start(), m.end(), m.piece_id()));
-
-        let active_player = self.board.active_player();
-        let is_valid_followup_move = next_move != NO_MOVE && is_likely_valid_move(&self.board, active_player, next_move);
+        let is_valid_followup_move = next_move != NO_MOVE;
         let is_quiet = if is_valid_followup_move {
             self.is_quiet_pv(next_move, depth - 1)
         } else {
@@ -112,12 +109,8 @@ impl Tuning for Engine {
                 return true;
             }
 
-            let mut m = get_untyped_move(entry);
-            if m == NO_MOVE || !is_likely_valid_move(&self.board, self.board.active_player(), m) {
-                return true;
-            }
-
-            m = m.with_typ(self.board.get_move_type(m.start(), m.end(), m.piece_id()));
+            let active_player = self.board.active_player();
+            let m = self.movegen.sanitize_move(&self.board, active_player, get_untyped_move(entry));
 
             self.board.perform_move(m);
             if self.board.is_in_check(self.board.active_player()) {

@@ -100,6 +100,12 @@ impl Move {
         (self.0 & MOVE_ONLY_MASK) == (m.0 & MOVE_ONLY_MASK)
     }
 
+    /// Checks, whether the two moves are the same (except for the type and score)
+    #[inline]
+    pub fn is_same_untyped_move(&self, m: Move) -> bool {
+        (self.0 & (MOVE_ONLY_MASK & !TYPE_MASK)) == (m.0 & (MOVE_ONLY_MASK & !TYPE_MASK))
+    }
+
     #[inline]
     pub fn typ(&self) -> MoveType {
         unsafe {
@@ -155,6 +161,7 @@ impl fmt::Debug for Move {
             .field("start", &self.start())
             .field("end", &self.end())
             .field("score", &self.score())
+            .field("type", &(self.typ() as u8))
             .finish()
     }
 }

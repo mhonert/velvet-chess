@@ -29,7 +29,7 @@ use std::cmp::{max, min};
 use std::time::{Duration, Instant};
 use crate::eval::Eval;
 use crate::moves::{Move, NO_MOVE};
-use crate::move_gen::{is_likely_valid_move, NEGATIVE_HISTORY_SCORE};
+use crate::move_gen::{NEGATIVE_HISTORY_SCORE};
 
 pub trait Search {
     fn find_best_move(&mut self, min_depth: i32, is_strict_timelimit: bool) -> Move;
@@ -320,9 +320,15 @@ impl Search for Engine {
             return 0;
         }
 
+        // Prune, if a winning mate was found and the current branch cannot possibly find a faster mate
+        if alpha >= BLACK_MATE_SCORE - ply - (if is_in_check { 1 } else { 0 }) {
+            return BLACK_MATE_SCORE - ply
+        }
+
         if is_in_check {
             // Extend search when in check
             depth = max(1, depth + 1);
+
         } else if depth == 1 && (self.board.get_score() * player_color as i32) < alpha - self.board.options.get_razor_margin() {
             // Directly jump to quiescence search, if current position score is below a certain threshold
             depth = 0;
@@ -339,27 +345,23 @@ impl Search for Engine {
         let hash = self.board.get_hash();
         let tt_entry = self.tt.get_entry(hash);
 
-        let mut m = NO_MOVE;
+        let mut hash_move = NO_MOVE;
 
         if tt_entry != 0 {
-            let mut can_use_hash_score = get_depth(tt_entry) >= depth;
-
-            m = get_untyped_move(tt_entry);
-            if m.is_same_move(NO_MOVE) {
-                m = NO_MOVE;
-
+            let mut is_invalid_move = false;
+            hash_move = get_untyped_move(tt_entry);
+            if hash_move.is_same_move(NO_MOVE) {
+                hash_move = NO_MOVE;
             } else {
-                m = m.with_typ(self.board.get_move_type(m.start(), m.end(), m.piece_id()));
-
-                // Validate hash move for additional protection against hash collisions
-                if !is_likely_valid_move(&self.board, player_color, m) {
-                    m = NO_MOVE;
-                    can_use_hash_score = false;
-                }
+                // Sanitize hash move to protect against hash collisions
+                hash_move = self.movegen.sanitize_move(&self.board, player_color, hash_move);
+                is_invalid_move = hash_move.is_same_move(NO_MOVE);
             }
 
-            if can_use_hash_score {
-                let score = to_root_relative_score(ply, m.score());
+            let tt_score = hash_move.score();
+
+            if !is_invalid_move && get_depth(tt_entry) >= depth {
+                let score = to_root_relative_score(ply, tt_score);
 
                 match get_score_type(tt_entry) {
                     ScoreType::Exact => {
@@ -382,11 +384,8 @@ impl Search for Engine {
                     }
                 };
             }
-
-        }
-
-        // Reduce nodes without hash move from transposition table
-        if !is_pv && m == NO_MOVE && depth > 7 {
+        } else if !is_pv && hash_move == NO_MOVE && depth > 7 {
+            // Reduce nodes without hash move from transposition table
             depth -= 1;
         }
 
@@ -421,7 +420,7 @@ impl Search for Engine {
         let mut evaluated_move_count = 0;
         let mut has_valid_moves = false;
         
-        let allow_reductions = depth > 2 && !is_in_check && !m.is_queen_promotion();
+        let allow_reductions = depth > 2 && !is_in_check;
 
         // Futile move pruning
         let mut allow_futile_move_pruning = false;
@@ -434,7 +433,7 @@ impl Search for Engine {
 
         let opponent_pieces = self.board.get_all_piece_bitboard(-player_color);
 
-        self.movegen.enter_ply(player_color, m, primary_killer, secondary_killer);
+        self.movegen.enter_ply(player_color, hash_move, primary_killer, secondary_killer);
 
         let mut a = -beta;
 
@@ -443,7 +442,7 @@ impl Search for Engine {
         let previous_move_was_capture = capture_pos != -1;
 
         loop {
-            m = match self.movegen.next_move(&self.hh, &mut self.board) {
+            let m = match self.movegen.next_move(&self.hh, &mut self.board) {
                 Some(next_move) => next_move,
                 None => {
                     if fail_high && has_valid_moves {
@@ -484,6 +483,7 @@ impl Search for Engine {
                     if allow_reductions
                         && !gives_check
                         && evaluated_move_count > LMR_THRESHOLD
+                        && !m.is_queen_promotion()
                         && !self.board.is_pawn_move_close_to_promotion(previous_piece, end, opponent_pieces) {
 
                         reductions += if m.score() == NEGATIVE_HISTORY_SCORE { 3 } else { 2 };
@@ -693,16 +693,16 @@ impl Search for Engine {
 
         let (previous_piece, move_state) = self.board.perform_move(m);
 
+        let active_player = self.board.active_player();
+
         let entry = self.tt.get_entry(self.board.get_hash());
         let next_move = if entry != 0 {
-            let m = get_untyped_move(entry);
-            m.with_typ(self.board.get_move_type(m.start(), m.end(), m.piece_id()))
+            self.movegen.sanitize_move(&self.board, active_player, get_untyped_move(entry))
         } else {
             NO_MOVE
         };
 
-        let active_player = self.board.active_player();
-        let is_valid_followup_move = next_move != NO_MOVE && !self.board.is_in_check(-active_player) && is_likely_valid_move(&self.board, active_player, next_move);
+        let is_valid_followup_move = next_move != NO_MOVE && !self.board.is_in_check(-active_player);
         let followup_uci_moves = if is_valid_followup_move {
             format!(" {}", self.extract_pv(next_move, depth - 1))
         } else {
@@ -760,12 +760,12 @@ mod tests {
     use super::*;
     use crate::board::Board;
     use crate::engine::Message;
-    use crate::fen::{write_fen};
     use crate::pieces::{K, R};
     use std::sync::mpsc;
     use crate::moves::NO_MOVE;
     use crate::colors::{BLACK, WHITE};
     use crate::magics::initialize_magics;
+    use crate::fen::write_fen;
 
     #[test]
     fn finds_mate_in_one() {
@@ -841,5 +841,4 @@ mod tests {
             assert_eq!(log2(i), (i as f32).log2() as i32)
         }
     }
-
 }

@@ -43,8 +43,8 @@ pub struct MoveGenerator {
 
 impl MoveGenerator {
     pub fn new() -> Self {
-        let mut entries = Vec::with_capacity(MAX_DEPTH + 1);
-        for _ in 0..MAX_DEPTH + 1 {
+        let mut entries = Vec::with_capacity(MAX_DEPTH + 2);
+        for _ in 0..MAX_DEPTH + 2 {
             entries.push(MoveList::new());
         }
 
@@ -96,6 +96,13 @@ impl MoveGenerator {
         self.entries[self.ply].update_root_move(m);
     }
 
+    pub fn sanitize_move(&mut self, board: &Board, active_player: Color, untyped_move: Move) -> Move {
+        self.enter_ply(active_player, NO_MOVE, NO_MOVE, NO_MOVE);
+        let m = self.entries[self.ply].sanitize_move(board, active_player, untyped_move);
+        self.leave_ply();
+
+        m
+    }
 }
 
 enum Stage {
@@ -605,6 +612,10 @@ impl MoveList {
         // Captures
         self.add_capture_moves(board, MoveType::KingCapture, K, pos, king_targets & opponent_bb);
 
+        self.gen_white_quiet_king_moves(board, pos, empty_bb, king_targets);
+    }
+
+    fn gen_white_quiet_king_moves(&mut self, board: &Board, pos: i32, empty_bb: u64, king_targets: u64) {
         // Normal moves
         self.add_moves(MoveType::KingQuiet, K, pos, king_targets & empty_bb);
 
@@ -628,6 +639,10 @@ impl MoveList {
         // Captures
         self.add_capture_moves(board, MoveType::KingCapture, K, pos, king_targets & opponent_bb);
 
+        self.gen_black_quiet_king_moves(board, pos, empty_bb, king_targets)
+    }
+
+    fn gen_black_quiet_king_moves(&mut self, board: &Board, pos: i32, empty_bb: u64, king_targets: u64) {
         // Normal moves
         self.add_moves(MoveType::KingQuiet, K, pos, king_targets & empty_bb);
 
@@ -649,75 +664,137 @@ impl MoveList {
         self.add_capture_moves(board, MoveType::Capture, piece, pos, targets & opponent_bb);
         self.add_moves(MoveType::Quiet, piece, pos, targets & empty_bb);
     }
-}
 
+    pub fn sanitize_move(&mut self, board: &Board, active_player: Color, untyped_move: Move) -> Move {
+        let start = untyped_move.start();
+        let end = untyped_move.end();
 
-pub fn is_likely_valid_move(board: &Board, active_player: Color, m: Move) -> bool {
-    let previous_piece = board.get_item(m.start());
+        let piece = board.get_item(start);
+        if piece == EMPTY {
+            return NO_MOVE;
+        }
 
-    if previous_piece.signum() != active_player {
-        return false;
-    }
+        if piece.signum() != active_player {
+            return NO_MOVE;
+        }
 
-    let removed_piece = board.get_item(m.end());
+        let captured_piece = board.get_item(end);
+        if captured_piece.signum() == active_player {
+            return NO_MOVE;
+        }
 
-    if removed_piece == K || removed_piece == -K {
-        return false;
-    }
+        let piece_id = piece.abs();
+        let target_piece_id = untyped_move.piece_id();
 
-    if removed_piece != EMPTY && removed_piece.signum() == active_player {
-        return false;
-    }
+        let opponent_bb = board.get_all_piece_bitboard(-active_player);
+        let occupied = opponent_bb | board.get_all_piece_bitboard(active_player);
+        let empty_bb = !occupied;
 
-    match previous_piece.abs() {
-        P => {
-            if m.is_en_passant() {
-                return removed_piece == EMPTY && board.can_enpassant(active_player, m.end() as u8);
+        let start_bb = 1u64 << start;
+        let end_bb = 1u64 << end;
+
+        match piece_id {
+            P => {
+                if captured_piece == EMPTY {
+                    if active_player == WHITE {
+                        self.gen_white_straight_pawn_moves(start_bb, empty_bb);
+                        self.gen_white_en_passant_moves(board, start_bb);
+                    } else {
+                        self.gen_black_straight_pawn_moves(start_bb, empty_bb);
+                        self.gen_black_en_passant_moves(board, start_bb);
+                    }
+                } else {
+                    if active_player == WHITE {
+                        self.gen_white_attack_pawn_moves(board, start_bb, empty_bb);
+                    } else {
+                        self.gen_black_attack_pawn_moves(board, start_bb, empty_bb);
+                    }
+                }
+            },
+
+            N => {
+                if target_piece_id != N {
+                    return NO_MOVE;
+                }
+                if (get_knight_attacks(start) & end_bb) == 0 {
+                    return NO_MOVE;
+                }
+
+                return untyped_move.with_typ(if captured_piece == EMPTY { MoveType::Quiet } else { MoveType::Capture });
             }
 
-            let direction = (m.start() - m.end()).abs();
-            if (direction == 7) || (direction == 9) {
-                // Invalid capture?
-                removed_piece != EMPTY
-            } else {
-                // Invalid quiet move?
-                removed_piece == EMPTY
+            B => {
+                if target_piece_id != B {
+                    return NO_MOVE;
+                }
+                if (get_bishop_attacks(empty_bb, start) & end_bb) == 0 {
+                    return NO_MOVE;
+                }
+
+                return untyped_move.with_typ(if captured_piece == EMPTY { MoveType::Quiet } else { MoveType::Capture });
+            }
+
+            R => {
+                if target_piece_id != R {
+                    return NO_MOVE;
+                }
+                if (get_rook_attacks(empty_bb, start) & end_bb) == 0 {
+                    return NO_MOVE;
+                }
+
+                return untyped_move.with_typ(if captured_piece == EMPTY { MoveType::Quiet } else { MoveType::Capture });
+            }
+
+            Q => {
+                if target_piece_id != Q {
+                    return NO_MOVE;
+                }
+                if (get_queen_attacks(empty_bb, start) & end_bb) == 0 {
+                    return NO_MOVE;
+                }
+
+                return untyped_move.with_typ(if captured_piece == EMPTY { MoveType::Quiet } else { MoveType::Capture });
+            }
+
+            K => {
+                let king_targets = get_king_attacks(start) & end_bb;
+                if captured_piece == EMPTY {
+                    if active_player == WHITE {
+                        self.gen_white_quiet_king_moves(board, start, empty_bb, king_targets);
+                    } else {
+                        self.gen_black_quiet_king_moves(board, start, empty_bb, king_targets);
+                    }
+                } else {
+                    if target_piece_id != K {
+                        return NO_MOVE;
+                    }
+                    if king_targets & opponent_bb == 0 {
+                        return NO_MOVE;
+                    }
+                    return untyped_move.with_typ(MoveType::KingCapture);
+                }
+            },
+
+            _ => {
+                return NO_MOVE;
             }
         }
 
-        N => {
-            let attacks = get_knight_attacks(m.start());
-            (attacks & (1 << m.end())) != 0
+        for m in self.moves.iter() {
+            if m.is_same_untyped_move(untyped_move) {
+                return untyped_move.with_typ(m.typ());
+            }
         }
 
-        B => {
-            let opponent_bb = board.get_all_piece_bitboard(-active_player);
-            let occupied = opponent_bb | board.get_all_piece_bitboard(active_player);
-            let empty = !occupied;
-            let attacks = get_bishop_attacks(empty, m.start());
-            ((attacks & (empty | opponent_bb)) & (1 << m.end())) != 0
+        for m in self.capture_moves.iter() {
+            if m.is_same_untyped_move(untyped_move) {
+                return untyped_move.with_typ(m.typ());
+            }
         }
 
-        R => {
-            let opponent_bb = board.get_all_piece_bitboard(-active_player);
-            let occupied = opponent_bb | board.get_all_piece_bitboard(active_player);
-            let empty = !occupied;
-            let attacks = get_rook_attacks(empty, m.start());
-            ((attacks & (empty | opponent_bb)) & (1 << m.end())) != 0
-        }
-
-        Q => {
-            let opponent_bb = board.get_all_piece_bitboard(-active_player);
-            let occupied = opponent_bb | board.get_all_piece_bitboard(active_player);
-            let empty = !occupied;
-            let attacks = get_queen_attacks(empty, m.start());
-            ((attacks & (empty | opponent_bb)) & (1 << m.end())) != 0
-        }
-
-        _ => {
-            true
-        }
+        NO_MOVE
     }
+
 }
 
 fn is_kingside_castling_valid_for_white(board: &Board, empty_bb: u64) -> bool {

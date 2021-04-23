@@ -55,7 +55,7 @@ const PER_ENTRY_BYTE_SIZE: u64 = 8;
 
 pub struct TranspositionTable {
     index_mask: u64,
-    entries: Vec<u64>
+    entries: Vec<u64>,
 }
 
 impl TranspositionTable {
@@ -71,7 +71,7 @@ impl TranspositionTable {
     }
 
     pub fn resize(&mut self, size_mb: u64, initialize: bool) {
-        // Calculate table size as close to the desired sizeInMB as possible, but never above it
+        // Calculate table size as close to the desired size_mb as possible, but never above it
         let size_bytes = size_mb * 1_048_576;
         let entry_count = size_bytes / PER_ENTRY_BYTE_SIZE;
         let index_bit_count = 31 - (entry_count as u32 | 1).leading_zeros();
@@ -87,10 +87,10 @@ impl TranspositionTable {
 
     // Important: mate scores must be stored relative to the current node, not relative to the root node
     pub fn write_entry(&mut self, hash: u64, depth: i32, scored_move: Move, typ: ScoreType) {
-        let mut new_entry: u64 = hash & HASHCHECK_MASK;
-        new_entry |= (depth as u64) << DEPTH_BITSHIFT;
-        new_entry |= (typ as u64) << SCORE_TYPE_BITSHIFT;
-        new_entry |= scored_move.to_bit29() as u64;
+        let mut new_entry: u64 = hash;
+        new_entry ^= (depth as u64) << DEPTH_BITSHIFT;
+        new_entry ^= (typ as u64) << SCORE_TYPE_BITSHIFT;
+        new_entry ^= scored_move.to_bit29() as u64;
 
         let index = self.calc_index(hash);
         unsafe { *self.entries.get_unchecked_mut(index) = new_entry };
@@ -99,8 +99,8 @@ impl TranspositionTable {
     pub fn get_entry(&mut self, hash: u64) -> u64 {
         let index = self.calc_index(hash);
 
-        let entry = unsafe { *self.entries.get_unchecked(index) };
-        if entry == 0 || (entry & HASHCHECK_MASK) != (hash & HASHCHECK_MASK) {
+        let entry = unsafe { *self.entries.get_unchecked(index) } ^ hash;
+        if (entry & HASHCHECK_MASK) != 0 {
             return 0;
         }
 
@@ -125,9 +125,9 @@ pub fn get_untyped_move(entry: u64) -> Move {
 #[inline]
 // Convert current-node-relative mate scores to root-relative mate scores
 pub fn to_root_relative_score(ply: i32, score: i32) -> i32 {
-    if score <= WHITE_MATE_SCORE + MAX_DEPTH as i32 * 3 {
+    if score <= WHITE_MATE_SCORE + MAX_DEPTH as i32 {
         score + ply
-    } else if score >= BLACK_MATE_SCORE - MAX_DEPTH as i32 * 3 {
+    } else if score >= BLACK_MATE_SCORE - MAX_DEPTH as i32 {
         score - ply
     } else {
         score
@@ -137,9 +137,9 @@ pub fn to_root_relative_score(ply: i32, score: i32) -> i32 {
 #[inline]
 // Convert root-relative mate scores to current-node-relative mate scores
 pub fn from_root_relative_score(ply: i32, score: i32) -> i32 {
-    if score <= WHITE_MATE_SCORE + MAX_DEPTH as i32 * 2 {
+    if score <= WHITE_MATE_SCORE + MAX_DEPTH as i32 {
         score - ply
-    } else if score >= BLACK_MATE_SCORE - MAX_DEPTH as i32 * 2 {
+    } else if score >= BLACK_MATE_SCORE - MAX_DEPTH as i32 {
         score + ply
     } else {
         score
