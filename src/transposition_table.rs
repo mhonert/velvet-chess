@@ -16,7 +16,7 @@
 
 use crate::moves::{Move};
 use std::intrinsics::transmute;
-use crate::score_util::{WHITE_MATE_SCORE, BLACK_MATE_SCORE};
+use crate::score_util::{MATED_SCORE, MATE_SCORE};
 
 pub const MAX_HASH_SIZE_MB: i32 = 4096;
 
@@ -125,9 +125,9 @@ pub fn get_untyped_move(entry: u64) -> Move {
 #[inline]
 // Convert current-node-relative mate scores to root-relative mate scores
 pub fn to_root_relative_score(ply: i32, score: i32) -> i32 {
-    if score <= WHITE_MATE_SCORE + MAX_DEPTH as i32 {
+    if score <= MATED_SCORE + MAX_DEPTH as i32 {
         score + ply
-    } else if score >= BLACK_MATE_SCORE - MAX_DEPTH as i32 {
+    } else if score >= MATE_SCORE - MAX_DEPTH as i32 {
         score - ply
     } else {
         score
@@ -137,9 +137,9 @@ pub fn to_root_relative_score(ply: i32, score: i32) -> i32 {
 #[inline]
 // Convert root-relative mate scores to current-node-relative mate scores
 pub fn from_root_relative_score(ply: i32, score: i32) -> i32 {
-    if score <= WHITE_MATE_SCORE + MAX_DEPTH as i32 {
+    if score <= MATED_SCORE + MAX_DEPTH as i32 {
         score - ply
-    } else if score >= BLACK_MATE_SCORE - MAX_DEPTH as i32 {
+    } else if score >= MATE_SCORE - MAX_DEPTH as i32 {
         score + ply
     } else {
         score

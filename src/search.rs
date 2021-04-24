@@ -20,8 +20,8 @@ use crate::colors::{Color};
 use crate::engine::Engine;
 use crate::pieces::{EMPTY, R, P};
 use crate::score_util::{
-    BLACK_MATE_SCORE, MAX_SCORE,
-    MIN_SCORE, WHITE_MATE_SCORE,
+    MATE_SCORE, MAX_SCORE,
+    MIN_SCORE, MATED_SCORE,
 };
 use crate::transposition_table::{get_depth, get_score_type, get_untyped_move, MAX_DEPTH, ScoreType, to_root_relative_score, from_root_relative_score};
 use crate::uci_move::UCIMove;
@@ -146,7 +146,7 @@ impl Search for Engine {
                             score_fluctuations * 100 / self.board.options.get_timeext_score_fluctuation_reductions();
                         score_fluctuations += (best_score - previous_best_score).abs();
 
-                        if best_score.abs() >= (BLACK_MATE_SCORE - MAX_DEPTH as i32) {
+                        if best_score.abs() >= (MATE_SCORE - MAX_DEPTH as i32) {
                             // Reset score fluctuation statistic, if a check mate is found
                             score_fluctuations = 0;
                         }
@@ -263,7 +263,7 @@ impl Search for Engine {
                 break;
             }
 
-            if (BLACK_MATE_SCORE - best_score.abs()) <= depth / 3 {
+            if (MATE_SCORE - best_score.abs()) <= depth / 3 {
                 // stop searching, if a close mate has already been found
                 break;
             }
@@ -315,14 +315,21 @@ impl Search for Engine {
 
         let is_pv = (alpha + 1) < beta; // in a principal variation search, non-PV nodes are searched with a zero-window
 
+        // Prune, if best possible (mate) score still cannot improve alpha
+        let best_possible_score = MATE_SCORE - ply;
+        if best_possible_score < alpha {
+            return best_possible_score;
+        }
+
+        // Prune, if worst possible (mated) score is already above beta
+        let worst_possible_score = MATED_SCORE + ply;
+        if worst_possible_score > beta {
+            return worst_possible_score;
+        }
+
         if self.board.is_engine_draw() {
             self.node_count += 1;
             return 0;
-        }
-
-        // Prune, if a winning mate was found and the current branch cannot possibly find a faster mate
-        if alpha >= BLACK_MATE_SCORE - ply - (if is_in_check { 1 } else { 0 }) {
-            return BLACK_MATE_SCORE - ply
         }
 
         if is_in_check {
@@ -348,20 +355,10 @@ impl Search for Engine {
         let mut hash_move = NO_MOVE;
 
         if tt_entry != 0 {
-            let mut is_invalid_move = false;
-            hash_move = get_untyped_move(tt_entry);
-            if hash_move.is_same_move(NO_MOVE) {
-                hash_move = NO_MOVE;
-            } else {
-                // Sanitize hash move to protect against hash collisions
-                hash_move = self.movegen.sanitize_move(&self.board, player_color, hash_move);
-                is_invalid_move = hash_move.is_same_move(NO_MOVE);
-            }
+            hash_move = self.movegen.sanitize_move(&self.board, player_color, get_untyped_move(tt_entry));
 
-            let tt_score = hash_move.score();
-
-            if !is_invalid_move && get_depth(tt_entry) >= depth {
-                let score = to_root_relative_score(ply, tt_score);
+            if hash_move != NO_MOVE && get_depth(tt_entry) >= depth {
+                let score = to_root_relative_score(ply, hash_move.score());
 
                 match get_score_type(tt_entry) {
                     ScoreType::Exact => {
@@ -414,10 +411,11 @@ impl Search for Engine {
         let primary_killer = self.hh.get_primary_killer(ply);
         let secondary_killer = self.hh.get_secondary_killer(ply);
 
+        let mut best_score = worst_possible_score;
         let mut best_move = NO_MOVE;
-        let mut best_score = MIN_SCORE;
+
         let mut score_type = ScoreType::UpperBound;
-        let mut evaluated_move_count = 0;
+        let mut visited_legal_move_count = 0;
         let mut has_valid_moves = false;
         
         let allow_reductions = depth > 2 && !is_in_check;
@@ -449,7 +447,7 @@ impl Search for Engine {
                         // research required, because a fail-high was reported by null search, but no cutoff was found during reduced search
                         depth = original_depth;
                         fail_high = false;
-                        evaluated_move_count = 0;
+                        visited_legal_move_count = 0;
 
                         self.movegen.reset();
                         continue;
@@ -475,14 +473,14 @@ impl Search for Engine {
                 has_valid_moves = true;
                 gives_check = self.board.is_in_check(-player_color);
 
-                if previous_move_was_capture && evaluated_move_count > 0 && capture_pos != m.end() {
+                if previous_move_was_capture && visited_legal_move_count > 0 && capture_pos != m.end() {
                     reductions = 1;
                 }
 
                 if removed_piece_id == EMPTY {
                     if allow_reductions
                         && !gives_check
-                        && evaluated_move_count > LMR_THRESHOLD
+                        && visited_legal_move_count > LMR_THRESHOLD
                         && !m.is_queen_promotion()
                         && !self.board.is_pawn_move_close_to_promotion(previous_piece, end, opponent_pieces) {
 
@@ -498,6 +496,7 @@ impl Search for Engine {
 
                     if allow_futile_move_pruning && !is_in_check && !gives_check && reductions >= (depth - 1) {
                         // Prune futile move
+                        visited_legal_move_count += 1;
                         skip = true;
                         if prune_low_score > best_score {
                             best_score = prune_low_score; // remember score with added margin for cases when all moves are pruned
@@ -519,7 +518,7 @@ impl Search for Engine {
                     new_capture_pos = end;
                 }
 
-                evaluated_move_count += 1;
+                visited_legal_move_count += 1;
 
                 let mut result = self.rec_find_best_move(a, -alpha, -player_color, depth - reductions - 1, ply + 1, false, gives_check, new_capture_pos);
                 if result == CANCEL_SEARCH {
@@ -570,16 +569,16 @@ impl Search for Engine {
         self.movegen.leave_ply();
 
         if !has_valid_moves {
-            if is_in_check {
-                // Check mate
-                best_score = WHITE_MATE_SCORE + ply;
+            return if is_in_check {
+                MATED_SCORE + ply // Check mate
             } else {
-                // Stale mate
-                best_score = 0;
+                0 // Stale mate
             }
         }
 
-        self.tt.write_entry(hash, depth, best_move.with_score(from_root_relative_score(ply, best_score)), score_type);
+        if best_move != NO_MOVE {
+            self.tt.write_entry(hash, depth, best_move.with_score(from_root_relative_score(ply, best_score)), score_type);
+        }
 
         best_score
     }
@@ -741,10 +740,10 @@ fn should_extend_timelimit(
 }
 
 fn get_score_info(score: i32) -> String {
-    if score <= WHITE_MATE_SCORE + MAX_DEPTH as i32 {
-        return format!("mate {}", (WHITE_MATE_SCORE - score - 1) / 2);
-    } else if score >= BLACK_MATE_SCORE - MAX_DEPTH as i32 {
-        return format!("mate {}", (BLACK_MATE_SCORE - score + 1) / 2);
+    if score <= MATED_SCORE + MAX_DEPTH as i32 {
+        return format!("mate {}", (MATED_SCORE - score - 1) / 2);
+    } else if score >= MATE_SCORE - MAX_DEPTH as i32 {
+        return format!("mate {}", (MATE_SCORE - score + 1) / 2);
     }
 
     format!("cp {}", score)
