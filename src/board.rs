@@ -784,7 +784,7 @@ impl Board {
         self.state.halfmove_clock >= 100
     }
 
-    fn is_insufficient_material_draw(&self) -> bool {
+    pub fn is_insufficient_material_draw(&self) -> bool {
         match (self.get_all_piece_bitboard(WHITE) | self.get_all_piece_bitboard(BLACK)).count_ones()
         {
             2 => true, // K vs K

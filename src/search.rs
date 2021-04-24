@@ -288,7 +288,7 @@ impl Search for Engine {
 
     // Recursively calls itself with alternating player colors to
     // find the best possible move in response to the current board position.
-    fn rec_find_best_move(&mut self, mut alpha: i32, beta: i32, player_color: Color, mut depth: i32, ply: i32, null_move_performed: bool, is_in_check: bool, capture_pos: i32) -> i32 {
+    fn rec_find_best_move(&mut self, mut alpha: i32, mut beta: i32, player_color: Color, mut depth: i32, ply: i32, null_move_performed: bool, is_in_check: bool, capture_pos: i32) -> i32 {
         self.max_reached_depth = max(ply, self.max_reached_depth);
 
         if self.node_count >= self.next_check_node_count {
@@ -313,23 +313,22 @@ impl Search for Engine {
             }
         }
 
+        if self.board.is_engine_draw() {
+            return 0;
+        }
+
         let is_pv = (alpha + 1) < beta; // in a principal variation search, non-PV nodes are searched with a zero-window
 
-        // Prune, if best possible (mate) score still cannot improve alpha
-        let best_possible_score = MATE_SCORE - ply;
-        if best_possible_score < alpha {
+        // Prune, if best possible (i.e. mate) score still cannot improve alpha
+        let best_possible_score = MATE_SCORE - ply - 1;
+        if best_possible_score <= alpha {
             return best_possible_score;
         }
 
-        // Prune, if worst possible (mated) score is already above beta
-        let worst_possible_score = MATED_SCORE + ply;
-        if worst_possible_score > beta {
+        // Prune, if worst possible (i.e. mated) score is already above beta
+        let worst_possible_score = MATED_SCORE + ply + if is_in_check { 0 } else { 1 };
+        if worst_possible_score >= beta {
             return worst_possible_score;
-        }
-
-        if self.board.is_engine_draw() {
-            self.node_count += 1;
-            return 0;
         }
 
         if is_in_check {
@@ -361,25 +360,14 @@ impl Search for Engine {
                 let score = to_root_relative_score(ply, hash_move.score());
 
                 match get_score_type(tt_entry) {
-                    ScoreType::Exact => {
-                        return score;
-                    }
-
-                    ScoreType::UpperBound => {
-                        if score <= alpha {
-                            return score;
-                        }
-                    }
-
-                    ScoreType::LowerBound => {
-                        if score > alpha {
-                            alpha = score;
-                            if alpha >= beta {
-                                return score;
-                            }
-                        }
-                    }
+                    ScoreType::Exact      => return score,
+                    ScoreType::UpperBound => beta = min(beta, score),
+                    ScoreType::LowerBound => alpha = max(alpha, score)
                 };
+
+                if alpha >= beta {
+                    return score;
+                }
             }
         } else if !is_pv && hash_move == NO_MOVE && depth > 7 {
             // Reduce nodes without hash move from transposition table
@@ -415,7 +403,7 @@ impl Search for Engine {
         let mut best_move = NO_MOVE;
 
         let mut score_type = ScoreType::UpperBound;
-        let mut visited_legal_move_count = 0;
+        let mut evaluated_move_count = 0;
         let mut has_valid_moves = false;
         
         let allow_reductions = depth > 2 && !is_in_check;
@@ -440,14 +428,14 @@ impl Search for Engine {
         let previous_move_was_capture = capture_pos != -1;
 
         loop {
-            let m = match self.movegen.next_move(&self.hh, &mut self.board) {
+            let curr_move = match self.movegen.next_move(&self.hh, &mut self.board) {
                 Some(next_move) => next_move,
                 None => {
                     if fail_high && has_valid_moves {
                         // research required, because a fail-high was reported by null search, but no cutoff was found during reduced search
                         depth = original_depth;
                         fail_high = false;
-                        visited_legal_move_count = 0;
+                        evaluated_move_count = 0;
 
                         self.movegen.reset();
                         continue;
@@ -458,10 +446,10 @@ impl Search for Engine {
                 }
             };
 
-            let start = m.start();
-            let end = m.end();
+            let start = curr_move.start();
+            let end = curr_move.end();
 
-            let (previous_piece, removed_piece_id) = self.board.perform_move(m);
+            let (previous_piece, removed_piece_id) = self.board.perform_move(curr_move);
 
             let mut skip = self.board.is_in_check(player_color); // skip if move would put own king in check
 
@@ -469,34 +457,32 @@ impl Search for Engine {
             let mut gives_check = false;
 
             if !skip {
-                let target_piece_id = m.piece_id();
+                let target_piece_id = curr_move.piece_id();
                 has_valid_moves = true;
                 gives_check = self.board.is_in_check(-player_color);
 
-                if previous_move_was_capture && visited_legal_move_count > 0 && capture_pos != m.end() {
+                if previous_move_was_capture && evaluated_move_count > 0 && capture_pos != curr_move.end() {
                     reductions = 1;
                 }
 
                 if removed_piece_id == EMPTY {
                     if allow_reductions
                         && !gives_check
-                        && visited_legal_move_count > LMR_THRESHOLD
-                        && !m.is_queen_promotion()
+                        && evaluated_move_count > LMR_THRESHOLD
                         && !self.board.is_pawn_move_close_to_promotion(previous_piece, end, opponent_pieces) {
 
-                        reductions += if m.score() == NEGATIVE_HISTORY_SCORE { 3 } else { 2 };
+                        reductions += if curr_move.score() == NEGATIVE_HISTORY_SCORE { 3 } else { 2 };
 
-                    } else if allow_futile_move_pruning && !gives_check && !m.is_queen_promotion() {
+                    } else if allow_futile_move_pruning && !gives_check && !curr_move.is_queen_promotion() {
                         // Reduce futile move
                         reductions += FUTILE_MOVE_REDUCTIONS;
-                    } else if m.score() == NEGATIVE_HISTORY_SCORE || self.board.has_negative_see(-player_color, start, end, target_piece_id, EMPTY, 0, occupied_bb) {
+                    } else if curr_move.score() == NEGATIVE_HISTORY_SCORE || self.board.has_negative_see(-player_color, start, end, target_piece_id, EMPTY, 0, occupied_bb) {
                         // Reduce search depth for moves with negative history or negative SEE score
                         reductions += LOSING_MOVE_REDUCTIONS;
                     }
 
                     if allow_futile_move_pruning && !is_in_check && !gives_check && reductions >= (depth - 1) {
                         // Prune futile move
-                        visited_legal_move_count += 1;
                         skip = true;
                         if prune_low_score > best_score {
                             best_score = prune_low_score; // remember score with added margin for cases when all moves are pruned
@@ -509,20 +495,20 @@ impl Search for Engine {
             }
 
             if skip {
-                self.board.undo_move(m, previous_piece, removed_piece_id);
+                self.board.undo_move(curr_move, previous_piece, removed_piece_id);
             } else {
                 let mut new_capture_pos = -1;
                 if removed_piece_id == EMPTY {
-                    self.hh.update_played_moves(depth, player_color, m);
+                    self.hh.update_played_moves(depth, player_color, curr_move);
                 } else {
                     new_capture_pos = end;
                 }
 
-                visited_legal_move_count += 1;
+                evaluated_move_count += 1;
 
                 let mut result = self.rec_find_best_move(a, -alpha, -player_color, depth - reductions - 1, ply + 1, false, gives_check, new_capture_pos);
                 if result == CANCEL_SEARCH {
-                    self.board.undo_move(m, previous_piece, removed_piece_id);
+                    self.board.undo_move(curr_move, previous_piece, removed_piece_id);
                     self.movegen.leave_ply();
                     return CANCEL_SEARCH;
                 }
@@ -531,18 +517,18 @@ impl Search for Engine {
                     // Repeat search without reduction and with full window
                     result = self.rec_find_best_move(-beta, -alpha, -player_color, depth - 1, ply + 1, false, gives_check, new_capture_pos);
                     if result == CANCEL_SEARCH {
-                        self.board.undo_move(m, previous_piece, removed_piece_id);
+                        self.board.undo_move(curr_move, previous_piece, removed_piece_id);
                         self.movegen.leave_ply();
                         return CANCEL_SEARCH;
                     }
                 }
 
                 let score = -result;
-                self.board.undo_move(m, previous_piece, removed_piece_id);
+                self.board.undo_move(curr_move, previous_piece, removed_piece_id);
 
                 if score > best_score {
                     best_score = score;
-                    best_move = m;
+                    best_move = curr_move;
 
                     // Alpha-beta pruning
                     if best_score > alpha {
@@ -590,7 +576,7 @@ impl Search for Engine {
             self.max_reached_depth = ply;
         }
 
-        if self.board.is_engine_draw() {
+        if self.board.is_insufficient_material_draw() {
             return 0;
         }
 
