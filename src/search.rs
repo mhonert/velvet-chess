@@ -288,7 +288,7 @@ impl Search for Engine {
 
     // Recursively calls itself with alternating player colors to
     // find the best possible move in response to the current board position.
-    fn rec_find_best_move(&mut self, mut alpha: i32, mut beta: i32, player_color: Color, mut depth: i32, ply: i32, null_move_performed: bool, is_in_check: bool, capture_pos: i32) -> i32 {
+    fn rec_find_best_move(&mut self, mut alpha: i32, beta: i32, player_color: Color, mut depth: i32, ply: i32, null_move_performed: bool, is_in_check: bool, capture_pos: i32) -> i32 {
         self.max_reached_depth = max(ply, self.max_reached_depth);
 
         if self.node_count >= self.next_check_node_count {
@@ -319,13 +319,13 @@ impl Search for Engine {
 
         let is_pv = (alpha + 1) < beta; // in a principal variation search, non-PV nodes are searched with a zero-window
 
-        // Prune, if best possible (i.e. mate) score still cannot improve alpha
+        // Prune, if even the best possible score cannot improve alpha (because a shorter mate has already been found)
         let best_possible_score = MATE_SCORE - ply - 1;
         if best_possible_score <= alpha {
             return best_possible_score;
         }
 
-        // Prune, if worst possible (i.e. mated) score is already above beta
+        // Prune, if worst possible score is already sufficient to reach beta
         let worst_possible_score = MATED_SCORE + ply + if is_in_check { 0 } else { 1 };
         if worst_possible_score >= beta {
             return worst_possible_score;
@@ -360,16 +360,26 @@ impl Search for Engine {
                 let score = to_root_relative_score(ply, hash_move.score());
 
                 match get_score_type(tt_entry) {
-                    ScoreType::Exact      => return score,
-                    ScoreType::UpperBound => beta = min(beta, score),
-                    ScoreType::LowerBound => alpha = max(alpha, score)
+                    ScoreType::Exact => {
+                        return score
+                    },
+
+                    ScoreType::UpperBound => {
+                        if score <= alpha {
+                            return score;
+                        }
+                    },
+
+                    ScoreType::LowerBound => {
+                        alpha = max(alpha, score);
+                        if alpha >= beta {
+                            return score;
+                        }
+                    }
                 };
 
-                if alpha >= beta {
-                    return score;
-                }
             }
-        } else if !is_pv && hash_move == NO_MOVE && depth > 7 {
+        } else if depth > 7 {
             // Reduce nodes without hash move from transposition table
             depth -= 1;
         }
@@ -410,10 +420,9 @@ impl Search for Engine {
 
         // Futile move pruning
         let mut allow_futile_move_pruning = false;
-        let mut prune_low_score = 0;
         if !is_pv && depth <= 6 {
             let margin = (6 << depth) * 4 + 16;
-            prune_low_score = self.board.get_score() * player_color as i32 + margin;
+            let prune_low_score = self.board.get_score() * player_color as i32 + margin;
             allow_futile_move_pruning = prune_low_score <= alpha;
         }
 
@@ -481,12 +490,9 @@ impl Search for Engine {
                         reductions += LOSING_MOVE_REDUCTIONS;
                     }
 
-                    if allow_futile_move_pruning && !is_in_check && !gives_check && reductions >= (depth - 1) {
+                    if allow_futile_move_pruning && evaluated_move_count > 0 && !is_in_check && !gives_check && reductions >= (depth - 1) {
                         // Prune futile move
                         skip = true;
-                        if prune_low_score > best_score {
-                            best_score = prune_low_score; // remember score with added margin for cases when all moves are pruned
-                        }
                     }
                 } else if removed_piece_id < previous_piece.abs() as i8 && self.board.has_negative_see(-player_color, start, end, target_piece_id, removed_piece_id, 0, occupied_bb) {
                     // Reduce search depth for capture moves with negative SEE score
@@ -562,9 +568,7 @@ impl Search for Engine {
             }
         }
 
-        if best_move != NO_MOVE {
-            self.tt.write_entry(hash, depth, best_move.with_score(from_root_relative_score(ply, best_score)), score_type);
-        }
+        self.tt.write_entry(hash, depth, best_move.with_score(from_root_relative_score(ply, best_score)), score_type);
 
         best_score
     }
