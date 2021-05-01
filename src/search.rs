@@ -29,7 +29,7 @@ use std::cmp::{max, min};
 use std::time::{Duration, Instant};
 use crate::eval::Eval;
 use crate::moves::{Move, NO_MOVE};
-use crate::move_gen::{NEGATIVE_HISTORY_SCORE};
+use crate::move_gen::{NEGATIVE_HISTORY_SCORE, is_killer};
 
 pub trait Search {
     fn find_best_move(&mut self, min_depth: i32, is_strict_timelimit: bool) -> Move;
@@ -493,7 +493,11 @@ impl Search for Engine {
                     if allow_futile_move_pruning && evaluated_move_count > 0 && !is_in_check && !gives_check && reductions >= (depth - 1) {
                         // Prune futile move
                         skip = true;
+                    } else if reductions > 0 && is_killer(curr_move) {
+                        // Reduce killer moves less
+                        reductions -= 1;
                     }
+
                 } else if removed_piece_id < previous_piece.abs() as i8 && self.board.has_negative_see(-player_color, start, end, target_piece_id, removed_piece_id, 0, occupied_bb) {
                     // Reduce search depth for capture moves with negative SEE score
                     reductions += 1;

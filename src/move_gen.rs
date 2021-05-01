@@ -944,6 +944,11 @@ fn sort_partial_by_score_desc(movenum: usize, moves: &mut Vec<Move>) -> bool {
     is_sorted
 }
 
+#[inline]
+pub fn is_killer(m: Move) -> bool {
+    let score = m.score();
+    score == PRIMARY_KILLER_SCORE || score == SECONDARY_KILLER_SCORE
+}
 
 #[inline]
 fn get_capture_order_score(attacker_id: i32, victim_id: i32) -> i32 {
