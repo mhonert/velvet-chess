@@ -19,10 +19,7 @@
 use crate::colors::{Color};
 use crate::engine::Engine;
 use crate::pieces::{EMPTY, R, P};
-use crate::score_util::{
-    MATE_SCORE, MAX_SCORE,
-    MIN_SCORE, MATED_SCORE,
-};
+use crate::score_util::{ MATE_SCORE, MIN_SCORE, MATED_SCORE };
 use crate::transposition_table::{get_depth, get_score_type, get_untyped_move, MAX_DEPTH, ScoreType, to_root_relative_score, from_root_relative_score};
 use crate::uci_move::UCIMove;
 use std::cmp::{max, min};
@@ -54,8 +51,6 @@ const TIMEEXT_MULTIPLIER: i32 = 5;
 
 impl Search for Engine {
     fn find_best_move(&mut self, min_depth: i32, is_strict_timelimit: bool) -> Move {
-        let mut alpha = MIN_SCORE;
-        let beta = MAX_SCORE;
 
         self.hh.clear();
 
@@ -66,42 +61,36 @@ impl Search for Engine {
         self.next_check_node_count = 10000;
         self.is_stopped = false;
 
-        let mut current_best_move: Move = NO_MOVE;
+        let mut last_best_move: Move = NO_MOVE;
 
         let mut already_extended_timelimit = false;
-
-        let mut previous_best_move: Move = NO_MOVE;
-        let mut previous_best_score: i32 = 0;
 
         let mut fluctuation_count: i32 = 0;
         let mut score_fluctuations: i32 = 0;
 
         let player_color = self.board.active_player();
 
-        let mut scored_move_count = 0;
-
         self.movegen.enter_ply(player_color, NO_MOVE, NO_MOVE, NO_MOVE);
 
         let mut current_pv: String = String::new();
 
+        let mut move_num = 0;
+
         // Use iterative deepening, i.e. increase the search depth after each iteration
         for depth in min(min_depth, 1)..(MAX_DEPTH as i32) {
+            let iteration_start_time = Instant::now();
             self.current_depth = depth;
             self.max_reached_depth = 0;
 
-            let mut best_score: i32 = MIN_SCORE;
-
-            let previous_alpha = alpha;
-
-            let iteration_start_time = Instant::now();
+            move_num = 0;
 
             let mut best_move: Move = NO_MOVE;
+            let mut best_score: i32 = MIN_SCORE;
 
-            let mut a = -beta; // Search principal variation node with full window
+            let mut alpha = MIN_SCORE;
+            let mut a = MIN_SCORE; // Search first move with full window
 
             let mut iteration_cancelled = false;
-
-            let mut move_num = 0;
 
             while let Some(m) = self.movegen.next_legal_move(&self.hh, &mut self.board) {
                 move_num += 1;
@@ -119,32 +108,30 @@ impl Search for Engine {
 
                 let (previous_piece, removed_piece_id) = self.board.perform_move(m);
 
+                let capture_pos = if removed_piece_id != EMPTY { m.end() } else { -1 };
+
                 let gives_check = self.board.is_in_check(-player_color);
 
-
-                let reductions = if depth > 7 && a != beta { 1 } else { 0 };
-
                 // Use principal variation search
-                let mut result = self.rec_find_best_move(a, -alpha, -player_color, depth - reductions - 1, 1, false, gives_check, -1);
+                let mut result = self.rec_find_best_move(a, -alpha, -player_color, depth - 1, 1, false, gives_check, capture_pos);
                 if result == CANCEL_SEARCH {
                     iteration_cancelled = true;
-                } else {
-                    // Repeat search if it falls outside the window
-                    if -result > alpha && (reductions > 0 || -beta != a ) {
-                        result = self.rec_find_best_move(-beta, -alpha, -player_color, depth - 1, 1, false, gives_check, -1);
-                        if result == CANCEL_SEARCH {
-                            iteration_cancelled = true;
-                        }
+
+                } else if -result > alpha && a != MIN_SCORE {
+                    // Repeat search if it falls outside the search window
+                    result = self.rec_find_best_move(MIN_SCORE, -alpha, -player_color, depth - 1, 1, false, gives_check, capture_pos);
+                    if result == CANCEL_SEARCH {
+                        iteration_cancelled = true;
                     }
                 }
 
                 self.board.undo_move(m, previous_piece, removed_piece_id);
 
                 if iteration_cancelled {
-                    if best_move != NO_MOVE && previous_best_move != NO_MOVE {
+                    if best_move != NO_MOVE && last_best_move != NO_MOVE {
                         score_fluctuations =
                             score_fluctuations * 100 / self.board.options.get_timeext_score_fluctuation_reductions();
-                        score_fluctuations += (best_score - previous_best_score).abs();
+                        score_fluctuations += (best_score - last_best_move.score()).abs();
 
                         if best_score.abs() >= (MATE_SCORE - MAX_DEPTH as i32) {
                             // Reset score fluctuation statistic, if a check mate is found
@@ -156,14 +143,14 @@ impl Search for Engine {
                         && !self.is_stopped
                         && !already_extended_timelimit
                         && should_extend_timelimit(
-                            best_move,
-                            best_score,
-                            previous_best_move,
-                            previous_best_score,
-                            score_fluctuations,
-                            fluctuation_count,
-                            self.board.options.get_timeext_score_change_threshold(),
-                            self.board.options.get_timeext_score_fluctuation_threshold(),
+                        best_move,
+                        best_score,
+                        last_best_move,
+                        last_best_move.score(),
+                        score_fluctuations,
+                        fluctuation_count,
+                        self.board.options.get_timeext_score_change_threshold(),
+                        self.board.options.get_timeext_score_fluctuation_threshold(),
                         )
                     {
                         already_extended_timelimit = true;
@@ -180,6 +167,7 @@ impl Search for Engine {
                 if score > best_score {
                     best_score = score;
                     best_move = m.with_score(score);
+
                     alpha = max(alpha, best_score);
 
                     current_pv = self.extract_pv(best_move, depth - 1);
@@ -195,10 +183,10 @@ impl Search for Engine {
                     }
                 }
 
-                a = -(alpha + 1); // Search all other moves (after principal variation) with a zero window
+                // Search all following moves with a null window
+                a = -(alpha + 1);
 
                 self.movegen.update_root_move(m.with_score(score));
-                scored_move_count += 1;
             }
 
             let current_time = Instant::now();
@@ -211,9 +199,9 @@ impl Search for Engine {
             }
 
             if !iteration_cancelled {
-                if previous_best_move != NO_MOVE {
+                if last_best_move != NO_MOVE {
                     score_fluctuations = score_fluctuations * 100 / self.board.options.get_timeext_score_fluctuation_reductions();
-                    score_fluctuations += (best_score - previous_best_score).abs();
+                    score_fluctuations += (best_score - last_best_move.score()).abs();
                     fluctuation_count += 1;
                 }
 
@@ -224,14 +212,14 @@ impl Search for Engine {
                     if is_strict_timelimit
                         || already_extended_timelimit
                         || !should_extend_timelimit(
-                            best_move,
-                            best_score,
-                            previous_best_move,
-                            previous_best_score,
-                            score_fluctuations,
-                            fluctuation_count,
-                            self.board.options.get_timeext_score_change_threshold(),
-                            self.board.options.get_timeext_score_fluctuation_threshold(),
+                        best_move,
+                        best_score,
+                        last_best_move,
+                        last_best_move.score(),
+                        score_fluctuations,
+                        fluctuation_count,
+                        self.board.options.get_timeext_score_change_threshold(),
+                        self.board.options.get_timeext_score_fluctuation_threshold(),
                         )
                     {
                         iteration_cancelled = true;
@@ -240,8 +228,8 @@ impl Search for Engine {
             }
 
             if best_move == NO_MOVE {
-                best_move = previous_best_move;
-                best_score = previous_best_score;
+                best_move = last_best_move;
+                best_score = last_best_move.score();
             }
 
             let seldepth = self.max_reached_depth;
@@ -255,11 +243,10 @@ impl Search for Engine {
                 current_pv
             );
 
-            current_best_move = best_move.with_score(best_score);
+            last_best_move = best_move.with_score(best_score);
 
-            if iteration_cancelled || scored_move_count <= 1 {
+            if iteration_cancelled || move_num <= 1 {
                 // stop searching, if iteration has been cancelled or there is no valid move or only a single valid move
-
                 break;
             }
 
@@ -268,22 +255,17 @@ impl Search for Engine {
                 break;
             }
 
-            previous_best_move = best_move;
-            previous_best_score = best_score;
-
-            alpha = previous_alpha;
-
             self.movegen.reset();
-            self.movegen.resort(current_best_move);
+            self.movegen.resort(last_best_move);
         }
 
         self.movegen.leave_ply();
 
-        if scored_move_count == 0 {
+        if move_num == 0 {
             return NO_MOVE;
         }
 
-        current_best_move
+        last_best_move
     }
 
     // Recursively calls itself with alternating player colors to
