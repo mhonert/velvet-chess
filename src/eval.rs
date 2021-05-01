@@ -124,7 +124,9 @@ impl Eval for Board {
 
         // Bishops
         let white_bishops = self.get_bitboard(B);
+        let mut white_bishop_count = 0;
         for pos in BitBoard(white_bishops) {
+            white_bishop_count += 1;
             let possible_moves = get_bishop_attacks(empty_board, pos as i32);
 
             let move_count = (possible_moves & white_safe_targets).count_ones();
@@ -143,12 +145,18 @@ impl Eval for Board {
                 score += self.options.get_bishop_pin_bonus();
                 eg_score += self.options.get_eg_bishop_pin_bonus();
             }
+        }
 
+        if white_bishop_count == 2 {
+            score += self.options.get_bishop_pair_bonus();
+            eg_score += self.options.get_eg_bishop_pair_bonus();
         }
 
         let mut pinnable_white_pieces = white_knights | white_rooks;
         let black_bishops = self.get_bitboard(-B);
+        let mut black_bishop_count = 0;
         for pos in BitBoard(black_bishops) {
+            black_bishop_count += 1;
             let possible_moves = get_bishop_attacks(empty_board, pos as i32);
 
             let move_count = (possible_moves & black_safe_targets).count_ones();
@@ -167,6 +175,11 @@ impl Eval for Board {
                 score -= self.options.get_bishop_pin_bonus();
                 eg_score -= self.options.get_eg_bishop_pin_bonus();
             }
+        }
+
+        if black_bishop_count == 2 {
+            score -= self.options.get_bishop_pair_bonus();
+            eg_score -= self.options.get_eg_bishop_pair_bonus();
         }
 
         // Rooks
