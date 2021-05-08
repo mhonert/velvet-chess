@@ -26,9 +26,8 @@ use crate::score_util::{pack_scores};
 
 const QS_SEE_THRESHOLD: i32 = 104;
 const QS_PRUNE_MARGIN: i32 = 650;
-const TIMEEXT_SCORE_CHANGE_THRESHOLD: i32 = 80;
-const TIMEEXT_SCORE_FLUCTUATION_THRESHOLD: i32 = 130;
-const TIMEEXT_SCORE_FLUCTUATION_REDUCTIONS: i32 = 90;
+const TIMEEXT_SCORE_DROP_THRESHOLD: i32 = 20;
+const TIMEEXT_HISTORY_SIZE: i32 = 6;
 const RAZOR_MARGIN: i32 = 130;
 const KING_SHIELD_BONUS: i32 = 23;
 const QUEEN_IMBALANCE_PENALTY: i32 = 107;
@@ -100,20 +99,14 @@ impl Options {
 
 
     #[inline]
-    pub fn get_timeext_score_change_threshold(&self) -> i32 {
-        TIMEEXT_SCORE_CHANGE_THRESHOLD
+    pub fn get_timeext_score_drop_threshold(&self) -> i32 {
+        TIMEEXT_SCORE_DROP_THRESHOLD
     }
 
 
     #[inline]
-    pub fn get_timeext_score_fluctuation_threshold(&self) -> i32 {
-        TIMEEXT_SCORE_FLUCTUATION_THRESHOLD
-    }
-
-
-    #[inline]
-    pub fn get_timeext_score_fluctuation_reductions(&self) -> i32 {
-        TIMEEXT_SCORE_FLUCTUATION_REDUCTIONS
+    pub fn get_timeext_history_size(&self) -> i32 {
+        TIMEEXT_HISTORY_SIZE
     }
 
 

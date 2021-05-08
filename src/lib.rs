@@ -37,6 +37,7 @@ mod pieces;
 mod pos_history;
 mod score_util;
 mod search;
+mod time_management;
 mod tuning;
 mod transposition_table;
 mod uci_move;

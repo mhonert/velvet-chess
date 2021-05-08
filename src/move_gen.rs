@@ -87,6 +87,11 @@ impl MoveGenerator {
         self.entries[self.ply].next_legal_move(hh, board)
     }
 
+    // Sets up the internal state, so the next call to next_legal_move will return the same move
+    pub fn repeat_legal_move(&mut self) {
+        self.entries[self.ply].repeat_legal_move();
+    }
+
     #[inline(always)]
     pub fn next_capture_move(&mut self, board: &mut Board) -> Option<Move> {
         self.entries[self.ply].next_capture_move(board)
@@ -347,6 +352,12 @@ impl MoveList {
         }
 
         None
+    }
+
+    pub fn repeat_legal_move(&mut self) {
+        if self.move_index > 0 {
+            self.move_index -= 1;
+        }
     }
 
     pub fn next_legal_move(&mut self, hh: &HistoryHeuristics, board: &mut Board) -> Option<Move> {

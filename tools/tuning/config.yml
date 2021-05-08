@@ -59,14 +59,11 @@ tuning:
   - name: QsPruneMargin
     value: 650
 
-  - name: TimeextScoreChangeThreshold
-    value: 80
+  - name: TimeextScoreDropThreshold
+    value: 20
 
-  - name: TimeextScoreFluctuationThreshold
-    value: 130
-
-  - name: TimeextScoreFluctuationReductions
-    value: 90
+  - name: TimeextHistorySize
+    value: 6
 
   - name: RazorMargin
     value: 130

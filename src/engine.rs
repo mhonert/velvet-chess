@@ -37,6 +37,7 @@ use crate::random::Random;
 use crate::moves::{NO_MOVE, Move};
 use crate::move_gen::MoveGenerator;
 use crate::tuning::Tuning;
+use crate::time_management::{TimeManager, MAX_TIMELIMIT_MS, TIMEEXT_MULTIPLIER};
 
 pub enum Message {
     NewGame,
@@ -88,9 +89,8 @@ pub struct Engine {
     pub movegen: MoveGenerator,
     pub hh: HistoryHeuristics,
     pub tt: TranspositionTable,
+    pub time_mgr: TimeManager,
 
-    pub starttime: Instant,
-    pub timelimit_ms: i32,
     pub node_limit: u64,
     pub depth_limit: i32,
 
@@ -110,9 +110,6 @@ pub struct Engine {
     test_positions: Vec<EvalBoardPos>
 }
 
-pub const TIMEEXT_MULTIPLIER: i32 = 5;
-const MAX_TIMELIMIT_MS: i32 = i32::max_value();
-
 pub fn spawn_engine_thread() -> Sender<Message> {
     let (tx, rx) = mpsc::channel::<Message>();
 
@@ -126,14 +123,18 @@ pub fn spawn_engine_thread() -> Sender<Message> {
 
 impl Engine {
     pub fn new_from_fen(rx: Receiver<Message>, fen: &str, tt_size_mb: u64) -> Self {
+        let board = create_from_fen(&fen);
+
+        let timeext_history_size = board.options.get_timeext_history_size();
+        let final_score_drop_threshold = board.options.get_timeext_score_drop_threshold();
+
         Engine {
             rx,
-            board: create_from_fen(&fen),
+            board,
             movegen: MoveGenerator::new(),
             hh: HistoryHeuristics::new(),
             tt: TranspositionTable::new(tt_size_mb),
-            starttime: Instant::now(),
-            timelimit_ms: 0,
+            time_mgr: TimeManager::new(timeext_history_size, final_score_drop_threshold),
             node_limit: u64::max_value(),
             depth_limit: MAX_DEPTH as i32,
             cancel_possible: false,
@@ -220,7 +221,7 @@ impl Engine {
 
     fn go(&mut self, depth: i32, wtime: i32, btime: i32, winc: i32, binc: i32, movetime: i32, movestogo: i32, nodes: u64) {
         self.depth_limit = depth;
-        self.timelimit_ms = if self.board.active_player() == WHITE {
+        let timelimit_ms = if self.board.active_player() == WHITE {
             calc_timelimit(movetime, wtime, winc, movestogo)
         } else {
             calc_timelimit(movetime, btime, binc, movestogo)
@@ -234,10 +235,10 @@ impl Engine {
 
         self.node_limit = nodes;
 
-        let is_strict_timelimit = movetime > 0 || self.timelimit_ms == MAX_TIMELIMIT_MS
-            || movestogo == 1 || (time_left - (TIMEEXT_MULTIPLIER * self.timelimit_ms) <= 20);
+        let is_strict_timelimit = movetime > 0 || timelimit_ms == MAX_TIMELIMIT_MS
+            || movestogo == 1 || (time_left - (TIMEEXT_MULTIPLIER * timelimit_ms) <= 20);
 
-        let m = self.find_best_move(3, is_strict_timelimit);
+        let m = self.find_best_move(3, timelimit_ms, is_strict_timelimit);
         if m == NO_MOVE {
             println!("bestmove 0000")
         } else {
@@ -252,6 +253,12 @@ impl Engine {
         if self.options_modified {
             self.options_modified = false;
             self.board.pst.recalculate(&self.board.options);
+
+            let history_size = self.board.options.get_timeext_history_size();
+            let final_score_drop_threshold = self.board.options.get_timeext_score_drop_threshold();
+
+            self.time_mgr.update_params(history_size, final_score_drop_threshold);
+
         }
         println!("readyok")
     }
@@ -309,7 +316,7 @@ impl Engine {
 
             let play_moves = (self.rnd.rand64() % 12) as i32;
             for _ in 0..play_moves {
-                let m = self.find_best_move(9, true);
+                let m = self.find_best_move(9, 0, true);
                 if m == NO_MOVE {
                     break;
                 }
@@ -355,7 +362,7 @@ impl Engine {
                 is_quiet = true;
             }
 
-            let m = self.find_best_move(6, true);
+            let m = self.find_best_move(6, 0, true);
             if m == NO_MOVE {
                 return false;
             }

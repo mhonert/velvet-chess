@@ -29,7 +29,7 @@ use crate::moves::{Move, NO_MOVE};
 use crate::move_gen::{NEGATIVE_HISTORY_SCORE, is_killer};
 
 pub trait Search {
-    fn find_best_move(&mut self, min_depth: i32, is_strict_timelimit: bool) -> Move;
+    fn find_best_move(&mut self, min_depth: i32, time_limit_ms: i32, is_strict_timelimit: bool) -> Move;
 
     fn rec_find_best_move(&mut self, alpha: i32, beta: i32, player_color: Color, depth: i32, ply: i32, null_move_performed: bool, is_in_check: bool, capture_pos: i32) -> i32;
 
@@ -47,14 +47,10 @@ const LMR_THRESHOLD: i32 = 4;
 const FUTILE_MOVE_REDUCTIONS: i32 = 2;
 const LOSING_MOVE_REDUCTIONS: i32 = 2;
 
-const TIMEEXT_MULTIPLIER: i32 = 5;
-
 impl Search for Engine {
-    fn find_best_move(&mut self, min_depth: i32, is_strict_timelimit: bool) -> Move {
-
+    fn find_best_move(&mut self, min_depth: i32, time_limit_ms: i32, is_strict_timelimit: bool) -> Move {
+        self.time_mgr.reset(time_limit_ms, is_strict_timelimit);
         self.hh.clear();
-
-        self.starttime = Instant::now();
 
         self.cancel_possible = false;
         self.node_count = 0;
@@ -62,11 +58,6 @@ impl Search for Engine {
         self.is_stopped = false;
 
         let mut last_best_move: Move = NO_MOVE;
-
-        let mut already_extended_timelimit = false;
-
-        let mut fluctuation_count: i32 = 0;
-        let mut score_fluctuations: i32 = 0;
 
         let player_color = self.board.active_player();
 
@@ -85,7 +76,6 @@ impl Search for Engine {
             move_num = 0;
 
             let mut best_move: Move = NO_MOVE;
-            let mut best_score: i32 = MIN_SCORE;
 
             let mut alpha = MIN_SCORE;
             let mut a = MIN_SCORE; // Search first move with full window
@@ -97,9 +87,7 @@ impl Search for Engine {
 
                 if self.node_count > 1000000 {
                     let now = Instant::now();
-
-                    let total_duration = now.duration_since(self.starttime);
-                    if total_duration.as_millis() >= 1000 {
+                    if self.time_mgr.search_duration_ms(now) >= 1000 {
                         self.last_log_time = now;
                         let uci_move = UCIMove::from_encoded_move(&self.board, m).to_uci();
                         println!("info depth {} currmove {} currmovenumber {}", depth, uci_move, move_num);
@@ -128,47 +116,15 @@ impl Search for Engine {
                 self.board.undo_move(m, previous_piece, removed_piece_id);
 
                 if iteration_cancelled {
-                    if best_move != NO_MOVE && last_best_move != NO_MOVE {
-                        score_fluctuations =
-                            score_fluctuations * 100 / self.board.options.get_timeext_score_fluctuation_reductions();
-                        score_fluctuations += (best_score - last_best_move.score()).abs();
-
-                        if best_score.abs() >= (MATE_SCORE - MAX_DEPTH as i32) {
-                            // Reset score fluctuation statistic, if a check mate is found
-                            score_fluctuations = 0;
-                        }
-                    }
-
-                    if !is_strict_timelimit
-                        && !self.is_stopped
-                        && !already_extended_timelimit
-                        && should_extend_timelimit(
-                        best_move,
-                        best_score,
-                        last_best_move,
-                        last_best_move.score(),
-                        score_fluctuations,
-                        fluctuation_count,
-                        self.board.options.get_timeext_score_change_threshold(),
-                        self.board.options.get_timeext_score_fluctuation_threshold(),
-                        )
-                    {
-                        already_extended_timelimit = true;
-                        self.timelimit_ms *= TIMEEXT_MULTIPLIER;
-
-                        iteration_cancelled = false;
-                        continue;
-                    }
-
                     break;
                 }
 
                 let score = -result;
-                if score > best_score {
-                    best_score = score;
+                if score > alpha {
+                    alpha = score;
                     best_move = m.with_score(score);
 
-                    alpha = max(alpha, best_score);
+                    self.time_mgr.update_best_move(best_move, depth);
 
                     current_pv = self.extract_pv(best_move, depth - 1);
 
@@ -177,7 +133,7 @@ impl Search for Engine {
                             "info depth {} seldepth {} score {} pv {}",
                             depth,
                             self.max_reached_depth,
-                            get_score_info(best_score),
+                            get_score_info(alpha),
                             current_pv,
                         );
                     }
@@ -189,39 +145,20 @@ impl Search for Engine {
                 self.movegen.update_root_move(m.with_score(score));
             }
 
-            let current_time = Instant::now();
-            let iteration_duration = current_time.duration_since(iteration_start_time);
-            let total_duration = current_time.duration_since(self.starttime);
-            let remaining_time = self.timelimit_ms - total_duration.as_millis() as i32;
+            let now = Instant::now();
 
             if depth >= self.depth_limit {
                 iteration_cancelled = true;
             }
 
             if !iteration_cancelled {
-                if last_best_move != NO_MOVE {
-                    score_fluctuations = score_fluctuations * 100 / self.board.options.get_timeext_score_fluctuation_reductions();
-                    score_fluctuations += (best_score - last_best_move.score()).abs();
-                    fluctuation_count += 1;
-                }
-
                 self.cancel_possible = depth >= min_depth;
-                if self.cancel_possible && (remaining_time <= (iteration_duration.as_millis() as i32 * 2)) {
-                    // Not enough time left for another iteration
+                let iteration_duration = now.duration_since(iteration_start_time);
+                if self.cancel_possible && !self.time_mgr.is_time_for_another_iteration(now, iteration_duration) {
+                    if self.time_mgr.should_extend_timelimit() {
+                        self.time_mgr.extend_timelimit();
 
-                    if is_strict_timelimit
-                        || already_extended_timelimit
-                        || !should_extend_timelimit(
-                        best_move,
-                        best_score,
-                        last_best_move,
-                        last_best_move.score(),
-                        score_fluctuations,
-                        fluctuation_count,
-                        self.board.options.get_timeext_score_change_threshold(),
-                        self.board.options.get_timeext_score_fluctuation_threshold(),
-                        )
-                    {
+                    } else {
                         iteration_cancelled = true;
                     }
                 }
@@ -229,7 +166,7 @@ impl Search for Engine {
 
             if best_move == NO_MOVE {
                 best_move = last_best_move;
-                best_score = last_best_move.score();
+                alpha = last_best_move.score();
             }
 
             let seldepth = self.max_reached_depth;
@@ -238,19 +175,19 @@ impl Search for Engine {
                 "info depth {} seldepth {} score {}{} pv {}",
                 depth,
                 seldepth,
-                get_score_info(best_score),
-                self.get_base_stats(total_duration),
+                get_score_info(alpha),
+                self.get_base_stats(self.time_mgr.search_duration(now)),
                 current_pv
             );
 
-            last_best_move = best_move.with_score(best_score);
+            last_best_move = best_move;
 
             if iteration_cancelled || move_num <= 1 {
                 // stop searching, if iteration has been cancelled or there is no valid move or only a single valid move
                 break;
             }
 
-            if (MATE_SCORE - best_score.abs()) <= depth / 3 {
+            if (MATE_SCORE - alpha.abs()) <= depth / 3 {
                 // stop searching, if a close mate has already been found
                 break;
             }
@@ -275,22 +212,27 @@ impl Search for Engine {
 
         if self.node_count >= self.next_check_node_count {
             self.next_check_node_count = self.node_count + 20000;
-            let current_time = Instant::now();
-            let total_duration = current_time.duration_since(self.starttime);
 
+            let now = Instant::now();
             if self.cancel_possible {
-                if self.node_count >= self.node_limit || total_duration.as_millis() as i32 >= self.timelimit_ms {
-                    // Cancel search if the node or time limit has been reached
-                    return CANCEL_SEARCH;
+                if self.node_count >= self.node_limit || self.time_mgr.is_timelimit_exceeded(now) {
+                    // Cancel search if the node or time limit has been reached, but first check
+                    // whether the search time should be extended
+                    if !self.is_stopped && self.time_mgr.should_extend_timelimit() {
+                        self.time_mgr.extend_timelimit();
+                    } else {
+                        return CANCEL_SEARCH;
+                    }
+
                 } else if self.is_search_stopped() {
                     self.is_stopped = true;
                     return CANCEL_SEARCH;
                 }
             }
 
-            if depth > 3 && current_time.duration_since(self.last_log_time).as_millis() >= 1000 {
-                self.last_log_time = current_time;
-                let base_stats = self.get_base_stats(total_duration);
+            if depth > 3 && now.duration_since(self.last_log_time).as_millis() >= 1000 {
+                self.last_log_time = now;
+                let base_stats = self.get_base_stats(self.time_mgr.search_duration(now));
                 println!("info depth {} seldepth {}{}", self.current_depth, self.max_reached_depth, base_stats);
             }
         }
@@ -690,31 +632,6 @@ impl Search for Engine {
     }
 }
 
-fn should_extend_timelimit(
-    new_move: Move,
-    new_score: i32,
-    previous_move: Move,
-    previous_score: i32,
-    score_fluctuations: i32,
-    fluctuation_count: i32,
-    score_change_threshold: i32,
-    score_fluctuation_threshold: i32
-) -> bool {
-    if previous_move == NO_MOVE || new_move == NO_MOVE {
-        return false;
-    }
-
-    let avg_fluctuations = if fluctuation_count > 0 {
-        score_fluctuations / fluctuation_count
-    } else {
-        0
-    };
-
-    !new_move.is_same_move(previous_move)
-        || (new_score - previous_score).abs() >= score_change_threshold
-        || avg_fluctuations >= score_fluctuation_threshold
-}
-
 fn get_score_info(score: i32) -> String {
     if score <= MATED_SCORE + MAX_DEPTH as i32 {
         return format!("mate {}", (MATED_SCORE - score - 1) / 2);
@@ -762,14 +679,12 @@ mod tests {
         let (_, rx) = mpsc::channel::<Message>();
         let mut engine = Engine::new_from_fen(rx, &fen, 1);
 
-        engine.timelimit_ms = 0;
-
-        let m = engine.find_best_move(2, true);
+        let m = engine.find_best_move(2, 0, true);
         assert_ne!(NO_MOVE, m);
 
         engine.perform_move(m);
 
-        let is_check_mate = engine.find_best_move(1, true) == NO_MOVE && engine.board.is_in_check(WHITE);
+        let is_check_mate = engine.find_best_move(1, 0, true) == NO_MOVE && engine.board.is_in_check(WHITE);
         assert!(is_check_mate);
     }
 
@@ -793,16 +708,14 @@ mod tests {
         let (_, rx) = mpsc::channel::<Message>();
         let mut engine = Engine::new_from_fen(rx, &fen, 1);
 
-        engine.timelimit_ms = 0;
-
-        let m1 = engine.find_best_move(3, true);
+        let m1 = engine.find_best_move(3, 0, true);
         engine.perform_move(m1);
-        let m2 = engine.find_best_move(2, true);
+        let m2 = engine.find_best_move(2, 0, true);
         engine.perform_move(m2);
-        let m3 = engine.find_best_move(1, true);
+        let m3 = engine.find_best_move(1, 0, true);
         engine.perform_move(m3);
 
-        let is_check_mate = engine.find_best_move(1, true) == NO_MOVE && engine.board.is_in_check(BLACK);
+        let is_check_mate = engine.find_best_move(1, 0, true) == NO_MOVE && engine.board.is_in_check(BLACK);
         assert!(is_check_mate);
     }
 
