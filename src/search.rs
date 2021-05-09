@@ -54,7 +54,7 @@ impl Search for Engine {
 
         self.cancel_possible = false;
         self.node_count = 0;
-        self.next_check_node_count = 10000;
+        self.next_check_node_count = 1000;
         self.is_stopped = false;
 
         let mut last_best_move: Move = NO_MOVE;
@@ -211,7 +211,7 @@ impl Search for Engine {
         self.max_reached_depth = max(ply, self.max_reached_depth);
 
         if self.node_count >= self.next_check_node_count {
-            self.next_check_node_count = self.node_count + 20000;
+            self.next_check_node_count = self.node_count + 1000;
 
             let now = Instant::now();
             if self.cancel_possible {
