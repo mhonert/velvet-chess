@@ -255,13 +255,18 @@ impl Search for Engine {
             return worst_possible_score;
         }
 
+        let mut pos_score: Option<i32> = None;
+
         if is_in_check {
             // Extend search when in check
             depth = max(1, depth + 1);
 
-        } else if depth == 1 && (self.board.get_score() * player_color as i32) < alpha - self.board.options.get_razor_margin() {
-            // Directly jump to quiescence search, if current position score is below a certain threshold
-            depth = 0;
+        } else if depth == 1 {
+            pos_score = Some(self.board.get_score() * player_color as i32);
+            if pos_score.unwrap() < alpha - self.board.options.get_razor_margin() {
+                // Directly jump to quiescence search, if current position score is below a certain threshold
+                depth = 0;
+            }
         }
 
         // Quiescence search
@@ -346,7 +351,7 @@ impl Search for Engine {
         let mut allow_futile_move_pruning = false;
         if !is_pv && depth <= 6 {
             let margin = (6 << depth) * 4 + 16;
-            let prune_low_score = self.board.get_score() * player_color as i32 + margin;
+            let prune_low_score = pos_score.unwrap_or_else(|| self.board.get_score() * player_color as i32) + margin;
             allow_futile_move_pruning = prune_low_score <= alpha;
         }
 
