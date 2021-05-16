@@ -17,10 +17,11 @@
  */
 
 use std::mem::transmute;
-use crate::genetic_eval::Instruction::{Xor, And, Not, Or, Add, Mul};
+use crate::genetic_eval::Instruction::{Xor, And, Not, Or, Mul, Add};
 use crate::random::Random;
 use std::cmp::{min};
-use crate::genetic_eval::Term::{Constant, Variable, OneOp, TwoOp};
+use crate::genetic_eval::Term::{Constant, Variable, UnaryOp, BinaryOp};
+use std::collections::HashMap;
 
 const CROSS_OVER_RATE: u32 = 90;
 const MUTATION_RATE: u32 = 10;
@@ -58,7 +59,7 @@ impl GeneticEvaluator {
 
     pub fn add_program(&mut self, program: GeneticProgram) {
         self.programs.push(program);
-        self.opt_programs.push(sanitize(program));
+        self.opt_programs.push(optimize(&program));
     }
 
     pub fn clear(&mut self) {
@@ -85,7 +86,7 @@ impl GeneticEvaluator {
 fn print_generation(programs: &[GeneticProgram]) {
     print!("result ");
     for program in programs.iter() {
-        let solution_size = 128 - sanitize_code(program.code).leading_zeros();
+        let solution_size = program.instr_count();
         print!("{},{},{},{};",
                program.code,
                program.data.iter()
@@ -127,10 +128,10 @@ impl Instruction {
     pub fn run_two_op(&self, op1: u64, op2: u64) -> u64 {
         match self {
             And => op1 & op2,
+            Add => op1 + op2,
             Or => op1 | op2,
             Xor => op1 ^ op2,
-            Add => op1.wrapping_add(op2),
-            Mul => op1.wrapping_mul(op2),
+            Mul => op1 * op2,
             _ => panic!("{:?} is not a 2-operand instruction", self)
         }
     }
@@ -159,6 +160,10 @@ impl GeneticProgram {
         self.data[3] = v4;
     }
 
+    pub fn instr_count(&self) -> usize {
+        ((128 - self.code.leading_zeros()) as usize) / INSTR_SIZE
+    }
+
     pub fn run(&self) -> u64 {
         let mut stack: [u64; 32] = [0; 32];
         let mut sp : usize = 0;
@@ -184,6 +189,13 @@ impl GeneticProgram {
                     sp -= 1;
                 },
 
+                Add => {
+                    unsafe {
+                        *stack.get_unchecked_mut(sp - 2) += *stack.get_unchecked(sp - 1);
+                    }
+                    sp -= 1;
+                },
+
                 Or => {
                     unsafe {
                         *stack.get_unchecked_mut(sp - 2) |= *stack.get_unchecked(sp - 1);
@@ -200,18 +212,7 @@ impl GeneticProgram {
 
                 Mul => {
                     unsafe {
-                        let v2 = *stack.get_unchecked(sp - 1);
-                        let v = stack.get_unchecked_mut(sp - 2) ;
-                        *v = v.wrapping_mul(v2);
-                    }
-                    sp -= 1;
-                },
-
-                Add => {
-                    unsafe {
-                        let v2 = *stack.get_unchecked(sp - 1);
-                        let v = stack.get_unchecked_mut(sp - 2) ;
-                        *v = v.wrapping_add(v2);
+                        *stack.get_unchecked_mut(sp - 2) *= *stack.get_unchecked(sp - 1);
                     }
                     sp -= 1;
                 },
@@ -236,10 +237,10 @@ impl GeneticProgram {
 
     pub fn disassemble(&self) {
         println!("debug GenEval Code: {}", self.code);
-        // println!("debug GenEval Data: [{}]", self.data.iter()
-        //     .map(|&n| format!("{:064b}", n))
-        //     .collect::<Vec<String>>()
-        //     .join(", "));
+        println!("debug GenEval Data: [{}]", self.data.iter()
+            .map(|&n| format!("{:016x}", n))
+            .collect::<Vec<String>>()
+            .join(", "));
 
         println!("debug GenEval Disassembled Code:");
 
@@ -260,44 +261,216 @@ impl GeneticProgram {
             num += 1;
         }
     }
+
+
+    pub fn count(&self, searched_instr: Instruction) -> i32 {
+        let searched_opcode = searched_instr as u8;
+        let mut count = 0;
+        let mut code = self.code;
+        while code != 0 {
+            let opcode = (code & 0b1111) as u8;
+            code >>= 4;
+            if opcode == searched_opcode {
+                count += 1;
+            }
+        }
+
+        count
+    }
 }
 
 #[derive(Clone)]
 enum Term {
     Constant(u64),
-    Variable(String),
-    OneOp(Instruction, Box<Term>),
-    TwoOp(Instruction, Box<Term>, Box<Term>),
+    Variable(usize),
+    UnaryOp(Instruction, Box<Term>),
+    BinaryOp(Instruction, Box<Term>, Box<Term>),
 }
+
+const VAR_NAMES: [&str; 4] = ["a", "b", "c", "d"];
+// const VAR_NAMES: [&str; 4] = ["own_pawns", "opp_pawns", "own_king_half", "opp_king_half"];
 
 impl Term {
     pub fn to_expr_str(&self) -> String {
         match self {
-            Variable(name) => name.clone(),
+            Variable(slot) => String::from(VAR_NAMES[*slot]),
             // Constant(value) => format!("{:016x}", &value),
             Constant(value) => format!("{}", &value),
-            OneOp(instr, op) => {
+            UnaryOp(instr, op) => {
                 match *instr {
                     Not => format!("!{}", op.to_expr_str()),
                     _ => panic!("{:?} is not a one operand instruction", *instr),
                 }
             }
-            TwoOp(instr, op1, op2) => {
+            BinaryOp(instr, op1, op2) => {
                 match *instr {
                     And => format!("({} & {})", op1.to_expr_str(), op2.to_expr_str()),
+                    Add => format!("({} + {})", op1.to_expr_str(), op2.to_expr_str()),
                     Or => format!("({} | {})", op1.to_expr_str(), op2.to_expr_str()),
                     Xor => format!("({} ^ {})", op1.to_expr_str(), op2.to_expr_str()),
-                    Mul => format!("{}.wrapping_mul({})", op1.to_expr_str(), op2.to_expr_str()),
-                    Add => format!("{}.wrapping_add({})", op1.to_expr_str(), op2.to_expr_str()),
+                    Mul => format!("({} * {})", op1.to_expr_str(), op2.to_expr_str()),
                     _ => panic!("{:?} is not a two operand instruction", *instr),
                 }
             }
         }
     }
+
+    fn optimized(self: &Term) -> Term {
+        match self {
+            Constant(_) => self.clone(),
+            Variable(_) => self.clone(),
+            UnaryOp(instr, op) => {
+                match instr {
+                    Not => {
+                        let opt_op = op.optimized();
+                        match opt_op {
+                            Constant(value) => Constant(!value),
+                            _ => self.clone()
+                        }
+                    },
+                    _ => panic!("{:?} is not a 1-operand instruction", instr)
+                }
+            },
+            BinaryOp(instr, op1, op2) => {
+                let opt_op1 = op1.optimized();
+                let opt_op2 = op2.optimized();
+                match instr {
+                    And => {
+                        match opt_op1 {
+                            Constant(value1) => {
+                                match opt_op2 {
+                                    Constant(value2) => Constant(instr.run_two_op(value1, value2)),
+                                    _ => {
+                                        if value1 == 0 {
+                                            Constant(0)
+                                        } else {
+                                            BinaryOp(And, Box::new(opt_op1), Box::new(opt_op2))
+                                        }
+                                    }
+                                }
+                            },
+                            _ => {
+                                match opt_op2 {
+                                    Constant(value2) => {
+                                        if value2 == 0 {
+                                            Constant(0)
+                                        } else {
+                                            BinaryOp(And, Box::new(opt_op1), Box::new(opt_op2))
+                                        }
+                                    },
+                                    _ => BinaryOp(And, Box::new(opt_op1), Box::new(opt_op2))
+                                }
+                            }
+                        }
+                    },
+
+                    Add => {
+                        match opt_op1 {
+                            Constant(value1) => {
+                                match opt_op2 {
+                                    Constant(value2) => Constant(instr.run_two_op(value1, value2)),
+                                    _ => {
+                                        if value1 == 0 {
+                                            opt_op2
+                                        } else {
+                                            BinaryOp(*instr, Box::new(opt_op1), Box::new(opt_op2))
+                                        }
+                                    }
+                                }
+                            },
+                            _ => {
+                                match opt_op2 {
+                                    Constant(value2) => {
+                                        if value2 == 0 {
+                                            opt_op1
+                                        } else {
+                                            BinaryOp(*instr, Box::new(opt_op1), Box::new(opt_op2))
+                                        }
+                                    },
+                                    _ => BinaryOp(*instr, Box::new(opt_op1), Box::new(opt_op2))
+                                }
+                            }
+                        }
+                    }
+
+                    Or | Xor => {
+                        match opt_op1 {
+                            Constant(value1) => {
+                                match opt_op2 {
+                                    Constant(value2) => Constant(instr.run_two_op(value1, value2)),
+                                    _ => {
+                                        if value1 == 0 {
+                                            opt_op2
+                                        } else {
+                                            BinaryOp(*instr, Box::new(opt_op1), Box::new(opt_op2))
+                                        }
+                                    }
+                                }
+                            },
+                            _ => {
+                                match opt_op2 {
+                                    Constant(value2) => {
+                                        if value2 == 0 {
+                                            opt_op1
+                                        } else {
+                                            BinaryOp(*instr, Box::new(opt_op1), Box::new(opt_op2))
+                                        }
+                                    },
+                                    _ => BinaryOp(*instr, Box::new(opt_op1), Box::new(opt_op2))
+                                }
+                            }
+                        }
+                    },
+
+                    Mul => {
+                        match opt_op1 {
+                            Constant(value1) => {
+                                match opt_op2 {
+                                    Constant(value2) => Constant(instr.run_two_op(value1, value2)),
+                                    _ => {
+                                        if value1 == 0 {
+                                            Constant(0)
+                                        } else if value1 == 1 {
+                                            opt_op2
+                                        } else {
+                                            BinaryOp(*instr, Box::new(opt_op1), Box::new(opt_op2))
+                                        }
+                                    }
+                                }
+                            },
+                            _ => {
+                                match opt_op2 {
+                                    Constant(value2) => {
+                                        if value2 == 0 {
+                                            Constant(0)
+                                        } else if value2 == 1 {
+                                            opt_op1
+                                        } else {
+                                            BinaryOp(*instr, Box::new(opt_op1), Box::new(opt_op2))
+                                        }
+                                    },
+                                    _ => BinaryOp(*instr, Box::new(opt_op1), Box::new(opt_op2))
+                                }
+                            }
+                        }
+                    },
+
+                    _ => self.clone()
+                }
+            },
+        }
+    }
 }
 
+pub fn compile(program: &GeneticProgram) {
+    let term = parse(&program).optimized();
 
-pub fn compile(program: GeneticProgram) {
+    // println!("let count = {}.count_ones() as i32;", stack[sp - 1]);
+    // println!("let score = count * (count + 1) / 2 * {} / 32", program.score_adjustment);
+    println!("let result = {}", term.to_expr_str());
+}
+
+fn parse(program: &GeneticProgram) -> Term {
     let mut stack: Vec<Term> = Vec::new();
     for _ in 0..32 {
         stack.push(Constant(0));
@@ -313,28 +486,22 @@ pub fn compile(program: GeneticProgram) {
         let instr = unsafe { transmute(opcode) };
         match instr {
             Not => {
-                stack[sp - 1] = OneOp(Not, Box::new(stack[sp - 1].clone()));
+                stack[sp - 1] = UnaryOp(Not, Box::new(stack[sp - 1].clone()));
             },
 
-            And | Or | Xor | Add | Mul => {
-                stack[sp - 2] = TwoOp(instr, Box::new(stack[sp - 2].clone()), Box::new(stack[sp - 1].clone()));
+            Or | Xor | And | Mul | Add => {
+                stack[sp - 2] = BinaryOp(instr, Box::new(stack[sp - 2].clone()), Box::new(stack[sp - 1].clone()));
                 sp -= 1;
             },
 
             _ => {
                 // Data
-                let slot = opcode;
-                stack[sp] = match slot {
-                    // 0 => Variable(String::from("own_pawns")),
-                    // 1 => Variable(String::from("opp_pawns")),
-                    // 2 => Variable(String::from("own_king_half")),
-                    // 3 => Variable(String::from("opp_king_half")),
-                    0 => Variable(String::from("a")),
-                    1 => Variable(String::from("b")),
-                    2 => Variable(String::from("c")),
-                    3 => Variable(String::from("d")),
-                    _ => Constant(program.data[slot as usize]),
-                };
+                let slot = opcode as usize;
+                if slot < VAR_NAMES.len() {
+                    stack[sp] = Variable(slot);
+                } else {
+                    stack[sp] = Constant(program.data[slot]);
+                }
 
                 sp += 1;
             }
@@ -342,158 +509,96 @@ pub fn compile(program: GeneticProgram) {
     }
 
     if sp > 0 {
-        let term = optimize(&stack[sp - 1]);
-        // println!("let count = {}.count_ones() as i32;", stack[sp - 1]);
-        // println!("let score = count * (count + 1) / 2 * {} / 32", program.score_adjustment);
-        println!("let result = {}", term.to_expr_str());
+        stack[sp - 1].clone()
+    } else {
+        Constant(0)
     }
 }
 
-fn optimize(term: &Term) -> Term {
-    match term {
-        Constant(_) => term.clone(),
-        Variable(_) => term.clone(),
-        OneOp(instr, op) => {
-            match instr {
-                Not => {
-                    let opt_op = optimize(&op);
-                    match opt_op {
-                        Constant(value) => Constant(!value),
-                        _ => term.clone()
-                    }
-                },
-                _ => panic!("{:?} is not a 1-operand instruction", instr)
+pub fn optimize(program: &GeneticProgram) -> GeneticProgram {
+    let term = parse(&program).optimized();
+    OpcodeGenerator::new().generate(&term, program.score_adjustment)
+        .unwrap_or_else(|| sanitize(&program))
+}
+
+struct OpcodeGenerator {
+    slot_by_constant: HashMap<u64, usize>,
+    code: u128,
+    index: usize,
+    valid: bool,
+}
+
+impl OpcodeGenerator {
+    pub fn new() -> Self {
+        OpcodeGenerator{
+            slot_by_constant: HashMap::new(),
+            code: 0,
+            index: 0,
+            valid: true
+        }
+    }
+
+    pub fn generate(&mut self, term: &Term, score_adjustment: i32) -> Option<GeneticProgram> {
+        self.slot_by_constant.clear();
+        self.index = 0;
+        self.valid = true;
+
+        self.process(term);
+
+        let mut data = [0; 10];
+        self.slot_by_constant.iter().for_each(|(&value, &slot)| data[slot] = value);
+
+        if self.valid {
+            Some(GeneticProgram::new(self.code, data, score_adjustment))
+        } else {
+            None
+        }
+    }
+
+    fn process(&mut self, term: &Term) {
+        match term {
+            Constant(value) => {
+                let slot = self.register_constant(*value);
+                self.emit_opcode(slot as u8);
+            },
+
+            Variable(slot) => {
+                self.emit_opcode(*slot as u8);
+            },
+
+            UnaryOp(instr, op) => {
+                self.process(op);
+                self.emit_opcode(*instr as u8);
+            },
+
+            BinaryOp(instr, op1, op2) => {
+                self.process(op1);
+                self.process(op2);
+                self.emit_opcode(*instr as u8);
             }
-        },
-        TwoOp(instr, op1, op2) => {
-            let opt_op1 = optimize(&op1);
-            let opt_op2 = optimize(&op2);
-            match instr {
-                And => {
-                    match opt_op1 {
-                        Constant(value1) => {
-                            match opt_op2 {
-                                Constant(value2) => Constant(instr.run_two_op(value1, value2)),
-                                _ => {
-                                    if value1 == 0 {
-                                        Constant(0)
-                                    } else {
-                                        TwoOp(And, Box::new(opt_op1), Box::new(opt_op2))
-                                    }
-                                }
-                            }
-                        },
-                        _ => {
-                            match opt_op2 {
-                                Constant(value2) => {
-                                    if value2 == 0 {
-                                        Constant(0)
-                                    } else {
-                                        TwoOp(And, Box::new(opt_op1), Box::new(opt_op2))
-                                    }
-                                },
-                                _ => TwoOp(And, Box::new(opt_op1), Box::new(opt_op2))
-                            }
-                        }
-                    }
-                },
+        }
+    }
 
-                Or | Xor => {
-                    match opt_op1 {
-                        Constant(value1) => {
-                            match opt_op2 {
-                                Constant(value2) => Constant(instr.run_two_op(value1, value2)),
-                                _ => {
-                                    if value1 == 0 {
-                                        opt_op2
-                                    } else {
-                                        TwoOp(*instr, Box::new(opt_op1), Box::new(opt_op2))
-                                    }
-                                }
-                            }
-                        },
-                        _ => {
-                            match opt_op2 {
-                                Constant(value2) => {
-                                    if value2 == 0 {
-                                        opt_op1
-                                    } else {
-                                        TwoOp(*instr, Box::new(opt_op1), Box::new(opt_op2))
-                                    }
-                                },
-                                _ => TwoOp(*instr, Box::new(opt_op1), Box::new(opt_op2))
-                            }
-                        }
-                    }
-                },
+    fn emit_opcode(&mut self, opcode: u8) {
+        self.code |= (opcode as u128) << self.index;
+        self.index += 4;
+    }
 
-                Mul => {
-                    match opt_op1 {
-                        Constant(value1) => {
-                            match opt_op2 {
-                                Constant(value2) => Constant(instr.run_two_op(value1, value2)),
-                                _ => {
-                                    if value1 == 0 {
-                                        Constant(0)
-                                    } else if value1 == 1 {
-                                        opt_op2
-                                    } else {
-                                        TwoOp(*instr, Box::new(opt_op1), Box::new(opt_op2))
-                                    }
-                                }
-                            }
-                        },
-                        _ => {
-                            match opt_op2 {
-                                Constant(value2) => {
-                                    if value2 == 0 {
-                                        Constant(0)
-                                    } else if value2 == 1 {
-                                        opt_op1
-                                    } else {
-                                        TwoOp(*instr, Box::new(opt_op1), Box::new(opt_op2))
-                                    }
-                                },
-                                _ => TwoOp(*instr, Box::new(opt_op1), Box::new(opt_op2))
-                            }
-                        }
-                    }
-                },
-
-                Add => {
-                    match opt_op1 {
-                        Constant(value1) => {
-                            match opt_op2 {
-                                Constant(value2) => Constant(instr.run_two_op(value1, value2)),
-                                _ => {
-                                    if value1 == 0 {
-                                        opt_op2
-                                    } else {
-                                        TwoOp(*instr, Box::new(opt_op1), Box::new(opt_op2))
-                                    }
-                                }
-                            }
-                        },
-                        _ => {
-                            match opt_op2 {
-                                Constant(value2) => {
-                                    if value2 == 0 {
-                                        opt_op1
-                                    } else {
-                                        TwoOp(*instr, Box::new(opt_op1), Box::new(opt_op2))
-                                    }
-                                },
-                                _ => TwoOp(*instr, Box::new(opt_op1), Box::new(opt_op2))
-                            }
-                        }
-                    }
+    fn register_constant(&mut self, value: u64) -> usize {
+        match self.slot_by_constant.get(&value) {
+            Some(&slot) => slot,
+            None => {
+                let slot = self.slot_by_constant.len() + VAR_NAMES.len();
+                if slot >= 10 {
+                    self.valid = false;
+                    return slot - 1;
                 }
-                _ => term.clone()
+                self.slot_by_constant.insert(value, slot);
+                slot
             }
-        },
+        }
     }
 }
-
 
 pub struct Assembler(u128, usize);
 
@@ -820,7 +925,7 @@ fn mutate(rnd: &mut Random, program: &GeneticProgram) -> GeneticProgram {
 }
 
 pub fn generate_program(rnd: &mut Random) -> GeneticProgram {
-    let min_size = 1 + (rnd.rand32() % (INSTR_LIMIT as u32 / 2));
+    let min_size = (INSTR_LIMIT as u32 / 4) + (rnd.rand32() % (INSTR_LIMIT as u32 / 2));
     let mut index = 0;
     let mut sp : usize = 0;
 
@@ -859,7 +964,7 @@ pub fn generate_program(rnd: &mut Random) -> GeneticProgram {
     GeneticProgram::new(code, data, if rnd.rand32() & 1 == 0 { 32 } else { -32 })
 }
 
-pub fn sanitize(program: GeneticProgram) -> GeneticProgram {
+pub fn sanitize(program: &GeneticProgram) -> GeneticProgram {
     GeneticProgram::new(sanitize_code(program.code), program.data, program.score_adjustment)
 }
 
@@ -917,7 +1022,7 @@ pub fn sanitize_code(mut code: u128) -> u128 {
 
 #[cfg(test)]
 mod tests {
-    use crate::genetic_eval::{Assembler, GeneticProgram, splice, sanitize, compile, generate_program, random_slice, slice};
+    use crate::genetic_eval::{Assembler, GeneticProgram, splice, sanitize, compile, generate_program, random_slice, slice, optimize};
     use crate::random::Random;
 
     #[test]
@@ -1036,19 +1141,19 @@ mod tests {
     #[test]
     pub fn test_sanitize() {
         let program = GeneticProgram::new(158237916293065189983371, [0, 0, 0, 0, 0, 13859172126465860881, 12387944325771311803, 16208407326110241713, 0, 0], 0);
-        let opt_program = sanitize(program);
+        let opt_program = sanitize(&program);
 
         opt_program.disassemble();
     }
 
     #[test]
     pub fn test_sanitize2() {
-        let program = GeneticProgram::new(14492544700458050112882194063359, [0, 0, 0, 0, 5531985248269, 18446744073709551614, 18444492273895866362, 14338815688717, 3970, 5912002736747945064], 46);
-        let opt_program = sanitize(program);
+        let program = GeneticProgram::new(227923093436608576380497787821633, [0, 0, 0, 0, 2, 27636, 7143, 9686, 94340, 15764399466681853899], 46);
+        let opt_program = sanitize(&program);
 
         opt_program.disassemble();
         println!("-------------------------");
-        compile(opt_program);
+        compile(&opt_program);
     }
 
     #[test]
@@ -1060,13 +1165,13 @@ mod tests {
         println!("{:?}", slice);
 
         program.disassemble();
-        compile(program);
+        compile(&program);
         println!("-------------------------");
 
         let without_slice = splice(slice.0, slice.1, 0, 1, &program, &program);
 
         without_slice.disassemble();
-        compile(without_slice);
+        compile(&without_slice);
     }
 
     #[test]
@@ -1081,7 +1186,38 @@ mod tests {
 
         let program = GeneticProgram::new(code, [0, 0, 0, 0, 7, 3, 0, 0, 0, 0], 0);
 
-        compile(program);
+        compile(&program);
+    }
+
+    #[test]
+    pub fn test_optimize() {
+        let code = Assembler::new()
+            .load(0)
+            .load(4)
+            .add()
+            .load(5)
+            .xor()
+            .load(6)
+            .or()
+            .load(7)
+            .mul()
+            .load(8)
+            .load(9)
+            .mul()
+            .and()
+            .build_code();
+
+        let mut program = GeneticProgram::new(code, [0, 0, 0, 0, 0, 2, 3, 4, 5, 6], -32);
+
+        let mut opt = optimize(&program);
+        assert!(opt.instr_count() < program.instr_count());
+
+        for i in 0..256 {
+            program.update(i, 0, 0, 0);
+            opt.update(i, 0, 0, 0);
+
+            assert_eq!(program.run(), opt.run());
+        }
     }
 
 }

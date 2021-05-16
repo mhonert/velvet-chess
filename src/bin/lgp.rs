@@ -17,7 +17,7 @@
  */
 
 use velvet::random::Random;
-use velvet::genetic_eval::{GeneticProgram, next_gen, compile, sanitize, sanitize_code, generate_program};
+use velvet::genetic_eval::{GeneticProgram, next_gen, compile, generate_program, optimize};
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::cmp::{min, max};
 
@@ -47,13 +47,12 @@ fn main() {
             scores[i] = score;
         }
 
-        generation.sort_by_key(|p| 128 - sanitize_code(p.code).leading_zeros());
+        generation.sort_by_key(|p| p.instr_count());
         generation.sort_by_key(|p| scores[p.score_adjustment as usize]);
 
         let best = generation[0];
-        println!("Gen {}: Best: {} - [{}]- {:?}", j, scores[best.score_adjustment as usize], best.code, best.data);
-        compile(sanitize(best));
-
+        println!("Gen {}: Best: {} ({} instr.) - [{}]- {:?}", j, scores[best.score_adjustment as usize], best.instr_count(), best.code, best.data.iter().skip(4));
+        compile(&best);
 
         generation = next_gen(&mut rnd, &generation);
         for i in 0..pop_size {
@@ -67,7 +66,7 @@ fn main() {
 fn eval(program: &mut GeneticProgram) -> u64 {
     let mut diffs: u64 = 0;
 
-    let mut opt_program = sanitize(*program);
+    let mut opt_program = optimize(program);
 
     for a in 0..64 {
         for b in 0..64 {
@@ -87,7 +86,8 @@ fn eval(program: &mut GeneticProgram) -> u64 {
 
 fn calc_diff(opt_program: &mut GeneticProgram, a: u64, b: u64) -> u64 {
 
-    let expected_result = a * b + a * b + a * b;
+    // let expected_result = (a * a * 97) | (b * 500);
+    let expected_result = (a * b) * 4000;
 
     opt_program.update(a, b, 0, 0);
 
@@ -98,4 +98,3 @@ fn calc_diff(opt_program: &mut GeneticProgram, a: u64, b: u64) -> u64 {
 
     higher.saturating_sub(lower)
 }
-
