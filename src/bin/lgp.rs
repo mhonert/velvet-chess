@@ -33,9 +33,8 @@ fn main() {
     let mut generation: Vec<GeneticProgram> = Vec::new();
     let mut scores = vec!(0; pop_size);
     for i in 0..pop_size {
-        // let mut program = GeneticProgram::new((rnd.rand32() & 0xFFFF) as u128, [0, 0, 0, 0, 0, 0, 0, 0], 0);
         let mut program = generate_program(&mut rnd);
-        program.score_adjustment = i as i32;
+        program.score_increment = i as i32;
         generation.push(program);
     }
 
@@ -48,15 +47,16 @@ fn main() {
         }
 
         generation.sort_by_key(|p| p.instr_count());
-        generation.sort_by_key(|p| scores[p.score_adjustment as usize]);
+        generation.sort_by_key(|p| scores[p.score_increment as usize]);
 
         let best = generation[0];
-        println!("Gen {}: Best: {} ({} instr.) - [{}]- {:?}", j, scores[best.score_adjustment as usize], best.instr_count(), best.code, best.data.iter().skip(4));
+        let constants: Vec<&u64> = best.data.iter().skip(4).collect();
+        println!("Gen {}: Best: {} ({} instr.) - [{}]- {:?}", j, scores[best.score_increment as usize], best.instr_count(), best.code, constants);
         compile(&best);
 
         generation = next_gen(&mut rnd, &generation);
         for i in 0..pop_size {
-            generation[i].score_adjustment = i as i32;
+            generation[i].score_increment = i as i32;
         }
 
         j += 1;
@@ -87,7 +87,7 @@ fn eval(program: &mut GeneticProgram) -> u64 {
 fn calc_diff(opt_program: &mut GeneticProgram, a: u64, b: u64) -> u64 {
 
     // let expected_result = (a * a * 97) | (b * 500);
-    let expected_result = (a * b) * 4000;
+    let expected_result = 7 * a * a + 50 * b;
 
     opt_program.update(a, b, 0, 0);
 

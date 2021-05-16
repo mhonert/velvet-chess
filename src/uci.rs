@@ -360,8 +360,8 @@ fn clear_genetic_programs(tx: &Sender<Message>) {
 }
 
 fn add_genetic_program(tx: &Sender<Message>, parts: Vec<&str>) {
-    if parts.len() != 8 {
-        println!("add_genetic_program requires 8 parameters: code data1 data2 data3 data4 data5 data6 score_adjustment")
+    if parts.len() != 9 {
+        println!("add_genetic_program requires 8 parameters: code data1 data2 data3 data4 data5 data6 score_increment score_raise")
     }
 
     let code = u128::from_str(parts[0]).expect("code must be a 128-Bit unsigned integer");
@@ -371,9 +371,10 @@ fn add_genetic_program(tx: &Sender<Message>, parts: Vec<&str>) {
     let data4 = u64::from_str(parts[4]).expect("data4 must be a 64-Bit unsigned integer");
     let data5 = u64::from_str(parts[5]).expect("data5 must be a 64-Bit unsigned integer");
     let data6 = u64::from_str(parts[6]).expect("data6 must be a 64-Bit unsigned integer");
-    let score_adjustment = i32::from_str(parts[7]).expect("score_adjustment must be a 32-Bit signed integer");
+    let score_increment = i32::from_str(parts[7]).expect("score_increment must be a 32-Bit signed integer");
+    let score_raise = i32::from_str(parts[8]).expect("score_increment must be a 32-Bit signed integer");
 
-    let program = GeneticProgram::new(code, [0, 0, 0, 0, data1, data2, data3, data4, data5, data6], score_adjustment);
+    let program = GeneticProgram::new(code, [0, 0, 0, 0, data1, data2, data3, data4, data5, data6], score_increment, score_raise);
 
     send_message(tx, Message::AddGeneticProgram(program));
 }

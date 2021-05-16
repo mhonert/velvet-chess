@@ -19,7 +19,7 @@
 use std::mem::transmute;
 use crate::genetic_eval::Instruction::{Xor, And, Not, Or, Mul, Add};
 use crate::random::Random;
-use std::cmp::{min};
+use std::cmp::{min, max};
 use crate::genetic_eval::Term::{Constant, Variable, UnaryOp, BinaryOp};
 use std::collections::HashMap;
 
@@ -29,6 +29,9 @@ const ELITE_COUNT: u32 = 1;
 
 const INSTR_SIZE: usize = 4;
 const INSTR_LIMIT: usize = 128 / INSTR_SIZE;
+
+// const BINARY_OPS: [Instruction; 2] = [Mul, Add];
+const BINARY_OPS: [Instruction; 3] = [Mul, Or, And];
 
 pub struct GeneticEvaluator {
     programs: Vec<GeneticProgram>,
@@ -50,7 +53,12 @@ impl GeneticEvaluator {
             let result_bb = program.run();
 
             let count = result_bb.count_ones() as i32;
-            let score = count * (count + 1) / 2 * program.score_adjustment / 32;
+            let score = if program.score_raise > 0 {
+                count * program.score_increment * (count + 1) / 2 * program.score_raise / 32
+            }  else {
+                count * program.score_increment
+            };
+
             value += score;
         }
 
@@ -87,14 +95,15 @@ fn print_generation(programs: &[GeneticProgram]) {
     print!("result ");
     for program in programs.iter() {
         let solution_size = program.instr_count();
-        print!("{},{},{},{};",
+        print!("{},{},{},{},{};",
                program.code,
                program.data.iter()
                    .skip(4)
                    .map(|&n| format!("{}", n))
                    .collect::<Vec<String>>()
                    .join(","),
-               program.score_adjustment,
+               program.score_increment,
+               program.score_raise,
                solution_size);
     }
     println!();
@@ -141,15 +150,17 @@ impl Instruction {
 pub struct GeneticProgram {
     pub code: u128,
     pub data: [u64; 10],
-    pub score_adjustment: i32,
+    pub score_increment: i32,
+    pub score_raise: i32,
 }
 
 impl GeneticProgram {
-    pub fn new(code: u128, data: [u64; 10], score_adjustment: i32) -> GeneticProgram {
+    pub fn new(code: u128, data: [u64; 10], score_increment: i32, score_raise: i32) -> GeneticProgram {
         GeneticProgram {
             code,
             data,
-            score_adjustment
+            score_increment,
+            score_raise
         }
     }
 
@@ -287,8 +298,8 @@ enum Term {
     BinaryOp(Instruction, Box<Term>, Box<Term>),
 }
 
-const VAR_NAMES: [&str; 4] = ["a", "b", "c", "d"];
-// const VAR_NAMES: [&str; 4] = ["own_pawns", "opp_pawns", "own_king_half", "opp_king_half"];
+//const VAR_NAMES: [&str; 4] = ["a", "b", "c", "d"];
+const VAR_NAMES: [&str; 4] = ["own_pawns", "opp_pawns", "own_king_half", "opp_king_half"];
 
 impl Term {
     pub fn to_expr_str(&self) -> String {
@@ -517,7 +528,7 @@ fn parse(program: &GeneticProgram) -> Term {
 
 pub fn optimize(program: &GeneticProgram) -> GeneticProgram {
     let term = parse(&program).optimized();
-    OpcodeGenerator::new().generate(&term, program.score_adjustment)
+    OpcodeGenerator::new().generate(&term, program.score_increment, program.score_raise)
         .unwrap_or_else(|| sanitize(&program))
 }
 
@@ -538,7 +549,7 @@ impl OpcodeGenerator {
         }
     }
 
-    pub fn generate(&mut self, term: &Term, score_adjustment: i32) -> Option<GeneticProgram> {
+    pub fn generate(&mut self, term: &Term, score_increment: i32, score_raise: i32) -> Option<GeneticProgram> {
         self.slot_by_constant.clear();
         self.index = 0;
         self.valid = true;
@@ -549,7 +560,7 @@ impl OpcodeGenerator {
         self.slot_by_constant.iter().for_each(|(&value, &slot)| data[slot] = value);
 
         if self.valid {
-            Some(GeneticProgram::new(self.code, data, score_adjustment))
+            Some(GeneticProgram::new(self.code, data, score_increment, score_raise))
         } else {
             None
         }
@@ -672,10 +683,8 @@ pub fn next_gen(rnd: &mut Random, curr_gen: &[GeneticProgram]) -> Vec<GeneticPro
             } else {
                 cross(rnd, &parent2, &parent1)
             }
-        } else if rnd.rand32() % 100 <= MUTATION_RATE {
-            mutate(rnd, &parent1)
         } else {
-            parent1
+            mutate(rnd, &parent1)
         };
 
         new_gen.push(next_program);
@@ -773,7 +782,7 @@ fn slice(program: &GeneticProgram) -> Vec<(usize, usize)> {
     slices
 }
 
-fn random_slice(rnd: &mut Random, slices: &Vec<(usize, usize)>, max_length: usize) -> (usize, usize) {
+fn random_slice(rnd: &mut Random, slices: &[(usize, usize)], max_length: usize) -> (usize, usize) {
     if slices.is_empty() {
         return (0, 0);
     }
@@ -850,7 +859,7 @@ fn splice(mut p1_pos: usize, mut p1_len: usize, mut p2_pos: usize, mut p2_len: u
 
     let child_code = p1_without_segment | (new_code << p1_pos);
 
-    GeneticProgram::new(child_code, child_data, parent1.score_adjustment)
+    GeneticProgram::new(child_code, child_data, parent1.score_increment, parent1.score_raise)
 }
 
 fn find_target_slot(used_slots: [bool; 6], data: [u64; 10], value: u64) -> usize {
@@ -903,25 +912,26 @@ fn mutate(rnd: &mut Random, program: &GeneticProgram) -> GeneticProgram {
         };
     }
 
-    let mut score_adjustment = program.score_adjustment;
+    let mut score_increment = program.score_increment;
     match rnd.rand32() & 15 {
-        0 => score_adjustment = -score_adjustment,
-        1 => score_adjustment += 1,
-        2 => score_adjustment -= 1,
-        3 => score_adjustment += 8,
-        4 => score_adjustment -= 8,
+        0 => score_increment = -score_increment,
+        1 => score_increment += 1,
+        2 => score_increment -= 1,
+        3 => score_increment += 8,
+        4 => score_increment -= 8,
         _ => {}
     };
+    score_increment = min(50, max(-50, score_increment));
 
-    if score_adjustment > 1024 {
-        score_adjustment = 1024;
-    } else if score_adjustment < -1024 {
-        score_adjustment = -1024;
-    } else if score_adjustment == 0 {
-        score_adjustment = -program.score_adjustment.signum();
-    }
+    let mut score_raise = program.score_raise;
+    match rnd.rand32() & 15 {
+        1 => score_raise += 1,
+        2 => score_raise -= 1,
+        _ => {}
+    };
+    score_raise = min(10, max(0, score_raise));
 
-    GeneticProgram::new(code, data, score_adjustment)
+    GeneticProgram::new(code, data, score_increment, score_raise)
 }
 
 pub fn generate_program(rnd: &mut Random) -> GeneticProgram {
@@ -935,7 +945,7 @@ pub fn generate_program(rnd: &mut Random) -> GeneticProgram {
 
     while index < 128 {
         let opcode;
-        if sp == 0 || (sp == 1 && (rnd.rand32() & 7 > 0)) {
+        if sp == 0 || (sp == 1 && (rnd.rand32() & 15 > 0)) {
             // Load
             let slot = rnd.rand32() % (LOAD_MAX_INDEX as u32);
             opcode = slot as u8;
@@ -944,13 +954,7 @@ pub fn generate_program(rnd: &mut Random) -> GeneticProgram {
             // Single operand instruction
             opcode = Not as u8;
         } else {
-            opcode = match rnd.rand32() % 5 {
-                0 => And as u8,
-                1 => Or as u8,
-                2 => Xor as u8,
-                3 => Mul as u8,
-                _ => Add as u8,
-            };
+            opcode = BINARY_OPS[rnd.rand32() as usize % BINARY_OPS.len()] as u8;
             sp -= 1;
         }
 
@@ -961,11 +965,11 @@ pub fn generate_program(rnd: &mut Random) -> GeneticProgram {
         }
     }
 
-    GeneticProgram::new(code, data, if rnd.rand32() & 1 == 0 { 32 } else { -32 })
+    GeneticProgram::new(code, data, if rnd.rand32() & 1 == 0 { 2 } else { -2 }, 0)
 }
 
 pub fn sanitize(program: &GeneticProgram) -> GeneticProgram {
-    GeneticProgram::new(sanitize_code(program.code), program.data, program.score_adjustment)
+    GeneticProgram::new(sanitize_code(program.code), program.data, program.score_increment, program.score_raise)
 }
 
 pub fn sanitize_code(mut code: u128) -> u128 {
@@ -1029,7 +1033,7 @@ mod tests {
     pub fn test_empty() {
         let code = 0;
 
-        let program = GeneticProgram::new(code, [3, 4, 0, 0, 0, 0, 0, 0, 0, 0], 0);
+        let program = GeneticProgram::new(code, [3, 4, 0, 0, 0, 0, 0, 0, 0, 0], 1, 0);
 
         let result = program.run();
         assert_eq!(result,  0);
@@ -1043,7 +1047,7 @@ mod tests {
             .mul()
             .build_code();
 
-        let program = GeneticProgram::new(code, [3, 4, 0, 0, 0, 0, 0, 0, 0, 0], 0);
+        let program = GeneticProgram::new(code, [3, 4, 0, 0, 0, 0, 0, 0, 0, 0], 1, 0);
 
         let result = program.run();
         assert_eq!(result,  12);
@@ -1057,7 +1061,7 @@ mod tests {
             .or()
             .build_code();
 
-        let program = GeneticProgram::new(code, [0b1000, 0b0010, 0, 0, 0, 0, 0, 0, 0, 0], 0);
+        let program = GeneticProgram::new(code, [0b1000, 0b0010, 0, 0, 0, 0, 0, 0, 0, 0], 1, 0);
 
         let result = program.run();
         assert_eq!(result, 0b1010);
@@ -1071,7 +1075,7 @@ mod tests {
             .and()
             .build_code();
 
-        let program = GeneticProgram::new(code, [0b1010, 0b1101, 0, 0, 0, 0, 0, 0, 0, 0], 0);
+        let program = GeneticProgram::new(code, [0b1010, 0b1101, 0, 0, 0, 0, 0, 0, 0, 0], 1, 0);
 
         let result = program.run();
         assert_eq!(result, 0b1000);
@@ -1084,11 +1088,9 @@ mod tests {
             .not()
             .build_code();
 
-        let program = GeneticProgram::new(code, [0xF0F0F0F0F0F0F0F0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 0);
-        program.disassemble();
+        let program = GeneticProgram::new(code, [0xF0F0F0F0F0F0F0F0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 1, 0);
 
         let result = program.run();
-        println!("{:016x}", result);
         assert_eq!(result, 0x0F0F0F0F0F0F0F0F);
     }
 
@@ -1100,7 +1102,7 @@ mod tests {
             .xor()
             .build_code();
 
-        let program = GeneticProgram::new(code, [0b1110, 0b1010, 0, 0, 0, 0, 0, 0, 0, 0], 0);
+        let program = GeneticProgram::new(code, [0b1110, 0b1010, 0, 0, 0, 0, 0, 0, 0, 0], 1, 0);
 
         let result = program.run();
         assert_eq!(result, 0b0100);
@@ -1108,7 +1110,7 @@ mod tests {
 
     #[test]
     pub fn test_slice() {
-        let program = GeneticProgram::new(12046499, [0, 0, 0, 0, 0, 1, 2, 3, 4, 5], 0);
+        let program = GeneticProgram::new(12046499, [0, 0, 0, 0, 0, 1, 2, 3, 4, 5], 1, 0);
         let slices = slice(&program);
 
         assert_eq!(vec!((0, 1),
@@ -1117,11 +1119,6 @@ mod tests {
                         (0, 4),
                         (4, 1),
                         (0, 6)), slices);
-        for slice in slices.iter() {
-            println!("{:?}", *slice);
-        }
-        println!("--------------------");
-        program.disassemble();
     }
 
     #[test]
@@ -1129,8 +1126,8 @@ mod tests {
         let code1 = 260836001;
         let code2 = 3573469134174395599636;
 
-        let program1 = GeneticProgram::new(code1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 0);
-        let program2 = GeneticProgram::new(code2, [0, 0, 0, 0, 0, 0, 0, 9, 0, 0], 0);
+        let program1 = GeneticProgram::new(code1, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 1, 0);
+        let program2 = GeneticProgram::new(code2, [0, 0, 0, 0, 0, 0, 0, 9, 0, 0], 1, 0);
 
         let result = splice(0, 3, 14, 1, &program1, &program2);
 
@@ -1140,7 +1137,7 @@ mod tests {
 
     #[test]
     pub fn test_sanitize() {
-        let program = GeneticProgram::new(158237916293065189983371, [0, 0, 0, 0, 0, 13859172126465860881, 12387944325771311803, 16208407326110241713, 0, 0], 0);
+        let program = GeneticProgram::new(158237916293065189983371, [0, 0, 0, 0, 0, 13859172126465860881, 12387944325771311803, 16208407326110241713, 0, 0], 1, 0);
         let opt_program = sanitize(&program);
 
         opt_program.disassemble();
@@ -1148,7 +1145,7 @@ mod tests {
 
     #[test]
     pub fn test_sanitize2() {
-        let program = GeneticProgram::new(227923093436608576380497787821633, [0, 0, 0, 0, 2, 27636, 7143, 9686, 94340, 15764399466681853899], 46);
+        let program = GeneticProgram::new(241184359275410648409880091269505, [0, 0, 0, 0, 35, 5, 95, 5, 1472, 8], 1, 0);
         let opt_program = sanitize(&program);
 
         opt_program.disassemble();
@@ -1184,7 +1181,7 @@ mod tests {
             .mul()
             .build_code();
 
-        let program = GeneticProgram::new(code, [0, 0, 0, 0, 7, 3, 0, 0, 0, 0], 0);
+        let program = GeneticProgram::new(code, [0, 0, 0, 0, 7, 3, 0, 0, 0, 0], 1, 0);
 
         compile(&program);
     }
@@ -1207,7 +1204,7 @@ mod tests {
             .and()
             .build_code();
 
-        let mut program = GeneticProgram::new(code, [0, 0, 0, 0, 0, 2, 3, 4, 5, 6], -32);
+        let mut program = GeneticProgram::new(code, [0, 0, 0, 0, 0, 2, 3, 4, 5, 6], 1, 0);
 
         let mut opt = optimize(&program);
         assert!(opt.instr_count() < program.instr_count());
@@ -1218,6 +1215,17 @@ mod tests {
 
             assert_eq!(program.run(), opt.run());
         }
+    }
+
+    #[test]
+    pub fn test_scores() {
+        let score_increment = 1;
+        let score_raise = 128;
+        for count in 0..64 {
+            let score = count * score_increment * (count + 1) / 2 * score_raise / 32;
+            println!("{:2} - {:4}", count, score);
+        }
+
     }
 
 }

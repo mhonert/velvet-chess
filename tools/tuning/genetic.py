@@ -23,7 +23,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from time import time
 import sys
 from typing import List
-from common import TuningOption, Config
+from common import Config
 import random
 
 
@@ -54,13 +54,27 @@ def read_fens(fen_file) -> List[TestPosition]:
 
     return test_positions
 
+
 @dataclass
 class GeneticProgram:
     code: int  # 128-bit
     data: List[int]  # fixed length: 6x 64-bit values
-    score_adjust: int  # 32-bit signed integer
+    score_increment: int  # 32-bit signed integer
+    score_raise: int  # 32-bit signed integer
     result: float
     solution_size: int = 0
+
+
+@dataclass
+class Team:
+    programs: List[GeneticProgram]
+    result: float
+    solution_size: int = 0
+
+
+@dataclass
+class Community:
+    teams: List[Team]
 
 
 def run_engine(k: float, engine: Engine, programs: List[GeneticProgram]) -> (int, float):
@@ -82,7 +96,7 @@ def run_engine(k: float, engine: Engine, programs: List[GeneticProgram]) -> (int
 
         engine.send_command("clear_genetic_programs")
         for program in programs:
-            engine.send_command("add_genetic_program {} {} {} {} {} {} {} {}".format(program.code, *program.data, program.score_adjust))
+            engine.send_command("add_genetic_program {} {} {} {} {} {} {} {} {}".format(program.code, *program.data, program.score_increment, program.score_raise))
 
         engine.send_command("isready")
         engine.wait_for_command("readyok")
@@ -148,7 +162,8 @@ def write_programs(programs: List[GeneticProgram]):
     for program in programs:
         result = {"code": program.code,
                   "data": program.data,
-                  "score_adjust": program.score_adjust,
+                  "score_increment": program.score_increment,
+                  "score_raise": program.score_raise,
                   "result": program.result}
         results.append(result)
 
@@ -159,7 +174,7 @@ def write_programs(programs: List[GeneticProgram]):
 def create_new_generation(engine: Engine, curr_gen: List[GeneticProgram]):
     engine.send_command("clear_genetic_programs")
     for program in curr_gen:
-        engine.send_command("add_genetic_program {} {} {} {} {} {} {} {}".format(program.code, *program.data, program.score_adjust))
+        engine.send_command("add_genetic_program {} {} {} {} {} {} {} {} {}".format(program.code, *program.data, program.score_increment, program.score_raise))
 
     engine.send_command("new_genetic_generation")
     return read_generation_response(engine)
@@ -177,11 +192,11 @@ def read_generation_response(engine: Engine):
 
     for r in result[len("result "):].split(";"):
         tmp = r.split(",")
-        if len(tmp) != 9:
+        if len(tmp) != 10:
             break
 
         program_result = [int(x) for x in tmp]
-        new_gen.append(GeneticProgram(code=program_result[0], data=program_result[1:7], result=.0, score_adjust=program_result[7], solution_size=program_result[8]))
+        new_gen.append(GeneticProgram(code=program_result[0], data=program_result[1:7], result=.0, score_increment=program_result[7], score_raise=program_result[8], solution_size=program_result[9]))
 
     return new_gen
 
@@ -213,7 +228,7 @@ def main():
 
     log.info("Reading test positions ...")
     all_test_positions = read_fens(config.test_positions_file)
-    #all_test_positions = random.sample(all_test_positions, 100000)
+    all_test_positions = random.sample(all_test_positions, 50000)
 
     log.info("Read %i test positions", len(all_test_positions))
 
@@ -244,8 +259,16 @@ def main():
 
         random.seed()
 
-        #generation = [GeneticProgram(code=random.getrandbits(32), data=[0, 0, 0, 0, 0, 0], result=.0, score_adjust=random.choice([-32, 32]), solution_size=0) for x in range(512)]
-        generation = init_generation(engines[0], 32)
+        community_size = 1024
+        team_size = 8
+
+        teams = []
+        for i in range(community_size):
+            members = init_generation(engines[0], team_size)
+            team = Team(programs=members, solution_size=0, result=.0)
+            teams.append(team)
+
+        community = Community(teams=teams)
 
         improved = False
 
@@ -253,30 +276,42 @@ def main():
 
         while True:
 
-            for program in generation:
-                new_err = run_pass(config, [program], engines)
-                program.result = new_err
+            for team in community.teams:
+                new_err = run_pass(config, team.programs, engines)
+                team.result = new_err
+                team.solution_size = 0
+                for program in team.programs:
+                    program.result = new_err
+                    team.solution_size += program.solution_size
 
                 if new_err < best_err:
                     best_err = new_err
                     improved = True
 
+            community.teams.sort(key=lambda t: (t.result, t.solution_size))
+            log.info("%.8f > Finished generation %d: (%d Instr.) - %ds", best_err, gen_count, community.teams[0].solution_size, time() - start_time)
+
+            for program in teams[0].programs:
+                log.info("- %d (%d Instr.), %d/%d, %s", program.code, program.solution_size, program.score_increment, program.score_raise, program.data)
+
             if improved:
-                write_programs(generation)
+                write_programs(teams[0].programs)
                 improved = False
 
-            generation.sort(key=lambda p: (p.result, p.solution_size))
-            log.info("%.8f > Finished generation %d: %.8f - %ds", best_err, gen_count, generation[0].result, time() - start_time)
+            # Next generation
+            for i in range(team_size):
+                if i % 2 == gen_count % 2:
+                    continue
+                members = []
+                for team in community.teams:
+                    members.append(team.programs[i])
 
-            for program in generation[:8]:
-                log.info("- %.8f: %s - %s - %s", program.result, program.code, program.score_adjust, program.data)
+                members = create_new_generation(engines[0], members)
 
-            generation = create_new_generation(engines[0], generation)
-            # rnd_generation = [GeneticProgram(code=random.getrandbits(16),
-            #                                  data=[random.getrandbits(64), random.getrandbits(64), random.getrandbits(64),
-            #                                        random.getrandbits(64)], result=.0) for i in range(8)]
-            #
-            # generation.extend(rnd_generation)
+                j = 0
+                for team in community.teams:
+                    team.programs[i] = members[j]
+                    j += 1
 
             gen_count += 1
 
