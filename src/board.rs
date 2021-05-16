@@ -27,6 +27,7 @@ use crate::options::{Options, PieceSquareTables};
 use crate::zobrist::{piece_zobrist_key, player_zobrist_key, castling_zobrist_key, enpassant_zobrist_key};
 use crate::moves::{Move, MoveType};
 use crate::magics::{get_bishop_attacks, get_rook_attacks};
+use crate::genetic_eval::GeneticEvaluator;
 
 const MAX_GAME_HALFMOVES: usize = 5898 * 2;
 
@@ -39,6 +40,7 @@ pub const MAX_PHASE: i32 = 16 * PAWN_PHASE_VALUE + 30 * BASE_PIECE_PHASE_VALUE +
 pub struct Board {
     pub options: Options,
     pub pst: PieceSquareTables,
+    pub genetic_eval: GeneticEvaluator,
     pos_history: PositionHistory,
     items: [i8; 64],
     bitboards: [u64; 13],
@@ -83,6 +85,7 @@ impl Board {
         let mut board = Board {
             options,
             pst,
+            genetic_eval: GeneticEvaluator::new(),
             pos_history: PositionHistory::new(),
             items: [0; 64],
             bitboards: [0; 13],

@@ -420,6 +420,12 @@ const fn create_king_danger_zone_patterns() -> [u64; 64] {
     patterns
 }
 
+// Mirrors the given bitboard
+#[inline]
+pub fn mirror(bitboard: u64) -> u64 {
+    bitboard.swap_bytes()
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -477,4 +483,9 @@ mod tests {
         assert_eq!(get_upper_block_mask(56), 0b00000000_00000000_00000000_00000000_00000000_00000000_00000000_00000000);
     }
 
+    #[test]
+    fn test_mirror_pos() {
+        assert_eq!(format!("{:064b}", mirror(0b11110000_01111000_00111100_00011110_00001111_00000111_00000011_00000001)),
+                   format!("{:064b}", 0b00000001_00000011_00000111_00001111_00011110_00111100_01111000_11110000u64));
+    }
 }

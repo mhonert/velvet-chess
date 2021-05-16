@@ -19,12 +19,12 @@
 use crate::board::{Board, interpolate_score};
 use crate::pieces::{P, N, B, R, Q};
 use crate::colors::{WHITE, BLACK};
-use crate::bitboard::{black_left_pawn_attacks, black_right_pawn_attacks, white_left_pawn_attacks, white_right_pawn_attacks, BitBoard, get_white_king_shield, get_black_king_shield, get_king_danger_zone, get_knight_attacks, get_white_pawn_freepath, get_white_pawn_freesides, get_black_pawn_freepath, get_black_pawn_freesides, get_column_mask};
+use crate::bitboard::{black_left_pawn_attacks, black_right_pawn_attacks, white_left_pawn_attacks, white_right_pawn_attacks, BitBoard, get_white_king_shield, get_black_king_shield, get_king_danger_zone, get_knight_attacks, get_white_pawn_freepath, get_white_pawn_freesides, get_black_pawn_freepath, get_black_pawn_freesides, get_column_mask, mirror};
 use std::cmp::{max};
 use crate::magics::{get_bishop_attacks, get_rook_attacks, get_queen_attacks};
 
 pub trait Eval {
-    fn get_score(&self) -> i32;
+    fn get_score(&mut self) -> i32;
     fn eval_passed_pawns(&self, white_pieces: u64, black_pieces: u64, white_pawns: u64, black_pawns: u64) -> (i32, i32);
 }
 
@@ -40,7 +40,7 @@ const QUEEN_KING_THREAT: usize      = 0b0100000;
 const HIGH_QUEEN_KING_THREAT: usize = 0b1100000;
 
 impl Eval for Board {
-    fn get_score(&self) -> i32 {
+    fn get_score(&mut self) -> i32 {
         let phase = self.calc_phase_value();
 
         let mut score = self.state.score as i32;
@@ -326,9 +326,11 @@ impl Eval for Board {
         let black_pawn_attacks = black_left_pawn_attacks(black_pawns) | black_right_pawn_attacks(black_pawns);
         interpolated_score -= (black_pawns_and_knights & black_pawn_attacks).count_ones() as i32 * self.options.get_pawn_cover_bonus();
 
-        // Doubled pawn penalty
-        interpolated_score -= calc_doubled_pawn_penalty(white_pawns, self.options.get_doubled_pawn_penalty());
-        interpolated_score += calc_doubled_pawn_penalty(black_pawns, self.options.get_doubled_pawn_penalty());
+        // Genetic eval
+        let white_king_half = king_half_bb(white_king);
+        let black_king_half = king_half_bb(black_king);
+        interpolated_score += self.genetic_eval.eval(white_pawns, black_pawns, white_king_half, black_king_half);
+        interpolated_score -= self.genetic_eval.eval(mirror(black_pawns), mirror(white_pawns), black_king_half, white_king_half);
 
         interpolated_score
     }
@@ -395,14 +397,12 @@ impl Eval for Board {
     }
 }
 
-#[inline]
-fn calc_doubled_pawn_penalty(pawns: u64, penalty: i32) -> i32 {
-    let doubled = (pawns & pawns.rotate_right(8))
-        | pawns & pawns.rotate_right(16)
-        | pawns & pawns.rotate_right(24)
-        | pawns & pawns.rotate_right(32);
-
-    doubled.count_ones() as i32 * penalty
+fn king_half_bb(king_pos: i32) -> u64 {
+    if king_pos & 7 <= 3 {
+        0b00001111_00001111_00001111_00001111_00001111_00001111_00001111_00001111
+    } else {
+        0b11110000_11110000_11110000_11110000_11110000_11110000_11110000_11110000
+    }
 }
 
 #[cfg(test)]

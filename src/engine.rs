@@ -38,6 +38,7 @@ use crate::moves::{NO_MOVE, Move};
 use crate::move_gen::MoveGenerator;
 use crate::tuning::Tuning;
 use crate::time_management::{TimeManager, MAX_TIMELIMIT_MS, TIMEEXT_MULTIPLIER};
+use crate::genetic_eval::GeneticProgram;
 
 pub enum Message {
     NewGame,
@@ -66,6 +67,10 @@ pub enum Message {
     SetOption(String, i32),
     SetArrayOption(String, i32, i32),
     Quit,
+    ClearGeneticPrograms,
+    AddGeneticProgram(GeneticProgram),
+    NewGeneticGeneration,
+    InitGeneticGeneration(u32),
 }
 
 #[derive(Copy, Clone)]
@@ -211,9 +216,17 @@ impl Engine {
 
             Message::Quit => {
                 return false;
-            }
+            },
 
-            Message::Stop => ()
+            Message::Stop => (),
+
+            Message::ClearGeneticPrograms => self.board.genetic_eval.clear(),
+
+            Message::AddGeneticProgram(program) => self.board.genetic_eval.add_program(program),
+
+            Message::NewGeneticGeneration => self.board.genetic_eval.create_new_generation(&mut self.rnd),
+
+            Message::InitGeneticGeneration(pop_size) => self.board.genetic_eval.init_generation(&mut self.rnd, pop_size),
         }
 
         true

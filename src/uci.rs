@@ -27,6 +27,7 @@ use std::thread::sleep;
 use std::time::Duration;
 use crate::options::parse_set_option;
 use crate::magics::{initialize_magics};
+use crate::genetic_eval::GeneticProgram;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const AUTHOR: &str = "Martin Honert";
@@ -81,6 +82,14 @@ pub fn start_uci_loop(tx: &Sender<Message>) {
                 "resettestpositions" => reset_test_positions(tx),
 
                 "printfen" => fen(tx),
+
+                "clear_genetic_programs" => clear_genetic_programs(tx),
+
+                "add_genetic_program" => add_genetic_program(tx, parts[i + 1..].to_vec()),
+
+                "new_genetic_generation" => new_genetic_generation(tx),
+
+                "init_genetic_generation" => init_genetic_generation(tx, parts[i + 1]),
 
                 _ => {
                     // Skip unknown commands
@@ -344,6 +353,42 @@ fn parse_position_cmd(parts: &Vec<&str>) -> String {
     } else {
         pos_option
     }
+}
+
+fn clear_genetic_programs(tx: &Sender<Message>) {
+    send_message(tx, Message::ClearGeneticPrograms);
+}
+
+fn add_genetic_program(tx: &Sender<Message>, parts: Vec<&str>) {
+    if parts.len() != 8 {
+        println!("add_genetic_program requires 8 parameters: code data1 data2 data3 data4 data5 data6 score_adjustment")
+    }
+
+    let code = u128::from_str(parts[0]).expect("code must be a 128-Bit unsigned integer");
+    let data1 = u64::from_str(parts[1]).expect("data1 must be a 64-Bit unsigned integer");
+    let data2 = u64::from_str(parts[2]).expect("data2 must be a 64-Bit unsigned integer");
+    let data3 = u64::from_str(parts[3]).expect("data3 must be a 64-Bit unsigned integer");
+    let data4 = u64::from_str(parts[4]).expect("data4 must be a 64-Bit unsigned integer");
+    let data5 = u64::from_str(parts[5]).expect("data5 must be a 64-Bit unsigned integer");
+    let data6 = u64::from_str(parts[6]).expect("data6 must be a 64-Bit unsigned integer");
+    let score_adjustment = i32::from_str(parts[7]).expect("score_adjustment must be a 32-Bit signed integer");
+
+    let program = GeneticProgram::new(code, [0, 0, 0, 0, data1, data2, data3, data4, data5, data6], score_adjustment);
+
+    send_message(tx, Message::AddGeneticProgram(program));
+}
+
+fn new_genetic_generation(tx: &Sender<Message>) {
+    send_message(tx, Message::NewGeneticGeneration);
+}
+
+fn init_genetic_generation(tx: &Sender<Message>, pop_size_str: &str) {
+    let pop_size = match u32::from_str(pop_size_str) {
+        Ok(value) => value,
+        Err(e) => panic!("Could not parse pop_size {}: {}", pop_size_str, e)
+    };
+
+    send_message(tx, Message::InitGeneticGeneration(pop_size));
 }
 
 #[cfg(test)]
