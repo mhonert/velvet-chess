@@ -23,7 +23,7 @@ class Engine:
     def wait_for_command(self, cmd):
         for line in self.process.stdout:
             line = line.rstrip()
-            log.debug("<<< " + line)
+            # log.debug("<<< " + line)
             if cmd in line:
                 return line
 

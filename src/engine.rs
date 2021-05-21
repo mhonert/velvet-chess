@@ -38,7 +38,12 @@ use crate::moves::{NO_MOVE, Move};
 use crate::move_gen::MoveGenerator;
 use crate::tuning::Tuning;
 use crate::time_management::{TimeManager, MAX_TIMELIMIT_MS, TIMEEXT_MULTIPLIER};
-use crate::genetic_eval::GeneticProgram;
+
+#[cfg(feature = "lgp_training")]
+use crate::genetic_eval_trainer::{GeneticEvaluator, GeneticProgram};
+
+#[cfg(not(feature = "lgp_training"))]
+use crate::genetic_eval::{GeneticEvaluator, GeneticProgram};
 
 pub enum Message {
     NewGame,
@@ -68,6 +73,7 @@ pub enum Message {
     SetArrayOption(String, i32, i32),
     Quit,
     ClearGeneticPrograms,
+    CompileGeneticPrograms,
     AddGeneticProgram(GeneticProgram),
     NewGeneticGeneration,
     InitGeneticGeneration(u32),
@@ -95,6 +101,7 @@ pub struct Engine {
     pub hh: HistoryHeuristics,
     pub tt: TranspositionTable,
     pub time_mgr: TimeManager,
+    pub genetic_eval: GeneticEvaluator,
 
     pub node_limit: u64,
     pub depth_limit: i32,
@@ -119,7 +126,9 @@ pub fn spawn_engine_thread() -> Sender<Message> {
     let (tx, rx) = mpsc::channel::<Message>();
 
     thread::spawn(move || {
-        let mut engine = Engine::new(rx);
+        let genetic_eval = GeneticEvaluator::new();
+
+        let mut engine = Engine::new(rx, genetic_eval);
         engine.start_loop();
     });
 
@@ -127,8 +136,8 @@ pub fn spawn_engine_thread() -> Sender<Message> {
 }
 
 impl Engine {
-    pub fn new_from_fen(rx: Receiver<Message>, fen: &str, tt_size_mb: u64) -> Self {
-        let board = create_from_fen(&fen);
+    pub fn new_from_fen(rx: Receiver<Message>, genetic_eval: GeneticEvaluator, fen: &str, tt_size_mb: u64) -> Self {
+        let mut board = create_from_fen(&fen);
 
         let timeext_history_size = board.options.get_timeext_history_size();
         let final_score_drop_threshold = board.options.get_timeext_score_drop_threshold();
@@ -140,6 +149,7 @@ impl Engine {
             hh: HistoryHeuristics::new(),
             tt: TranspositionTable::new(tt_size_mb),
             time_mgr: TimeManager::new(timeext_history_size, final_score_drop_threshold),
+            genetic_eval,
             node_limit: u64::max_value(),
             depth_limit: MAX_DEPTH as i32,
             cancel_possible: false,
@@ -155,8 +165,8 @@ impl Engine {
         }
     }
 
-    pub fn new(rx: Receiver<Message>) -> Self {
-        Engine::new_from_fen(rx, START_POS, DEFAULT_SIZE_MB)
+    pub fn new(rx: Receiver<Message>, genetic_eval: GeneticEvaluator) -> Self {
+        Engine::new_from_fen(rx, genetic_eval, START_POS, DEFAULT_SIZE_MB)
     }
 
     fn start_loop(&mut self) {
@@ -220,13 +230,16 @@ impl Engine {
 
             Message::Stop => (),
 
-            Message::ClearGeneticPrograms => self.board.genetic_eval.clear(),
+            Message::ClearGeneticPrograms => self.genetic_eval.clear(),
 
-            Message::AddGeneticProgram(program) => self.board.genetic_eval.add_program(program),
+            Message::AddGeneticProgram(program) => self.genetic_eval.add_program(program),
 
-            Message::NewGeneticGeneration => self.board.genetic_eval.create_new_generation(&mut self.rnd),
+            Message::CompileGeneticPrograms => self.genetic_eval.compile(),
 
-            Message::InitGeneticGeneration(pop_size) => self.board.genetic_eval.init_generation(&mut self.rnd, pop_size),
+
+            Message::NewGeneticGeneration => self.genetic_eval.create_new_generation(&mut self.rnd),
+
+            Message::InitGeneticGeneration(pop_size) => self.genetic_eval.init_generation(&mut self.rnd, pop_size),
         }
 
         true
@@ -265,7 +278,6 @@ impl Engine {
     fn is_ready(&mut self) {
         if self.options_modified {
             self.options_modified = false;
-            self.board.pst.recalculate(&self.board.options);
 
             let history_size = self.board.options.get_timeext_history_size();
             let final_score_drop_threshold = self.board.options.get_timeext_score_drop_threshold();
@@ -397,7 +409,7 @@ impl Engine {
         for pos in self.test_positions.to_vec().iter() {
             pos.apply(&mut self.board);
             let score = if pos.is_quiet {
-                self.board.get_score()
+                self.get_score()
             } else {
                 self.quiescence_search(self.board.active_player(), MIN_SCORE, MAX_SCORE, 0) * self.board.active_player() as i32
             };

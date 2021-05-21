@@ -4,3 +4,4 @@ fen
 epd
 __pycache__
 build.sh
+build_trainer.sh

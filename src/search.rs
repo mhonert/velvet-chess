@@ -262,7 +262,7 @@ impl Search for Engine {
             depth = max(1, depth + 1);
 
         } else if depth == 1 {
-            pos_score = Some(self.board.get_score() * player_color as i32);
+            pos_score = Some(self.get_score() * player_color as i32);
             if pos_score.unwrap() < alpha - self.board.options.get_razor_margin() {
                 // Directly jump to quiescence search, if current position score is below a certain threshold
                 depth = 0;
@@ -351,7 +351,7 @@ impl Search for Engine {
         let mut allow_futile_move_pruning = false;
         if !is_pv && depth <= 6 {
             let margin = (6 << depth) * 4 + 16;
-            let prune_low_score = pos_score.unwrap_or_else(|| self.board.get_score() * player_color as i32) + margin;
+            let prune_low_score = pos_score.unwrap_or_else(|| self.get_score() * player_color as i32) + margin;
             allow_futile_move_pruning = prune_low_score <= alpha;
         }
 
@@ -517,7 +517,7 @@ impl Search for Engine {
             return 0;
         }
 
-        let position_score = self.board.get_score() * active_player as i32;
+        let position_score = self.get_score() * active_player as i32;
         if ply >= MAX_DEPTH as i32 {
             return position_score;
         }
@@ -663,6 +663,7 @@ mod tests {
     use crate::colors::{BLACK, WHITE};
     use crate::magics::initialize_magics;
     use crate::fen::write_fen;
+    use crate::genetic_eval::GeneticEvaluator;
 
     #[test]
     fn finds_mate_in_one() {
@@ -682,7 +683,9 @@ mod tests {
 
         let fen = to_fen(BLACK, &items);
         let (_, rx) = mpsc::channel::<Message>();
-        let mut engine = Engine::new_from_fen(rx, &fen, 1);
+
+        let genetic_eval = GeneticEvaluator::new();
+        let mut engine = Engine::new_from_fen(rx, genetic_eval, &fen, 1);
 
         let m = engine.find_best_move(2, 0, true);
         assert_ne!(NO_MOVE, m);
@@ -711,7 +714,9 @@ mod tests {
 
         let fen = to_fen(WHITE, &items);
         let (_, rx) = mpsc::channel::<Message>();
-        let mut engine = Engine::new_from_fen(rx, &fen, 1);
+
+        let genetic_eval = GeneticEvaluator::new();
+        let mut engine = Engine::new_from_fen(rx, genetic_eval, &fen, 1);
 
         let m1 = engine.find_best_move(3, 0, true);
         engine.perform_move(m1);

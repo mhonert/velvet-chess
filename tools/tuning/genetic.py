@@ -96,7 +96,8 @@ def run_engine(k: float, engine: Engine, programs: List[GeneticProgram]) -> (int
 
         engine.send_command("clear_genetic_programs")
         for program in programs:
-            engine.send_command("add_genetic_program {} {} {} {} {} {} {} {} {}".format(program.code, *program.data, program.score_increment, program.score_raise))
+            engine.send_command("add_genetic_program {} {} {} {} {} {} {} {} {} {} {}".format(program.code, *program.data, program.score_increment, program.score_raise))
+        engine.send_command("compile_genetic_programs")
 
         engine.send_command("isready")
         engine.wait_for_command("readyok")
@@ -174,7 +175,7 @@ def write_programs(programs: List[GeneticProgram]):
 def create_new_generation(engine: Engine, curr_gen: List[GeneticProgram]):
     engine.send_command("clear_genetic_programs")
     for program in curr_gen:
-        engine.send_command("add_genetic_program {} {} {} {} {} {} {} {} {}".format(program.code, *program.data, program.score_increment, program.score_raise))
+        engine.send_command("add_genetic_program {} {} {} {} {} {} {} {} {} {} {}".format(program.code, *program.data, program.score_increment, program.score_raise))
 
     engine.send_command("new_genetic_generation")
     return read_generation_response(engine)
@@ -192,11 +193,11 @@ def read_generation_response(engine: Engine):
 
     for r in result[len("result "):].split(";"):
         tmp = r.split(",")
-        if len(tmp) != 10:
+        if len(tmp) != 12:
             break
 
         program_result = [int(x) for x in tmp]
-        new_gen.append(GeneticProgram(code=program_result[0], data=program_result[1:7], result=.0, score_increment=program_result[7], score_raise=program_result[8], solution_size=program_result[9]))
+        new_gen.append(GeneticProgram(code=program_result[0], data=program_result[1:9], result=.0, score_increment=program_result[9], score_raise=program_result[10], solution_size=program_result[11]))
 
     return new_gen
 
@@ -228,7 +229,7 @@ def main():
 
     log.info("Reading test positions ...")
     all_test_positions = read_fens(config.test_positions_file)
-    all_test_positions = random.sample(all_test_positions, 50000)
+    all_test_positions = random.sample(all_test_positions, 500000)
 
     log.info("Read %i test positions", len(all_test_positions))
 
@@ -249,8 +250,6 @@ def main():
         engine.test_positions = batch
 
     try:
-        start_time = time()
-
         init_err = run_pass(config, [], engines)
 
         log.info("%.8f > Start evolving genetic eval", init_err)
@@ -259,8 +258,8 @@ def main():
 
         random.seed()
 
-        community_size = 1024
-        team_size = 8
+        community_size = 128
+        team_size = 32
 
         teams = []
         for i in range(community_size):
@@ -276,6 +275,7 @@ def main():
 
         while True:
 
+            eval_start_time = time()
             for team in community.teams:
                 new_err = run_pass(config, team.programs, engines)
                 team.result = new_err
@@ -287,9 +287,9 @@ def main():
                 if new_err < best_err:
                     best_err = new_err
                     improved = True
+            eval_duration = time() - eval_start_time
 
             community.teams.sort(key=lambda t: (t.result, t.solution_size))
-            log.info("%.8f > Finished generation %d: (%d Instr.) - %ds", best_err, gen_count, community.teams[0].solution_size, time() - start_time)
 
             for program in teams[0].programs:
                 log.info("- %d (%d Instr.), %d/%d, %s", program.code, program.solution_size, program.score_increment, program.score_raise, program.data)
@@ -299,9 +299,10 @@ def main():
                 improved = False
 
             # Next generation
+            gen_start_time = time()
             for i in range(team_size):
-                if i % 2 == gen_count % 2:
-                    continue
+                # if i % 2 == gen_count % 2:
+                #     continue
                 members = []
                 for team in community.teams:
                     members.append(team.programs[i])
@@ -312,6 +313,9 @@ def main():
                 for team in community.teams:
                     team.programs[i] = members[j]
                     j += 1
+
+            gen_duration = time() - gen_start_time
+            log.info("%.8f > Finished generation %d: (%d Instr.) - %ds / %ds / %ds", best_err, gen_count, community.teams[0].solution_size, eval_duration + gen_duration, eval_duration, gen_duration)
 
             gen_count += 1
 

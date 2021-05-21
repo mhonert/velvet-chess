@@ -16,14 +16,13 @@
  */
 
 use crate::bitboard::{BLACK_KING_SIDE_CASTLING_BIT_PATTERN, BLACK_QUEEN_SIDE_CASTLING_BIT_PATTERN, PAWN_DOUBLE_MOVE_LINES, WHITE_KING_SIDE_CASTLING_BIT_PATTERN, WHITE_QUEEN_SIDE_CASTLING_BIT_PATTERN, BitBoard, get_knight_attacks, get_king_attacks};
-use crate::board::{Board, interpolate_score};
+use crate::board::{Board};
 use crate::boardpos::{BlackBoardPos, WhiteBoardPos};
 use crate::castling::Castling;
 use crate::colors::{Color, BLACK, WHITE};
 use crate::pieces::{B, K, N, P, Q, R, EMPTY};
 use crate::moves::{Move, MoveType, NO_MOVE};
 use crate::history_heuristics::{HistoryHeuristics};
-use crate::score_util::{unpack_score, unpack_eg_score};
 use crate::transposition_table::MAX_DEPTH;
 use crate::magics::{get_bishop_attacks, get_rook_attacks, get_queen_attacks};
 
@@ -129,7 +128,6 @@ pub struct MoveList {
     quiets_scored: bool,
     quiets_sorted: bool,
     active_player: Color,
-    phase: i32,
 }
 
 impl MoveList {
@@ -147,7 +145,6 @@ impl MoveList {
             quiets_scored: false,
             quiets_sorted: false,
             active_player: WHITE,
-            phase: 0,
         }
     }
 
@@ -247,7 +244,7 @@ impl MoveList {
                             self.move_index = 0;
 
                             if !self.quiets_scored {
-                                self.score_quiets(hh, board);
+                                self.score_quiets(hh);
                             }
 
                             self.find_next_quiet_move_except_hash_move()
@@ -297,14 +294,14 @@ impl MoveList {
         }
     }
 
-    fn score_quiets(&mut self, hh: &HistoryHeuristics, board: &Board) {
+    fn score_quiets(&mut self, hh: &HistoryHeuristics) {
         for m in self.moves.iter_mut() {
             let score = if *m == self.primary_killer {
                 PRIMARY_KILLER_SCORE
             } else if *m == self.secondary_killer {
                 SECONDARY_KILLER_SCORE
             } else {
-                evaluate_move_order(self.phase, hh, board, self.active_player, *m)
+                evaluate_move_order(hh, self.active_player, *m)
             };
 
             *m = m.with_score(score);
@@ -363,7 +360,7 @@ impl MoveList {
     pub fn next_legal_move(&mut self, hh: &HistoryHeuristics, board: &mut Board) -> Option<Move> {
         if !self.moves_generated {
             self.gen_moves(board);
-            self.score_quiets(hh, board);
+            self.score_quiets(hh);
             sort_by_score_desc(&mut self.moves);
             self.moves.append(&mut self.capture_moves);
 
@@ -400,8 +397,6 @@ impl MoveList {
     }
 
     fn gen_moves(&mut self, board: &Board) {
-        self.phase = board.calc_phase_value();
-
         let active_player = self.active_player;
         let opponent_bb = board.get_all_piece_bitboard(-active_player);
         let occupied = opponent_bb | board.get_all_piece_bitboard(active_player);
@@ -837,7 +832,7 @@ fn is_queenside_castling_valid_for_black(board: &Board, empty_bb: u64) -> bool {
 }
 
 // Move evaluation heuristic for initial move ordering (high values are better for the active player)
-pub fn evaluate_move_order(phase: i32, hh: &HistoryHeuristics, board: &Board, active_player: Color, m: Move) -> i32 {
+pub fn evaluate_move_order(hh: &HistoryHeuristics, active_player: Color, m: Move) -> i32 {
     match m.typ() {
         MoveType::PawnSpecial => {
             // Promotion
@@ -852,25 +847,13 @@ pub fn evaluate_move_order(phase: i32, hh: &HistoryHeuristics, board: &Board, ac
         }
 
         _ => {
-            let end = m.end();
-
             let history_score = hh.get_history_score(active_player, m);
             if history_score == 0 {
                 NEGATIVE_HISTORY_SCORE
 
             } else if history_score == -1 {
-                // No history score -> use difference between piece square scores
-                let original_piece = m.piece_id() * active_player;
 
-                let start_packed_score = board.pst.get_packed_score(original_piece, m.start() as usize);
-                let end_packed_score = board.pst.get_packed_score(original_piece, end as usize);
-
-                let mg_diff = (unpack_score(end_packed_score) - unpack_score(start_packed_score)) as i32;
-                let eg_diff = (unpack_eg_score(end_packed_score) - unpack_eg_score(start_packed_score)) as i32;
-
-                let diff = interpolate_score(phase, mg_diff, eg_diff) * active_player as i32;
-
-                -4096 + diff
+                -4096
             } else {
 
                 -3600 + history_score
@@ -1006,7 +989,7 @@ mod tests {
 
     #[test]
     pub fn white_pawn_moves_blocked() {
-        let mut board: Board = board_with_one_piece(WHITE, P, 52);
+        let mut board = board_with_one_piece(WHITE, P, 52);
         board.add_piece(WHITE, P, 44);
 
         let moves = generate_moves_for_pos(&mut board, WHITE, 52);
@@ -1017,7 +1000,7 @@ mod tests {
     pub fn white_queen_moves() {
         initialize_magics();
 
-        let mut board: Board = board_with_one_piece(WHITE, Q, 28);
+        let mut board= board_with_one_piece(WHITE, Q, 28);
 
         let moves = generate_moves_for_pos(&mut board, WHITE, 28);
 
@@ -1028,7 +1011,7 @@ mod tests {
     pub fn exclude_illegal_moves() {
         initialize_magics();
 
-        let mut board: Board = board_with_one_piece(WHITE, Q, 52);
+        let mut board= board_with_one_piece(WHITE, Q, 52);
         board.perform_move(Move::new(MoveType::KingQuiet, K, board.king_pos(WHITE), 53));
         board.add_piece(BLACK, R, 51);
 
@@ -1078,7 +1061,7 @@ mod tests {
         let mut moves = Vec::new();
 
         loop {
-            let m = ml.next_move(&mut hh, board);
+            let m = ml.next_move(&hh, board);
 
             if let Some(m) = m {
                 moves.push(m);

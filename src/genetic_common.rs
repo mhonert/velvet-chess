@@ -16,36 +16,4 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub mod bitboard;
-pub mod board;
-pub mod engine;
-pub mod eval;
-pub mod fen;
-pub mod history_heuristics;
-pub mod magics;
-pub mod move_gen;
-pub mod perft;
-pub mod random;
-pub mod uci;
 
-mod boardpos;
-mod castling;
-mod colors;
-mod genetic_common;
-mod moves;
-mod options;
-mod pieces;
-mod pos_history;
-mod score_util;
-mod search;
-mod time_management;
-mod transposition_table;
-mod tuning;
-mod uci_move;
-mod zobrist;
-
-#[cfg(feature = "lgp_training")]
-mod genetic_eval_trainer;
-
-#[cfg(not(feature = "lgp_training"))]
-mod genetic_eval;

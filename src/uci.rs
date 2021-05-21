@@ -27,7 +27,12 @@ use std::thread::sleep;
 use std::time::Duration;
 use crate::options::parse_set_option;
 use crate::magics::{initialize_magics};
-use crate::genetic_eval::GeneticProgram;
+
+#[cfg(feature = "lgp_training")]
+use crate::genetic_eval_trainer::{GeneticProgram};
+
+#[cfg(not(feature = "lgp_training"))]
+use crate::genetic_eval::{GeneticProgram};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const AUTHOR: &str = "Martin Honert";
@@ -86,6 +91,8 @@ pub fn start_uci_loop(tx: &Sender<Message>) {
                 "clear_genetic_programs" => clear_genetic_programs(tx),
 
                 "add_genetic_program" => add_genetic_program(tx, parts[i + 1..].to_vec()),
+
+                "compile_genetic_programs" => compile_genetic_programs(tx),
 
                 "new_genetic_generation" => new_genetic_generation(tx),
 
@@ -359,22 +366,28 @@ fn clear_genetic_programs(tx: &Sender<Message>) {
     send_message(tx, Message::ClearGeneticPrograms);
 }
 
+fn compile_genetic_programs(tx: &Sender<Message>) {
+    send_message(tx, Message::CompileGeneticPrograms);
+}
+
 fn add_genetic_program(tx: &Sender<Message>, parts: Vec<&str>) {
-    if parts.len() != 9 {
+    if parts.len() != 11 {
         println!("add_genetic_program requires 8 parameters: code data1 data2 data3 data4 data5 data6 score_increment score_raise")
     }
 
-    let code = u128::from_str(parts[0]).expect("code must be a 128-Bit unsigned integer");
+    let code = parts[0];
     let data1 = u64::from_str(parts[1]).expect("data1 must be a 64-Bit unsigned integer");
     let data2 = u64::from_str(parts[2]).expect("data2 must be a 64-Bit unsigned integer");
     let data3 = u64::from_str(parts[3]).expect("data3 must be a 64-Bit unsigned integer");
     let data4 = u64::from_str(parts[4]).expect("data4 must be a 64-Bit unsigned integer");
     let data5 = u64::from_str(parts[5]).expect("data5 must be a 64-Bit unsigned integer");
     let data6 = u64::from_str(parts[6]).expect("data6 must be a 64-Bit unsigned integer");
-    let score_increment = i32::from_str(parts[7]).expect("score_increment must be a 32-Bit signed integer");
-    let score_raise = i32::from_str(parts[8]).expect("score_increment must be a 32-Bit signed integer");
+    let data7 = u64::from_str(parts[7]).expect("data7 must be a 64-Bit unsigned integer");
+    let data8 = u64::from_str(parts[8]).expect("data8 must be a 64-Bit unsigned integer");
+    let score_increment = i32::from_str(parts[9]).expect("score_increment must be a 32-Bit signed integer");
+    let score_raise = i32::from_str(parts[10]).expect("score_increment must be a 32-Bit signed integer");
 
-    let program = GeneticProgram::new(code, [0, 0, 0, 0, data1, data2, data3, data4, data5, data6], score_increment, score_raise);
+    let program = GeneticProgram::new_from_str(code, [data1, data2, data3, data4, data5, data6, data7, data8], score_increment, score_raise);
 
     send_message(tx, Message::AddGeneticProgram(program));
 }
