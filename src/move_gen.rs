@@ -1000,7 +1000,7 @@ mod tests {
     pub fn white_queen_moves() {
         initialize_magics();
 
-        let mut board= board_with_one_piece(WHITE, Q, 28);
+        let mut board = board_with_one_piece(WHITE, Q, 28);
 
         let moves = generate_moves_for_pos(&mut board, WHITE, 28);
 
@@ -1011,7 +1011,7 @@ mod tests {
     pub fn exclude_illegal_moves() {
         initialize_magics();
 
-        let mut board= board_with_one_piece(WHITE, Q, 52);
+        let mut board = board_with_one_piece(WHITE, Q, 52);
         board.perform_move(Move::new(MoveType::KingQuiet, K, board.king_pos(WHITE), 53));
         board.add_piece(BLACK, R, 51);
 
@@ -1045,6 +1045,11 @@ mod tests {
 
         sort_partial_by_score_desc(3, &mut moves);
         assert_eq!(moves[3], m1);
+    }
+
+    #[test]
+    fn bug_repro() {
+        let fen = "Q2Q3r/P4k2/4N3/2K5/2P2N2/8/3P1PPP/R1BQ1B1R b - - 2 40";
     }
 
     fn board_with_one_piece(color: Color, piece_id: i8, pos: i32) -> Board {

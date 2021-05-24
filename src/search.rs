@@ -663,7 +663,13 @@ mod tests {
     use crate::colors::{BLACK, WHITE};
     use crate::magics::initialize_magics;
     use crate::fen::write_fen;
-    use crate::genetic_eval::GeneticEvaluator;
+
+    #[cfg(feature = "lgp_training")]
+    use crate::genetic_eval_trainer::{GeneticEvaluator};
+
+    #[cfg(not(feature = "lgp_training"))]
+    use crate::genetic_eval::{GeneticEvaluator};
+
 
     #[test]
     fn finds_mate_in_one() {

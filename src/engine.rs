@@ -137,7 +137,7 @@ pub fn spawn_engine_thread() -> Sender<Message> {
 
 impl Engine {
     pub fn new_from_fen(rx: Receiver<Message>, genetic_eval: GeneticEvaluator, fen: &str, tt_size_mb: u64) -> Self {
-        let mut board = create_from_fen(&fen);
+        let board = create_from_fen(&fen);
 
         let timeext_history_size = board.options.get_timeext_history_size();
         let final_score_drop_threshold = board.options.get_timeext_score_drop_threshold();
@@ -189,7 +189,7 @@ impl Engine {
         match msg {
             Message::NewGame => self.reset(),
 
-            Message::SetPosition(fen, moves) => self.set_position(fen, moves),
+            Message::SetPosition(fen, moves) => self.set_position(&fen, moves),
 
             Message::SetTranspositionTableSize(size_mb) => self.set_tt_size(size_mb),
 
@@ -288,8 +288,8 @@ impl Engine {
         println!("readyok")
     }
 
-    fn set_position(&mut self, fen: String, moves: Vec<UCIMove>) {
-        match read_fen(&mut self.board, &fen) {
+    pub fn set_position(&mut self, fen: &str, moves: Vec<UCIMove>) {
+        match read_fen(&mut self.board, fen) {
             Ok(_) => (),
             Err(err) => println!("position cmd: {}", err),
         }
@@ -452,7 +452,7 @@ impl Engine {
         self.tt.resize(size_mb as u64, false);
     }
 
-    fn reset(&mut self) {
+    pub fn reset(&mut self) {
         self.tt.clear();
         self.hh.clear();
     }

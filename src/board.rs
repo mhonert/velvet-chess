@@ -22,10 +22,12 @@ use crate::castling::{Castling, clear_castling_bits};
 use crate::colors::{Color, BLACK, WHITE};
 use crate::pieces::{B, EMPTY, K, N, P, Q, R, get_piece_value_unchecked};
 use crate::pos_history::PositionHistory;
-use crate::options::{Options};
+use crate::score_util::{unpack_eg_score, unpack_score};
+use crate::options::{Options, PieceSquareTables};
 use crate::zobrist::{piece_zobrist_key, player_zobrist_key, castling_zobrist_key, enpassant_zobrist_key};
 use crate::moves::{Move, MoveType};
 use crate::magics::{get_bishop_attacks, get_rook_attacks};
+use std::cmp::max;
 
 const MAX_GAME_HALFMOVES: usize = 5898 * 2;
 
@@ -37,6 +39,7 @@ pub const MAX_PHASE: i32 = 16 * PAWN_PHASE_VALUE + 30 * BASE_PIECE_PHASE_VALUE +
 
 pub struct Board {
     pub options: Options,
+    pub pst: PieceSquareTables,
     pos_history: PositionHistory,
     items: [i8; 64],
     bitboards: [u64; 13],
@@ -53,6 +56,8 @@ pub struct Board {
 pub struct StateEntry {
     hash: u64,
     en_passant: u16,
+    pub score: i16,
+    pub eg_score: i16,
     castling: u8,
     halfmove_clock: u8,
 }
@@ -74,18 +79,20 @@ impl Board {
         }
 
         let options = Options::new();
+        let pst = PieceSquareTables::new(&options);
 
         let mut board = Board {
             options,
+            pst,
             pos_history: PositionHistory::new(),
             items: [0; 64],
             bitboards: [0; 13],
             bitboards_all_pieces: [0; 3],
-            state: StateEntry{en_passant: 0, castling: 0, halfmove_clock: 0, hash: 0},
+            state: StateEntry{en_passant: 0, castling: 0, halfmove_clock: 0, hash: 0, score: 0, eg_score: 0},
             king_pos: [0; 3],
             halfmove_count: 0,
             history_counter: 0,
-            history: [StateEntry{en_passant: 0, castling: 0, halfmove_clock: 0, hash: 0}; MAX_GAME_HALFMOVES],
+            history: [StateEntry{en_passant: 0, castling: 0, halfmove_clock: 0, hash: 0, score: 0, eg_score: 0}; MAX_GAME_HALFMOVES],
         };
 
         board.set_position(
@@ -96,7 +103,6 @@ impl Board {
             halfmove_clock,
             fullmove_num,
         );
-
         board
     }
 
@@ -117,7 +123,7 @@ impl Board {
             );
         }
 
-        self.halfmove_count = (fullmove_num - 1) * 2 + if active_player == WHITE { 0 } else { 1 };
+        self.halfmove_count = (max(1, fullmove_num) - 1) * 2 + if active_player == WHITE { 0 } else { 1 };
         self.state.halfmove_clock = halfmove_clock;
         self.state.hash = 0;
         self.state.castling = castling_state;
@@ -131,6 +137,8 @@ impl Board {
         self.bitboards_all_pieces = [0; 3];
         self.items = [EMPTY; 64];
         self.history_counter = 0;
+        self.state.score = 0;
+        self.state.eg_score = 0;
 
         for i in 0..64 {
             let item = items[i];
@@ -174,6 +182,8 @@ impl Board {
                              items: &[i8],
                              halfmove_count: u16,
                              castling_state: u8) {
+        self.state.score = 0;
+        self.state.eg_score = 0;
         self.halfmove_count = halfmove_count;
         self.state.castling = castling_state;
         self.bitboards_all_pieces = [0; 3];
@@ -184,6 +194,7 @@ impl Board {
             self.items[pos] = EMPTY;
             if piece != EMPTY {
                 self.add_piece_without_inc_update(piece.signum(), piece, pos as i32);
+                self.add_piece_score(piece, pos);
 
                 if piece == K {
                     self.set_king_pos(WHITE, pos as i32);
@@ -500,12 +511,20 @@ impl Board {
             *self.items.get_unchecked_mut(pos as usize) = piece;
         }
 
+        self.add_piece_score(piece, pos);
         self.state.hash ^= piece_zobrist_key(piece, pos);
 
         unsafe {
             *self.bitboards_all_pieces.get_unchecked_mut((color + 1) as usize) |= 1u64 << pos as u64;
             *self.bitboards.get_unchecked_mut((piece + 6) as usize) |= 1u64 << pos as u64;
         }
+    }
+
+    fn add_piece_score(&mut self, piece: i8, pos: usize) {
+        let packed_score = self.pst.get_packed_score(piece, pos);
+
+        self.state.score += unpack_score(packed_score);
+        self.state.eg_score += unpack_eg_score(packed_score);
     }
 
     fn clear_en_passant(&mut self) {
@@ -519,6 +538,7 @@ impl Board {
 
     pub fn remove_piece(&mut self, pos: i32) -> i8 {
         let piece = self.get_item(pos);
+        self.subtract_piece_score(piece, pos as usize);
         self.state.hash ^= piece_zobrist_key(piece, pos as usize);
 
 
@@ -538,6 +558,13 @@ impl Board {
 
         let color = piece.signum();
         self.remove(piece, color, pos)
+    }
+
+    fn subtract_piece_score(&mut self, piece: i8, pos: usize) {
+        let packed_score = self.pst.get_packed_score(piece, pos);
+
+        self.state.score -= unpack_score(packed_score);
+        self.state.eg_score -= unpack_eg_score(packed_score);
     }
 
     fn remove_piece_without_inc_update(&mut self, pos: i32) {
@@ -754,6 +781,12 @@ impl Board {
             || self.is_insufficient_material_draw()
     }
 
+    pub fn is_draw(&self) -> bool {
+        self.pos_history.is_checked_single_repetition(self.state.halfmove_clock)
+            || self.is_fifty_move_draw()
+            || self.is_insufficient_material_draw()
+    }
+
     fn is_fifty_move_draw(&self) -> bool {
         self.state.halfmove_clock >= 100
     }
@@ -928,6 +961,15 @@ impl Board {
         typ
     }
 
+    #[inline]
+    pub fn get_mat_score(&self) -> i32 {
+        self.state.score as i32
+    }
+
+    #[inline]
+    pub fn get_eg_mat_score(&self) -> i32 {
+        self.state.eg_score as i32
+    }
 }
 
 pub fn calc_phase_value(all_pieces: u64, all_pawns: u64, white_queens: u64, black_queens: u64) -> i32 {

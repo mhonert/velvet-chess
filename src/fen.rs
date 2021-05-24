@@ -173,7 +173,7 @@ fn read_enpassant(en_passant: &str) -> Option<i8> {
     let mut bytes = en_passant.bytes();
     let (col_char, row_char) = (bytes.next().unwrap(), bytes.next().unwrap());
 
-    let col_offset = (col_char - b'a') as i8;
+    let col_offset = (col_char.wrapping_sub(b'a')) as i8;
 
     Some(match row_char {
         b'3' => WhiteBoardPos::PawnLineStart as i8 + col_offset,

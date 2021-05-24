@@ -16,14 +16,23 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::mem::transmute;
-use crate::random::Random;
-use std::cmp::{min, max};
-use crate::genetic_eval_trainer::Term::{Constant, Variable, UnaryOp, BinaryOp};
+use std::cmp::{max, min};
 use std::collections::HashMap;
-use wasmer::{Store, Module, Instance, Value, imports, Cranelift};
-use crate::genetic_eval_trainer::Instruction::{Xor, And, Not, Or, Mul, Add};
+use std::io::{BufWriter, Write};
+use std::{io};
+use std::io::Error;
+use std::mem::transmute;
+
+use itertools::Itertools;
 use uint::construct_uint;
+use wasmer::{imports, Instance, Module, Store, Value, JIT};
+use serde::{Deserialize, Serialize};
+
+use crate::genetic_eval_trainer::Instruction::{Add, And, Mul, Nez, Not, Or, Xor};
+use crate::genetic_eval_trainer::Term::{BinaryOp, Constant, UnaryOp, Variable};
+use crate::random::Random;
+use std::prelude::v1::Result::Err;
+use wasmer_compiler_llvm::LLVM;
 
 const CROSS_OVER_RATE: u32 = 90;
 const MUTATION_RATE: u32 = 10;
@@ -37,10 +46,11 @@ pub const INSTR_BITMASK: u64 = 0b111111;
 pub const INSTR_LIMIT: usize = 512 / (INSTR_SIZE as usize);
 
 construct_uint! {
+    #[derive(Serialize, Deserialize)]
 	pub struct U512(8);
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Serialize, Deserialize)]
 pub struct GeneticProgram {
     pub code: U512,
     pub constants: [u64; 8],
@@ -71,7 +81,7 @@ impl GeneticProgram {
     }
 
     pub fn instr_count(&self) -> usize {
-        ((512 - self.code.leading_zeros()) as usize) / (INSTR_SIZE as usize)
+        ((512 - self.code.leading_zeros()) as usize + INSTR_SIZE as usize - 1) / (INSTR_SIZE as usize)
     }
 
     pub fn run(&self) -> u64 {
@@ -98,6 +108,13 @@ impl GeneticProgram {
                     unsafe {
                         let v = stack.get_unchecked_mut(sp - 1);
                         *v = !*v;
+                    }
+                },
+
+                Nez => {
+                    unsafe {
+                        let v = stack.get_unchecked_mut(sp - 1);
+                        *v = if *v != 0 { 1 } else { 0 };
                     }
                 },
 
@@ -187,7 +204,7 @@ impl GeneticProgram {
 }
 
 #[repr(u8)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq)]
 pub enum Instruction {
     Load0 = 1,
     Load1,
@@ -227,6 +244,7 @@ pub enum Instruction {
     Xor,
     Mul,
     Add,
+    Nez,
 }
 
 // First instruction opcode
@@ -236,7 +254,7 @@ impl Instruction {
     pub fn run_two_op(&self, op1: u64, op2: u64) -> u64 {
         match self {
             And => op1 & op2,
-            Add => op1 + op2,
+            Add => op1.wrapping_add(op2),
             Or => op1 | op2,
             Xor => op1 ^ op2,
             Mul => op1.wrapping_mul(op2),
@@ -252,9 +270,12 @@ pub struct CodeGen {
 
 impl CodeGen {
     pub fn new(programs: &[GeneticProgram]) -> Self {
-        let store = Store::default();
+        let compiler = LLVM::new();
+        // let store = Store::default();
+        let store = Store::new(&JIT::new(compiler).engine());
 
         let wat = compile_to_wasm(programs);
+        // println!("{}", wat);
         let module = Module::new(&store, &wat).unwrap();
 
         let import_object = imports! {};
@@ -280,31 +301,57 @@ fn compile_to_wasm(programs: &[GeneticProgram]) -> String {
     let mut body = String::new();
     body += header;
     let mut count = 0;
-    for program in programs.iter() {
-        let term = parse(program).optimized();
-        body += compile_term(&term).as_str();
+    for (_, group) in &programs.iter()
+        .sorted_by_key(|&p| (p.score_increment, p.score_raise))
+        .group_by(|&p| (p.score_increment, p.score_raise)) {
 
-        body += "        i64.popcnt\n";
+        let mut is_first = true;
+        let mut score_increment = 0;
+        let mut score_raise = 0;
 
-        if program.score_raise == 0 {
-            body += mul(program.score_increment).as_str();
+        for program in group {
+            if program.score_increment == 0 {
+                continue;
+            }
 
-        }  else {
-            body += "        local.set $tmp\n";
-            body += "        local.get $tmp\n";
-            body += mul(program.score_increment).as_str();
-            body += "        local.get $tmp\n";
-            body += format!("        i64.const {}\n", 1).as_str();
-            body += "        i64.add\n";
-            body += "        i64.mul\n";
-            body += format!("        i64.const {}\n", 2).as_str();
-            body += "        i64.div_s\n";
-            body += mul(program.score_raise).as_str();
-        };
+            let term = parse(program).optimized();
+            if matches!(term, Constant(_)) {
+                continue;
+            }
 
-        count += 1;
-        if count > 1 {
-            body += "        i64.add\n";
+            body += compile_term(&term).as_str();
+            body += "        i64.popcnt\n";
+
+            if is_first {
+                is_first = false;
+                score_increment = program.score_increment;
+                score_raise = program.score_raise;
+            } else {
+               body += "        i64.add\n";
+            }
+        }
+
+        if !is_first {
+            if score_raise == 0 {
+                body += mul(score_increment).as_str();
+
+            }  else {
+                body += "        local.set $tmp\n";
+                body += "        local.get $tmp\n";
+                body += mul(score_increment).as_str();
+                body += "        local.get $tmp\n";
+                body += format!("        i64.const {}\n", 1).as_str();
+                body += "        i64.add\n";
+                body += "        i64.mul\n";
+                body += format!("        i64.const {}\n", 2).as_str();
+                body += "        i64.div_s\n";
+                body += mul(score_raise).as_str();
+            };
+
+            count += 1;
+            if count > 1 {
+                body += "        i64.add\n";
+            }
         }
     }
 
@@ -336,6 +383,7 @@ fn compile_term(term: &Term) -> String {
 
             match *instr {
                 Not => format!("{}        i64.const 0x{:x}\n        i64.xor\n", p, u64::max_value()),
+                Nez => format!("{}        i64.eqz\n        i64.extend_i32_u\n        i64.const 1\n        i64.xor\n", p),
                 _ => panic!("Unexpected unary operator: {:?}", *instr)
             }
         },
@@ -429,17 +477,73 @@ impl GeneticEvaluator {
         print_generation(&new_programs);
     }
 
-    pub fn print_rust_code(&self) {
-        println!("pub fn genetic_eval({}) -> i32 {{", VAR_NAMES.iter().map(|&var| format!("{}: u64", var)).collect::<Vec<String>>().join(", "));
-        println!("    let mut score: i32 = 0;");
+    pub fn write_rust_code(&self, writer: &mut BufWriter<Box<dyn Write>>) -> Result<(), Error> {
+        writeln!(writer, "    #[inline]")?;
+        writeln!(writer, "    // Eval terms evolved using genetic programming")?;
+        writeln!(writer, "    pub fn eval(&self, {}) -> i32 {{", VAR_NAMES.iter().map(|&var| format!("{}: u64", var)).collect::<Vec<String>>().join(", "))?;
+        writeln!(writer, "        let mut score: i32 = 0;")?;
 
-        for program in self.programs.iter() {
-            print_rust_code(&program);
+        for (_, group) in &self.programs.iter()
+            .sorted_by_key(|&p| (p.score_increment, p.score_raise))
+            .group_by(|&p| (p.score_increment, p.score_raise)) {
+
+            let mut is_first = true;
+            let mut score_increment = 0;
+            let mut score_raise = 0;
+
+            for program in group {
+                if program.score_increment == 0 {
+                    continue;
+                }
+
+                let term = parse(&program).optimized();
+                if matches!(term, Constant(_)) {
+                    continue;
+                }
+
+                if is_first {
+                    writeln!(writer, "        // ------------------------------------------------")?;
+                    writeln!(writer, "        let mut tmp_score = {}.count_ones() as i32;", term.to_expr_str())?;
+                    is_first = false;
+                    score_increment = program.score_increment;
+                    score_raise = program.score_raise;
+                } else {
+                    writeln!(writer, "        tmp_score += {}.count_ones() as i32;", term.to_expr_str())?;
+
+                }
+            }
+
+            if !is_first {
+                if score_raise == 0 {
+                    writeln!(writer, "        score += tmp_score * {};", score_increment)?;
+                } else {
+                    writeln!(writer, "        score += tmp_score * {} * (tmp_score + 1) / 2 * {};", score_increment, score_raise)?;
+                }
+            }
         }
 
-        println!("    score");
-        println!("}}")
+        writeln!(writer, "        score")?;
+        writeln!(writer, "    }}")
     }
+}
+
+pub fn print_rust_code(program: &GeneticProgram) {
+    let stdout: Box<dyn Write> = Box::new(io::stdout());
+    let mut writer = BufWriter::new(stdout);
+    write_rust_code(program, &mut writer).expect("Write to stdout failed");
+}
+
+pub fn write_rust_code(program: &GeneticProgram, writer: &mut BufWriter<Box<dyn Write>>) -> Result<(), Error> {
+    let term = parse(&program).optimized();
+
+    writeln!(writer, "    let tmp_score = {}.count_ones() as i32;", term.to_expr_str())?;
+    if program.score_raise == 0 {
+        writeln!(writer, "    score += tmp_score * {};", program.score_increment)?;
+    } else {
+        writeln!(writer, "    score += tmp_score * {} * (tmp_score + 1) / 2 * {};", program.score_increment, program.score_raise)?;
+    }
+
+    Ok(())
 }
 
 fn print_generation(programs: &[GeneticProgram]) {
@@ -460,7 +564,7 @@ fn print_generation(programs: &[GeneticProgram]) {
 }
 
 
-#[derive(Clone)]
+#[derive(Clone, PartialOrd, PartialEq)]
 pub enum Term {
     Constant(u64),
     Variable(usize),
@@ -483,6 +587,7 @@ impl Term {
             UnaryOp(instr, op) => {
                 match *instr {
                     Not => format!("!{}", op.to_expr_str()),
+                    Nez => format!("(if {} != 0 {{ 1u64 }} else {{ 0u64 }})", op.to_expr_str()),
                     _ => panic!("{:?} is not a one operand instruction", *instr),
                 }
             }
@@ -512,6 +617,14 @@ impl Term {
                             _ => self.clone()
                         }
                     },
+                    Nez => {
+                        let opt_op = op.optimized();
+                        match opt_op {
+                            Constant(value) => Constant(if value != 0 { 1 } else { 0 }),
+                            _ => self.clone()
+                        }
+
+                    }
                     _ => panic!("{:?} is not a 1-operand instruction", instr)
                 }
             },
@@ -577,7 +690,7 @@ impl Term {
                         }
                     }
 
-                    Or | Xor => {
+                    Or => {
                         match opt_op1 {
                             Constant(value1) => {
                                 match opt_op2 {
@@ -600,7 +713,48 @@ impl Term {
                                             BinaryOp(*instr, Box::new(opt_op1), Box::new(opt_op2))
                                         }
                                     },
-                                    _ => BinaryOp(*instr, Box::new(opt_op1), Box::new(opt_op2))
+                                    _ => {
+                                        if opt_op1 == opt_op2 {
+                                            opt_op1
+                                        } else {
+                                            BinaryOp(*instr, Box::new(opt_op1), Box::new(opt_op2))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+
+                    Xor => {
+                        match opt_op1 {
+                            Constant(value1) => {
+                                match opt_op2 {
+                                    Constant(value2) => Constant(instr.run_two_op(value1, value2)),
+                                    _ => {
+                                        if value1 == 0 {
+                                            opt_op2
+                                        } else {
+                                            BinaryOp(*instr, Box::new(opt_op1), Box::new(opt_op2))
+                                        }
+                                    }
+                                }
+                            },
+                            _ => {
+                                match opt_op2 {
+                                    Constant(value2) => {
+                                        if value2 == 0 {
+                                            opt_op1
+                                        } else {
+                                            BinaryOp(*instr, Box::new(opt_op1), Box::new(opt_op2))
+                                        }
+                                    },
+                                    _ => {
+                                        if opt_op1 == opt_op2 {
+                                            Constant(0)
+                                        } else {
+                                            BinaryOp(*instr, Box::new(opt_op1), Box::new(opt_op2))
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -646,17 +800,6 @@ impl Term {
     }
 }
 
-pub fn print_rust_code(program: &GeneticProgram) {
-    let term = parse(&program).optimized();
-
-    println!("    let tmp_score = {}.count_ones() as i32;", term.to_expr_str());
-    if program.score_raise == 0 {
-        println!("    score += tmp_score * {};", program.score_increment);
-    } else {
-        println!("    score += tmp_score * {} * (tmp_score + 1) / 2 * {};", program.score_increment, program.score_raise);
-    }
-}
-
 fn parse(program: &GeneticProgram) -> Term {
     let mut stack: Vec<Term> = Vec::new();
     for _ in 0..64 {
@@ -674,6 +817,10 @@ fn parse(program: &GeneticProgram) -> Term {
         match instr {
             Not => {
                 stack[sp - 1] = UnaryOp(Not, Box::new(stack[sp - 1].clone()));
+            },
+
+            Nez => {
+                stack[sp - 1] = UnaryOp(Nez, Box::new(stack[sp - 1].clone()));
             },
 
             Or | Xor | And | Mul | Add => {
@@ -807,6 +954,10 @@ impl Assembler {
         self.add_opcode(Not as u8)
     }
 
+    pub fn eqz(&mut self) -> &mut Self {
+        self.add_opcode(Nez as u8)
+    }
+
     pub fn and(&mut self) -> &mut Self {
         self.add_opcode(And as u8)
     }
@@ -913,8 +1064,8 @@ fn slice(program: &GeneticProgram) -> Vec<(usize, usize)> {
         } else {
             // Instruction
             match unsafe { transmute(opcode) } {
-                Not => {
-                    // Unary operator
+                Not | Nez => {
+                    // Unary operators
                     let start = *starts.last().unwrap_or(&0);
                     let len = (index - start) + 1;
                     slices.push((start, len));
@@ -1092,7 +1243,7 @@ fn mutate(rnd: &mut Random, program: &GeneticProgram) -> GeneticProgram {
 }
 
 pub fn generate_program(rnd: &mut Random) -> GeneticProgram {
-    let min_size = ((INSTR_LIMIT as u32 / 8) + (rnd.rand32() % (INSTR_LIMIT as u32 / 4))) as usize;
+    let min_size = ((INSTR_LIMIT as u32 / 4) + (rnd.rand32() % (INSTR_LIMIT as u32 / 2))) as usize;
     let mut index = 0;
     let mut sp : usize = 0;
 
@@ -1115,7 +1266,7 @@ pub fn generate_program(rnd: &mut Random) -> GeneticProgram {
             sp += 1;
         } else if sp == 1 {
             // Single operand instruction
-            opcode = Not as u8;
+            opcode = if rnd.rand32() & 1 == 0 { Not as u8 } else { Nez as u8 };
         } else {
             opcode = BINARY_OPS[rnd.rand32() as usize % BINARY_OPS.len()] as u8;
             sp -= 1;
@@ -1149,7 +1300,7 @@ pub fn sanitize_code(mut code: U512) -> U512 {
             let mut skip = false;
 
             match unsafe { transmute(opcode) } {
-                Not => {
+                Not | Nez => {
                     if sp == 0 {
                         skip = true;
                     }
@@ -1188,10 +1339,8 @@ pub fn sanitize_code(mut code: U512) -> U512 {
 
 #[cfg(test)]
 mod tests {
-    use crate::genetic_eval_trainer::{U512, Assembler, GeneticProgram, splice, print_rust_code, generate_program, random_slice, slice, optimize, GeneticEvaluator, parse, compile_to_wasm};
+    use crate::genetic_eval_trainer::{Assembler, generate_program, GeneticEvaluator, GeneticProgram, optimize, print_rust_code, random_slice, slice, splice, U512};
     use crate::random::Random;
-    use std::time::Instant;
-    use wasmer::{Store, Module, Instance, Value, imports, JITEngine, JIT};
 
     #[test]
     pub fn test_empty() {
@@ -1358,30 +1507,27 @@ mod tests {
     }
 
     #[test]
-    pub fn test_print_rust() {
+    pub fn test_compile_wasm() {
         let code1 = Assembler::new()
             .load(0)
-            .load(5)
-            .add()
+            .load(24)
+            .xor()
             .build_code();
-        let program1 = GeneticProgram::new(code1, [1, 2, 3, 4, 0, 0, 0, 0], 1, 0);
+
+        let program1 = GeneticProgram::new(code1, [1, 2, 3, 4, 5, 6, 7, 8], 42, 0);
 
         let code2 = Assembler::new()
-            .load(1)
-            .load(4)
-            .add()
+            .load(2)
+            .load(25)
+            .xor()
             .build_code();
-        let program2 = GeneticProgram::new(code2, [1, 2, 3, 4, 0, 0, 0, 0], 1, 0);
 
-        println!("Compiling ...");
+        let program2 = GeneticProgram::new(code2, [1, 2, 3, 4, 5, 6, 7, 8], 42, 0);
 
         let mut eval = GeneticEvaluator::new();
         eval.add_program(program1);
         eval.add_program(program2);
         eval.compile();
-
-
-        eval.print_rust_code();
     }
 
 }

@@ -13,7 +13,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-
+import pickle
 from argparse import ArgumentParser
 from engine import Engine
 from dataclasses import dataclass
@@ -25,6 +25,7 @@ import sys
 from typing import List
 from common import Config
 import random
+import os.path
 
 
 # Uses "Texel's Tuning Method" for tuning evaluation parameters
@@ -75,6 +76,7 @@ class Team:
 @dataclass
 class Community:
     teams: List[Team]
+    generation: 1
 
 
 def run_engine(k: float, engine: Engine, programs: List[GeneticProgram]) -> (int, float):
@@ -229,7 +231,7 @@ def main():
 
     log.info("Reading test positions ...")
     all_test_positions = read_fens(config.test_positions_file)
-    all_test_positions = random.sample(all_test_positions, 500000)
+    all_test_positions = random.sample(all_test_positions, 200000)
 
     log.info("Read %i test positions", len(all_test_positions))
 
@@ -251,27 +253,35 @@ def main():
 
     try:
         init_err = run_pass(config, [], engines)
+        log.info("Reference error: %.8f", init_err)
 
-        log.info("%.8f > Start evolving genetic eval", init_err)
-
-        best_err = init_err
+        best_err = 1.0
 
         random.seed()
 
-        community_size = 128
-        team_size = 32
+        if os.path.isfile("community.bin"):
+            # Continue with existing community file
+            with open("community.bin", "rb") as file:
+                community = pickle.load(file)
 
-        teams = []
-        for i in range(community_size):
-            members = init_generation(engines[0], team_size)
-            team = Team(programs=members, solution_size=0, result=.0)
-            teams.append(team)
+            team_size = len(community.teams[0].programs)
+            log.info("Continue evolving existing community (gen. %d) of %d teams with %d members", community.generation, len(community.teams), team_size)
 
-        community = Community(teams=teams)
+        else:
+            # Generate new community
+            community_size = 256
+            team_size = 64
+            log.info("Generate initial community of %d teams with %d members", community_size, team_size)
+
+            teams = []
+            for i in range(community_size):
+                members = init_generation(engines[0], team_size)
+                team = Team(programs=members, solution_size=0, result=.0)
+                teams.append(team)
+
+            community = Community(teams=teams, generation=1)
 
         improved = False
-
-        gen_count = 1
 
         while True:
 
@@ -291,18 +301,16 @@ def main():
 
             community.teams.sort(key=lambda t: (t.result, t.solution_size))
 
-            for program in teams[0].programs:
-                log.info("- %d (%d Instr.), %d/%d, %s", program.code, program.solution_size, program.score_increment, program.score_raise, program.data)
+            for program in community.teams[0].programs:
+                log.info("- %d (%d Instr.), %d/%d", program.code, program.solution_size, program.score_increment, program.score_raise)
 
             if improved:
-                write_programs(teams[0].programs)
+                write_programs(community.teams[0].programs)
                 improved = False
 
             # Next generation
             gen_start_time = time()
             for i in range(team_size):
-                # if i % 2 == gen_count % 2:
-                #     continue
                 members = []
                 for team in community.teams:
                     members.append(team.programs[i])
@@ -314,10 +322,14 @@ def main():
                     team.programs[i] = members[j]
                     j += 1
 
-            gen_duration = time() - gen_start_time
-            log.info("%.8f > Finished generation %d: (%d Instr.) - %ds / %ds / %ds", best_err, gen_count, community.teams[0].solution_size, eval_duration + gen_duration, eval_duration, gen_duration)
+            community.generation += 1
 
-            gen_count += 1
+            with open("community.bin", "wb") as file:
+                pickle.dump(community, file, pickle.HIGHEST_PROTOCOL)
+
+            gen_duration = time() - gen_start_time
+            log.info("%.8f > Finished generation %d: (%d Instr.) - %ds / %ds / %ds", best_err, community.generation, community.teams[0].solution_size, eval_duration + gen_duration, eval_duration, gen_duration)
+
 
     finally:
         for engine in engines:

@@ -55,6 +55,10 @@ impl PositionHistory {
         false
     }
 
+    pub fn is_checked_single_repetition(&self, halfmove_clock: u8) -> bool {
+         self.index > 0 && self.is_single_repetition(halfmove_clock)
+    }
+
     pub fn clear(&mut self) {
         self.index = 0;
     }

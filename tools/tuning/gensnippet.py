@@ -30,7 +30,7 @@ def main():
 
     out = open("./gen_program_snippet.rs", "w")
     for program in programs:
-        out.write(f'''eval.add_program(GeneticProgram::new(U512::from_str_radix("{program['code']}", 10).unwrap(), {program['data']}, {program['score_increment']}, {program['score_raise']}));
+        out.write(f'''eval.add_program(GeneticProgram::new_from_str("{program['code']}", {program['data']}, {program['score_increment']}, {program['score_raise']}));
         ''')
 
     out.close()

@@ -45,7 +45,14 @@ mod uci_move;
 mod zobrist;
 
 #[cfg(feature = "lgp_training")]
-mod genetic_eval_trainer;
+pub mod genetic_eval_trainer;
+
+#[cfg(feature = "lgp_training")]
+mod eval_search;
+
+#[cfg(feature = "lgp_training")]
+pub mod trainer;
 
 #[cfg(not(feature = "lgp_training"))]
-mod genetic_eval;
+pub mod genetic_eval;
+
