@@ -27,7 +27,7 @@ use velvet::trainer::play_match;
 use velvet::magics::initialize_magics;
 use std::time::{SystemTime, UNIX_EPOCH, Instant, Duration};
 use velvet::random::Random;
-use std::io::{BufReader, Read, BufRead, BufWriter, Error, Write};
+use std::io::{BufReader, BufRead, BufWriter, Write};
 use std::fs::File;
 use crossbeam_queue::{ArrayQueue};
 use crossbeam_utils::thread;
@@ -49,14 +49,15 @@ type WorkID = usize;
 
 type WinRate = f64;
 
-type Work = (WorkID, u64, Team);
+type Work = (WorkID, u64, Team, Option<Team>);
 
 type Result = (WorkID, WinRate);
 
 #[derive(Serialize, Deserialize)]
 struct Community {
     pub gen: usize,
-    pub teams: Vec<TeamEntry>
+    pub teams: Vec<TeamEntry>,
+    pub ref_team: Team
 }
 
 #[derive(Serialize, Deserialize)]
@@ -137,7 +138,7 @@ fn main() {
     let mut rnd = Random::new_with_seed(new_rnd_seed());
 
     // Initialize population
-    let (community_size, team_size, mut teams) = get_start_population(&mut rnd, pop_size, team_size);
+    let (community_size, team_size, mut community) = get_start_population(&mut rnd, pop_size, team_size);
 
     println!("Population of {} teams with {} members each", community_size, team_size);
     println!("Playing {} rounds per team (= {} games per generation)", rounds, rounds * 2 * community_size);
@@ -154,20 +155,27 @@ fn main() {
             });
         };
 
-        let mut gen = 1;
+        let mut new_ref_team = Some(community.ref_team.clone());
+
         loop {
-            println!("\n--- ({:04}) -----------------------------------------", gen);
+            println!("\n--- ({:04}) -----------------------------------------", community.gen);
             let start = Instant::now();
 
             let rnd_seed = new_rnd_seed();
-            for (i, team) in teams.iter().enumerate() {
-                match queue.push((i, rnd_seed, team.programs.clone())) {
+            for (i, team) in community.teams.iter().enumerate() {
+                let ref_team = match new_ref_team.clone() {
+                    Some(t) => Some(t.clone()),
+                    None => None
+                };
+                match queue.push((i, rnd_seed, team.programs.clone(), ref_team)) {
                     Ok(_) => (),
                     Err(e) => panic!(e)
                 };
             }
 
-            let mut remaining_results = teams.len();
+            new_ref_team = None;
+
+            let mut remaining_results = community.teams.len();
 
             print!("Results: [|");
 
@@ -176,7 +184,7 @@ fn main() {
                     Ok((id, win_rate)) => {
                         print!(" {}={:3.1}% |", id, win_rate * 100.0);
                         io::stdout().flush().unwrap();
-                        teams[id].win_rate = win_rate;
+                        community.teams[id].win_rate = win_rate;
                         remaining_results -= 1;
                     },
 
@@ -189,38 +197,45 @@ fn main() {
             println!("]");
 
             // Sort by win rate descending
-            teams.sort_by(|a, b| b.win_rate.partial_cmp(&a.win_rate).unwrap());
+            community.teams.sort_by(|a, b| b.win_rate.partial_cmp(&a.win_rate).unwrap());
 
             println!();
-            print_team_stats(&teams[0]);
-            let avg_win_rate = teams.iter().map(|t| t.win_rate).sum::<f64>() / (teams.len() as f64);
-            let med_win_rate = teams[teams.len() / 2].win_rate;
+            print_team_stats(&community.teams[0]);
+            let avg_win_rate = community.teams.iter().map(|t| t.win_rate).sum::<f64>() / (community.teams.len() as f64);
+            let med_win_rate = community.teams[community.teams.len() / 2].win_rate;
 
-            let top_90percentile = teams.len() - teams.len() / 10;
-            let top_90percentile_win_rate = teams.iter().take(top_90percentile).map(|t| t.win_rate).sum::<f64>() / (top_90percentile as f64);
-            println!("Community Stats: [avg win rate = {:3.2}%] [90% win rate = {:3.2}%] [med win rate = {:3.2}%]", avg_win_rate * 100.0, top_90percentile_win_rate * 100.0, med_win_rate * 100.0);
+            let top_90percentile = community.teams.len() - community.teams.len() / 10;
+            let top_90percentile_win_rate = community.teams.iter().take(top_90percentile).map(|t| t.win_rate).sum::<f64>() / (top_90percentile as f64);
+            println!("Community Stats: [avg. = {:3.1}%] [90%ile = {:3.1}%] [med. = {:3.1}%]", avg_win_rate * 100.0, top_90percentile_win_rate * 100.0, med_win_rate * 100.0);
 
-            backup_generation(&teams);
-            write_rust_eval_fn(&teams[0].programs);
+            if med_win_rate >= 0.8 {
+                println!("\nSelect new reference team as opponent");
+                community.ref_team = community.teams[0].programs.clone();
+                new_ref_team = Some(community.ref_team.clone());
+            }
+
+            community.gen += 1;
+
+            backup_generation(&community);
+            write_rust_eval_fn(&community.teams[0].programs);
 
             // Create next generation
             let mut team_member_programs = Vec::with_capacity(team_size);
             for i in 0..team_size {
-                let programs = teams.iter().map(|t| t.programs[i]).collect_vec();
+                let programs = community.teams.iter().map(|t| t.programs[i]).collect_vec();
                 let child_programs = next_gen(&mut rnd, &programs);
                 team_member_programs.push(child_programs);
             }
 
-            teams.clear();
+            community.teams.clear();
             for c in 0..community_size {
                 let programs = team_member_programs.iter().map(|m| m[c]).collect_vec();
-                teams.push(TeamEntry{id: c + 1000, programs, win_rate: 0.0, count: 0});
+                community.teams.push(TeamEntry{id: c + 1000, programs, win_rate: 0.0, count: 0});
             }
 
             let duration = Instant::now().duration_since(start);
             println!("Duration: {:?}", duration);
 
-            gen += 1;
         }
 
     }).unwrap();
@@ -239,12 +254,12 @@ fn print_team_stats(team: &TeamEntry) {
     println!("Best Team Stats: [win rate = {:3.1}%] [code size = {} instr.]", team.win_rate * 100.0, code_size);
 }
 
-fn get_start_population(rnd: &mut Random, init_pop_size: usize, init_team_size: usize) -> (usize, usize, Vec<TeamEntry>) {
+fn get_start_population(rnd: &mut Random, init_pop_size: usize, init_team_size: usize) -> (usize, usize, Community) {
     if Path::new("./community.bin").exists() {
         println!("Continue with existing population ... ");
         let community = restore_generation();
-        let community_size = community.len();
-        let team_size = community[0].programs.len();
+        let community_size = community.teams.len();
+        let team_size = community.teams[0].programs.len();
 
         return (community_size, team_size, community);
     }
@@ -254,27 +269,32 @@ fn get_start_population(rnd: &mut Random, init_pop_size: usize, init_team_size: 
     let team_size = init_team_size;
     let community_size = init_pop_size;
 
-    let mut teams = Vec::with_capacity(community_size);
+    let mut community = Community{
+        gen: 1,
+        teams: Vec::with_capacity(team_size),
+        ref_team: Vec::new(),
+    };
 
     for i in 0..community_size {
         let mut programs = Vec::with_capacity(team_size);
         for _ in 0..team_size {
             programs.push(generate_program(rnd));
         }
-        teams.push(TeamEntry{id: i + 1000, programs, win_rate: 0.0, count: 0});
+        community.teams.push(TeamEntry{id: i + 1000, programs, win_rate: 0.0, count: 0});
     }
 
-    (community_size, team_size, teams)
+
+    (community_size, team_size, community)
 }
 
-fn backup_generation(teams: &[TeamEntry]) {
+fn backup_generation(community: &Community) {
     let file = File::create("./community.bin").unwrap();
     let writer = BufWriter::new(file);
 
-    bincode::serialize_into(writer, teams).unwrap();
+    bincode::serialize_into(writer, community).unwrap();
 }
 
-fn restore_generation() -> Vec<TeamEntry> {
+fn restore_generation() -> Community {
     let file = File::open("./community.bin").unwrap();
     let reader = BufReader::new(file);
 
@@ -292,7 +312,7 @@ fn run_worker(tx: &Sender<Result>, openings: &[String], rounds: usize, queue: &A
     let mut engine2 = Engine::new(rx2, genetic_eval2);
 
     loop {
-        let (id, rnd_seed, team) = match queue.pop() {
+        let (id, rnd_seed, team, opt_ref_team) = match queue.pop() {
             Some(w) => w,
             None => {
                 sleep(Duration::from_millis(1));
@@ -310,6 +330,13 @@ fn run_worker(tx: &Sender<Result>, openings: &[String], rounds: usize, queue: &A
         }
         engine1.genetic_eval.compile();
 
+        if let Some(ref_team) = opt_ref_team {
+            engine2.genetic_eval.clear();
+            for p in ref_team.iter() {
+                engine2.genetic_eval.add_program(*p);
+            }
+            engine2.genetic_eval.compile();
+        }
 
         let mut win_rates = 0.0;
         for _ in 0..rounds {
