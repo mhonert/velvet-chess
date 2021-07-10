@@ -1,0 +1,21 @@
+[package]
+name = "velvet"
+license = "GPL-3.0-or-later"
+version = "2.0.0"
+authors = ["mhonert"]
+description = "Velvet is a UCI chess engine"
+readme = "README.md"
+publish = false
+categories = ["chess", "uci"]
+repository = "https://github.com/mhonert/velvet-chess"
+edition = "2018"
+default-run = "velvet"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[[bin]]
+name = "velvet"
+path = "src/main.rs"
+
+[dependencies]
+byteorder = "1.4.3"

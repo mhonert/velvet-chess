@@ -16,31 +16,31 @@ jobs:
         run: |
           rustup target add x86_64-unknown-linux-musl
 
-      - name: Build x86_64-modern
+      - name: Build x86_64-avx2
         env:
-          RUSTFLAGS: "-Ctarget-feature=+bmi,+popcnt,+lzcnt -Cinline-threshold=750"
+          RUSTFLAGS: "-Ctarget-feature=+crt-static -Ctarget-cpu=x86-64-v3 -Cinline-threshold=750"
         run: |
           cargo build --release --target x86_64-unknown-linux-musl
           strip target/x86_64-unknown-linux-musl/release/velvet
-          mv target/x86_64-unknown-linux-musl/release/velvet velvet-linux-x86_64-modern
+          mv target/x86_64-unknown-linux-musl/release/velvet velvet-linux-x86_64-avx2
 
-      - name: Build x86_64-popcnt
+      - name: Build x86_64-sse-popcnt
         env:
-          RUSTFLAGS: "-Ctarget-feature=+popcnt -Cinline-threshold=750"
+          RUSTFLAGS: "-Ctarget-feature=+crt-static -Ctarget-cpu=x86-64-v2 -Cinline-threshold=750"
         run: |
           rm -rf target
           cargo build --release --target x86_64-unknown-linux-musl
           strip target/x86_64-unknown-linux-musl/release/velvet
-          mv target/x86_64-unknown-linux-musl/release/velvet velvet-linux-x86_64-popcnt
+          mv target/x86_64-unknown-linux-musl/release/velvet velvet-linux-x86_64-sse-popcnt
 
-      - name: Build x86_64-vintage
+      - name: Build x86_64-nopopcnt
         env:
-          RUSTFLAGS: "-Cinline-threshold=750"
+          RUSTFLAGS: "-Ctarget-feature=+crt-static -Cinline-threshold=750"
         run: |
           rm -rf target
           cargo build --release --target x86_64-unknown-linux-musl
           strip target/x86_64-unknown-linux-musl/release/velvet
-          mv target/x86_64-unknown-linux-musl/release/velvet velvet-linux-x86_64-vintage
+          mv target/x86_64-unknown-linux-musl/release/velvet velvet-linux-x86_64-nopopcnt
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v2
@@ -55,28 +55,28 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v2
 
-      - name: Build x86_64-modern
+      - name: Build x86_64-avx2
         env:
-          RUSTFLAGS: "-Ctarget-feature=+crt-static,+bmi,+popcnt,+lzcnt -Cinline-threshold=750"
+          RUSTFLAGS: "-Ctarget-feature=+crt-static -Ctarget-cpu=x86-64-v3 -Cinline-threshold=750"
         run: |
           cargo build --release
           mv .\target\release\velvet.exe velvet-windows-x86_64-modern.exe
 
-      - name: Build x86_64-popcnt
+      - name: Build x86_64-see-popcnt
         env:
-          RUSTFLAGS: "-Ctarget-feature=+crt-static,+popcnt -Cinline-threshold=750"
+          RUSTFLAGS: "-Ctarget-feature=+crt-static -Ctarget-cpu=x86-64-v2 -Cinline-threshold=750"
         run: |
           rm target -r -fo
           cargo build --release
-          mv .\target\release\velvet.exe velvet-windows-x86_64-popcnt.exe
+          mv .\target\release\velvet.exe velvet-windows-x86_64-sse-popcnt.exe
 
-      - name: Build x86_64-vintage
+      - name: Build x86_64-nopopcnt
         env:
           RUSTFLAGS: "-Ctarget-feature=+crt-static -Cinline-threshold=750"
         run: |
           rm target -r -fo
           cargo build --release
-          mv .\target\release\velvet.exe velvet-windows-x86_64-vintage.exe
+          mv .\target\release\velvet.exe velvet-windows-x86_64-nopopcnt.exe
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v2
@@ -107,23 +107,23 @@ jobs:
         run: |
           tag_name="${GITHUB_REF##*/}"
           ls -l
-          chmod +x velvet-linux-x86_64-modern
-          chmod +x velvet-linux-x86_64-vintage
-          chmod +x velvet-linux-x86_64-popcnt
-          mv velvet-windows-x86_64-modern.exe velvet-${tag_name}-x86_64-modern.exe
-          mv velvet-windows-x86_64-popcnt.exe velvet-${tag_name}-x86_64-popcnt.exe
-          mv velvet-windows-x86_64-vintage.exe velvet-${tag_name}-x86_64-vintage.exe
-          mv velvet-linux-x86_64-modern velvet-${tag_name}-x86_64-modern
-          mv velvet-linux-x86_64-popcnt velvet-${tag_name}-x86_64-popcnt
-          mv velvet-linux-x86_64-vintage velvet-${tag_name}-x86_64-vintage
+          chmod +x velvet-linux-x86_64-avx2
+          chmod +x velvet-linux-x86_64-sse-popcnt
+          chmod +x velvet-linux-x86_64-nopopcnt
+          mv velvet-windows-x86_64-avx2.exe velvet-${tag_name}-x86_64-avx2.exe
+          mv velvet-windows-x86_64-sse-popcnt.exe velvet-${tag_name}-x86_64-sse-popcnt.exe
+          mv velvet-windows-x86_64-nopopcnt.exe velvet-${tag_name}-x86_64-nopopcnt.exe
+          mv velvet-linux-x86_64-avx2 velvet-${tag_name}-x86_64-avx2
+          mv velvet-linux-x86_64-sse-popcnt velvet-${tag_name}-x86_64-sse-popcnt
+          mv velvet-linux-x86_64-nopopcnt velvet-${tag_name}-x86_64-nopopcnt
           sha256sum velvet-* > checksums.txt
           echo "$tag_name" > release_description.txt
           cat artifacts/release_notes.md >> release_description.txt
           hub release create -a "checksums.txt#Checksums" \
-                             -a "velvet-${tag_name}-x86_64-modern.exe#Velvet - Windows (x86_64 modern)" \
-                             -a "velvet-${tag_name}-x86_64-popcnt.exe#Velvet - Windows (x86_64 popcnt)" \
-                             -a "velvet-${tag_name}-x86_64-vintage.exe#Velvet - Windows (x86_64 vintage)" \
-                             -a "velvet-${tag_name}-x86_64-modern#Velvet - Linux (x86_64 modern)" \
-                             -a "velvet-${tag_name}-x86_64-popcnt#Velvet - Linux (x86_64 popcnt)" \
-                             -a "velvet-${tag_name}-x86_64-vintage#Velvet - Linux (x86_64 vintage)" \
+                             -a "velvet-${tag_name}-x86_64-avx2.exe#Velvet - Windows (x86_64 - AVX2)" \
+                             -a "velvet-${tag_name}-x86_64-sse-popcnt.exe#Velvet - Windows (x86_64 - SSE4.2+POPCNT)" \
+                             -a "velvet-${tag_name}-x86_64-nopopcnt.exe#Velvet - Windows (x86_64 - No POPCNT)" \
+                             -a "velvet-${tag_name}-x86_64-avx2#Velvet - Linux (x86_64 - AVX2)" \
+                             -a "velvet-${tag_name}-x86_64-sse-popcnt#Velvet - Linux (x86_64 - SSE4.2+POPCNT)" \
+                             -a "velvet-${tag_name}-x86_64-nopopcnt#Velvet - Linux (x86_64 - No POPCNT)" \
                              -F release_description.txt "$tag_name"

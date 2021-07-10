@@ -5,28 +5,34 @@
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
 **Velvet Chess Engine** is a UCI chess engine written in [Rust](https://www.rust-lang.org).
-> It is based upon my other web-based chess engine [Wasabi](https://github.com/mhonert/chess), which is written in AssemblyScript.
 
-It is currently ranked in the range of 2600-2700 ELO in the Computer Chess Rating Lists (CCRL).
+Version 1.2.0 is currently ranked around 2750 ELO in the Computer Chess Rating Lists (CCRL):
+- [CCRL Blitz](https://www.computerchess.org.uk/ccrl/404/cgi/compare_engines.cgi?family=Velvet&print=Rating+list)
+- [CCRL 40/15](https://www.computerchess.org.uk/ccrl/4040/cgi/compare_engines.cgi?family=Velvet&print=Rating+list)
 
-### Usage
+### :chess_pawn: Usage
 
-In order to play against Velvet, you need a Chess Client with support for the UCI protocol.
+In order to play against Velvet, you need a Chess GUI with support for the UCI protocol.
 The engine was tested with **cutechess-cli** and **PyChess** on Linux and **Arena** and **Banksia** on Windows, but
 should also work with other UCI compatible clients.
 
-Alternatively you can also play against my web-based chess engine [Wasabi](https://mhonert.github.io/chess).
+### :inbox_tray: Download
 
-### Installation
-- Download the suitable executable for your platform (Linux or Windows) and CPU generation from the Releases page
-  - *x86_64-modern* - recommended for most recent CPUs from **2013** onwards (requires a CPU with support for the [BMI1](https://en.wikipedia.org/wiki/Bit_Manipulation_Instruction_Sets) instruction sets)
-  - *x86_64-popcnt* - for older 64-Bit CPUs, which support the POPCNT instruction, but not BMI1
-  - *x86_64-vintage* - for older 64-Bit CPUs, which support neither POPCNT nor BMI1
+Executables for Windows and Linux can be downloaded from the [releases page](https://github.com/mhonert/velvet-chess/releases).
 
-### License
+### :computer: Manual compilation
+
+Since Velvet is written in Rust, a manual compilation requires the installation of the Rust tool chain (e.g. using [rustup](https://rustup.rs/)).
+Then you can compile the engine using **cargo**:
+
+```shell
+cargo build --release --bin velvet
+```
+
+### :scroll: License
 This project is licensed under the GNU General Public License - see the [LICENSE](LICENSE) for details.
 
-### Attributions
+### :tada: Attributions
 - The [Chess Programming Wiki (CPW)](https://www.chessprogramming.org/Main_Page) has excellent articles and descriptions
 - The testers from the [Computer Chess Rating Lists (CCRL)](https://www.computerchess.org.uk/ccrl/) are doing a great job testing lots
   of chess engines for the rating lists
