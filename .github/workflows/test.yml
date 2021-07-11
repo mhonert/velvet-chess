@@ -11,6 +11,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v2
 
+      - name: Switch to nightly toolchain
+        run: |
+          rustup override set nightly-2021-07-11
+
       - name: Run tests
         run: |
           cargo test --release

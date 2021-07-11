@@ -23,6 +23,7 @@ use byteorder::{ReadBytesExt, LittleEndian};
 use std::cmp::{max};
 use crate::colors::{Color, WHITE};
 use crate::pieces::{Q, R};
+use packed_simd_2::{i16x16, i32x16};
 
 // Fixed point number precision
 const FP_PRECISION_BITS: i16 = 12;
@@ -191,7 +192,7 @@ impl NeuralNetEval {
             *node = relu(dot_product(&self.hidden2_nodes, weights) + bias);
         }
 
-        let out = dot_product(&self.output_nodes, &self.output_weights) as i32;
+        let out = (dot_product(&self.output_nodes, &self.output_weights) + self.output_bias) as i32;
 
         out * 2048 / (1 << FP_PRECISION_BITS)
     }
@@ -208,8 +209,8 @@ fn read_quantized(reader: &mut BufReader<&[u8]>, target: &mut [i16]) {
 
 fn calc_bucket(bitboards: &[u64; 13]) -> u8 {
     unsafe {
-        let queens = if *bitboards.get_unchecked((Q + 6) as usize) == 0 && *bitboards.get_unchecked((-Q + 6) as usize) == 0 { 0 } else { 0b01 };
-        let rooks = if *bitboards.get_unchecked((R + 6) as usize) == 0 && *bitboards.get_unchecked((-R + 6) as usize) == 0 { 0 } else { 0b10 };
+        let queens = if *bitboards.get_unchecked((Q + 6) as usize) == 0 && *bitboards.get_unchecked((-Q + 6) as usize) == 0 { 0 } else { 0b10 };
+        let rooks = if *bitboards.get_unchecked((R + 6) as usize) == 0 && *bitboards.get_unchecked((-R + 6) as usize) == 0 { 0 } else { 0b01 };
 
         queens | rooks
     }
@@ -217,7 +218,12 @@ fn calc_bucket(bitboards: &[u64; 13]) -> u8 {
 
 #[inline(always)]
 fn dot_product(nodes: &[i16], weights: &[i16]) -> i16 {
-    (nodes.iter().zip(weights).map(|(&n, &w)| (n as i32 * w as i32)).sum::<i32>() >> FP_PRECISION_BITS) as i16
+    (nodes.chunks_exact(16)
+        .map(|v| i16x16::from_slice_unaligned(v))
+        .zip(weights.chunks_exact(16).map(|v| i16x16::from_slice_unaligned(v)))
+        .map(|(n, w)| (i32x16::from(n) * i32x16::from(w)))
+        .sum::<i32x16>()
+        .wrapping_sum() >> FP_PRECISION_BITS) as i16
 }
 
 #[inline(always)]

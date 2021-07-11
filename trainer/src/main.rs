@@ -18,7 +18,7 @@
 
 use tch::{nn, nn::OptimizerConfig, Device, Tensor, Reduction, Kind};
 use std::fs::File;
-use std::io::{BufReader, BufRead, BufWriter, Error, Write, ErrorKind};
+use std::io::{BufReader, BufRead, BufWriter, Error, Write, ErrorKind, stdout};
 use std::str::FromStr;
 use itertools::Itertools;
 use velvet::fen::{parse_fen, FenParseResult};
@@ -67,6 +67,7 @@ const K: f64 = 1.603;
 const K_DIV: f64 = K / 400.0;
 
 const MIN_TRAINING_SET_ID: usize = 1226;
+// const MIN_TRAINING_SET_ID: usize = 4098;
 const FEN_TRAINING_SET_PATH: &str = "./data/testpos";
 const BIN_TRAINING_SET_PATH: &str = "./data/tensors";
 const POS_PER_SET: usize = 200_000;
@@ -299,12 +300,13 @@ pub fn convert_test_pos(min_unconverted_id: usize, max_training_set_id: usize) -
         threads.push(thread::spawn(move || {
             for i in ((c + min_unconverted_id - 1)..=max_training_set_id).step_by(DATA_WRITER_THREADS) {
                 print!("{} ", i);
+                stdout().flush().unwrap();
 
-                let file = File::create(format!("{}/{}.lz4", FEN_TRAINING_SET_PATH, i)).expect("Could not create tensor data file");
+                let file = File::create(format!("{}/{}.lz4", BIN_TRAINING_SET_PATH, i)).expect("Could not create tensor data file");
                 let encoder = lz4_flex::frame::FrameEncoder::new(file);
                 let mut writer = BufWriter::with_capacity(1024 * 1024, encoder);
 
-                let ys = read_from_fen_file(format!("{}/test_pos_{}.fen", BIN_TRAINING_SET_PATH, i).as_str(), &mut writer);
+                let ys = read_from_fen_file(format!("{}/test_pos_{}.fen", FEN_TRAINING_SET_PATH, i).as_str(), &mut writer);
                 writer.write_u16::<LittleEndian>(u16::MAX).unwrap();
 
                 for y in ys {
@@ -350,8 +352,8 @@ pub fn read_from_tensor_file(samples: &mut Vec<DataSample>, file_name: &str) {
 
         let is_white_turn = bb_map & (1 << 15) != 0;
 
-        let queens = if (bb_map & (1 << 5)) == 0 && (bb_map & (1 << 10)) == 0 { 0 } else { 0b01 };
-        let rooks = if (bb_map & (1 << 4)) == 0 && (bb_map & (1 << 9)) == 0 { 0 } else { 0b10 };
+        let queens = if (bb_map & (1 << 5)) == 0 && (bb_map & (1 << 10)) == 0 { 0 } else { 0b10 };
+        let rooks = if (bb_map & (1 << 4)) == 0 && (bb_map & (1 << 9)) == 0 { 0 } else { 0b01 };
 
         let phase = queens | rooks;
 
@@ -703,7 +705,6 @@ fn quantize(in_file: &str, out_file: &str) {
     for i in 0..IL_COUNT {
         input.weights.iter().skip(i).step_by(IL_COUNT).for_each(|&w| input_weights.push(w));
     }
-
 
     let mut biases = input.biases.clone();
     biases.sort_by_key(|b| -(b * 1000.0) as i32);

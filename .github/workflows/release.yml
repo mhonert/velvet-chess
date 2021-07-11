@@ -14,6 +14,7 @@ jobs:
 
       - name: Install linux-musl target
         run: |
+          rustup override set nightly-2021-07-11
           rustup target add x86_64-unknown-linux-musl
 
       - name: Build x86_64-avx2
@@ -54,6 +55,10 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
+
+      - name: Switch to Rust nightly
+        run: |
+          rustup override set nightly-2021-07-11
 
       - name: Build x86_64-avx2
         env:

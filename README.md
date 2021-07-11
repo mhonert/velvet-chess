@@ -10,8 +10,6 @@ Version 1.2.0 is currently ranked around 2750 ELO in the Computer Chess Rating L
 - [CCRL Blitz](https://www.computerchess.org.uk/ccrl/404/cgi/compare_engines.cgi?family=Velvet&print=Rating+list)
 - [CCRL 40/15](https://www.computerchess.org.uk/ccrl/4040/cgi/compare_engines.cgi?family=Velvet&print=Rating+list)
 
-### :chess_pawn: Usage
-
 In order to play against Velvet, you need a Chess GUI with support for the UCI protocol.
 The engine was tested with **cutechess-cli** and **PyChess** on Linux and **Arena** and **Banksia** on Windows, but
 should also work with other UCI compatible clients.
