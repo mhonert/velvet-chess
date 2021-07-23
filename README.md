@@ -18,14 +18,6 @@ should also work with other UCI compatible clients.
 
 Executables for Windows and Linux can be downloaded from the [releases page](https://github.com/mhonert/velvet-chess/releases).
 
-If you have a relatively modern CPU with AVX2 support, then the *...-x86_64-avx2* executable is highly recommended for best performance.
-
-| Executable        | Description                                                       | Min. CPU Generation           | Required Instruction Sets |
-| ----------------- | ----------------------------------------------------------------- | ----------------------------- | ------------------------- |
-| x86_64-avx2       | Recommended for best performance on a modern CPU                  | Intel Haswell / Zen1          | AVX2, BMI1/2              |
-| x86_64-sse-popcnt | Lower performance, only recommended for CPUs without AVX2 support | Intel Nehalem / AMD Bulldozer | SSE4.2, SSE3, POPCNT      |
-| x86_64-nopopcnt   | Lowest performance, but compatible with most x86_64 CPUs          | ---                           | SSE2, CMOV                |
-
 ### :computer: Manual compilation
 
 Since Velvet is written in Rust, a manual compilation requires the installation of the Rust tool chain (e.g. using [rustup](https://rustup.rs/)).

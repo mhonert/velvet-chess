@@ -35,7 +35,7 @@ use crate::score_util::{MIN_SCORE, MAX_SCORE};
 use crate::random::Random;
 use crate::moves::{NO_MOVE, Move};
 use crate::move_gen::MoveGenerator;
-use crate::tuning::Tuning;
+use crate::gen_quiet_pos::GenQuietPos;
 use crate::time_management::{TimeManager, MAX_TIMELIMIT_MS, TIMEEXT_MULTIPLIER};
 use crate::eval::Eval;
 
@@ -133,7 +133,7 @@ pub fn spawn_engine_thread() -> Sender<Message> {
 
 impl Engine {
     pub fn new_from_fen(rx: Receiver<Message>, fen: &str, tt_size_mb: u64) -> Self {
-        let mut board = create_from_fen(&fen);
+        let mut board = create_from_fen(fen);
         board.reset_nn_eval();
 
         let timeext_history_size = board.options.get_timeext_history_size();
@@ -575,6 +575,7 @@ impl Engine {
 
         false
     }
+
 }
 
 const TIME_SAFETY_MARGIN_MS: i32 = 20;

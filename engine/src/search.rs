@@ -43,7 +43,7 @@ pub trait Search {
 
 const CANCEL_SEARCH: i32 = i32::MAX - 1;
 
-const LMR_THRESHOLD: i32 = 4;
+const LMR_THRESHOLD: i32 = 3;
 
 const FUTILE_MOVE_REDUCTIONS: i32 = 2;
 const LOSING_MOVE_REDUCTIONS: i32 = 2;
@@ -125,6 +125,7 @@ impl Search for Engine {
                 let score = -result;
                 if score > alpha {
                     alpha = score;
+
                     best_move = m.with_score(score);
 
                     self.time_mgr.update_best_move(best_move, depth);
@@ -189,11 +190,6 @@ impl Search for Engine {
 
             if iteration_cancelled || move_num <= 1 {
                 // stop searching, if iteration has been cancelled or there is no valid move or only a single valid move
-                break;
-            }
-
-            if (MATE_SCORE - alpha.abs()) <= depth / 3 {
-                // stop searching, if a close mate has already been found
                 break;
             }
 

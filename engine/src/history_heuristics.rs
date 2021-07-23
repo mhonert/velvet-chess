@@ -41,10 +41,10 @@ impl Default for HistoryHeuristics {
 impl HistoryHeuristics {
     pub fn new() -> Self {
         Self {
-            primary_killers: vec!(NO_MOVE; MAX_DEPTH),
-            secondary_killers: vec!(NO_MOVE; MAX_DEPTH),
-            cut_off_history: vec!(0; HISTORY_SIZE),
-            played_move_history: vec!(0; HISTORY_SIZE),
+            primary_killers: vec![NO_MOVE; MAX_DEPTH],
+            secondary_killers: vec![NO_MOVE; MAX_DEPTH],
+            cut_off_history: vec![0; HISTORY_SIZE],
+            played_move_history: vec![0; HISTORY_SIZE],
             entries: 0
         }
     }
@@ -52,15 +52,10 @@ impl HistoryHeuristics {
     pub fn clear(&mut self) {
         self.entries = 0;
 
-        for i in 0..MAX_DEPTH {
-            self.primary_killers[i] = NO_MOVE;
-            self.secondary_killers[i] = NO_MOVE;
-        }
-
-        for i in 0..HISTORY_SIZE {
-            self.cut_off_history[i] = 0;
-            self.played_move_history[i] = 0;
-        }
+        self.primary_killers.fill(NO_MOVE);
+        self.secondary_killers.fill(NO_MOVE);
+        self.cut_off_history.fill(0);
+        self.played_move_history.fill(0);
     }
 
     #[inline]

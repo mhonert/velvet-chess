@@ -87,7 +87,7 @@ impl TranspositionTable {
 
     // Important: mate scores must be stored relative to the current node, not relative to the root node
     pub fn write_entry(&mut self, hash: u64, depth: i32, scored_move: Move, typ: ScoreType) {
-        let mut new_entry: u64 = hash;
+        let mut new_entry = hash;
         new_entry ^= (depth as u64) << DEPTH_BITSHIFT;
         new_entry ^= (typ as u64) << SCORE_TYPE_BITSHIFT;
         new_entry ^= scored_move.to_bit29() as u64;
@@ -112,9 +112,7 @@ impl TranspositionTable {
     }
 
     pub fn clear(&mut self) {
-        for entry in self.entries.iter_mut() {
-            *entry = 0;
-        }
+        self.entries.fill(0);
     }
 }
 

@@ -29,14 +29,14 @@ use packed_simd_2::{i16x16, i32x16};
 const FP_PRECISION_BITS: i16 = 12;
 
 // NN layer size
-pub const IL_COUNT: usize = INPUTS * 2 * 4;
+const FEATURES_PER_BUCKET: usize = 64 * 6 * 2;
+pub const INPUTS: usize = FEATURES_PER_BUCKET * 2 * 4;
 pub const HL_INPUTS: usize = 64;
-const INPUTS: usize = 64 * 6 * 2;
 pub const HL_COUNT: i8 = 2;
 const HL_NODES: usize = 64;
 
 pub struct NeuralNetEval {
-    input_weights: [i16x16; IL_COUNT * HL_INPUTS / 16],
+    input_weights: [i16x16; INPUTS * HL_INPUTS / 16],
     input_biases: [i16x16; HL_INPUTS / 16],
 
     hidden1_nodes_wtm: [i16x16; HL_INPUTS / 16], // wtm - white to move
@@ -60,7 +60,7 @@ pub struct NeuralNetEval {
 impl Default for NeuralNetEval {
     fn default() -> Self {
         NeuralNetEval{
-            input_weights: [i16x16::splat(0); IL_COUNT * HL_INPUTS / 16],
+            input_weights: [i16x16::splat(0); INPUTS * HL_INPUTS / 16],
             input_biases: [i16x16::splat(0); HL_INPUTS / 16],
 
             hidden1_nodes_wtm: [i16x16::splat(0); HL_INPUTS / 16],
@@ -95,16 +95,16 @@ impl NeuralNetEval {
 
         let mut nn = Box::new(NeuralNetEval::default());
 
-        read_quantized_simd(&mut reader, &mut nn.input_weights);
-        read_quantized_simd(&mut reader, &mut nn.input_biases);
+        read_quantized_i16x16(&mut reader, &mut nn.input_weights);
+        read_quantized_i16x16(&mut reader, &mut nn.input_biases);
 
-        read_quantized_simd(&mut reader, &mut nn.hidden1_weights);
+        read_quantized_i16x16(&mut reader, &mut nn.hidden1_weights);
         read_quantized(&mut reader, &mut nn.hidden1_biases);
 
-        read_quantized_simd(&mut reader, &mut nn.hidden2_weights);
+        read_quantized_i16x16(&mut reader, &mut nn.hidden2_weights);
         read_quantized(&mut reader, &mut nn.hidden2_biases);
 
-        read_quantized_simd(&mut reader, &mut nn.output_weights);
+        read_quantized_i16x16(&mut reader, &mut nn.output_weights);
 
         nn.output_bias = reader.read_i16::<LittleEndian>().expect("Could not read output bias");
 
@@ -137,8 +137,8 @@ impl NeuralNetEval {
     }
 
     pub fn check_refresh(&mut self, active_player: Color, bitboards: &[u64; 13]) {
-        let piece_combo = calc_bucket(bitboards);
-        if piece_combo != self.bucket {
+        let bucket = calc_bucket(bitboards);
+        if bucket != self.bucket {
             self.init_pos(active_player, bitboards);
         }
     }
@@ -149,13 +149,11 @@ impl NeuralNetEval {
             idx += 64;
         }
 
-        for (nodes, weights) in self.hidden1_nodes_wtm.iter_mut().zip(self.input_weights[(idx * HL_INPUTS / 16)..((idx * HL_INPUTS / 16) + HL_INPUTS / 16)].iter()) {
+        for (nodes, weights) in self.hidden1_nodes_wtm.iter_mut().zip(self.input_weights.chunks_exact(HL_INPUTS / 16).nth(idx).unwrap()) {
             *nodes += *weights;
         }
 
-        idx += 768;
-
-        for (nodes, weights) in self.hidden1_nodes_btm.iter_mut().zip(self.input_weights[(idx * HL_INPUTS / 16)..((idx * HL_INPUTS / 16) + HL_INPUTS / 16)].iter()) {
+        for (nodes, weights) in self.hidden1_nodes_btm.iter_mut().zip(self.input_weights.chunks_exact(HL_INPUTS / 16).nth(idx + 768).unwrap()) {
             *nodes += *weights;
         }
     }
@@ -166,13 +164,11 @@ impl NeuralNetEval {
             idx += 64;
         }
 
-        for (nodes, weights) in self.hidden1_nodes_wtm.iter_mut().zip(self.input_weights[(idx * HL_INPUTS / 16)..((idx * HL_INPUTS / 16) + HL_INPUTS / 16)].iter()) {
+        for (nodes, weights) in self.hidden1_nodes_wtm.iter_mut().zip(self.input_weights.chunks_exact(HL_INPUTS / 16).nth(idx).unwrap()) {
             *nodes -= *weights;
         }
 
-        idx += 768;
-
-        for (nodes, weights) in self.hidden1_nodes_btm.iter_mut().zip(self.input_weights[(idx * HL_INPUTS / 16)..((idx * HL_INPUTS / 16) + HL_INPUTS / 16)].iter()) {
+        for (nodes, weights) in self.hidden1_nodes_btm.iter_mut().zip(self.input_weights.chunks_exact(HL_INPUTS / 16).nth(idx + 768).unwrap()) {
             *nodes -= *weights;
         }
     }
@@ -207,7 +203,7 @@ fn read_quantized(reader: &mut BufReader<&[u8]>, target: &mut [i16]) {
     reader.read_i16_into::<LittleEndian>(target).expect("Could not fill target");
 }
 
-fn read_quantized_simd(reader: &mut BufReader<&[u8]>, target: &mut [i16x16]) {
+fn read_quantized_i16x16(reader: &mut BufReader<&[u8]>, target: &mut [i16x16]) {
     let size = reader.read_i32::<LittleEndian>().expect("Could not read size") as usize;
     if size != target.len() * 16 {
         panic!("Size mismatch: expected {}, but got {}", target.len() * 16, size);

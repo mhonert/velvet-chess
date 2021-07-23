@@ -16,6 +16,10 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+mod lr_scheduler;
+#[cfg(feature = "lr_finder")]
+mod lr_finder;
+
 use tch::{nn, nn::OptimizerConfig, Device, Tensor, Reduction, Kind};
 use std::fs::File;
 use std::io::{BufReader, BufRead, BufWriter, Error, Write, ErrorKind, stdout};
@@ -32,14 +36,10 @@ use rand::prelude::SliceRandom;
 use lz4_flex::frame::FrameEncoder;
 use velvet::bitboard::BitBoard;
 use rand::SeedableRng;
-use velvet::nn_eval::{IL_COUNT, HL_INPUTS, HL_COUNT};
+use velvet::nn_eval::{INPUTS, HL_INPUTS, HL_COUNT};
 use std::cmp::{min};
 use std::path::Path;
-// use plotters::prelude::BitMapBackend;
-// use plotters::style::{WHITE, RED};
-// use plotters::drawing::IntoDrawingArea;
-// use plotters::chart::ChartBuilder;
-// use plotters::series::LineSeries;
+use crate::lr_scheduler::LrScheduler;
 
 fn net(vs: &nn::Path) -> impl ModuleT {
     nn::seq_t()
@@ -66,16 +66,21 @@ const BATCH_SIZE: i64 = 50000;
 const K: f64 = 1.603;
 const K_DIV: f64 = K / 400.0;
 
-const MIN_TRAINING_SET_ID: usize = 1226;
-// const MIN_TRAINING_SET_ID: usize = 4098;
-const FEN_TRAINING_SET_PATH: &str = "./data/testpos";
-const BIN_TRAINING_SET_PATH: &str = "./data/tensors";
+// const MIN_TRAINING_SET_ID: usize = 1226;
+// const MIN_TRAINING_SET_ID: usize = 3570;
+const MIN_TRAINING_SET_ID: usize = 2000;
+//const MIN_TRAINING_SET_ID: usize = 5129;
+// const MIN_TRAINING_SET_ID: usize = 4709;
+const FEN_TRAINING_SET_PATH: &str = "./data/train_fen/";
+const LZ4_TRAINING_SET_PATH: &str = "./data/train_lz4";
+const FEN_TEST_SET_PATH: &str = "./data/test_fen";
+const LZ4_TEST_SET_PATH: &str = "./data/test_lz4";
 const POS_PER_SET: usize = 200_000;
 
 type DataSample = (Vec<i64>, f32);
 
 fn config_optimizer(vs: &VarStore, initial_lr: f64) -> Optimizer<AdamW> {
-    let mut opt = nn::AdamW::default().build(&vs, initial_lr).unwrap();
+    let mut opt = nn::AdamW::default().build(vs, initial_lr).unwrap();
     opt.set_weight_decay(0.35);
 
     opt
@@ -83,53 +88,32 @@ fn config_optimizer(vs: &VarStore, initial_lr: f64) -> Optimizer<AdamW> {
 
 pub fn main() {
     println!("Scanning available training sets ...");
-
-    let mut max_training_set_id = 0;
-    let mut min_unconverted_id = 25000;
-    for id in MIN_TRAINING_SET_ID..25000 {
-        if !Path::new(&format!("{}/test_pos_{}.fen", FEN_TRAINING_SET_PATH, id)).exists() {
-            break;
-        }
-
-        if !Path::new(&format!("{}/{}.lz4", BIN_TRAINING_SET_PATH, id)).exists() {
-            min_unconverted_id = min(id, min_unconverted_id);
-        }
-
-        max_training_set_id = id;
-    }
-
-    if min_unconverted_id < max_training_set_id {
-        println!("Converting {} added training sets ...", (max_training_set_id - min_unconverted_id + 1));
-        convert_test_pos(min_unconverted_id, max_training_set_id).expect("Could not convert test positions!");
-    }
-
+    let max_training_set_id = convert_sets("training", FEN_TRAINING_SET_PATH, LZ4_TRAINING_SET_PATH, MIN_TRAINING_SET_ID);
     let training_set_count = (max_training_set_id - MIN_TRAINING_SET_ID) + 1;
     println!("Using {} training sets with a total of {} positions", training_set_count, training_set_count * POS_PER_SET);
 
-    println!("Reading test positions ...");
+    println!("Scanning available test sets ...");
+    let max_test_set_id = convert_sets("test", FEN_TEST_SET_PATH, LZ4_TEST_SET_PATH, 1);
 
     let device = Device::cuda_if_available();
-    let mut vs = nn::VarStore::new(device);
+    let vs = nn::VarStore::new(device);
 
     let mut samples = Vec::with_capacity(POS_PER_SET * TEST_SETS);
-    for i in (max_training_set_id - (TEST_SETS - 1))..=max_training_set_id {
-        read_from_tensor_file(&mut samples, format!("{}/{}.lz4", BIN_TRAINING_SET_PATH, i).as_str());
+    for i in 1..=min(TEST_SETS, max_test_set_id) {
+        read_from_tensor_file(&mut samples, format!("{}/{}.lz4", LZ4_TEST_SET_PATH, i).as_str());
     }
 
     let (test_xs, mut test_ys) = to_sparse_tensors(&samples, device);
 
     println!("Using {} samples for validation", samples.len());
 
-    test_ys = test_ys.multiply1(2048.0 * K_DIV).sigmoid();
+    test_ys = test_ys.multiply_scalar(2048.0 * K_DIV).sigmoid();
 
     let (tx, rx) = mpsc::sync_channel::<(usize, Tensor, Tensor)>(18);
     spawn_data_reader_threads(max_training_set_id, device, &tx);
 
     let net = net(&vs.root());
 
-    let initial_lr = 0.005; // for 50000 batch size
-
-    let mut opt = config_optimizer(&vs, initial_lr);
 
     let mut best_loss = f64::MAX;
 
@@ -138,31 +122,30 @@ pub fn main() {
 
     let mut epoch = 1;
 
-    let test_count = test_ys.numel() * 2;
-
     let mut epoch_changed = false;
     let mut epoch_start = Instant::now();
     let mut epoch_sample_count = 0;
+    let mut last_improved_epoch = 0;
 
-    let mut lr = initial_lr;
-
-    let max_epochs = 60;
-
-    let lr_decrement = initial_lr / (max_epochs - 20) as f64;
+    let max_epochs = 30;
+    let lr_scheduler = LrScheduler::new(max_epochs, 0.005, 0.0005, 0.000005);
+    let mut lr = lr_scheduler.calc_lr(1);
+    let mut opt = config_optimizer(&vs, lr);
 
     let net_id: String = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_millis().to_string();
 
+    let start_time = Instant::now();
+
     loop {
+        opt.set_lr(lr);
 
         let mut train_loss = 0.0;
         let mut batch_count = 0;
 
-        opt.set_lr(lr);
-
         let mut train_count = 0;
 
         let train_start = Instant::now();
-        while train_count < test_count {
+        while train_count < POS_PER_SET * 2 {
             let (batch_epoch, data_batch, label_batch) = rx.recv().expect("Could not receive test positions");
             train_count += label_batch.numel();
 
@@ -173,9 +156,9 @@ pub fn main() {
 
             let loss = net
                 .forward_t(&data_batch, true)
-                .multiply1(2048.0 * K_DIV)
+                .multiply_scalar(2048.0 * K_DIV)
                 .sigmoid()
-                .mse_loss(&(label_batch.multiply1(2048.0 * K_DIV)).sigmoid(), Reduction::Mean);
+                .mse_loss(&(label_batch.multiply_scalar(2048.0 * K_DIV)).sigmoid(), Reduction::Mean);
 
             opt.backward_step(&loss);
             train_loss += f64::from(&loss);
@@ -186,7 +169,7 @@ pub fn main() {
         let test_loss = tch::no_grad(||
             f64::from(&net
                 .forward_t(&test_xs, false)
-                .multiply1(2048.0 * K_DIV)
+                .multiply_scalar(2048.0 * K_DIV)
                 .sigmoid()
                 .mse_loss(&test_ys, Reduction::Mean))
         );
@@ -197,10 +180,9 @@ pub fn main() {
         train_loss /= batch_count as f64;
 
         if test_loss < best_loss {
+            last_improved_epoch = epoch;
             best_loss = test_loss;
             save(&net_id, &vs);
-
-            vs.save("./data/vs.tmp").unwrap();
         }
 
         let samples_per_sec = (train_count as f64 * 1000.0) / Instant::now().duration_since(train_start).as_millis() as f64;
@@ -222,25 +204,23 @@ pub fn main() {
             println!("- Epoch finished: {:.2} samples/s", samples_per_sec);
 
             if epoch > max_epochs {
-                break;
+                if (epoch - last_improved_epoch) > 2 {
+                    break;
+                }
+
+                lr *= 0.8;
+            } else {
+                lr = lr_scheduler.calc_lr(min(epoch, max_epochs));
             }
 
             epoch_changed = false;
             epoch_sample_count = 0;
             epoch_start = Instant::now();
 
-            vs.load("./data/vs.tmp").unwrap();
-            if lr - lr_decrement > 0. {
-                lr -= lr_decrement;
-            } else {
-                lr -= lr / 3.0;
-            }
-
-            opt = config_optimizer(&vs, lr);
         }
     }
 
-    println!("- Training finished");
+    println!("- Training finished in {:.1} minutes", Instant::now().duration_since(start_time).as_secs() as f64 / 60.0);
     quantize(&format!("./data/nets/velvet_{}.nn", net_id), &format!("./data/nets/velvet_{}.qnn", net_id));
 }
 
@@ -263,7 +243,7 @@ fn to_sparse_tensors(samples: &[DataSample], device: Device) -> (Tensor, Tensor)
     let indices = Tensor::of_slice(&indices).to(device).view((2, value_count));
     let values = Tensor::ones(&[value_count], (Kind::Float, device));
 
-    let xs = Tensor::sparse_coo_tensor2(&indices, &values, &[samples.len() as i64, INPUT_FEATURES], (Kind::Float, device)).coalesce();
+    let xs = Tensor::sparse_coo_tensor_indices_size(&indices, &values, &[samples.len() as i64, INPUT_FEATURES], (Kind::Float, device)).coalesce();
 
     (xs, Tensor::of_slice(&ys).to(device).view((samples.len() as i64, 1)))
 }
@@ -291,22 +271,47 @@ fn to_dense_tensors(samples: &[DataSample], device: Device) -> (Tensor, Tensor) 
 
     let _ = xs.index_put_(&[Some(row_select), Some(col_select)], &values, false);
 
-    (xs, Tensor::of_slice(&ys).view((samples.len() as i64, 1)).to4(device, Kind::Float, false, true))
+    (xs, Tensor::of_slice(&ys).view((samples.len() as i64, 1)).to_device_(device, Kind::Float, false, true))
 }
 
-pub fn convert_test_pos(min_unconverted_id: usize, max_training_set_id: usize) -> Result<(), Error> {
+fn convert_sets(caption: &str, in_path: &str, out_path: &str, min_id: usize) -> usize {
+    let mut max_set_id = 0;
+    let mut min_unconverted_id = 25000;
+    for id in min_id..25000 {
+        if !Path::new(&format!("{}/test_pos_{}.fen", in_path, id)).exists() {
+            break;
+        }
+
+        if !Path::new(&format!("{}/{}.lz4", out_path, id)).exists() {
+            min_unconverted_id = min(id, min_unconverted_id);
+        }
+
+        max_set_id = id;
+    }
+
+    if min_unconverted_id < max_set_id {
+        println!("Converting {} added {} sets ...", (max_set_id - min_unconverted_id + 1), caption);
+        convert_test_pos(in_path.to_string(), out_path.to_string(), min_unconverted_id, max_set_id).expect("Could not convert test positions!");
+    }
+
+    max_set_id
+}
+
+fn convert_test_pos(in_path: String, out_path: String, min_unconverted_id: usize, max_training_set_id: usize) -> Result<(), Error> {
     let mut threads = Vec::new();
     for c in 1..=DATA_WRITER_THREADS {
+        let in_path2 = in_path.clone();
+        let out_path2 = out_path.clone();
         threads.push(thread::spawn(move || {
             for i in ((c + min_unconverted_id - 1)..=max_training_set_id).step_by(DATA_WRITER_THREADS) {
                 print!("{} ", i);
                 stdout().flush().unwrap();
 
-                let file = File::create(format!("{}/{}.lz4", BIN_TRAINING_SET_PATH, i)).expect("Could not create tensor data file");
+                let file = File::create(format!("{}/{}.lz4", out_path2, i)).expect("Could not create tensor data file");
                 let encoder = lz4_flex::frame::FrameEncoder::new(file);
                 let mut writer = BufWriter::with_capacity(1024 * 1024, encoder);
 
-                let ys = read_from_fen_file(format!("{}/test_pos_{}.fen", FEN_TRAINING_SET_PATH, i).as_str(), &mut writer);
+                let ys = read_from_fen_file(format!("{}/test_pos_{}.fen", in_path2, i).as_str(), &mut writer);
                 writer.write_u16::<LittleEndian>(u16::MAX).unwrap();
 
                 for y in ys {
@@ -327,8 +332,7 @@ pub fn convert_test_pos(min_unconverted_id: usize, max_training_set_id: usize) -
     Ok(())
 }
 
-
-pub fn read_from_tensor_file(samples: &mut Vec<DataSample>, file_name: &str) {
+fn read_from_tensor_file(samples: &mut Vec<DataSample>, file_name: &str) {
     let file = File::open(file_name).unwrap_or_else(|_| panic!("Could not open test position file: {}", file_name));
     let decoder = lz4_flex::frame::FrameDecoder::new(file);
     let mut reader = BufReader::with_capacity(1024 * 1024, decoder);
@@ -355,7 +359,7 @@ pub fn read_from_tensor_file(samples: &mut Vec<DataSample>, file_name: &str) {
         let queens = if (bb_map & (1 << 5)) == 0 && (bb_map & (1 << 10)) == 0 { 0 } else { 0b10 };
         let rooks = if (bb_map & (1 << 4)) == 0 && (bb_map & (1 << 9)) == 0 { 0 } else { 0b01 };
 
-        let phase = queens | rooks;
+        let bucket = queens | rooks;
 
         let mut offset = if is_white_turn {
             0
@@ -363,7 +367,7 @@ pub fn read_from_tensor_file(samples: &mut Vec<DataSample>, file_name: &str) {
             FEATURES_PER_BUCKET
         };
 
-        offset += FEATURES_PER_BUCKET * phase * 2;
+        offset += FEATURES_PER_BUCKET * bucket * 2;
 
         for i in 1i8..=5i8 {
             if bb_map & (1 << i) != 0 {
@@ -397,86 +401,7 @@ pub fn read_from_tensor_file(samples: &mut Vec<DataSample>, file_name: &str) {
     }
 }
 
-// fn find_lr(test_xs: &Tensor, test_ys: &Tensor, rx: &Receiver<(usize, Tensor, Tensor)>, net: &impl ModuleT, opt: &mut Optimizer<nn::AdamW>) {
-//     let mut lr = 0.0001;
-//
-//     let beta = 0.98;
-//     let mut batch_num = 0;
-//     let multiplier = (10.0f64 / lr).powf(1.0 / (POS_PER_SET as f64 * 100.0 / BATCH_SIZE as f64));
-//
-//     let mut loss_by_lr = Vec::new();
-//     let mut best_loss = 1000.0;
-//     let mut worst_loss = 0.0;
-//
-//     let mut avg_loss = 0.0;
-//
-//     loop {
-//         let (_, data_batch, label_batch) = rx.recv().expect("Could not receive test positions");
-//         opt.set_lr(lr);
-//
-//         let train_loss = net
-//             .forward_t(&data_batch, true)
-//             .multiply1(2048.0 * K_DIV)
-//             .sigmoid()
-//             .mse_loss(&(label_batch * 2048.0 * K_DIV).sigmoid(), Reduction::Mean);
-//
-//         opt.backward_step(&train_loss);
-//
-//         let loss = f64::from(&net
-//             .forward_t(&test_xs, false)
-//             .multiply1(2048.0 * K_DIV)
-//             .sigmoid()
-//             .mse_loss(&test_ys, Reduction::Mean));
-//
-//         avg_loss = if batch_num == 0 { loss } else { beta * avg_loss + (1.0 - beta) * loss };
-//         let avg_loss_smoothed = if batch_num == 0 {  avg_loss } else { avg_loss / (1.0 - beta.powf(batch_num as f64)) };
-//
-//         if avg_loss < best_loss {
-//             best_loss = avg_loss_smoothed;
-//         }
-//
-//         if avg_loss > best_loss * 3.0 {
-//             plot_lr_vs_loss(&mut loss_by_lr, worst_loss);
-//             return;
-//         }
-//
-//         println!("{}; {}; {}", lr, lr.log10(), avg_loss_smoothed);
-//
-//         if avg_loss_smoothed.is_nan() {
-//             println!("--------------------------------");
-//             println!("{}", avg_loss);
-//             println!("{}", (1.0 - beta.powf(batch_num as f64)));
-//             plot_lr_vs_loss(&mut loss_by_lr, worst_loss);
-//             return;
-//         }
-//
-//         loss_by_lr.push((lr.log10() as f32, avg_loss as f32));
-//
-//         if avg_loss > worst_loss {
-//             worst_loss = avg_loss_smoothed;
-//         }
-//
-//         lr *= multiplier;
-//         batch_num += 1;
-//     }
-// }
-
-// fn plot_lr_vs_loss(loss_by_lr: &mut Vec<(f32, f32)>, worst_loss: f64) {
-//     let root = BitMapBackend::new("data/lr_loss.png", (4000, 4000)).into_drawing_area();
-//     root.fill(&WHITE).unwrap();
-//     let mut chart = ChartBuilder::on(&root)
-//         .x_label_area_size(40)
-//         .y_label_area_size(80)
-//         .build_cartesian_2d(-6f32..1f32, 0f32..(worst_loss as f32)).unwrap();
-//
-//     chart.configure_mesh()
-//         .x_labels(20)
-//         .y_labels(5)
-//         .draw().unwrap();
-//     chart.draw_series(LineSeries::new(loss_by_lr.clone(), &RED)).unwrap();
-// }
-
-pub fn save(id: &str, vs: &nn::VarStore) {
+fn save(id: &str, vs: &nn::VarStore) {
     let vars = vs.variables();
 
     let file = File::create(format!("./data/nets/velvet_{}.nn", id)).expect("Could not create output file");
@@ -538,8 +463,8 @@ fn spawn_data_reader_threads(max_training_set_id: usize, device: Device, tx: &Sy
                     let id2 = ids.pop().unwrap();
 
                     samples.clear();
-                    read_from_tensor_file(&mut samples, format!("./data/tensors/{}.lz4", id1).as_str());
-                    read_from_tensor_file(&mut samples, format!("./data/tensors/{}.lz4", id2).as_str());
+                    read_from_tensor_file(&mut samples, format!("{}/{}.lz4", LZ4_TRAINING_SET_PATH, id1).as_str());
+                    read_from_tensor_file(&mut samples, format!("{}/{}.lz4", LZ4_TRAINING_SET_PATH, id2).as_str());
 
                     let mut remaining_samples: &mut [DataSample] = &mut samples;
 
@@ -547,7 +472,7 @@ fn spawn_data_reader_threads(max_training_set_id: usize, device: Device, tx: &Sy
                         let (batch, remaining_samples2) = remaining_samples.partial_shuffle(&mut r, BATCH_SIZE as usize);
                         remaining_samples = remaining_samples2;
 
-                        let (xs, ys) = to_sparse_tensors(&batch, device);
+                        let (xs, ys) = to_sparse_tensors(batch, device);
                         tx2.send((epoch, xs, ys)).expect("Could not send training batch");
                     }
                 }
@@ -702,8 +627,8 @@ fn quantize(in_file: &str, out_file: &str) {
 
     // Regroup input weights for faster incremental updates
     let mut input_weights = Vec::with_capacity(input.weights.len());
-    for i in 0..IL_COUNT {
-        input.weights.iter().skip(i).step_by(IL_COUNT).for_each(|&w| input_weights.push(w));
+    for i in 0..INPUTS {
+        input.weights.iter().skip(i).step_by(INPUTS).for_each(|&w| input_weights.push(w));
     }
 
     let mut biases = input.biases.clone();

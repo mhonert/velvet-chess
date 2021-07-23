@@ -380,7 +380,7 @@ impl Board {
                     }
                 }
 
-                if target_piece_id != P { // Promotion
+                if target_piece_id >= R { // Rook or Queen Promotion
                     self.nn_eval.check_refresh(self.active_player(), &self.bitboards);
                 }
             }

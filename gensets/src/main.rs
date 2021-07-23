@@ -16,7 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use velvet::engine::{Engine, Message};
+use velvet::engine::{Engine, Message, LogLevel};
 use velvet::magics::initialize_magics;
 use std::time::{SystemTime, UNIX_EPOCH, Instant, Duration};
 use velvet::random::Random;
@@ -31,7 +31,7 @@ use velvet::moves::NO_MOVE;
 use std::sync::mpsc::Sender;
 use clap::App;
 use velvet::search::Search;
-use velvet::tuning::Tuning;
+use velvet::gen_quiet_pos::GenQuietPos;
 use velvet::fen::write_fen;
 use std::cmp::{min};
 use shakmaty_syzygy::{Tablebase, SyzygyError, Wdl, Dtz};
@@ -58,7 +58,7 @@ fn main() {
         .version("1.0.0")
         .about("Generates labeled training sets of chess positions from self-play games")
         .args_from_usage(
-            "-i, --start-index                      'Sets the start index for the generated training sets'
+            "-i, --start-index=<START>              'Sets the start index for the generated training sets'
              -o, --opening-book=<FILE>              'Sets the opening book file'
              -c, --concurrency=<CONCURRENCY>        'Sets the number of threads'
              -t  --table-base-path=<FILE>           'Sets the Syzygy tablebase path'")
@@ -155,12 +155,15 @@ fn find_test_positions(tx: &Sender<TestPos>, openings: &[String], tb_path: Strin
 
     let (_, erx1) = mpsc::channel::<Message>();
     let mut engine1 = Engine::new(erx1);
+    engine1.set_log_level(LogLevel::Error);
 
     let (_, erx2) = mpsc::channel::<Message>();
     let mut engine2 = Engine::new(erx2);
+    engine2.set_log_level(LogLevel::Error);
 
     let (_, erx3) = mpsc::channel::<Message>();
     let mut engine3 = Engine::new(erx3);
+    engine3.set_log_level(LogLevel::Error);
 
     let mut tb = Tablebase::new();
     println!("Setting tablebase path to: {}", tb_path);
@@ -209,7 +212,7 @@ fn read_openings(file_name: &str) -> Vec<String> {
 fn collect_quiet_pos(tb: &Tablebase<Chess>, rnd: &mut Random, opening: &str, engines: &mut [&mut Engine], pos_engine: &mut Engine) -> Vec<TestPos> {
     let mut player_color = WHITE;
 
-    let node_limit = 5000 + (rnd.rand32() % 500) as u64;
+    let node_limit = 150 + (rnd.rand32() % 150) as u64;
     for engine in engines.iter_mut() {
         engine.reset();
         engine.set_position(opening.to_string(), Vec::new());
@@ -255,8 +258,8 @@ fn collect_quiet_pos(tb: &Tablebase<Chess>, rnd: &mut Random, opening: &str, eng
 
             let new_fen = write_fen(&pos_engine.board);
 
-            pos_engine.node_limit = 200_000;
-            let best_move = pos_engine.find_best_move(10, 1000, true);
+            pos_engine.node_limit = 100_000;
+            let best_move = pos_engine.find_best_move(10, 0, true);
             if best_move == NO_MOVE {
                 continue;
             }
