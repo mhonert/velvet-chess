@@ -21,7 +21,7 @@ jobs:
         env:
           RUSTFLAGS: "-Ctarget-feature=+crt-static,-bmi2 -Ctarget-cpu=x86-64-v3"
         run: |
-          cargo build --release --target x86_64-unknown-linux-musl
+          cargo build --release --target x86_64-unknown-linux-musl --bin velvet
           strip target/x86_64-unknown-linux-musl/release/velvet
           mv target/x86_64-unknown-linux-musl/release/velvet velvet-linux-x86_64-avx2
 
@@ -30,7 +30,7 @@ jobs:
           RUSTFLAGS: "-Ctarget-feature=+crt-static -Ctarget-cpu=x86-64-v2"
         run: |
           rm -rf target
-          cargo build --release --target x86_64-unknown-linux-musl
+          cargo build --release --target x86_64-unknown-linux-musl --bin velvet
           strip target/x86_64-unknown-linux-musl/release/velvet
           mv target/x86_64-unknown-linux-musl/release/velvet velvet-linux-x86_64-sse4-popcnt
 
@@ -39,7 +39,7 @@ jobs:
           RUSTFLAGS: "-Ctarget-feature=+crt-static"
         run: |
           rm -rf target
-          cargo build --release --target x86_64-unknown-linux-musl
+          cargo build --release --target x86_64-unknown-linux-musl --bin velvet
           strip target/x86_64-unknown-linux-musl/release/velvet
           mv target/x86_64-unknown-linux-musl/release/velvet velvet-linux-x86_64-nopopcnt
 
@@ -64,7 +64,7 @@ jobs:
         env:
           RUSTFLAGS: "-Ctarget-feature=+crt-static,-bmi2 -Ctarget-cpu=x86-64-v3"
         run: |
-          cargo build --release
+          cargo build --release --bin velvet
           mv .\target\release\velvet.exe velvet-windows-x86_64-modern.exe
 
       - name: Build x86_64-see-popcnt
@@ -72,7 +72,7 @@ jobs:
           RUSTFLAGS: "-Ctarget-feature=+crt-static -Ctarget-cpu=x86-64-v2"
         run: |
           rm target -r -fo
-          cargo build --release
+          cargo build --release --bin velvet
           mv .\target\release\velvet.exe velvet-windows-x86_64-sse4-popcnt.exe
 
       - name: Build x86_64-nopopcnt
@@ -80,7 +80,7 @@ jobs:
           RUSTFLAGS: "-Ctarget-feature=+crt-static"
         run: |
           rm target -r -fo
-          cargo build --release
+          cargo build --release --bin velvet
           mv .\target\release\velvet.exe velvet-windows-x86_64-nopopcnt.exe
 
       - name: Upload artifacts
