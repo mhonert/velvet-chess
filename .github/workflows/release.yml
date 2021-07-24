@@ -65,7 +65,7 @@ jobs:
           RUSTFLAGS: "-Ctarget-feature=+crt-static,-bmi2 -Ctarget-cpu=x86-64-v3"
         run: |
           cargo build --release --bin velvet
-          mv .\target\release\velvet.exe velvet-windows-x86_64-modern.exe
+          mv .\target\release\velvet.exe velvet-windows-x86_64-avx2.exe
 
       - name: Build x86_64-see-popcnt
         env:
