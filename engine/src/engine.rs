@@ -590,11 +590,16 @@ fn calc_timelimit(movetime: i32, time_left: i32, time_increment: i32, movestogo:
     }
 
     let time_for_move = time_left / max(1, movestogo);
-    let time_bonus = if movestogo > 1 { time_increment / 2 } else { 0 };
 
-    if time_for_move + time_bonus + TIME_SAFETY_MARGIN_MS >= time_left {
-        max(0, time_for_move - TIME_SAFETY_MARGIN_MS)
-    } else {
-        max(0, time_for_move + time_increment)
+    if time_for_move > time_left - TIME_SAFETY_MARGIN_MS {
+        return max(0, time_left - TIME_SAFETY_MARGIN_MS)
     }
+
+    let time_bonus = if movestogo > 1 { time_increment } else { 0 };
+    if time_for_move + time_bonus > time_left - TIME_SAFETY_MARGIN_MS {
+        time_for_move
+    } else {
+        time_for_move + time_bonus
+    }
+
 }

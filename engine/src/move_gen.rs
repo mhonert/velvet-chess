@@ -714,9 +714,9 @@ impl MoveList {
                     }
                 } else {
                     if active_player == WHITE {
-                        self.gen_white_attack_pawn_moves(board, start_bb, empty_bb);
+                        self.gen_white_attack_pawn_moves(board, start_bb, opponent_bb);
                     } else {
-                        self.gen_black_attack_pawn_moves(board, start_bb, empty_bb);
+                        self.gen_black_attack_pawn_moves(board, start_bb, opponent_bb);
                     }
                 }
             },
