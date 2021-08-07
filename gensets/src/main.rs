@@ -27,7 +27,7 @@ use std::str::FromStr;
 use std::process::exit;
 use std::{thread};
 use velvet::colors::{WHITE, Color};
-use velvet::moves::NO_MOVE;
+use velvet::moves::{NO_MOVE, Move};
 use std::sync::mpsc::Sender;
 use clap::App;
 use velvet::search::Search;
@@ -45,11 +45,7 @@ use std::path::Path;
 struct TestPos {
     fen: String,
     count: u16,
-    end_count: u16,
-    wp: f64,
-    orig_wp: f64,
-    white_score: i32,
-    tb_result: bool,
+    score: i32,
     zobrist_hash: u64,
 }
 
@@ -111,7 +107,7 @@ fn main() {
     let mut sub_count: u64 = 0;
 
     for pos in rx {
-        writeln!(&mut writer, "{} {} {} {}", pos.fen, pos.count, pos.end_count, pos.white_score).expect("Could not write position to file");
+        writeln!(&mut writer, "{} {} {}", pos.fen, pos.count, pos.score).expect("Could not write position to file");
         count += 1;
         sub_count += 1;
 
@@ -156,14 +152,17 @@ fn find_test_positions(tx: &Sender<TestPos>, openings: &[String], tb_path: Strin
     let (_, erx1) = mpsc::channel::<Message>();
     let mut engine1 = Engine::new(erx1);
     engine1.set_log_level(LogLevel::Error);
+    engine1.check_stop_cmd = false;
 
     let (_, erx2) = mpsc::channel::<Message>();
     let mut engine2 = Engine::new(erx2);
     engine2.set_log_level(LogLevel::Error);
+    engine2.check_stop_cmd = false;
 
     let (_, erx3) = mpsc::channel::<Message>();
     let mut engine3 = Engine::new(erx3);
     engine3.set_log_level(LogLevel::Error);
+    engine3.check_stop_cmd = false;
 
     let mut tb = Tablebase::new();
     println!("Setting tablebase path to: {}", tb_path);
@@ -174,13 +173,8 @@ fn find_test_positions(tx: &Sender<TestPos>, openings: &[String], tb_path: Strin
     loop {
         let opening = openings[rnd.rand32() as usize % openings.len()].clone();
 
-        let mut positions = collect_quiet_pos(&tb, &mut rnd, opening.as_str(), &mut [&mut engine1, &mut engine2], &mut engine3);
+        let mut positions = collect_quiet_pos(&tb, &mut duplicate_check, &mut rnd, opening.as_str(), &mut [&mut engine1, &mut engine2], &mut engine3);
         for pos in positions.iter_mut() {
-            if duplicate_check.contains(&pos.zobrist_hash) {
-                continue;
-            }
-
-            duplicate_check.insert(pos.zobrist_hash);
             tx.send(pos.clone()).expect("could not send test position");
         }
 
@@ -209,10 +203,41 @@ fn read_openings(file_name: &str) -> Vec<String> {
     }
 }
 
-fn collect_quiet_pos(tb: &Tablebase<Chess>, rnd: &mut Random, opening: &str, engines: &mut [&mut Engine], pos_engine: &mut Engine) -> Vec<TestPos> {
+fn select_move(rnd: &mut Random, engine: &mut Engine, min_depth: i32, time_limit_ms: i32) -> Move {
+    let mut move_candidates = Vec::with_capacity(8);
+    let mut min_score = i32::MIN;
+    loop {
+        let m = engine.find_best_move(min_depth, time_limit_ms, true, &move_candidates);
+        if m == NO_MOVE {
+            break;
+        }
+
+        if !move_candidates.is_empty() && m.score() < min_score {
+            break;
+        }
+
+        if move_candidates.is_empty() {
+            min_score = m.score() - 25;
+        }
+
+        move_candidates.push(m.without_score());
+
+        if move_candidates.len() >= 6 {
+            break;
+        }
+    }
+
+    if move_candidates.is_empty() {
+        return NO_MOVE;
+    }
+
+    move_candidates[rnd.rand32() as usize % move_candidates.len()]
+}
+
+fn collect_quiet_pos(tb: &Tablebase<Chess>, duplicate_check: &mut HashSet<u64>, rnd: &mut Random, opening: &str, engines: &mut [&mut Engine], pos_engine: &mut Engine) -> Vec<TestPos> {
     let mut player_color = WHITE;
 
-    let node_limit = 150 + (rnd.rand32() % 150) as u64;
+    let node_limit = 200 + (rnd.rand32() % 100) as u64;
     for engine in engines.iter_mut() {
         engine.reset();
         engine.set_position(opening.to_string(), Vec::new());
@@ -226,7 +251,7 @@ fn collect_quiet_pos(tb: &Tablebase<Chess>, rnd: &mut Random, opening: &str, eng
         ply += 1;
         let idx = idx_by_color(player_color);
 
-        let best_move = engines[idx].find_best_move(3, 100, true);
+        let best_move = select_move(rnd, engines[idx], 3, 1000);
 
         if best_move == NO_MOVE {
             return positions;
@@ -234,7 +259,7 @@ fn collect_quiet_pos(tb: &Tablebase<Chess>, rnd: &mut Random, opening: &str, eng
 
         let score = best_move.score() * player_color as i32;
 
-        if (ply >= 300 && score.abs() < 1000) || engines[idx].board.is_draw() {
+        if (ply >= 300 && score.abs() < 500) || engines[idx].board.is_draw() {
             return positions;
         }
 
@@ -256,10 +281,16 @@ fn collect_quiet_pos(tb: &Tablebase<Chess>, rnd: &mut Random, opening: &str, eng
                 continue;
             }
 
+            let pos_hash = pos_engine.board.get_hash();
+
+            if duplicate_check.contains(&pos_hash) {
+                continue;
+            }
+
             let new_fen = write_fen(&pos_engine.board);
 
-            pos_engine.node_limit = 100_000;
-            let best_move = pos_engine.find_best_move(10, 0, true);
+            pos_engine.node_limit = 50_000;
+            let best_move = pos_engine.find_best_move(8, 1000, true, &[]);
             if best_move == NO_MOVE {
                 continue;
             }
@@ -269,12 +300,13 @@ fn collect_quiet_pos(tb: &Tablebase<Chess>, rnd: &mut Random, opening: &str, eng
                 continue;
             }
 
+            let mut tb_result = false;
             if pos_engine.board.get_occupancy_bitboard().count_ones() <= 5 {
                 let tb_pos: Chess = new_fen.parse::<Fen>().expect("Could not parse FEN").position(CastlingMode::Standard).unwrap();
                 match tb.probe_wdl(&tb_pos) {
                     Ok(_) => {
                         if tb.probe_dtz(&tb_pos).is_ok() {
-                            let (mut result, move_count) = resolve_tb_match(&tb, &tb_pos);
+                            let (mut result, move_count) = resolve_tb_match(tb, &tb_pos);
                             result *= pos_engine.board.active_player();
 
                             let half_move_distance = move_count as i32 - pos_engine.board.halfmove_count as i32;
@@ -286,10 +318,11 @@ fn collect_quiet_pos(tb: &Tablebase<Chess>, rnd: &mut Random, opening: &str, eng
                                     score /= 100 - half_move_distance
                                 }
                             } else if result < 0 {
-                                score = -3000 + half_move_distance;
+                                score = -4000 + half_move_distance;
                             } else if result > 0 {
-                                score = 3000 - half_move_distance;
+                                score = 4000 - half_move_distance;
                             }
+                            tb_result = true;
                         }
                     },
 
@@ -306,18 +339,93 @@ fn collect_quiet_pos(tb: &Tablebase<Chess>, rnd: &mut Random, opening: &str, eng
                 }
             }
 
+            let pos_count = pos_engine.board.halfmove_count;
+            if !tb_result {
+                let (lt_score, _) = playout_match(tb, score, 8, pos_engine, new_fen.clone());
+                score = lt_score;
+            }
+
             positions.push(TestPos{
                 fen: new_fen,
-                count: pos_engine.board.halfmove_count,
-                end_count: 0,
-                orig_wp: 0.0,
-                wp: 0.0,
-                white_score: score,
-                tb_result: false,
+                count: pos_count,
+                score,
                 zobrist_hash: pos_engine.board.get_hash()
             });
+
+            duplicate_check.insert(pos_hash);
         }
     }
+}
+
+fn playout_match(tb: &Tablebase<Chess>, start_score: i32, start_depth: i32, engine: &mut Engine, fen: String) -> (i32, u16) {
+    let mut lt_score = start_score as f64;
+    let mut lt_score_distance = start_depth as u16;
+    let mut min_depth = start_depth;
+
+    engine.set_position(fen, Vec::new());
+    engine.node_limit = 5000;
+
+    for i in 0..30 {
+        let best_move = engine.find_best_move(min_depth, 1000, true, &[]);
+        if best_move == NO_MOVE || engine.board.is_draw() {
+            break;
+        }
+
+        engine.perform_move(best_move);
+
+        if engine.board.get_occupancy_bitboard().count_ones() <= 5 {
+            let new_fen = write_fen(&engine.board);
+            let tb_pos: Chess = new_fen.parse::<Fen>().expect("Could not parse FEN").position(CastlingMode::Standard).unwrap();
+            match tb.probe_wdl(&tb_pos) {
+                Ok(_) => {
+                    if tb.probe_dtz(&tb_pos).is_ok() {
+                        let (mut result, move_count) = resolve_tb_match(tb, &tb_pos);
+                        result *= engine.board.active_player();
+
+                        let half_move_distance = move_count as i32 - engine.board.halfmove_count as i32;
+
+                        lt_score_distance += half_move_distance as u16;
+                        lt_score *= 1.0 - 1.0 / lt_score_distance as f64;
+                        lt_score += result as f64 * 4000.0 * (1.0 / lt_score_distance as f64);
+                        break;
+                    }
+                },
+
+                Err(e) => {
+                    match e {
+                        SyzygyError::Castling => {}
+                        SyzygyError::TooManyPieces => {}
+                        SyzygyError::MissingTable { .. } => {}
+                        SyzygyError::ProbeFailed { error, .. } => {
+                            println!("TB probe failed: {}", error);
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut score = best_move.score() * -engine.board.active_player() as i32;
+        if score.abs() >= 7000 {
+            if score.is_negative() {
+                score += 4000;
+            } else {
+                score -= 4000;
+            }
+            lt_score *= 1.0 - 1.0 / lt_score_distance as f64;
+            lt_score += score as f64 * (1.0 / lt_score_distance as f64);
+            break
+        }
+        lt_score *= 1.0 - 1.0 / lt_score_distance as f64;
+        lt_score += score as f64 * (1.0 / lt_score_distance as f64);
+
+        if min_depth > 4 && i >= 3 && i % 2 == 1 {
+            min_depth -= 1;
+        }
+
+        lt_score_distance += 1
+    }
+
+    (lt_score as i32, lt_score_distance - start_depth as u16)
 }
 
 fn resolve_tb_match(tb: &Tablebase<Chess>, in_pos: &Chess) -> (i8, u32) {

@@ -111,6 +111,8 @@ pub struct Engine {
 
     pub is_stopped: bool,
 
+    pub check_stop_cmd: bool,
+
     pub rnd: Random,
 
     log_level: LogLevel,
@@ -154,6 +156,7 @@ impl Engine {
             next_check_node_count: 0,
             current_depth: 0,
             max_reached_depth: 0,
+            check_stop_cmd: true,
             is_stopped: false,
             options_modified: false,
             test_positions: Vec::new(),
@@ -258,7 +261,7 @@ impl Engine {
         let is_strict_timelimit = movetime > 0 || timelimit_ms == MAX_TIMELIMIT_MS
             || movestogo == 1 || (time_left - (TIMEEXT_MULTIPLIER * timelimit_ms) <= 20);
 
-        let m = self.find_best_move(3, timelimit_ms, is_strict_timelimit);
+        let m = self.find_best_move(3, timelimit_ms, is_strict_timelimit, &[]);
         if m == NO_MOVE {
             println!("bestmove 0000")
         } else {
@@ -365,7 +368,7 @@ impl Engine {
 
             let play_moves = (self.rnd.rand64() % 12) as i32;
             for _ in 0..play_moves {
-                let m = self.find_best_move(9, 0, true);
+                let m = self.find_best_move(9, 0, true, &[]);
                 if m == NO_MOVE {
                     break;
                 }
@@ -411,7 +414,7 @@ impl Engine {
                 is_quiet = true;
             }
 
-            let m = self.find_best_move(6, 0, true);
+            let m = self.find_best_move(6, 0, true, &[]);
             if m == NO_MOVE {
                 return false;
             }

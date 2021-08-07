@@ -30,7 +30,7 @@ use LogLevel::Info;
 use crate::eval::Eval;
 
 pub trait Search {
-    fn find_best_move(&mut self, min_depth: i32, time_limit_ms: i32, is_strict_timelimit: bool) -> Move;
+    fn find_best_move(&mut self, min_depth: i32, time_limit_ms: i32, is_strict_timelimit: bool, skipped_moves: &[Move]) -> Move;
 
     fn rec_find_best_move(&mut self, alpha: i32, beta: i32, player_color: Color, depth: i32, ply: i32, null_move_performed: bool, is_in_check: bool, capture_pos: i32) -> i32;
 
@@ -49,7 +49,7 @@ const FUTILE_MOVE_REDUCTIONS: i32 = 2;
 const LOSING_MOVE_REDUCTIONS: i32 = 2;
 
 impl Search for Engine {
-    fn find_best_move(&mut self, min_depth: i32, time_limit_ms: i32, is_strict_timelimit: bool) -> Move {
+    fn find_best_move(&mut self, min_depth: i32, time_limit_ms: i32, is_strict_timelimit: bool, skipped_moves: &[Move]) -> Move {
         self.time_mgr.reset(time_limit_ms, is_strict_timelimit);
         self.hh.clear();
 
@@ -86,6 +86,9 @@ impl Search for Engine {
             let mut iteration_cancelled = false;
 
             while let Some(m) = self.movegen.next_legal_move(&self.hh, &mut self.board) {
+                if skipped_moves.contains(&m.without_score()) {
+                    continue;
+                }
                 move_num += 1;
 
                 if self.log(Info) && self.node_count > 1000000 {
@@ -225,7 +228,7 @@ impl Search for Engine {
                         return CANCEL_SEARCH;
                     }
 
-                } else if self.is_search_stopped() {
+                } else if self.check_stop_cmd && self.is_search_stopped() {
                     self.is_stopped = true;
                     return CANCEL_SEARCH;
                 }
@@ -686,12 +689,12 @@ mod tests {
 
         let mut engine = Engine::new_from_fen(rx, &fen, 1);
 
-        let m = engine.find_best_move(2, 0, true);
+        let m = engine.find_best_move(2, 0, true, &[]);
         assert_ne!(NO_MOVE, m);
 
         engine.perform_move(m);
 
-        let is_check_mate = engine.find_best_move(1, 0, true) == NO_MOVE && engine.board.is_in_check(WHITE);
+        let is_check_mate = engine.find_best_move(1, 0, true, &[]) == NO_MOVE && engine.board.is_in_check(WHITE);
         assert!(is_check_mate);
     }
 
@@ -716,14 +719,14 @@ mod tests {
 
         let mut engine = Engine::new_from_fen(rx, &fen, 1);
 
-        let m1 = engine.find_best_move(3, 0, true);
+        let m1 = engine.find_best_move(3, 0, true, &[]);
         engine.perform_move(m1);
-        let m2 = engine.find_best_move(2, 0, true);
+        let m2 = engine.find_best_move(2, 0, true, &[]);
         engine.perform_move(m2);
-        let m3 = engine.find_best_move(1, 0, true);
+        let m3 = engine.find_best_move(1, 0, true, &[]);
         engine.perform_move(m3);
 
-        let is_check_mate = engine.find_best_move(1, 0, true) == NO_MOVE && engine.board.is_in_check(BLACK);
+        let is_check_mate = engine.find_best_move(1, 0, true, &[]) == NO_MOVE && engine.board.is_in_check(BLACK);
         assert!(is_check_mate);
     }
 
