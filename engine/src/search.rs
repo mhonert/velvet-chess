@@ -291,7 +291,6 @@ impl Search for Engine {
 
             if hash_move != NO_MOVE && get_depth(tt_entry) >= depth {
                 let score = to_root_relative_score(ply, hash_move.score());
-
                 match get_score_type(tt_entry) {
                     ScoreType::Exact => {
                         return score
@@ -310,31 +309,25 @@ impl Search for Engine {
                         }
                     }
                 };
-
             }
         } else if depth > 7 {
             // Reduce nodes without hash move from transposition table
             depth -= 1;
         }
 
-        let mut fail_high = false;
-
-        // Null move reductions
-        let original_depth = depth;
+        // Null move pruning
         if !is_pv && !null_move_performed && depth > 3 && !is_in_check {
-            let r = log2((depth * 3 - 3) as u32);
-            self.board.perform_null_move();
-            let result = self.rec_find_best_move(-beta, -beta + 1, -player_color, depth - r - 1, ply + 1, true, false, -1);
-            self.board.undo_null_move();
-            if result == CANCEL_SEARCH {
-                return CANCEL_SEARCH;
-            }
-            if -result >= beta {
-                depth -= r;
-                fail_high = true;
-
-                if depth <= 1 {
-                    return self.quiescence_search(player_color, alpha, beta, ply);
+            pos_score = pos_score.or_else(|| Some(self.board.eval() * player_color as i32));
+            if pos_score.unwrap() >= beta {
+                let r = log2((depth * 3 - 3) as u32);
+                self.board.perform_null_move();
+                let result = self.rec_find_best_move(-beta, -beta + 1, -player_color, depth - r - 1, ply + 1, true, false, -1);
+                self.board.undo_null_move();
+                if result == CANCEL_SEARCH {
+                    return CANCEL_SEARCH;
+                }
+                if -result >= beta {
+                    return beta;
                 }
             }
         }
@@ -369,25 +362,7 @@ impl Search for Engine {
 
         let previous_move_was_capture = capture_pos != -1;
 
-        loop {
-            let curr_move = match self.movegen.next_move(&self.hh, &mut self.board) {
-                Some(next_move) => next_move,
-                None => {
-                    if fail_high && has_valid_moves {
-                        // research required, because a fail-high was reported by null search, but no cutoff was found during reduced search
-                        depth = original_depth;
-                        fail_high = false;
-                        evaluated_move_count = 0;
-
-                        self.movegen.reset();
-                        continue;
-                    } else {
-                        // Last move has been evaluated
-                        break;
-                    }
-                }
-            };
-
+        while let Some(curr_move) = self.movegen.next_move(&self.hh, &mut self.board) {
             let start = curr_move.start();
             let end = curr_move.end();
 
