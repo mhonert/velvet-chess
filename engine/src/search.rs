@@ -332,8 +332,7 @@ impl Search for Engine {
             }
         }
 
-        let primary_killer = self.hh.get_primary_killer(ply);
-        let secondary_killer = self.hh.get_secondary_killer(ply);
+        let (primary_killer, secondary_killer) = self.hh.get_killer_moves(ply);
 
         let mut best_score = worst_possible_score;
         let mut best_move = NO_MOVE;
