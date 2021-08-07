@@ -16,29 +16,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub mod bitboard;
-pub mod board;
-pub mod colors;
-pub mod engine;
-pub mod fen;
-pub mod gen_quiet_pos;
-pub mod history_heuristics;
-pub mod magics;
-pub mod move_gen;
-pub mod moves;
-pub mod nn_eval;
-pub mod perft;
-pub mod random;
-pub mod search;
-pub mod uci;
+pub const MIN_SCORE: i32 = -8191;
+pub const MAX_SCORE: i32 = 8191;
 
-mod boardpos;
-mod castling;
-mod options;
-mod pieces;
-mod pos_history;
-mod scores;
-mod time_management;
-mod transposition_table;
-mod uci_move;
-mod zobrist;
+pub const MATED_SCORE: i32 = -8000;
+pub const MATE_SCORE: i32 = 8000;

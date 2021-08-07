@@ -31,13 +31,12 @@ use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender, TryRecvError};
 use std::thread;
 use std::time::{Instant, SystemTime};
-use crate::score_util::{MIN_SCORE, MAX_SCORE};
+use crate::scores::{MIN_SCORE, MAX_SCORE};
 use crate::random::Random;
 use crate::moves::{NO_MOVE, Move};
 use crate::move_gen::MoveGenerator;
 use crate::gen_quiet_pos::GenQuietPos;
 use crate::time_management::{TimeManager, MAX_TIMELIMIT_MS, TIMEEXT_MULTIPLIER};
-use crate::eval::Eval;
 
 pub enum Message {
     NewGame,

@@ -19,10 +19,9 @@
 use crate::colors::{BLACK, WHITE};
 use crate::engine::Engine;
 use crate::pieces::{EMPTY};
-use crate::score_util::{ MAX_SCORE, MIN_SCORE };
+use crate::scores::{MAX_SCORE, MIN_SCORE };
 use crate::transposition_table::{get_untyped_move, ScoreType};
 use crate::moves::{Move, NO_MOVE};
-use crate::eval::Eval;
 
 // Code for generating quiet training positions for tuning and NN training
 pub trait GenQuietPos {

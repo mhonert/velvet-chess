@@ -46,10 +46,8 @@ def main(mode: str = "tuning"):
 
     if mode == "tuning":
         gen_for_tuning_mode(config, out)
-        out.write(Path("./codegen_snippets/pst_tuning.rs").read_text())
     else:
         gen_for_prod_mode(config, out)
-        out.write(Path("./codegen_snippets/pst_prod.rs").read_text())
 
     out.close()
 
@@ -80,9 +78,6 @@ def gen_for_prod_mode(config, out):
     out.write('''
 use std::sync::mpsc::Sender;
 use crate::engine::Message;
-use crate::colors::{Color, BLACK, WHITE};
-use crate::pieces::{B, K, N, P, Q, R, get_piece_value};
-use crate::score_util::{pack_scores};
 ''')
     multi_options = {}
     single_options = []
@@ -169,9 +164,6 @@ use std::cmp::max;
 use std::sync::mpsc::Sender;
 use crate::engine::Message;
 use std::str::FromStr;
-use crate::colors::{Color, BLACK, WHITE};
-use crate::pieces::{B, K, N, P, Q, R, get_piece_value};
-use crate::score_util::{pack_scores};
 
 pub struct Options {''')
     multi_options = {}

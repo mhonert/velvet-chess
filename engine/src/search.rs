@@ -19,7 +19,7 @@
 use crate::colors::{Color};
 use crate::engine::{Engine, LogLevel};
 use crate::pieces::{EMPTY, R, P};
-use crate::score_util::{ MATE_SCORE, MIN_SCORE, MATED_SCORE };
+use crate::scores::{MATE_SCORE, MIN_SCORE, MATED_SCORE };
 use crate::transposition_table::{get_depth, get_score_type, get_untyped_move, MAX_DEPTH, ScoreType, to_root_relative_score, from_root_relative_score};
 use crate::uci_move::UCIMove;
 use std::cmp::{max, min};
@@ -27,7 +27,6 @@ use std::time::{Duration, Instant};
 use crate::moves::{Move, NO_MOVE};
 use crate::move_gen::{NEGATIVE_HISTORY_SCORE, is_killer};
 use LogLevel::Info;
-use crate::eval::Eval;
 
 pub trait Search {
     fn find_best_move(&mut self, min_depth: i32, time_limit_ms: i32, is_strict_timelimit: bool, skipped_moves: &[Move]) -> Move;

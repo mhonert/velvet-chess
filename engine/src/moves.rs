@@ -171,7 +171,7 @@ pub const NO_MOVE: Move = Move(0);
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::score_util::{MAX_SCORE, MIN_SCORE};
+    use crate::scores::{MAX_SCORE, MIN_SCORE};
     use crate::pieces::{Q, K};
 
     #[test]

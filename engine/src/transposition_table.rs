@@ -16,7 +16,7 @@
 
 use crate::moves::{Move};
 use std::intrinsics::transmute;
-use crate::score_util::{MATED_SCORE, MATE_SCORE};
+use crate::scores::{MATED_SCORE, MATE_SCORE};
 
 pub const MAX_HASH_SIZE_MB: i32 = 4096;
 
@@ -155,7 +155,7 @@ pub fn get_score_type(entry: u64) -> ScoreType {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::score_util::{MIN_SCORE, MAX_SCORE};
+    use crate::scores::{MIN_SCORE, MAX_SCORE};
     use crate::moves::{MoveType, NO_MOVE};
 
     #[test]

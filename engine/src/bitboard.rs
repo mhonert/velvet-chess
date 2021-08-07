@@ -36,9 +36,6 @@ impl Iterator for BitBoard {
 
 const KNIGHT_ATTACKS: [u64; 64] = calculate_single_move_patterns([21, 19, 12, 8, -12, -21, -19, -8]);
 const KING_ATTACKS: [u64; 64] = calculate_single_move_patterns([1, 10, -1, -10, 9, 11, -9, -11]);
-const WHITE_KING_SHIELD: [u64; 64]= create_king_shield_patterns(-1);
-const BLACK_KING_SHIELD: [u64; 64]= create_king_shield_patterns(1);
-const KING_DANGER_ZONE: [u64; 64]= create_king_danger_zone_patterns();
 
 const LINE_MASKS: [LinePatterns; 64 * 4] = calc_line_patterns();
 
@@ -107,21 +104,6 @@ pub fn get_white_pawn_freesides(pos: i32) -> u64 {
 #[inline]
 pub fn get_black_pawn_freesides(pos: i32) -> u64 {
     get_column_side_mask(pos) & get_upper_block_mask(pos)
-}
-
-#[inline]
-pub fn get_white_king_shield(pos: i32) -> u64 {
-    unsafe { *WHITE_KING_SHIELD.get_unchecked(pos as usize) }
-}
-
-#[inline]
-pub fn get_black_king_shield(pos: i32) -> u64 {
-    unsafe { *BLACK_KING_SHIELD.get_unchecked(pos as usize) }
-}
-
-#[inline]
-pub fn get_king_danger_zone(pos: i32) -> u64 {
-    unsafe { *KING_DANGER_ZONE.get_unchecked(pos as usize) }
 }
 
 // Calculate move patterns for pieces which can only move to one target field per direction (king and knight)
@@ -331,100 +313,8 @@ pub const PAWN_DOUBLE_MOVE_LINES: [u64; 3] = [
 ];
 
 // Patterns to check, whether a piece is on a light or dark field
-pub const LIGHT_COLORED_FIELD_PATTERN: u64 =
-    0b01010101_01010101_01010101_01010101_01010101_01010101_01010101_01010101;
-pub const DARK_COLORED_FIELD_PATTERN: u64 =
-    0b10101010_10101010_10101010_10101010_10101010_10101010_10101010_10101010;
-
-// Pawn shield in front of king
-const fn create_king_shield_patterns(direction: i32) -> [u64; 64] {
-    let mut patterns: [u64; 64] = [0; 64];
-
-    let mut pos = 0;
-    while pos < 64 {
-        let row = pos / 8;
-        let col = pos & 7;
-        let mut pattern: u64 = 0;
-
-        let mut distance = 1;
-        while distance <= 2 {
-            let shield_row = row + direction * distance;
-            if shield_row < 0 || shield_row > 7 { // Outside board
-                distance += 1;
-                continue;
-            }
-
-            let front_pawn_pos = shield_row * 8 + col;
-            pattern |= 1 << front_pawn_pos as u64;
-            if col > 0 {
-                let front_west_pawn_pos = shield_row * 8 + col - 1;
-                pattern |= 1 << front_west_pawn_pos as u64;
-            }
-
-            if col < 7 {
-                let front_east_pawn_pos = shield_row * 8 + col + 1;
-                pattern |= 1 << front_east_pawn_pos as u64;
-            }
-
-            distance += 1;
-        }
-        patterns[pos as usize] = pattern;
-
-        pos += 1;
-    }
-
-    patterns
-}
-
-const KING_DANGER_ZONE_SIZE: i32 = 2;
-
-// King danger zone patterns
-const fn create_king_danger_zone_patterns() -> [u64; 64] {
-    let mut patterns: [u64; 64] = [0; 64];
-
-    let mut pos = 0;
-    while pos < 64 {
-        let row = pos / 8;
-        let col = pos & 7;
-        let mut pattern: u64 = 0;
-
-        let mut row_offset = -KING_DANGER_ZONE_SIZE;
-        while row_offset <= KING_DANGER_ZONE_SIZE {
-            let zone_row = row + row_offset;
-            if zone_row < 0 || zone_row > 7 { // Outside board
-                row_offset += 1;
-                continue;
-            }
-
-            let mut col_offset = -KING_DANGER_ZONE_SIZE;
-            while col_offset <= KING_DANGER_ZONE_SIZE {
-                let zone_col = col + col_offset;
-                if zone_col < 0 || zone_col > 7 { // Outside board
-                    col_offset += 1;
-                    continue;
-                }
-
-                let pattern_pos = zone_row * 8 + zone_col;
-                pattern |= 1 << pattern_pos as u64;
-
-                col_offset += 1;
-            }
-
-            row_offset += 1;
-        }
-        patterns[pos as usize] = pattern;
-
-        pos += 1;
-    }
-
-    patterns
-}
-
-// Mirrors the given bitboard
-#[inline]
-pub fn mirror(bitboard: u64) -> u64 {
-    bitboard.swap_bytes()
-}
+pub const LIGHT_COLORED_FIELD_PATTERN: u64 = 0b01010101_01010101_01010101_01010101_01010101_01010101_01010101_01010101;
+pub const DARK_COLORED_FIELD_PATTERN: u64 = 0b10101010_10101010_10101010_10101010_10101010_10101010_10101010_10101010;
 
 #[cfg(test)]
 mod tests {

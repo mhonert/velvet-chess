@@ -22,13 +22,12 @@ use crate::castling::{Castling, clear_castling_bits};
 use crate::colors::{Color, BLACK, WHITE};
 use crate::pieces::{B, EMPTY, K, N, P, Q, R, get_piece_value_unchecked};
 use crate::pos_history::PositionHistory;
-use crate::options::{Options, PieceSquareTables};
+use crate::options::{Options};
 use crate::zobrist::{piece_zobrist_key, player_zobrist_key, castling_zobrist_key, enpassant_zobrist_key};
 use crate::moves::{Move, MoveType};
 use crate::magics::{get_bishop_attacks, get_rook_attacks};
 use std::cmp::max;
 use crate::nn_eval::{NeuralNetEval};
-use crate::score_util::{unpack_score, unpack_eg_score};
 
 const MAX_GAME_HALFMOVES: usize = 5898 * 2;
 
@@ -40,7 +39,6 @@ pub const MAX_PHASE: i32 = 16 * PAWN_PHASE_VALUE + 30 * BASE_PIECE_PHASE_VALUE +
 
 pub struct Board {
     pub options: Options,
-    pub pst: PieceSquareTables,
     pub nn_eval: Box<NeuralNetEval>,
     pos_history: PositionHistory,
     items: [i8; 64],
@@ -58,8 +56,6 @@ pub struct Board {
 pub struct StateEntry {
     hash: u64,
     en_passant: u16,
-    pub score: i16,
-    pub eg_score: i16,
     castling: u8,
     halfmove_clock: u8,
 }
@@ -81,21 +77,19 @@ impl Board {
         }
 
         let options = Options::new();
-        let pst = PieceSquareTables::new(&options);
 
         let mut board = Board {
             options,
-            pst,
             pos_history: PositionHistory::new(),
             nn_eval: NeuralNetEval::new(),
             items: [0; 64],
             bitboards: [0; 13],
             bitboards_all_pieces: [0; 3],
-            state: StateEntry{en_passant: 0, castling: 0, halfmove_clock: 0, hash: 0, score: 0, eg_score: 0},
+            state: StateEntry{en_passant: 0, castling: 0, halfmove_clock: 0, hash: 0},
             king_pos: [0; 3],
             halfmove_count: 0,
             history_counter: 0,
-            history: [StateEntry{en_passant: 0, castling: 0, halfmove_clock: 0, hash: 0, score: 0, eg_score: 0}; MAX_GAME_HALFMOVES],
+            history: [StateEntry{en_passant: 0, castling: 0, halfmove_clock: 0, hash: 0}; MAX_GAME_HALFMOVES],
         };
 
         board.set_position(
@@ -140,8 +134,6 @@ impl Board {
         self.bitboards_all_pieces = [0; 3];
         self.items = [EMPTY; 64];
         self.history_counter = 0;
-        self.state.score = 0;
-        self.state.eg_score = 0;
 
         for i in 0..64 {
             let item = items[i];
@@ -185,8 +177,6 @@ impl Board {
                              items: &[i8],
                              halfmove_count: u16,
                              castling_state: u8) {
-        self.state.score = 0;
-        self.state.eg_score = 0;
         self.halfmove_count = halfmove_count;
         self.state.castling = castling_state;
         self.bitboards_all_pieces = [0; 3];
@@ -197,7 +187,6 @@ impl Board {
             self.items[pos] = EMPTY;
             if piece != EMPTY {
                 self.add_piece_without_inc_update(piece.signum(), piece, pos as i32);
-                self.add_piece_score(piece, pos);
 
                 if piece == K {
                     self.set_king_pos(WHITE, pos as i32);
@@ -532,7 +521,6 @@ impl Board {
             *self.items.get_unchecked_mut(pos as usize) = piece;
         }
 
-        self.add_piece_score(piece, pos);
         self.state.hash ^= piece_zobrist_key(piece, pos);
 
         unsafe {
@@ -541,13 +529,6 @@ impl Board {
         }
 
         self.nn_eval.add_piece(pos, piece);
-    }
-
-    fn add_piece_score(&mut self, piece: i8, pos: usize) {
-        let packed_score = self.pst.get_packed_score(piece, pos);
-
-        self.state.score += unpack_score(packed_score);
-        self.state.eg_score += unpack_eg_score(packed_score);
     }
 
     fn clear_en_passant(&mut self) {
@@ -561,7 +542,6 @@ impl Board {
 
     pub fn remove_piece(&mut self, pos: i32) -> i8 {
         let piece = self.get_item(pos);
-        self.subtract_piece_score(piece, pos as usize);
         self.state.hash ^= piece_zobrist_key(piece, pos as usize);
 
         if piece == R {
@@ -580,13 +560,6 @@ impl Board {
 
         let color = piece.signum();
         self.remove(piece, color, pos)
-    }
-
-    fn subtract_piece_score(&mut self, piece: i8, pos: usize) {
-        let packed_score = self.pst.get_packed_score(piece, pos);
-
-        self.state.score -= unpack_score(packed_score);
-        self.state.eg_score -= unpack_eg_score(packed_score);
     }
 
     fn remove_piece_without_inc_update(&mut self, pos: i32) {
@@ -985,18 +958,12 @@ impl Board {
         typ
     }
 
-    #[inline]
-    pub fn get_mat_score(&self) -> i32 {
-        self.state.score as i32
-    }
-
-    #[inline]
-    pub fn get_eg_mat_score(&self) -> i32 {
-        self.state.eg_score as i32
-    }
-
     pub fn reset_nn_eval(&mut self) {
         self.nn_eval.init_pos(self.active_player(), &self.bitboards);
+    }
+
+    pub fn eval(&mut self) -> i32 {
+        self.nn_eval.eval()
     }
 
 }
