@@ -25,7 +25,6 @@ const QS_SEE_THRESHOLD: i32 = 104;
 const QS_PRUNE_MARGIN: i32 = 650;
 const TIMEEXT_SCORE_DROP_THRESHOLD: i32 = 20;
 const TIMEEXT_HISTORY_SIZE: i32 = 6;
-const RAZOR_MARGIN: i32 = 130;
     
 pub struct Options {}
     
@@ -64,12 +63,6 @@ impl Options {
     #[inline]
     pub fn get_timeext_history_size(&self) -> i32 {
         TIMEEXT_HISTORY_SIZE
-    }
-
-
-    #[inline]
-    pub fn get_razor_margin(&self) -> i32 {
-        RAZOR_MARGIN
     }
 
 }

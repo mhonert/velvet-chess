@@ -27,8 +27,9 @@ use std::str::FromStr;
 use itertools::Itertools;
 use velvet::fen::{parse_fen, FenParseResult};
 use std::time::{Instant, SystemTime};
-use tch::nn::{ModuleT, Optimizer, VarStore, AdamW};
+use tch::nn::{ModuleT, Optimizer, VarStore, AdamW, SequentialT};
 use byteorder::{WriteBytesExt, LittleEndian, ReadBytesExt};
+use std::env;
 use std::sync::mpsc::{SyncSender};
 use std::thread;
 use std::sync::mpsc;
@@ -37,29 +38,17 @@ use lz4_flex::frame::FrameEncoder;
 use velvet::bitboard::BitBoard;
 use rand::SeedableRng;
 use velvet::nn_eval::{INPUTS, HL_INPUTS, HL_COUNT};
-use std::cmp::{min};
+use std::cmp::{min, max};
 use std::path::Path;
 use crate::lr_scheduler::LrScheduler;
-
-fn net(vs: &nn::Path) -> impl ModuleT {
-    nn::seq_t()
-        .add(nn::linear(vs / "input", INPUT_FEATURES, 64, Default::default()))
-        .add(nn::linear(vs / "hidden1", 64, 64, Default::default()))
-        .add_fn(|xs| xs.relu())
-        .add(nn::linear(vs / "hidden2", 64, 64, Default::default()))
-        .add_fn(|xs| xs.relu())
-        .add(nn::linear(vs / "output", 64, 1, Default::default()))
-}
 
 const FEATURES_PER_BUCKET: i64 = 64 * 6 * 2;
 
 const INPUT_FEATURES: i64 = FEATURES_PER_BUCKET * 2 * 4;
 
-const DATA_READER_THREADS: usize = 2;
-
 const DATA_WRITER_THREADS: usize = 4;
 
-const TEST_SETS: usize = 2;
+const TEST_SETS: usize = 3;
 
 const BATCH_SIZE: i64 = 50000;
 
@@ -73,6 +62,177 @@ const FEN_TEST_SET_PATH: &str = "./data/test_fen";
 const LZ4_TEST_SET_PATH: &str = "./data/test_lz4";
 const POS_PER_SET: usize = 200_000;
 
+trait Mode {
+    fn print_info(&self);
+    fn net(&self, vs: &nn::Path) -> SequentialT;
+    fn save_raw(&self, id: &str, vs: &nn::VarStore);
+    fn save_quantized(&self, net_id: String);
+}
+
+struct EvalNet {}
+
+impl Mode for EvalNet {
+    fn print_info(&self) {
+        println!("Training neural network for evaluation");
+    }
+
+    fn net(&self, vs: &nn::Path) -> SequentialT {
+        nn::seq_t()
+            .add(nn::linear(vs / "input", INPUT_FEATURES, 64, Default::default()))
+            .add(nn::linear(vs / "hidden1", 64, 64, Default::default()))
+            .add_fn(|xs| xs.relu())
+            .add(nn::linear(vs / "hidden2", 64, 64, Default::default()))
+            .add_fn(|xs| xs.relu())
+            .add(nn::linear(vs / "output", 64, 1, Default::default()))
+    }
+
+    fn save_raw(&self, id: &str, vs: &nn::VarStore) {
+        let vars = vs.variables();
+
+        let file = File::create(format!("./data/nets/velvet_{}.nn", id)).expect("Could not create output file");
+        let mut writer = BufWriter::new(file);
+
+        writer.write_i8('V' as i8).unwrap();
+
+        let hidden_layers = 2;
+        writer.write_i8(hidden_layers).unwrap(); // Number of hidden layers
+
+        write_layer(&mut writer, vars.get("input.weight").unwrap(), vars.get("input.bias").unwrap(), 1.0).expect("Could not write layer");
+
+        for i in 1..=hidden_layers {
+            write_layer(&mut writer,
+                        vars.get(format!("hidden{}.weight", i).as_str()).unwrap(),
+                        vars.get(format!("hidden{}.bias", i).as_str()).unwrap(), 1.0).expect("Could not write layer");
+        }
+
+        write_layer(&mut writer, vars.get("output.weight").unwrap(), vars.get("output.bias").unwrap(), 1.0).expect("Could not write layer");
+    }
+
+    fn save_quantized(&self, net_id: String) {
+        let in_file = &format!("./data/nets/velvet_{}.nn", net_id);
+        let out_file = &format!("./data/nets/velvet_{}.qnn", net_id);
+
+        let file = File::open(in_file).unwrap_or_else(|_| panic!("Could not open NN file: {}", in_file));
+        let mut reader = BufReader::new(file);
+
+        read_header(&mut reader, HL_COUNT as usize).expect("could not read NN header data");
+
+        let input = read_layer(&mut reader).expect("could not read NN input layer");
+        let hidden1 = read_layer(&mut reader).expect("could not read NN hidden layer 1");
+        let hidden2 = read_layer(&mut reader).expect("could not read NN hidden layer 2");
+        let output = read_layer(&mut reader).expect("could not read NN output layer");
+
+        // Regroup input weights for faster incremental updates
+        let mut input_weights = Vec::with_capacity(input.weights.len());
+        for i in 0..INPUTS {
+            input.weights.iter().skip(i).step_by(INPUTS).for_each(|&w| input_weights.push(w));
+        }
+
+        let mut biases = input.biases.clone();
+        biases.sort_by_key(|b| -(b * 1000.0) as i32);
+
+        let max_bias = biases[0];
+        let min_bias = biases[biases.len() - 1];
+
+        let mut max_sum = f32::MIN;
+        let mut min_sum = f32::MAX;
+
+        for c in input.weights.chunks(768 * HL_INPUTS).into_iter() {
+            let mut weights = c.to_vec();
+            weights.sort_by_key(|w| -(w * 1000.0) as i32);
+            let w_max_sum = weights.iter().take(32).sum::<f32>();
+
+            if w_max_sum > max_sum {
+                max_sum = w_max_sum;
+            }
+
+            weights.sort_by_key(|w| (w * 1000.0) as i32);
+            let w_min_sum = weights.iter().take(32).sum::<f32>();
+            if w_min_sum < min_sum {
+                min_sum = w_min_sum;
+            }
+        }
+
+        min_sum += min_bias;
+        max_sum += max_bias;
+
+        let bound = if -min_sum > max_sum { -min_sum } else { max_sum };
+
+        let precision_bits = 15 - ((32767.0 / bound) as i16 | 1).leading_zeros();
+        let scale_bits = 16 - precision_bits;
+        println!("Required scale bits: {}", scale_bits);
+        println!("Precision bits     : {}", precision_bits);
+
+        let fp_one = 1 << precision_bits;
+        println!("{}", max_sum * fp_one as f32);
+        println!("{}", min_sum * fp_one as f32);
+
+        let file = File::create(out_file).expect("Could not create output file");
+        let mut writer = BufWriter::new(file);
+
+        writer.write_i8(precision_bits as i8).unwrap();
+
+        write_quantized(&mut writer, fp_one, input_weights).expect("Could not write quantized input weights");
+        write_quantized(&mut writer, fp_one, input.biases).expect("Could not write quantized input biases");
+
+        write_quantized(&mut writer, fp_one, hidden1.weights).expect("Could not write quantized hidden1 layer weights");
+        write_quantized(&mut writer, fp_one, hidden1.biases).expect("Could not write quantized hidden1 layer biases");
+
+        write_quantized(&mut writer, fp_one, hidden2.weights).expect("Could not write quantized hidden2 layer weights");
+        write_quantized(&mut writer, fp_one, hidden2.biases).expect("Could not write quantized hidden2 layer biases");
+
+        write_quantized(&mut writer, fp_one, output.weights).expect("Could not write quantized output layer weights");
+
+        writer.write_i16::<LittleEndian>((output.biases[0] * fp_one as f32) as i16).expect("Could not write quantized output bias");
+    }
+}
+
+struct PieceSquareTables {}
+
+impl Mode for PieceSquareTables {
+    fn print_info(&self) {
+        println!("Training piece square tables");
+    }
+
+    fn net(&self, vs: &nn::Path) -> SequentialT {
+        nn::seq_t()
+            .add(nn::linear(vs / "input", INPUT_FEATURES, 1, Default::default()))
+    }
+
+    fn save_raw(&self, id: &str, vs: &nn::VarStore) {
+        let vars = vs.variables();
+
+        let file = File::create(format!("./data/nets/velvet_psq_{}.nn", id)).expect("Could not create output file");
+        let mut writer = BufWriter::new(file);
+
+        writer.write_i8('V' as i8).unwrap();
+
+        let hidden_layers = 0;
+        writer.write_i8(hidden_layers).unwrap(); // Number of hidden layers
+
+        write_layer(&mut writer, vars.get("input.weight").unwrap(), vars.get("input.bias").unwrap(), 2048.0).expect("Could not write layer");
+    }
+
+    fn save_quantized(&self, net_id: String) {
+        let in_file = &format!("./data/nets/velvet_psq_{}.nn", net_id);
+        let out_file = &format!("./data/nets/velvet_psq_{}.qnn", net_id);
+
+        let file = File::open(in_file).unwrap_or_else(|_| panic!("Could not open PSQ file: {}", in_file));
+        let mut reader = BufReader::new(file);
+
+        read_header(&mut reader, 0).expect("could not read PSQ header data");
+
+        let input = read_layer(&mut reader).expect("could not read PSQ input layer");
+
+        let file = File::create(out_file).expect("Could not create output file");
+        let mut writer = BufWriter::new(file);
+
+        write_quantized(&mut writer, 1, input.weights).expect("Could not write quantized input weights");
+
+        writer.write_i16::<LittleEndian>(input.biases[0] as i16).expect("Could not write quantized output bias");
+    }
+}
+
 type DataSample = (Vec<i64>, f32);
 
 fn config_optimizer(vs: &VarStore, initial_lr: f64) -> Optimizer<AdamW> {
@@ -83,6 +243,30 @@ fn config_optimizer(vs: &VarStore, initial_lr: f64) -> Optimizer<AdamW> {
 }
 
 pub fn main() {
+    if env::args().len() <= 2 {
+        println!("Usage: trainer [psq|eval] [reader thread count]");
+        return;
+    }
+
+    let mode: Box<dyn Mode> = match env::args().nth(1).unwrap().to_lowercase().as_str() {
+        "psq" => Box::new(PieceSquareTables{}),
+        "eval" => Box::new(EvalNet{}),
+        _ => {
+            println!("Usage: trainer [psq|eval] [reader thread count]");
+            return;
+        }
+    };
+
+    let data_reader_threads = match usize::from_str(env::args().nth(2).unwrap().as_str()) {
+        Ok(count) => max(1, count),
+        Err(_) => {
+            println!("Usage: trainer [psq|eval] [reader thread count]");
+            return;
+        }
+    };
+
+    mode.print_info();
+
     println!("Scanning available training sets ...");
     let max_training_set_id = convert_sets("training", FEN_TRAINING_SET_PATH, LZ4_TRAINING_SET_PATH, MIN_TRAINING_SET_ID);
     let training_set_count = (max_training_set_id - MIN_TRAINING_SET_ID) + 1;
@@ -106,9 +290,9 @@ pub fn main() {
     test_ys = test_ys.multiply_scalar(2048.0 * K_DIV).sigmoid();
 
     let (tx, rx) = mpsc::sync_channel::<(usize, Tensor, Tensor)>(18);
-    spawn_data_reader_threads(max_training_set_id, device, &tx);
+    spawn_data_reader_threads(data_reader_threads, max_training_set_id, device, &tx);
 
-    let net = net(&vs.root());
+    let net = mode.net(&vs.root());
 
 
     let mut best_loss = f64::MAX;
@@ -178,7 +362,7 @@ pub fn main() {
         if test_loss < best_loss {
             last_improved_epoch = epoch;
             best_loss = test_loss;
-            save(&net_id, &vs);
+            mode.save_raw(&net_id, &vs);
         }
 
         let samples_per_sec = (train_count as f64 * 1000.0) / Instant::now().duration_since(train_start).as_millis() as f64;
@@ -200,7 +384,7 @@ pub fn main() {
             println!("- Epoch finished: {:.2} samples/s", samples_per_sec);
 
             if epoch > max_epochs {
-                if (epoch - last_improved_epoch) > 2 {
+                if (epoch - last_improved_epoch) > 3 {
                     break;
                 }
 
@@ -217,7 +401,7 @@ pub fn main() {
     }
 
     println!("- Training finished in {:.1} minutes", Instant::now().duration_since(start_time).as_secs() as f64 / 60.0);
-    quantize(&format!("./data/nets/velvet_{}.nn", net_id), &format!("./data/nets/velvet_{}.qnn", net_id));
+    mode.save_quantized(net_id);
 }
 
 fn to_sparse_tensors(samples: &[DataSample], device: Device) -> (Tensor, Tensor) {
@@ -397,29 +581,7 @@ fn read_from_tensor_file(samples: &mut Vec<DataSample>, file_name: &str) {
     }
 }
 
-fn save(id: &str, vs: &nn::VarStore) {
-    let vars = vs.variables();
-
-    let file = File::create(format!("./data/nets/velvet_{}.nn", id)).expect("Could not create output file");
-    let mut writer = BufWriter::new(file);
-
-    writer.write_i8('V' as i8).unwrap();
-
-    let hidden_layers = 2;
-    writer.write_i8(hidden_layers).unwrap(); // Number of hidden layers
-
-    write_layer(&mut writer, vars.get("input.weight").unwrap(), vars.get("input.bias").unwrap()).expect("Could not write layer");
-
-    for i in 1..=hidden_layers {
-        write_layer(&mut writer,
-                    vars.get(format!("hidden{}.weight", i).as_str()).unwrap(),
-                    vars.get(format!("hidden{}.bias", i).as_str()).unwrap()).expect("Could not write layer");
-    }
-
-    write_layer(&mut writer, vars.get("output.weight").unwrap(), vars.get("output.bias").unwrap()).expect("Could not write layer");
-}
-
-fn write_layer(writer: &mut BufWriter<File>, weights: &Tensor, biases: &Tensor) -> Result<(), Error> {
+fn write_layer(writer: &mut BufWriter<File>, weights: &Tensor, biases: &Tensor, scale: f32) -> Result<(), Error> {
     let size = weights.size();
 
     writer.write_i16::<LittleEndian>(size[0] as i16)?;
@@ -427,19 +589,19 @@ fn write_layer(writer: &mut BufWriter<File>, weights: &Tensor, biases: &Tensor) 
 
     let ws: Vec<f32> = weights.into();
     for &weight in ws.iter() {
-        writer.write_f32::<LittleEndian>(weight)?;
+        writer.write_f32::<LittleEndian>(weight * scale)?;
     }
 
     let bs: Vec<f32> = biases.into();
     for &bias in bs.iter() {
-        writer.write_f32::<LittleEndian>(bias)?;
+        writer.write_f32::<LittleEndian>(bias * scale)?;
     }
 
     Ok(())
 }
 
-fn spawn_data_reader_threads(max_training_set_id: usize, device: Device, tx: &SyncSender<(usize, Tensor, Tensor)>) {
-    for start in MIN_TRAINING_SET_ID..(DATA_READER_THREADS + MIN_TRAINING_SET_ID) {
+fn spawn_data_reader_threads(threads: usize, max_training_set_id: usize, device: Device, tx: &SyncSender<(usize, Tensor, Tensor)>) {
+    for start in MIN_TRAINING_SET_ID..(threads + MIN_TRAINING_SET_ID) {
         let tx2 = tx.clone();
         thread::spawn(move || {
             let mut epoch = 1;
@@ -451,7 +613,7 @@ fn spawn_data_reader_threads(max_training_set_id: usize, device: Device, tx: &Sy
             loop {
                 // Shuffling all data sets is too time consuming.
                 // Instead, two random data sets will be merged and shuffled
-                let mut ids = (start..(max_training_set_id - TEST_SETS)).step_by(DATA_READER_THREADS).collect_vec();
+                let mut ids = (start..(max_training_set_id - TEST_SETS)).step_by(threads).collect_vec();
                 ids.shuffle(&mut r);
 
                 while ids.len() >= 2 {
@@ -574,16 +736,16 @@ pub struct Layer {
     biases: Vec<f32>,
 }
 
-fn read_header(reader: &mut BufReader<File>) -> Result<(), Error> {
+fn read_header(reader: &mut BufReader<File>, expected_hl_count: usize) -> Result<(), Error> {
     let head = reader.read_i8()?;
     if head != 'V' as i8 {
         return Err(Error::new(ErrorKind::InvalidData, "missing header 'V'"));
     }
 
-    let hidden_layer_count = reader.read_i8()?;
-    if hidden_layer_count != HL_COUNT {
+    let hidden_layer_count = reader.read_i8()? as usize;
+    if hidden_layer_count != expected_hl_count {
         return Err(Error::new(ErrorKind::InvalidData,
-                              format!("hidden layer count mismatch: expected {}, got {}", HL_COUNT, hidden_layer_count)));
+                              format!("hidden layer count mismatch: expected {}, got {}", expected_hl_count, hidden_layer_count)));
     }
 
     Ok(())
@@ -610,83 +772,6 @@ fn read_layer(reader: &mut BufReader<File>) -> Result<Layer, Error> {
     Ok(Layer{weights, biases})
 }
 
-fn quantize(in_file: &str, out_file: &str) {
-    let file = File::open(in_file).unwrap_or_else(|_| panic!("Could not open NN file: {}", in_file));
-    let mut reader = BufReader::new(file);
-
-    read_header(&mut reader).expect("could not read NN header data");
-
-    let input = read_layer(&mut reader).expect("could not read NN input layer");
-    let hidden1 = read_layer(&mut reader).expect("could not read NN hidden layer 1");
-    let hidden2 = read_layer(&mut reader).expect("could not read NN hidden layer 2");
-    let output = read_layer(&mut reader).expect("could not read NN output layer");
-
-    // Regroup input weights for faster incremental updates
-    let mut input_weights = Vec::with_capacity(input.weights.len());
-    for i in 0..INPUTS {
-        input.weights.iter().skip(i).step_by(INPUTS).for_each(|&w| input_weights.push(w));
-    }
-
-    let mut biases = input.biases.clone();
-    biases.sort_by_key(|b| -(b * 1000.0) as i32);
-
-    let max_bias = biases[0];
-    let min_bias = biases[biases.len() - 1];
-
-    let mut max_sum = f32::MIN;
-    let mut min_sum = f32::MAX;
-
-    for c in input.weights.chunks(768 * HL_INPUTS).into_iter() {
-        let mut weights = c.to_vec();
-        weights.sort_by_key(|w| -(w * 1000.0) as i32);
-        let w_max_sum = weights.iter().take(32).sum::<f32>();
-
-        if w_max_sum > max_sum {
-            max_sum = w_max_sum;
-        }
-
-        weights.sort_by_key(|w| (w * 1000.0) as i32);
-        let w_min_sum = weights.iter().take(32).sum::<f32>();
-        if w_min_sum < min_sum {
-            min_sum = w_min_sum;
-        }
-    }
-
-    println!("Min: {}, {} = {}", min_bias, min_sum, min_bias + min_sum);
-    println!("Max: {}, {} = {}", max_bias, max_sum, max_bias + max_sum);
-    min_sum += min_bias;
-    max_sum += max_bias;
-
-    let bound = if -min_sum > max_sum { -min_sum } else { max_sum };
-
-    let precision_bits = 15 - ((32767.0 / bound) as i16 | 1).leading_zeros();
-    let scale_bits = 16 - precision_bits;
-    println!("Required scale bits: {}", scale_bits);
-    println!("Precision bits     : {}", precision_bits);
-
-    let fp_one = 1 << precision_bits;
-    println!("{}", max_sum * fp_one as f32);
-    println!("{}", min_sum * fp_one as f32);
-
-
-    let file = File::create(out_file).expect("Could not create output file");
-    let mut writer = BufWriter::new(file);
-
-    writer.write_i8(precision_bits as i8).unwrap();
-
-    write_quantized(&mut writer, fp_one, input_weights).expect("Could not write quantized input weights");
-    write_quantized(&mut writer, fp_one, input.biases).expect("Could not write quantized input biases");
-
-    write_quantized(&mut writer, fp_one, hidden1.weights).expect("Could not write quantized hidden1 layer weights");
-    write_quantized(&mut writer, fp_one, hidden1.biases).expect("Could not write quantized hidden1 layer biases");
-
-    write_quantized(&mut writer, fp_one, hidden2.weights).expect("Could not write quantized hidden2 layer weights");
-    write_quantized(&mut writer, fp_one, hidden2.biases).expect("Could not write quantized hidden2 layer biases");
-
-    write_quantized(&mut writer, fp_one, output.weights).expect("Could not write quantized output layer weights");
-
-    writer.write_i16::<LittleEndian>((output.biases[0] * fp_one as f32) as i16).expect("Could not write quantized output bias");
-}
 
 fn write_quantized(writer: &mut BufWriter<File>, fp_one: i16, values: Vec<f32>) -> Result<(), Error> {
     writer.write_i32::<LittleEndian>(values.len() as i32)?;
@@ -696,3 +781,4 @@ fn write_quantized(writer: &mut BufWriter<File>, fp_one: i16, values: Vec<f32>) 
 
     Ok(())
 }
+

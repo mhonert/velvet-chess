@@ -33,7 +33,7 @@ pub trait Search {
 
     fn rec_find_best_move(&mut self, alpha: i32, beta: i32, player_color: Color, depth: i32, ply: i32, null_move_performed: bool, is_in_check: bool, capture_pos: i32) -> i32;
 
-    fn quiescence_search(&mut self, player_color: Color, alpha: i32, beta: i32, ply: i32) -> i32;
+    fn quiescence_search(&mut self, player_color: Color, alpha: i32, beta: i32, ply: i32, pos_score: Option<i32>) -> i32;
 
     fn get_base_stats(&self, duration: Duration) -> String;
 
@@ -112,7 +112,7 @@ impl Search for Engine {
 
                 } else if -result > alpha && a != MIN_SCORE {
                     // Repeat search if it falls outside the search window
-                    result = self.rec_find_best_move(MIN_SCORE, -alpha, -player_color, depth - 1, 1, false, gives_check, capture_pos);
+                    result = self.rec_find_best_move(MIN_SCORE, -alpha, -player_color, depth - 2, 1, false, gives_check, capture_pos);
                     if result == CANCEL_SEARCH {
                         iteration_cancelled = true;
                     }
@@ -264,17 +264,18 @@ impl Search for Engine {
             // Extend search when in check
             depth = max(1, depth + 1);
 
-        } else if depth == 1 {
-            pos_score = Some(self.board.eval() * player_color as i32);
-            if pos_score.unwrap() < alpha - self.board.options.get_razor_margin() {
-                // Directly jump to quiescence search, if current position score is below a certain threshold
-                depth = 0;
+        } else if !is_pv && depth > 0 && depth <= 3 && self.board.fast_eval() * player_color as i32 - (100 * depth) >= beta  {
+            // Prune, if position is already so good, that it is unlikely for the opponent to counter it within the remaining search depth
+            pos_score = pos_score.or_else(|| Some(self.board.eval() * player_color as i32));
+
+            if pos_score.unwrap().abs() < MATE_SCORE - (2 * MAX_DEPTH as i32) && pos_score.unwrap() - (100 * depth) >= beta {
+                return pos_score.unwrap() - (100 * depth);
             }
         }
 
         // Quiescence search
         if depth <= 0 || ply >= MAX_DEPTH as i32 {
-            return self.quiescence_search(player_color, alpha, beta, ply);
+            return self.quiescence_search(player_color, alpha, beta, ply, pos_score);
         }
 
         self.node_count += 1;
@@ -308,6 +309,7 @@ impl Search for Engine {
                         }
                     }
                 };
+                pos_score = Some(score);
             }
         } else if depth > 7 {
             // Reduce nodes without hash move from transposition table
@@ -346,8 +348,10 @@ impl Search for Engine {
         let mut allow_futile_move_pruning = false;
         if !is_pv && depth <= 6 {
             let margin = (6 << depth) * 4 + 16;
-            let prune_low_score = pos_score.unwrap_or_else(|| self.board.eval() * player_color as i32) + margin;
-            allow_futile_move_pruning = prune_low_score <= alpha;
+            if self.board.fast_eval() * player_color as i32 + margin <= alpha {
+                let prune_low_score = pos_score.unwrap_or_else(|| self.board.eval() * player_color as i32);
+                allow_futile_move_pruning = prune_low_score.abs() < MATE_SCORE - 2 * MAX_DEPTH as i32 && prune_low_score + margin <= alpha;
+            }
         }
 
         let opponent_pieces = self.board.get_all_piece_bitboard(-player_color);
@@ -483,7 +487,7 @@ impl Search for Engine {
         best_score
     }
 
-    fn quiescence_search(&mut self, active_player: Color, mut alpha: i32, beta: i32, ply: i32) -> i32 {
+    fn quiescence_search(&mut self, active_player: Color, mut alpha: i32, beta: i32, ply: i32, pos_score: Option<i32>) -> i32 {
         self.node_count += 1;
 
         if ply > self.max_reached_depth {
@@ -494,7 +498,7 @@ impl Search for Engine {
             return 0;
         }
 
-        let position_score = self.board.eval() * active_player as i32;
+        let position_score = pos_score.unwrap_or_else(|| self.board.eval() * active_player as i32);
         if ply >= MAX_DEPTH as i32 {
             return position_score;
         }
@@ -546,7 +550,7 @@ impl Search for Engine {
                 continue;
             }
 
-            let score = -self.quiescence_search(-active_player, -beta, -alpha, ply + 1);
+            let score = -self.quiescence_search(-active_player, -beta, -alpha, ply + 1, None);
             self.board.undo_move(m, previous_piece, move_state);
 
             if score >= beta {

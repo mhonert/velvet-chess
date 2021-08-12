@@ -20,7 +20,7 @@ use crate::bitboard::{black_left_pawn_attacks, black_right_pawn_attacks, white_l
 use crate::boardpos::{BlackBoardPos, WhiteBoardPos};
 use crate::castling::{Castling, clear_castling_bits};
 use crate::colors::{Color, BLACK, WHITE};
-use crate::pieces::{B, EMPTY, K, N, P, Q, R, get_piece_value_unchecked};
+use crate::pieces::{B, EMPTY, K, N, P, Q, R, get_piece_value};
 use crate::pos_history::PositionHistory;
 use crate::options::{Options};
 use crate::zobrist::{piece_zobrist_key, player_zobrist_key, castling_zobrist_key, enpassant_zobrist_key};
@@ -847,9 +847,9 @@ impl Board {
         threshold: i16,
         mut occupied_bb: u64,
     ) -> bool {
-        let mut score = get_piece_value_unchecked(captured_piece_id as usize);
+        let mut score = get_piece_value(captured_piece_id as usize);
         occupied_bb &= !(1 << from as u64);
-        let mut trophy_piece_score = get_piece_value_unchecked(own_piece_id as usize);
+        let mut trophy_piece_score = get_piece_value(own_piece_id as usize);
 
         loop {
             let empty_bb = !occupied_bb;
@@ -859,7 +859,7 @@ impl Board {
                 return score < threshold;
             }
             score -= trophy_piece_score;
-            trophy_piece_score = get_piece_value_unchecked(self.get_item(attacker_pos).abs() as usize);
+            trophy_piece_score = get_piece_value(self.get_item(attacker_pos).abs() as usize);
             if score + trophy_piece_score < 0 {
                 return score < threshold;
             }
@@ -873,7 +873,7 @@ impl Board {
             }
 
             score += trophy_piece_score;
-            trophy_piece_score = get_piece_value_unchecked(self.get_item(own_attacker_pos).abs() as usize);
+            trophy_piece_score = get_piece_value(self.get_item(own_attacker_pos).abs() as usize);
             if score - trophy_piece_score > 0 {
                 return score < threshold;
             }
@@ -891,7 +891,7 @@ impl Board {
             if item == EMPTY {
                 continue;
             }
-            score += get_piece_value_unchecked(item.abs() as usize) as i32 * item.signum() as i32;
+            score += get_piece_value(item.abs() as usize) as i32 * item.signum() as i32;
         }
 
         score
@@ -964,6 +964,10 @@ impl Board {
 
     pub fn eval(&mut self) -> i32 {
         self.nn_eval.eval()
+    }
+
+    pub fn fast_eval(&mut self) -> i32 {
+        self.nn_eval.fast_eval()
     }
 
 }

@@ -26,7 +26,7 @@ use crate::pieces::{Q, R};
 use packed_simd_2::{i16x16, i32x16};
 
 // Fixed point number precision
-const FP_PRECISION_BITS: i16 = 12;
+const FP_PRECISION_BITS: i16 = 13;
 
 // NN layer size
 const FEATURES_PER_BUCKET: usize = 64 * 6 * 2;
@@ -36,6 +36,9 @@ pub const HL_COUNT: i8 = 2;
 const HL_NODES: usize = 64;
 
 pub struct NeuralNetEval {
+    psq_weights: [i16; INPUTS],
+    psq_bias: i16,
+
     input_weights: [i16x16; INPUTS * HL_INPUTS / 16],
     input_biases: [i16x16; HL_INPUTS / 16],
 
@@ -55,11 +58,17 @@ pub struct NeuralNetEval {
     active_player: Color,
     bucket: u8,
     offset: usize,
+
+    psq_wtm_score: i16,
+    psq_btm_score: i16,
 }
 
 impl Default for NeuralNetEval {
     fn default() -> Self {
         NeuralNetEval{
+            psq_weights: [0; INPUTS],
+            psq_bias: 0,
+
             input_weights: [i16x16::splat(0); INPUTS * HL_INPUTS / 16],
             input_biases: [i16x16::splat(0); HL_INPUTS / 16],
 
@@ -79,6 +88,9 @@ impl Default for NeuralNetEval {
             active_player: WHITE,
             bucket: 0b11,
             offset: 0,
+
+            psq_wtm_score: 0,
+            psq_btm_score: 0,
         }
     }
 }
@@ -108,6 +120,11 @@ impl NeuralNetEval {
 
         nn.output_bias = reader.read_i16::<LittleEndian>().expect("Could not read output bias");
 
+        let mut psq_reader = BufReader::new(&include_bytes!("../nets/velvet_psq.qnn")[..]);
+        read_quantized(&mut psq_reader, &mut nn.psq_weights);
+
+        nn.psq_bias = psq_reader.read_i16::<LittleEndian>().expect("Could not read psq bias");
+
         nn
     }
 
@@ -120,6 +137,9 @@ impl NeuralNetEval {
         self.bucket = calc_bucket(bitboards);
 
         self.offset = self.bucket as usize * 768 * 2;
+
+        self.psq_wtm_score = self.psq_bias;
+        self.psq_btm_score = self.psq_bias;
 
         for piece in 1..=6 {
             for pos in BitBoard(bitboards[(piece + 6) as usize]) {
@@ -156,6 +176,9 @@ impl NeuralNetEval {
         for (nodes, weights) in self.hidden1_nodes_btm.iter_mut().zip(self.input_weights.chunks_exact(HL_INPUTS / 16).nth(idx + 768).unwrap()) {
             *nodes += *weights;
         }
+
+        self.psq_wtm_score += unsafe { self.psq_weights.get_unchecked(idx) };
+        self.psq_btm_score += unsafe { self.psq_weights.get_unchecked(idx + 768) };
     }
 
     pub fn remove_piece(&mut self, pos: usize, piece: i8) {
@@ -171,14 +194,31 @@ impl NeuralNetEval {
         for (nodes, weights) in self.hidden1_nodes_btm.iter_mut().zip(self.input_weights.chunks_exact(HL_INPUTS / 16).nth(idx + 768).unwrap()) {
             *nodes -= *weights;
         }
+
+        self.psq_wtm_score -= unsafe { self.psq_weights.get_unchecked(idx) };
+        self.psq_btm_score -= unsafe { self.psq_weights.get_unchecked(idx + 768) };
+    }
+
+    pub fn fast_eval(&self) -> i32 {
+        if self.active_player == WHITE {
+            self.psq_wtm_score as i32
+        } else {
+            self.psq_btm_score as i32
+        }
     }
 
     pub fn eval(&mut self) -> i32 {
         if self.active_player == WHITE {
+            if self.psq_wtm_score.abs() > 500 {
+                return self.psq_wtm_score as i32;
+            }
             for ((node, &bias), weights) in self.hidden2_nodes.iter_mut().zip(&self.hidden1_biases).zip(self.hidden1_weights.chunks_exact(HL_INPUTS / 16)) {
                 *node = relu(self.hidden1_nodes_wtm.dot_product(weights) + bias);
             }
         } else {
+            if self.psq_btm_score.abs() > 500 {
+                return self.psq_btm_score as i32;
+            }
             for ((node, &bias), weights) in self.hidden2_nodes.iter_mut().zip(&self.hidden1_biases).zip(self.hidden1_weights.chunks_exact(HL_INPUTS / 16)) {
                 *node = relu(self.hidden1_nodes_btm.dot_product(weights) + bias);
             }
