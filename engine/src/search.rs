@@ -269,7 +269,7 @@ impl Search for Engine {
             pos_score = pos_score.or_else(|| Some(self.board.eval() * player_color as i32));
 
             if pos_score.unwrap().abs() < MATE_SCORE - (2 * MAX_DEPTH as i32) && pos_score.unwrap() - (100 * depth) >= beta {
-                return pos_score.unwrap() - (100 * depth);
+                return self.quiescence_search(player_color, alpha, beta, ply, pos_score);
             }
         }
 
