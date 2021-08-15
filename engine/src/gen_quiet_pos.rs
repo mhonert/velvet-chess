@@ -110,13 +110,13 @@ impl GenQuietPos for Engine {
 
             let entry = self.tt.get_entry(self.board.get_hash());
             if entry == 0 {
-                return true;
+                return self.is_quiet_position();
             }
 
             let active_player = self.board.active_player();
             let m = self.movegen.sanitize_move(&self.board, active_player, get_untyped_move(entry));
             if m == NO_MOVE {
-                return false;
+                return self.is_quiet_position();
             }
 
             self.board.perform_move(m);
