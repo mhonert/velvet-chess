@@ -328,7 +328,11 @@ impl Search for Engine {
                     return CANCEL_SEARCH;
                 }
                 if -result >= beta {
-                    return beta;
+                    return if result.abs() < MATE_SCORE - 2 * MAX_DEPTH as i32 {
+                        -result
+                    } else {
+                        beta
+                    }
                 }
             }
         }
