@@ -380,38 +380,35 @@ impl Search for Engine {
                 has_valid_moves = true;
                 gives_check = self.board.is_in_check(-player_color);
 
-                if previous_move_was_capture && evaluated_move_count > 0 && capture_pos != curr_move.end() {
-                    reductions = 1;
-                }
-
-                if removed_piece_id == EMPTY {
-                    if allow_reductions
-                        && !gives_check
-                        && evaluated_move_count > LMR_THRESHOLD
-                        && !self.board.is_pawn_move_close_to_promotion(previous_piece, end, opponent_pieces) {
-
-                        reductions += if curr_move.score() == NEGATIVE_HISTORY_SCORE { 3 } else { 2 };
-
-                    } else if allow_futile_move_pruning && !gives_check && !curr_move.is_queen_promotion() {
-                        // Reduce futile move
-                        reductions += FUTILE_MOVE_REDUCTIONS;
-                    } else if curr_move.score() == NEGATIVE_HISTORY_SCORE || self.board.has_negative_see(-player_color, start, end, target_piece_id, EMPTY, 0, occupied_bb) {
-                        // Reduce search depth for moves with negative history or negative SEE score
-                        reductions += LOSING_MOVE_REDUCTIONS;
+                    if !is_pv && previous_move_was_capture && evaluated_move_count > 0 && capture_pos != curr_move.end() {
+                        reductions = 1;
                     }
 
-                    if allow_futile_move_pruning && evaluated_move_count > 0 && !is_in_check && !gives_check && reductions >= (depth - 1) {
-                        // Prune futile move
-                        skip = true;
-                    } else if reductions > 0 && is_killer(curr_move) {
-                        // Reduce killer moves less
-                        reductions -= 1;
-                    }
+                    if removed_piece_id == EMPTY {
+                        if allow_reductions
+                            && !gives_check
+                            && evaluated_move_count > LMR_THRESHOLD
+                            && !self.board.is_pawn_move_close_to_promotion(previous_piece, end, opponent_pieces) {
+                            reductions += if curr_move.score() == NEGATIVE_HISTORY_SCORE { 3 } else { 2 };
+                        } else if allow_futile_move_pruning && !gives_check && !curr_move.is_queen_promotion() {
+                            // Reduce futile move
+                            reductions += FUTILE_MOVE_REDUCTIONS;
+                        } else if !is_pv && (curr_move.score() == NEGATIVE_HISTORY_SCORE || self.board.has_negative_see(-player_color, start, end, target_piece_id, EMPTY, 0, occupied_bb)) {
+                            // Reduce search depth for moves with negative history or negative SEE score
+                            reductions += LOSING_MOVE_REDUCTIONS;
+                        }
 
-                } else if removed_piece_id < previous_piece.abs() as i8 && self.board.has_negative_see(-player_color, start, end, target_piece_id, removed_piece_id, 0, occupied_bb) {
-                    // Reduce search depth for capture moves with negative SEE score
-                    reductions += 1;
-                }
+                        if !is_pv && allow_futile_move_pruning && evaluated_move_count > 0 && !is_in_check && !gives_check && reductions >= (depth - 1) {
+                            // Prune futile move
+                            skip = true;
+                        } else if reductions > 0 && is_killer(curr_move) {
+                            // Reduce killer moves less
+                            reductions -= 1;
+                        }
+                    } else if !is_pv && removed_piece_id < previous_piece.abs() as i8 && self.board.has_negative_see(-player_color, start, end, target_piece_id, removed_piece_id, 0, occupied_bb) {
+                        // Reduce search depth for capture moves with negative SEE score
+                        reductions += 1;
+                    }
             }
 
             if skip {
