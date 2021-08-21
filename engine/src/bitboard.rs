@@ -67,14 +67,6 @@ pub fn get_column_mask(pos: i32) -> u64 {
 }
 
 #[inline]
-pub fn get_column_side_mask(pos: i32) -> u64 {
-    let col_mask = get_column_mask(pos);
-    let left_mask = (col_mask & 0b01111111_01111111_01111111_01111111_01111111_01111111_01111111_01111111) << 1;
-    let right_mask = (col_mask & 0b11111110_11111110_11111110_11111110_11111110_11111110_11111110_11111110) >> 1;
-    left_mask | right_mask
-}
-
-#[inline]
 /// Returns a mask where all bits in rows before the given position are set
 fn get_lower_block_mask(pos: i32) -> u64 {
     0b00000000_11111111_11111111_11111111_11111111_11111111_11111111_11111111 >> (56 - pos / 8 * 8)
@@ -94,16 +86,6 @@ pub fn get_white_pawn_freepath(pos: i32) -> u64 {
 #[inline]
 pub fn get_black_pawn_freepath(pos: i32) -> u64 {
     get_column_mask(pos) & get_upper_block_mask(pos)
-}
-
-#[inline]
-pub fn get_white_pawn_freesides(pos: i32) -> u64 {
-    get_column_side_mask(pos) & get_lower_block_mask(pos)
-}
-
-#[inline]
-pub fn get_black_pawn_freesides(pos: i32) -> u64 {
-    get_column_side_mask(pos) & get_upper_block_mask(pos)
 }
 
 // Calculate move patterns for pieces which can only move to one target field per direction (king and knight)
@@ -332,20 +314,6 @@ mod tests {
             assert_eq!(get_column_mask(5 + offset), 0b00100000_00100000_00100000_00100000_00100000_00100000_00100000_00100000);
             assert_eq!(get_column_mask(6 + offset), 0b01000000_01000000_01000000_01000000_01000000_01000000_01000000_01000000);
             assert_eq!(get_column_mask(7 + offset), 0b10000000_10000000_10000000_10000000_10000000_10000000_10000000_10000000);
-        }
-    }
-
-    #[test]
-    pub fn gets_column_side_mask() {
-        for offset in (0..63).step_by(8) {
-            assert_eq!(get_column_side_mask(0 + offset), 0b00000010_00000010_00000010_00000010_00000010_00000010_00000010_00000010);
-            assert_eq!(get_column_side_mask(1 + offset), 0b00000101_00000101_00000101_00000101_00000101_00000101_00000101_00000101);
-            assert_eq!(get_column_side_mask(2 + offset), 0b00001010_00001010_00001010_00001010_00001010_00001010_00001010_00001010);
-            assert_eq!(get_column_side_mask(3 + offset), 0b00010100_00010100_00010100_00010100_00010100_00010100_00010100_00010100);
-            assert_eq!(get_column_side_mask(4 + offset), 0b00101000_00101000_00101000_00101000_00101000_00101000_00101000_00101000);
-            assert_eq!(get_column_side_mask(5 + offset), 0b01010000_01010000_01010000_01010000_01010000_01010000_01010000_01010000);
-            assert_eq!(get_column_side_mask(6 + offset), 0b10100000_10100000_10100000_10100000_10100000_10100000_10100000_10100000);
-            assert_eq!(get_column_side_mask(7 + offset), 0b01000000_01000000_01000000_01000000_01000000_01000000_01000000_01000000);
         }
     }
 

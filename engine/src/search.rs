@@ -48,6 +48,8 @@ const LOSING_MOVE_REDUCTIONS: i32 = 2;
 const QS_SEE_THRESHOLD: i32 = 104;
 const QS_PRUNE_MARGIN: i32 = 650;
 
+const TIME_SAFETY_MARGIN_MS: i32 = 20;
+
 #[derive(Clone)]
 pub struct Search {
     pub board: Board,
@@ -202,7 +204,7 @@ impl Search {
             let stop_search = Arc::new(AtomicBool::new(false));
             let thread_terminated = Arc::new(AtomicBool::new(false));
 
-            search_stopped.store(false, Ordering::Relaxed);
+            search_stopped.store(false, Ordering::Release);
 
             let (tx, rx) = channel::<HelperThreadMessage>();
             helper_threads.add(tx, stop_search.clone(), search_stopped.clone(), thread_terminated.clone());
@@ -224,14 +226,16 @@ impl Search {
                     match msg {
                         HelperThreadMessage::Search(depth) => {
                             sub_search.root_search(None, &skipped_moves, depth);
-                            search_stopped.store(true, Ordering::Relaxed);
+                            search_stopped.store(true, Ordering::Release);
                         }
 
                         HelperThreadMessage::Terminate => break
                     }
                 }
 
-                thread_terminated.store(true, Ordering::Relaxed);
+                sub_search.movegen.leave_ply();
+
+                thread_terminated.store(true, Ordering::Release);
             });
         }
 
@@ -276,7 +280,7 @@ impl Search {
                 iteration_cancelled = true;
             } else if -result > alpha && a != MIN_SCORE {
                 // Repeat search if it falls outside the search window
-                result = self.rec_find_best_move(rx, MIN_SCORE, -alpha, depth - 1, 1, false, gives_check, capture_pos);
+                result = self.rec_find_best_move(rx, MIN_SCORE, -alpha, depth - 2, 1, false, gives_check, capture_pos);
                 if result == CANCEL_SEARCH {
                     iteration_cancelled = true;
                 }
@@ -306,7 +310,7 @@ impl Search {
         }
 
         self.movegen.reset();
-        if best_move != NO_MOVE {
+        if !iteration_cancelled && best_move != NO_MOVE {
             self.movegen.resort(best_move);
         }
 
@@ -749,11 +753,11 @@ impl Search {
     }
 
     fn is_stopped(&self) -> bool {
-        self.is_stopped.load(Ordering::Relaxed)
+        self.is_stopped.load(Ordering::Acquire)
     }
 
     fn set_stopped(&mut self, value: bool) {
-        self.is_stopped.store(value, Ordering::Relaxed);
+        self.is_stopped.store(value, Ordering::Release);
     }
 
     fn check_messages(&mut self, rx: &Receiver<Message>) {
@@ -862,8 +866,6 @@ impl SearchLimits {
     }
 }
 
-const TIME_SAFETY_MARGIN_MS: i32 = 20;
-
 fn calc_time_limit(movetime: i32, time_left: i32, time_increment: i32, moves_to_go: i32) -> i32 {
     if movetime == -1 && time_left == -1 {
         return MAX_TIMELIMIT_MS;
@@ -951,17 +953,17 @@ struct HelperThread {
 
 impl HelperThread {
     pub fn search(&self, depth: i32) {
-        self.stop_search.store(false, Ordering::Relaxed);
-        self.search_stopped.store(false, Ordering::Relaxed);
+        self.stop_search.store(false, Ordering::Release);
+        self.search_stopped.store(false, Ordering::Release);
         self.tx.send(HelperThreadMessage::Search(depth)).unwrap();
     }
 
     pub fn stop(&self) {
-        self.stop_search.store(true, Ordering::Relaxed);
+        self.stop_search.store(true, Ordering::Release);
     }
 
     pub fn wait_till_stopped(&self) {
-        while !self.search_stopped.load(Ordering::Relaxed) {
+        while !self.search_stopped.load(Ordering::Acquire) {
             thread::yield_now();
         }
     }
@@ -972,7 +974,7 @@ impl HelperThread {
     }
 
     pub fn wait_till_terminated(&self) {
-        while !self.thread_terminated.load(Ordering::Relaxed) {
+        while !self.thread_terminated.load(Ordering::Acquire) {
             thread::yield_now();
         }
     }

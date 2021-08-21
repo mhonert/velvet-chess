@@ -16,9 +16,7 @@
  */
 
 use crate::bitboard::{BLACK_KING_SIDE_CASTLING_BIT_PATTERN, BLACK_QUEEN_SIDE_CASTLING_BIT_PATTERN, PAWN_DOUBLE_MOVE_LINES, WHITE_KING_SIDE_CASTLING_BIT_PATTERN, WHITE_QUEEN_SIDE_CASTLING_BIT_PATTERN, BitBoard, get_knight_attacks, get_king_attacks};
-use crate::board::{Board};
-use crate::boardpos::{BlackBoardPos, WhiteBoardPos};
-use crate::castling::Castling;
+use crate::board::{Board, WhiteBoardPos, Castling, BlackBoardPos};
 use crate::colors::{Color, BLACK, WHITE};
 use crate::pieces::{B, K, N, P, Q, R, EMPTY};
 use crate::moves::{Move, MoveType, NO_MOVE};

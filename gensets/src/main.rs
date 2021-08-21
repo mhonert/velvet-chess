@@ -16,32 +16,36 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use velvet::engine::{LogLevel};
-use velvet::magics::initialize_magics;
-use std::time::{SystemTime, UNIX_EPOCH, Instant, Duration};
-use velvet::random::Random;
-use std::io::{BufReader, BufRead, BufWriter, Write};
-use std::fs::File;
-use std::sync::{mpsc, Arc};
-use std::str::FromStr;
-use std::process::exit;
-use std::{thread};
-use velvet::colors::{WHITE};
-use velvet::moves::{NO_MOVE, Move};
-use std::sync::mpsc::Sender;
-use clap::App;
-use velvet::fen::{write_fen, create_from_fen};
-use std::cmp::{min};
-use shakmaty_syzygy::{Tablebase, SyzygyError, Wdl, Dtz};
-use shakmaty::{Chess, CastlingMode, Position, Setup};
-use shakmaty::fen::Fen;
-use std::convert::TryInto;
+use std::thread;
+use std::cmp::min;
 use std::collections::HashSet;
+use std::convert::TryInto;
+use std::fs::File;
+use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::Path;
-use velvet::search::{SearchLimits, Search};
-use velvet::transposition_table::TranspositionTable;
+use std::process::exit;
+use std::str::FromStr;
+use std::sync::{Arc, mpsc};
 use std::sync::atomic::{AtomicBool, AtomicU64};
-use velvet::gen_quiet_pos::GenQuietPos;
+use std::sync::mpsc::Sender;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+use clap::App;
+use shakmaty::{CastlingMode, Chess, Position, Setup};
+use shakmaty::fen::Fen;
+use shakmaty_syzygy::{Dtz, SyzygyError, Tablebase, Wdl};
+
+use gen_quiet_pos::GenQuietPos;
+use velvet::colors::WHITE;
+use velvet::engine::LogLevel;
+use velvet::fen::{create_from_fen, write_fen};
+use velvet::magics::initialize_magics;
+use velvet::moves::{Move, NO_MOVE};
+use velvet::random::Random;
+use velvet::search::{Search, SearchLimits};
+use velvet::transposition_table::TranspositionTable;
+
+pub mod gen_quiet_pos;
 
 #[derive(Clone, Debug)]
 struct TestPos {

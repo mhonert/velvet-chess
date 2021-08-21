@@ -16,9 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::board::Board;
-use crate::boardpos::{BlackBoardPos, WhiteBoardPos};
-use crate::castling::Castling;
+use crate::board::{Board, WhiteBoardPos, BlackBoardPos, Castling};
 use crate::colors::{Color, BLACK, WHITE};
 use crate::pieces;
 use std::error::Error;

@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2020 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2021 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -16,12 +16,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::colors::{BLACK, WHITE};
-use crate::pieces::{EMPTY};
-use crate::scores::{MAX_SCORE, MIN_SCORE };
-use crate::transposition_table::{get_untyped_move, ScoreType};
-use crate::moves::{Move, NO_MOVE};
-use crate::search::Search;
+use velvet::colors::{BLACK, WHITE};
+use velvet::pieces::{EMPTY};
+use velvet::scores::{MAX_SCORE, MIN_SCORE };
+use velvet::transposition_table::{get_untyped_move, ScoreType};
+use velvet::moves::{Move, NO_MOVE};
+use velvet::search::Search;
 
 // Code for generating quiet training positions for tuning and NN training
 pub trait GenQuietPos {
