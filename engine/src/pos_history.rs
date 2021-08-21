@@ -18,6 +18,7 @@
 
 use std::cmp::min;
 
+#[derive(Copy, Clone)]
 pub struct PositionHistory {
     positions: [u64; 1024],
     index: usize,

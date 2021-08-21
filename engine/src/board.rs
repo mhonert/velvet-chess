@@ -16,40 +16,32 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::bitboard::{black_left_pawn_attacks, black_right_pawn_attacks, white_left_pawn_attacks, white_right_pawn_attacks, DARK_COLORED_FIELD_PATTERN, LIGHT_COLORED_FIELD_PATTERN, get_knight_attacks, get_king_attacks, get_white_pawn_freepath, get_black_pawn_freepath, get_pawn_attacks};
+use std::cmp::max;
+
+use crate::bitboard::{black_left_pawn_attacks, black_right_pawn_attacks, DARK_COLORED_FIELD_PATTERN, get_black_pawn_freepath, get_king_attacks, get_knight_attacks, get_pawn_attacks, get_white_pawn_freepath, LIGHT_COLORED_FIELD_PATTERN, white_left_pawn_attacks, white_right_pawn_attacks};
 use crate::boardpos::{BlackBoardPos, WhiteBoardPos};
 use crate::castling::{Castling, clear_castling_bits};
-use crate::colors::{Color, BLACK, WHITE};
-use crate::pieces::{B, EMPTY, K, N, P, Q, R, get_piece_value};
-use crate::pos_history::PositionHistory;
-use crate::options::{Options};
-use crate::zobrist::{piece_zobrist_key, player_zobrist_key, castling_zobrist_key, enpassant_zobrist_key};
-use crate::moves::{Move, MoveType};
+use crate::colors::{BLACK, Color, WHITE};
 use crate::magics::{get_bishop_attacks, get_rook_attacks};
-use std::cmp::max;
-use crate::nn_eval::{NeuralNetEval};
+use crate::moves::{Move, MoveType};
+use crate::nn_eval::NeuralNetEval;
+use crate::pieces::{B, EMPTY, get_piece_value, K, N, P, Q, R};
+use crate::pos_history::PositionHistory;
+use crate::transposition_table::MAX_DEPTH;
+use crate::zobrist::{castling_zobrist_key, enpassant_zobrist_key, piece_zobrist_key, player_zobrist_key};
 
-const MAX_GAME_HALFMOVES: usize = 5898 * 2;
-
-const BASE_PIECE_PHASE_VALUE: i32 = 2;
-const PAWN_PHASE_VALUE: i32 = -1; // relative to the base piece value
-const QUEEN_PHASE_VALUE: i32 = 4; // relative to the base piece value
-
-pub const MAX_PHASE: i32 = 16 * PAWN_PHASE_VALUE + 30 * BASE_PIECE_PHASE_VALUE + 2 * QUEEN_PHASE_VALUE;
-
+#[derive(Clone)]
 pub struct Board {
-    pub options: Options,
-    pub nn_eval: Box<NeuralNetEval>,
+    nn_eval: Box<NeuralNetEval>,
     pos_history: PositionHistory,
     items: [i8; 64],
     bitboards: [u64; 13],
     bitboards_all_pieces: [u64; 3],
-    pub state: StateEntry,
-    pub king_pos: [i32; 3],
-    pub halfmove_count: u16,
+    state: StateEntry,
+    king_pos: [i32; 3],
+    halfmove_count: u16,
 
-    history_counter: usize,
-    history: [StateEntry; MAX_GAME_HALFMOVES],
+    history: Vec<StateEntry>,
 }
 
 #[derive(Copy, Clone)]
@@ -59,6 +51,11 @@ pub struct StateEntry {
     castling: u8,
     halfmove_clock: u8,
 }
+
+const ALL_CASTLING: u8 = Castling::WhiteKingSide as u8
+    | Castling::WhiteQueenSide as u8
+    | Castling::BlackKingSide as u8
+    | Castling::BlackQueenSide as u8;
 
 impl Board {
     pub fn new(
@@ -76,10 +73,7 @@ impl Board {
             );
         }
 
-        let options = Options::new();
-
         let mut board = Board {
-            options,
             pos_history: PositionHistory::new(),
             nn_eval: NeuralNetEval::new(),
             items: [0; 64],
@@ -88,8 +82,7 @@ impl Board {
             state: StateEntry{en_passant: 0, castling: 0, halfmove_clock: 0, hash: 0},
             king_pos: [0; 3],
             halfmove_count: 0,
-            history_counter: 0,
-            history: [StateEntry{en_passant: 0, castling: 0, halfmove_clock: 0, hash: 0}; MAX_GAME_HALFMOVES],
+            history: Vec::with_capacity(MAX_DEPTH),
         };
 
         board.set_position(
@@ -133,7 +126,6 @@ impl Board {
         self.bitboards = [0; 13];
         self.bitboards_all_pieces = [0; 3];
         self.items = [EMPTY; 64];
-        self.history_counter = 0;
 
         for i in 0..64 {
             let item = items[i];
@@ -173,32 +165,12 @@ impl Board {
         self.update_hash_for_enpassant(0);
     }
 
-    pub fn eval_set_position(&mut self,
-                             items: &[i8],
-                             halfmove_count: u16,
-                             castling_state: u8) {
-        self.halfmove_count = halfmove_count;
-        self.state.castling = castling_state;
-        self.bitboards_all_pieces = [0; 3];
-        self.bitboards = [0; 13];
-
-        for pos in 0..64 {
-            let piece = items[pos];
-            self.items[pos] = EMPTY;
-            if piece != EMPTY {
-                self.add_piece_without_inc_update(piece.signum(), piece, pos as i32);
-
-                if piece == K {
-                    self.set_king_pos(WHITE, pos as i32);
-                } else if piece == -K {
-                    self.set_king_pos(BLACK, pos as i32);
-                }
-            }
-        }
-    }
-
     pub fn get_castling_state(&self) -> u8 {
         self.state.castling
+    }
+
+    pub fn halfmove_count(&self) -> u16 {
+        self.halfmove_count
     }
 
     fn update_hash_for_castling(&mut self, previous_castling_state: u8) {
@@ -492,6 +464,7 @@ impl Board {
             }
         }
 
+        self.halfmove_count -= 1;
         self.restore_state();
         self.nn_eval.set_stm(self.active_player());
 
@@ -501,6 +474,7 @@ impl Board {
     }
 
     pub fn undo_null_move(&mut self) {
+        self.halfmove_count -= 1;
         self.restore_state();
     }
 
@@ -590,19 +564,11 @@ impl Board {
     }
 
     fn store_state(&mut self) {
-        unsafe {
-            *self.history.get_unchecked_mut(self.history_counter) = self.state;
-        }
-        self.history_counter += 1;
+        self.history.push(self.state);
     }
 
     fn restore_state(&mut self) {
-        self.halfmove_count -= 1;
-        self.history_counter -= 1;
-
-        unsafe {
-            self.state = *self.history.get_unchecked(self.history_counter);
-        }
+        self.state = self.history.pop().unwrap();
     }
 
     #[inline]
@@ -837,16 +803,7 @@ impl Board {
        - a negative integer for losing captures
        - a 0 otherwise
     */
-    pub fn has_negative_see(
-        &mut self,
-        opp_color: Color,
-        from: i32,
-        target: i32,
-        own_piece_id: i8,
-        captured_piece_id: i8,
-        threshold: i16,
-        mut occupied_bb: u64,
-    ) -> bool {
+    pub fn has_negative_see(&mut self, opp_color: Color, from: i32, target: i32, own_piece_id: i8, captured_piece_id: i8, threshold: i16, mut occupied_bb: u64) -> bool {
         let mut score = get_piece_value(captured_piece_id as usize);
         occupied_bb &= !(1 << from as u64);
         let mut trophy_piece_score = get_piece_value(own_piece_id as usize);
@@ -880,27 +837,6 @@ impl Board {
 
             occupied_bb &= !(1 << own_attacker_pos);
         }
-    }
-
-    pub fn get_static_score(&self) -> i32 {
-        let mut score: i32 = 0;
-
-        for i in 0..64 {
-            let item = self.items[i];
-
-            if item == EMPTY {
-                continue;
-            }
-            score += get_piece_value(item.abs() as usize) as i32 * item.signum() as i32;
-        }
-
-        score
-    }
-
-    pub fn calc_phase_value(&self) -> i32 {
-        calc_phase_value(self.get_all_piece_bitboard(WHITE) | self.get_all_piece_bitboard(BLACK),
-                         self.get_bitboard(-P) | self.get_bitboard(P),
-                         self.get_bitboard(Q), self.get_bitboard(Q))
     }
 
     #[inline]
@@ -972,35 +908,13 @@ impl Board {
 
 }
 
-pub fn calc_phase_value(all_pieces: u64, all_pawns: u64, white_queens: u64, black_queens: u64) -> i32 {
-    let pieces_except_king_count: i32 = all_pieces.count_ones() as i32 - 2; // -2 for two kings
-
-    let white_queen_phase_score = if white_queens != 0 { QUEEN_PHASE_VALUE } else { 0 };
-    let black_queen_phase_score = if black_queens != 0 { QUEEN_PHASE_VALUE } else { 0 };
-    let queen_phase_score: i32 = white_queen_phase_score + black_queen_phase_score;
-    let pawn_count: i32 = all_pawns.count_ones() as i32;
-
-    pawn_count * PAWN_PHASE_VALUE + pieces_except_king_count * BASE_PIECE_PHASE_VALUE + queen_phase_score
-}
-
-#[inline]
-pub fn interpolate_score(phase: i32, score: i32, eg_score: i32) -> i32 {
-    let eg_phase: i32 = MAX_PHASE - phase;
-
-    ((score * phase) + (eg_score * eg_phase)) / MAX_PHASE
-}
-
-const ALL_CASTLING: u8 = Castling::WhiteKingSide as u8
-    | Castling::WhiteQueenSide as u8
-    | Castling::BlackKingSide as u8
-    | Castling::BlackQueenSide as u8;
-
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::castling::Castling;
-    use crate::moves::MoveType;
     use crate::magics::initialize_magics;
+    use crate::moves::MoveType;
+
+    use super::*;
 
     #[test]
     fn update_hash_when_piece_moves() {

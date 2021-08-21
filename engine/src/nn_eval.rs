@@ -35,6 +35,7 @@ pub const HL_INPUTS: usize = 64;
 pub const HL_COUNT: i8 = 2;
 const HL_NODES: usize = 64;
 
+#[derive(Copy, Clone)]
 pub struct NeuralNetEval {
     psq_weights: [i16; INPUTS],
     psq_bias: i16,

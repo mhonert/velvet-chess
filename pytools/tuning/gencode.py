@@ -102,6 +102,7 @@ const {to_snake_case(option.name).upper()}: [i32; {option.size}] = [{values}];''
 
     out.write('''
     
+#[derive(Copy, Clone)]
 pub struct Options {}
     
 impl Options {
@@ -165,6 +166,7 @@ use std::sync::mpsc::Sender;
 use crate::engine::Message;
 use std::str::FromStr;
 
+#[derive(Copy, Clone)]
 pub struct Options {''')
     multi_options = {}
     single_options = []

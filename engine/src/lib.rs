@@ -30,15 +30,14 @@ pub mod nn_eval;
 pub mod perft;
 pub mod random;
 pub mod search;
+pub mod transposition_table;
 pub mod uci;
 
 mod boardpos;
 mod castling;
-mod options;
 mod pieces;
 mod pos_history;
 mod scores;
 mod time_management;
-mod transposition_table;
 mod uci_move;
 mod zobrist;

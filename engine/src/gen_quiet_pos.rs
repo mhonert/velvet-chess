@@ -17,11 +17,11 @@
  */
 
 use crate::colors::{BLACK, WHITE};
-use crate::engine::Engine;
 use crate::pieces::{EMPTY};
 use crate::scores::{MAX_SCORE, MIN_SCORE };
 use crate::transposition_table::{get_untyped_move, ScoreType};
 use crate::moves::{Move, NO_MOVE};
+use crate::search::Search;
 
 // Code for generating quiet training positions for tuning and NN training
 pub trait GenQuietPos {
@@ -34,7 +34,7 @@ pub trait GenQuietPos {
     fn static_quiescence_search(&mut self, alpha: i32, beta: i32, ply: i32) -> i32;
 }
 
-impl GenQuietPos for Engine {
+impl GenQuietPos for Search {
     fn is_quiet_position(&mut self) -> bool {
         if self.board.is_in_check(WHITE) || self.board.is_in_check(BLACK) {
             return false;

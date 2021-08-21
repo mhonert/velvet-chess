@@ -17,49 +17,36 @@
  */
 
 use crate::board::Board;
-use crate::colors::{WHITE};
 use crate::fen::{create_from_fen, read_fen, write_fen, START_POS};
-use crate::history_heuristics::HistoryHeuristics;
 use crate::perft::perft;
-use crate::search::Search;
-use crate::transposition_table::{TranspositionTable, DEFAULT_SIZE_MB, MAX_DEPTH};
+use crate::search::{SearchLimits, Search, DEFAULT_SEARCH_THREADS};
+use crate::transposition_table::{TranspositionTable, DEFAULT_SIZE_MB};
 use crate::uci_move::UCIMove;
-use std::cmp::max;
 use std::process::exit;
-use std::sync::mpsc;
-use std::sync::mpsc::{Receiver, Sender, TryRecvError};
+use std::sync::{mpsc, Arc};
+use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
-use std::time::{Instant, SystemTime};
+use std::time::{SystemTime};
 use crate::moves::{NO_MOVE, Move};
 use crate::move_gen::MoveGenerator;
-use crate::time_management::{TimeManager, MAX_TIMELIMIT_MS, TIMEEXT_MULTIPLIER};
+use std::sync::atomic::{AtomicBool, AtomicU64};
 
 pub enum Message {
-    NewGame,
-    SetPosition(String, Vec<UCIMove>),
-    SetTranspositionTableSize(i32),
-    Go {
-        depth: i32,
-        wtime: i32,
-        btime: i32,
-        winc: i32,
-        binc: i32,
-        movetime: i32,
-        movestogo: i32,
-        nodes: u64
-    },
-    Perft(i32),
-    IsReady,
-    Stop,
     Fen,
+    Go(SearchLimits),
+    IsReady,
+    NewGame,
+    Perft(i32),
     Profile,
-    SetOption(String, i32),
-    SetArrayOption(String, i32, i32),
     Quit,
+    SetPosition(String, Vec<UCIMove>),
+    SetThreadCount(i32),
+    SetTranspositionTableSize(i32),
+    Stop,
 }
 
 #[repr(u8)]
-#[derive(PartialOrd, PartialEq)]
+#[derive(PartialOrd, PartialEq, Copy, Clone)]
 pub enum LogLevel {
     Debug,
     Info,
@@ -67,30 +54,11 @@ pub enum LogLevel {
 }
 
 pub struct Engine {
-    pub rx: Receiver<Message>,
-    pub board: Board,
-    pub movegen: MoveGenerator,
-    pub hh: HistoryHeuristics,
-    pub tt: TranspositionTable,
-    pub time_mgr: TimeManager,
-
-    pub node_limit: u64,
-    pub depth_limit: i32,
-
-    pub cancel_possible: bool,
-    pub node_count: u64,
-    pub last_log_time: Instant,
-    pub next_check_node_count: u64,
-    pub current_depth: i32,
-    pub max_reached_depth: i32,
-
-    pub is_stopped: bool,
-
-    pub check_stop_cmd: bool,
-
+    rx: Receiver<Message>,
+    board: Board,
+    tt: Option<Arc<TranspositionTable>>,
     log_level: LogLevel,
-
-    options_modified: bool,
+    search_thread_count: usize,
 }
 
 pub fn spawn_engine_thread() -> Sender<Message> {
@@ -109,28 +77,12 @@ impl Engine {
         let mut board = create_from_fen(fen);
         board.reset_nn_eval();
 
-        let timeext_history_size = board.options.get_timeext_history_size();
-        let final_score_drop_threshold = board.options.get_timeext_score_drop_threshold();
-
         Engine {
             rx,
             board,
-            movegen: MoveGenerator::new(),
-            hh: HistoryHeuristics::new(),
-            tt: TranspositionTable::new(tt_size_mb),
-            time_mgr: TimeManager::new(timeext_history_size, final_score_drop_threshold),
-            node_limit: u64::MAX,
-            depth_limit: MAX_DEPTH as i32,
-            cancel_possible: false,
-            node_count: 0,
-            last_log_time: Instant::now(),
-            next_check_node_count: 0,
-            current_depth: 0,
-            max_reached_depth: 0,
-            check_stop_cmd: true,
-            is_stopped: false,
-            options_modified: false,
-            log_level: LogLevel::Info
+            tt: Some(Arc::new(TranspositionTable::new(tt_size_mb))),
+            log_level: LogLevel::Info,
+            search_thread_count: DEFAULT_SEARCH_THREADS,
         }
     }
 
@@ -140,10 +92,6 @@ impl Engine {
 
     pub fn set_log_level(&mut self, log_level: LogLevel) {
         self.log_level = log_level;
-    }
-
-    pub fn log(&self, log_level: LogLevel) -> bool {
-        self.log_level <= log_level
     }
 
     fn start_loop(&mut self) {
@@ -170,26 +118,18 @@ impl Engine {
 
             Message::SetTranspositionTableSize(size_mb) => self.set_tt_size(size_mb),
 
+            Message::SetThreadCount(count) => self.search_thread_count = count as usize,
+
             Message::Perft(depth) => self.perft(depth),
 
             Message::IsReady => self.check_readiness(),
 
-            Message::Go { depth, wtime, btime, winc, binc, movetime, movestogo, nodes } =>
-                self.go(depth, wtime, btime, winc, binc, movetime, movestogo, nodes),
+            Message::Go(limits) =>
+                self.go(limits),
 
             Message::Fen => println!("{}", write_fen(&self.board)),
 
             Message::Profile => self.profile(),
-
-            Message::SetOption(name, value) => {
-                self.board.options.set_option(name, value);
-                self.options_modified = true;
-            },
-
-            Message::SetArrayOption(name, index, value) => {
-                self.board.options.set_array_option(name, index as usize, value);
-                self.options_modified = true;
-            },
 
             Message::Quit => {
                 return false;
@@ -201,46 +141,26 @@ impl Engine {
         true
     }
 
-    fn go(&mut self, depth: i32, wtime: i32, btime: i32, winc: i32, binc: i32, movetime: i32, movestogo: i32, nodes: u64) {
-        self.depth_limit = depth;
-        let timelimit_ms = if self.board.active_player() == WHITE {
-            calc_timelimit(movetime, wtime, winc, movestogo)
-        } else {
-            calc_timelimit(movetime, btime, binc, movestogo)
-        };
-
-        let time_left = if self.board.active_player() == WHITE {
-            wtime
-        } else {
-            btime
-        };
-
-        self.node_limit = nodes;
-
-        let is_strict_timelimit = movetime > 0 || timelimit_ms == MAX_TIMELIMIT_MS
-            || movestogo == 1 || (time_left - (TIMEEXT_MULTIPLIER * timelimit_ms) <= 20);
-
-        let m = self.find_best_move(3, timelimit_ms, is_strict_timelimit, &[]);
+    fn go(&mut self, limits: SearchLimits) {
+        let m = self.search(limits, &[]);
         if m == NO_MOVE {
-            println!("bestmove 0000")
-        } else {
-            println!(
-                "bestmove {}",
-                UCIMove::from_encoded_move(&self.board, m).to_uci()
-            );
+            println!("bestmove 0000");
+            return;
         }
+
+        println!("bestmove {}", UCIMove::from_encoded_move(&self.board, m).to_uci());
+    }
+
+    pub fn search(&mut self, mut limits: SearchLimits, skipped_moves: &[Move]) -> Move {
+        limits.update(self.board.active_player());
+
+        let mut search = Search::new(Arc::new(AtomicBool::new(true)), Arc::new(AtomicU64::new(0)), self.log_level,
+                                     limits, self.tt.as_ref().unwrap().clone(), self.board.clone(), self.search_thread_count);
+
+        search.find_best_move(Some(&self.rx), 3, skipped_moves)
     }
 
     fn check_readiness(&mut self) {
-        if self.options_modified {
-            self.options_modified = false;
-
-            let history_size = self.board.options.get_timeext_history_size();
-            let final_score_drop_threshold = self.board.options.get_timeext_score_drop_threshold();
-
-            self.time_mgr.update_params(history_size, final_score_drop_threshold);
-
-        }
         println!("readyok")
     }
 
@@ -258,18 +178,19 @@ impl Engine {
     }
 
     fn set_tt_size(&mut self, size_mb: i32) {
-        self.tt.resize(size_mb as u64, false);
+        self.tt = None;
+        self.tt = Some(Arc::new(TranspositionTable::new(size_mb as u64)));
     }
 
     pub fn reset(&mut self) {
-        self.tt.clear();
-        self.hh.clear();
+        self.tt.as_ref().unwrap().clear();
     }
 
     fn perft(&mut self, depth: i32) {
         let start = SystemTime::now();
 
-        let nodes = perft(&mut self.movegen, &mut self.board, depth);
+        let mut movegen = MoveGenerator::new();
+        let nodes = perft(&mut movegen, &mut self.board, depth);
 
         let duration = match SystemTime::now().duration_since(start) {
             Ok(v) => v,
@@ -292,62 +213,7 @@ impl Engine {
 
     pub fn profile(&mut self) {
         println!("Profiling ...");
-        self.go(MAX_DEPTH as i32, -1, -1, 0, 0, -1, 1, 500000); // search 500.000 nodes
+        self.go(SearchLimits::nodes(500_000));
         exit(0);
     }
-
-    pub fn is_search_stopped(&self) -> bool {
-        match self.rx.try_recv() {
-            Ok(msg) => {
-                match msg {
-                    Message::IsReady => println!("readyok"),
-
-                    Message::Stop => {
-                        return true;
-                    }
-
-                    _ => ()
-                }
-            },
-
-            Err(e) => {
-                match e {
-                    TryRecvError::Empty => (),
-                    TryRecvError::Disconnected => {
-                        eprintln!("Error communicating with UCI thread: {}", e);
-                        return true;
-                    }
-                }
-            }
-        }
-
-        false
-    }
-
-}
-
-const TIME_SAFETY_MARGIN_MS: i32 = 20;
-
-fn calc_timelimit(movetime: i32, time_left: i32, time_increment: i32, movestogo: i32) -> i32 {
-    if movetime == -1 && time_left == -1 {
-        return MAX_TIMELIMIT_MS;
-    }
-
-    if movetime > 0 {
-        return max(0, movetime - TIME_SAFETY_MARGIN_MS);
-    }
-
-    let time_for_move = time_left / max(1, movestogo);
-
-    if time_for_move > time_left - TIME_SAFETY_MARGIN_MS {
-        return max(0, time_left - TIME_SAFETY_MARGIN_MS)
-    }
-
-    let time_bonus = if movestogo > 1 { time_increment } else { 0 };
-    if time_for_move + time_bonus > time_left - TIME_SAFETY_MARGIN_MS {
-        time_for_move
-    } else {
-        time_for_move + time_bonus
-    }
-
 }

@@ -16,23 +16,21 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use velvet::engine::{Engine, Message, LogLevel};
+use velvet::engine::{LogLevel};
 use velvet::magics::initialize_magics;
 use std::time::{SystemTime, UNIX_EPOCH, Instant, Duration};
 use velvet::random::Random;
 use std::io::{BufReader, BufRead, BufWriter, Write};
 use std::fs::File;
-use std::sync::mpsc;
+use std::sync::{mpsc, Arc};
 use std::str::FromStr;
 use std::process::exit;
 use std::{thread};
-use velvet::colors::{WHITE, Color};
+use velvet::colors::{WHITE};
 use velvet::moves::{NO_MOVE, Move};
 use std::sync::mpsc::Sender;
 use clap::App;
-use velvet::search::Search;
-use velvet::gen_quiet_pos::GenQuietPos;
-use velvet::fen::write_fen;
+use velvet::fen::{write_fen, create_from_fen};
 use std::cmp::{min};
 use shakmaty_syzygy::{Tablebase, SyzygyError, Wdl, Dtz};
 use shakmaty::{Chess, CastlingMode, Position, Setup};
@@ -40,6 +38,10 @@ use shakmaty::fen::Fen;
 use std::convert::TryInto;
 use std::collections::HashSet;
 use std::path::Path;
+use velvet::search::{SearchLimits, Search};
+use velvet::transposition_table::TranspositionTable;
+use std::sync::atomic::{AtomicBool, AtomicU64};
+use velvet::gen_quiet_pos::GenQuietPos;
 
 #[derive(Clone, Debug)]
 struct TestPos {
@@ -133,36 +135,20 @@ fn main() {
     println!("End");
 }
 
-fn spawn_threads(tx: &Sender<TestPos>, concurrency: usize, openings: &Vec<String>, tb_path: String) {
+fn spawn_threads(tx: &Sender<TestPos>, concurrency: usize, openings: &[String], tb_path: String) {
     for pos in 0..concurrency {
         thread::sleep(Duration::from_millis(pos as u64 * 10));
         let tx2 = tx.clone();
-        let openings2 = openings.clone();
+        let openings2 = openings.to_owned();
         let tb_path2 = tb_path.clone();
         thread::spawn(move || {
             find_test_positions(&tx2, &openings2, tb_path2);
         });
     }
-
 }
 
 fn find_test_positions(tx: &Sender<TestPos>, openings: &[String], tb_path: String) {
     let mut rnd = Random::new_with_seed(new_rnd_seed());
-
-    let (_, erx1) = mpsc::channel::<Message>();
-    let mut engine1 = Engine::new(erx1);
-    engine1.set_log_level(LogLevel::Error);
-    engine1.check_stop_cmd = false;
-
-    let (_, erx2) = mpsc::channel::<Message>();
-    let mut engine2 = Engine::new(erx2);
-    engine2.set_log_level(LogLevel::Error);
-    engine2.check_stop_cmd = false;
-
-    let (_, erx3) = mpsc::channel::<Message>();
-    let mut engine3 = Engine::new(erx3);
-    engine3.set_log_level(LogLevel::Error);
-    engine3.check_stop_cmd = false;
 
     let mut tb = Tablebase::new();
     println!("Setting tablebase path to: {}", tb_path);
@@ -170,10 +156,12 @@ fn find_test_positions(tx: &Sender<TestPos>, openings: &[String], tb_path: Strin
 
     let mut duplicate_check = HashSet::with_capacity(65536);
 
+    let tt = Arc::new(TranspositionTable::new(256));
+
     loop {
         let opening = openings[rnd.rand32() as usize % openings.len()].clone();
 
-        let mut positions = collect_quiet_pos(&tb, &mut duplicate_check, &mut rnd, opening.as_str(), &mut [&mut engine1, &mut engine2], &mut engine3);
+        let mut positions = collect_quiet_pos(&tb, &mut duplicate_check, &mut rnd, opening.as_str(), tt.clone());
         for pos in positions.iter_mut() {
             tx.send(pos.clone()).expect("could not send test position");
         }
@@ -203,11 +191,11 @@ fn read_openings(file_name: &str) -> Vec<String> {
     }
 }
 
-fn select_move(rnd: &mut Random, engine: &mut Engine, min_depth: i32, time_limit_ms: i32) -> Move {
+fn select_move(rnd: &mut Random, search: &mut Search, min_depth: i32) -> Move {
     let mut move_candidates = Vec::with_capacity(8);
     let mut min_score = i32::MIN;
     loop {
-        let m = engine.find_best_move(min_depth, time_limit_ms, true, &move_candidates);
+        let m = search.find_best_move(None, min_depth, &move_candidates);
         if m == NO_MOVE {
             break;
         }
@@ -234,24 +222,24 @@ fn select_move(rnd: &mut Random, engine: &mut Engine, min_depth: i32, time_limit
     move_candidates[rnd.rand32() as usize % move_candidates.len()]
 }
 
-fn collect_quiet_pos(tb: &Tablebase<Chess>, duplicate_check: &mut HashSet<u64>, rnd: &mut Random, opening: &str, engines: &mut [&mut Engine], pos_engine: &mut Engine) -> Vec<TestPos> {
+fn collect_quiet_pos(tb: &Tablebase<Chess>, duplicate_check: &mut HashSet<u64>, rnd: &mut Random, opening: &str, tt: Arc<TranspositionTable>) -> Vec<TestPos> {
     let mut player_color = WHITE;
 
+    tt.clear();
+    let board = create_from_fen(opening);
+
     let node_limit = 200 + (rnd.rand32() % 100) as u64;
-    for engine in engines.iter_mut() {
-        engine.reset();
-        engine.set_position(opening.to_string(), Vec::new());
-        engine.node_limit = node_limit;
-    }
+    let limits = SearchLimits::new(None, Some(node_limit), None, None, None, None, Some(1000), None).unwrap();
+    let mut search = Search::new(Arc::new(AtomicBool::new(false)), Arc::new(AtomicU64::new(0)), LogLevel::Error, limits, tt, board, 1);
+
 
     let mut positions = Vec::new();
     let mut ply = 0;
 
     loop {
         ply += 1;
-        let idx = idx_by_color(player_color);
 
-        let best_move = select_move(rnd, engines[idx], 3, 1000);
+        let best_move = select_move(rnd, &mut search, 3);
 
         if best_move == NO_MOVE {
             return positions;
@@ -259,57 +247,58 @@ fn collect_quiet_pos(tb: &Tablebase<Chess>, duplicate_check: &mut HashSet<u64>, 
 
         let score = best_move.score() * player_color as i32;
 
-        if (ply >= 300 && score.abs() < 500) || engines[idx].board.is_draw() {
+        if (ply >= 300 && score.abs() < 500) || search.board.is_draw() {
             return positions;
         }
 
-        engines[idx].board.perform_move(best_move);
+        search.board.perform_move(best_move);
         player_color = -player_color;
-
-        engines[idx_by_color(player_color)].board.perform_move(best_move);
 
         if ply > 6 && rnd.rand32() % 100 <= 10 {
             if score.abs() >= 7000 {
                 continue;
             }
 
-            let initial_fen = write_fen(&engines[0].board);
-            pos_engine.reset();
-            pos_engine.set_position(initial_fen.to_string(), Vec::new());
+            let prev_board = search.board.clone();
 
-            if !pos_engine.make_quiet_position() {
+            if !search.make_quiet_position() {
+                search.board = prev_board;
                 continue;
             }
 
-            let pos_hash = pos_engine.board.get_hash();
+            let pos_hash = search.board.get_hash();
 
             if duplicate_check.contains(&pos_hash) {
+                search.board = prev_board;
                 continue;
             }
 
-            let new_fen = write_fen(&pos_engine.board);
+            let new_fen = write_fen(&search.board);
 
-            pos_engine.node_limit = 50_000;
-            let best_move = pos_engine.find_best_move(8, 1000, true, &[]);
+            search.set_node_limit(50000);
+            let best_move = search.find_best_move(None, 9, &[]);
+            search.set_node_limit(node_limit);
             if best_move == NO_MOVE {
+                search.board = prev_board;
                 continue;
             }
 
-            let mut score = best_move.score() * pos_engine.board.active_player() as i32;
+            let mut score = best_move.score() * search.board.active_player() as i32;
             if score.abs() >= 7000 {
+                search.board = prev_board;
                 continue;
             }
 
             let mut tb_result = false;
-            if pos_engine.board.get_occupancy_bitboard().count_ones() <= 5 {
+            if search.board.get_occupancy_bitboard().count_ones() <= 5 {
                 let tb_pos: Chess = new_fen.parse::<Fen>().expect("Could not parse FEN").position(CastlingMode::Standard).unwrap();
                 match tb.probe_wdl(&tb_pos) {
                     Ok(_) => {
                         if tb.probe_dtz(&tb_pos).is_ok() {
                             let (mut result, move_count) = resolve_tb_match(tb, &tb_pos);
-                            result *= pos_engine.board.active_player();
+                            result *= search.board.active_player();
 
-                            let half_move_distance = move_count as i32 - pos_engine.board.halfmove_count as i32;
+                            let half_move_distance = move_count as i32 - search.board.halfmove_count() as i32;
 
                             if result == 0 { // Draw
                                 if half_move_distance == 0 {
@@ -339,9 +328,10 @@ fn collect_quiet_pos(tb: &Tablebase<Chess>, duplicate_check: &mut HashSet<u64>, 
                 }
             }
 
-            let pos_count = pos_engine.board.halfmove_count;
+            let pos_count = search.board.halfmove_count();
             if !tb_result {
-                let (lt_score, _) = playout_match(tb, score, 8, pos_engine, new_fen.clone());
+                let (lt_score, _) = playout_match(tb, score, 8, &mut search);
+                search.set_node_limit(node_limit);
                 score = lt_score;
             }
 
@@ -349,40 +339,38 @@ fn collect_quiet_pos(tb: &Tablebase<Chess>, duplicate_check: &mut HashSet<u64>, 
                 fen: new_fen,
                 count: pos_count,
                 score,
-                zobrist_hash: pos_engine.board.get_hash()
+                zobrist_hash: pos_hash
             });
 
             duplicate_check.insert(pos_hash);
+            search.board = prev_board;
         }
     }
 }
 
-fn playout_match(tb: &Tablebase<Chess>, start_score: i32, start_depth: i32, engine: &mut Engine, fen: String) -> (i32, u16) {
+fn playout_match(tb: &Tablebase<Chess>, start_score: i32, start_depth: i32, search: &mut Search) -> (i32, u16) {
     let mut lt_score = start_score as f64;
     let mut lt_score_distance = start_depth as u16;
     let mut min_depth = start_depth;
 
-    engine.set_position(fen, Vec::new());
-    engine.node_limit = 5000;
-
     for i in 0..30 {
-        let best_move = engine.find_best_move(min_depth, 1000, true, &[]);
-        if best_move == NO_MOVE || engine.board.is_draw() {
+        let best_move = search.find_best_move(None, min_depth, &[]);
+        if best_move == NO_MOVE || search.board.is_draw() {
             break;
         }
 
-        engine.perform_move(best_move);
+        search.board.perform_move(best_move);
 
-        if engine.board.get_occupancy_bitboard().count_ones() <= 5 {
-            let new_fen = write_fen(&engine.board);
+        if search.board.get_occupancy_bitboard().count_ones() <= 5 {
+            let new_fen = write_fen(&search.board);
             let tb_pos: Chess = new_fen.parse::<Fen>().expect("Could not parse FEN").position(CastlingMode::Standard).unwrap();
             match tb.probe_wdl(&tb_pos) {
                 Ok(_) => {
                     if tb.probe_dtz(&tb_pos).is_ok() {
                         let (mut result, move_count) = resolve_tb_match(tb, &tb_pos);
-                        result *= engine.board.active_player();
+                        result *= search.board.active_player();
 
-                        let half_move_distance = move_count as i32 - engine.board.halfmove_count as i32;
+                        let half_move_distance = move_count as i32 - search.board.halfmove_count() as i32;
 
                         lt_score_distance += half_move_distance as u16;
                         lt_score *= 1.0 - 1.0 / lt_score_distance as f64;
@@ -404,7 +392,7 @@ fn playout_match(tb: &Tablebase<Chess>, start_score: i32, start_depth: i32, engi
             }
         }
 
-        let mut score = best_move.score() * -engine.board.active_player() as i32;
+        let mut score = best_move.score() * -search.board.active_player() as i32;
         if score.abs() >= 7000 {
             if score.is_negative() {
                 score += 4000;
@@ -480,14 +468,6 @@ fn real_wdl(tb: &Tablebase<Chess>, pos: &Chess, dtz: Dtz) -> Result<Wdl, SyzygyE
     let mut after = pos.clone();
     after.play_unchecked(&best.0);
     Ok(-real_wdl(tb, &after, best.1)?)
-}
-
-fn idx_by_color(color: Color) -> usize {
-    if color == WHITE {
-        0
-    } else {
-        1
-    }
 }
 
 fn new_rnd_seed() -> u64 {

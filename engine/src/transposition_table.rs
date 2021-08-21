@@ -17,8 +17,9 @@
 use crate::moves::{Move};
 use std::intrinsics::transmute;
 use crate::scores::{MATED_SCORE, MATE_SCORE};
+use std::sync::atomic::{AtomicU64, Ordering};
 
-pub const MAX_HASH_SIZE_MB: i32 = 4096;
+pub const MAX_HASH_SIZE_MB: i32 = 256 * 1024;
 
 // Transposition table entry
 // Bits 63 - 38: 26 highest bits of the hash
@@ -55,51 +56,44 @@ const PER_ENTRY_BYTE_SIZE: u64 = 8;
 
 pub struct TranspositionTable {
     index_mask: u64,
-    entries: Vec<u64>,
+    entries: Vec<AtomicU64>,
 }
 
 impl TranspositionTable {
     pub fn new(size_mb: u64) -> Self {
-        let mut tt = TranspositionTable {
-            index_mask: 0,
-            entries: Vec::new(),
-        };
-
-        tt.resize(size_mb, true);
-
-        tt
-    }
-
-    pub fn resize(&mut self, size_mb: u64, initialize: bool) {
         // Calculate table size as close to the desired size_mb as possible, but never above it
         let size_bytes = size_mb * 1_048_576;
         let entry_count = size_bytes / PER_ENTRY_BYTE_SIZE;
         let index_bit_count = 31 - (entry_count as u32 | 1).leading_zeros();
 
         let size = (1u64 << index_bit_count) as usize;
-        if initialize || size != self.entries.len() {
-            self.index_mask = (size as u64) - 1;
 
-            self.entries.resize(size, 0);
-            self.entries.shrink_to_fit();
-        }
+        let mut tt = TranspositionTable {
+            index_mask: (size as u64) - 1,
+            entries: Vec::with_capacity(size),
+        };
+
+        unsafe { tt.entries.set_len(size) };
+        tt.entries.fill_with(AtomicU64::default);
+
+        tt
     }
 
     // Important: mate scores must be stored relative to the current node, not relative to the root node
-    pub fn write_entry(&mut self, hash: u64, depth: i32, scored_move: Move, typ: ScoreType) {
+    pub fn write_entry(&self, hash: u64, depth: i32, scored_move: Move, typ: ScoreType) {
         let mut new_entry = hash;
         new_entry ^= (depth as u64) << DEPTH_BITSHIFT;
         new_entry ^= (typ as u64) << SCORE_TYPE_BITSHIFT;
         new_entry ^= scored_move.to_bit29() as u64;
 
         let index = self.calc_index(hash);
-        unsafe { *self.entries.get_unchecked_mut(index) = new_entry };
+        unsafe { self.entries.get_unchecked(index).store(new_entry, Ordering::Relaxed) };
     }
 
-    pub fn get_entry(&mut self, hash: u64) -> u64 {
+    pub fn get_entry(&self, hash: u64) -> u64 {
         let index = self.calc_index(hash);
 
-        let entry = unsafe { *self.entries.get_unchecked(index) } ^ hash;
+        let entry = unsafe { self.entries.get_unchecked(index).load(Ordering::Relaxed) } ^ hash;
         if (entry & HASHCHECK_MASK) != 0 {
             return 0;
         }
@@ -111,8 +105,15 @@ impl TranspositionTable {
         (hash & self.index_mask) as usize
     }
 
-    pub fn clear(&mut self) {
-        self.entries.fill(0);
+    pub fn clear(&self) {
+        for entry in self.entries.iter() {
+            entry.store(0, Ordering::Relaxed)
+        }
+    }
+
+    // hash_full returns an approximation of the fill level in per mill
+    pub fn hash_full(&self) -> usize {
+        self.entries.iter().take(1000).filter(|entry| entry.load(Ordering::Relaxed) != 0).count()
     }
 }
 
@@ -160,8 +161,8 @@ mod tests {
 
     #[test]
     fn writes_entry() {
-        let mut tt = TranspositionTable::new(1);
-        let hash = u64::max_value();
+        let tt = TranspositionTable::new(1);
+        let hash = u64::MAX;
         let depth = MAX_DEPTH as i32;
         let score = -10;
 
@@ -179,9 +180,9 @@ mod tests {
 
     #[test]
     fn encodes_negative_score_correctly() {
-        let mut tt = TranspositionTable::new(1);
+        let tt = TranspositionTable::new(1);
         let score = MIN_SCORE;
-        let hash = u64::max_value();
+        let hash = u64::MAX;
         let m = NO_MOVE.with_score(score);
         tt.write_entry(hash, 1, m, ScoreType::Exact);
 
@@ -191,7 +192,7 @@ mod tests {
 
     #[test]
     fn encodes_positive_score_correctly() {
-        let mut tt = TranspositionTable::new(1);
+        let tt = TranspositionTable::new(1);
         let score = MAX_SCORE;
         let hash = u64::max_value();
         let m = NO_MOVE.with_score(score);

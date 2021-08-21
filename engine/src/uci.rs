@@ -18,15 +18,15 @@
 
 use crate::engine::Message;
 use crate::fen::START_POS;
-use crate::transposition_table::{DEFAULT_SIZE_MB, MAX_HASH_SIZE_MB, MAX_DEPTH};
+use crate::transposition_table::{DEFAULT_SIZE_MB, MAX_HASH_SIZE_MB};
 use crate::uci_move::UCIMove;
 use std::io;
 use std::str::FromStr;
 use std::sync::mpsc::Sender;
 use std::thread::{sleep};
 use std::time::Duration;
-use crate::options::parse_set_option;
 use crate::magics::{initialize_magics};
+use crate::search::{SearchLimits, DEFAULT_SEARCH_THREADS, MAX_SEARCH_THREADS};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const AUTHOR: &str = "Martin Honert";
@@ -98,10 +98,8 @@ fn uci() {
     println!("id name Velvet v{}", VERSION);
     println!("id author {}", AUTHOR);
     println!("option name UCI_EngineAbout type string default Velvet Chess Engine (https://github.com/mhonert/velvet-chess)");
-    println!(
-        "option name Hash type spin default {} min 1 max {}",
-        DEFAULT_SIZE_MB, MAX_HASH_SIZE_MB
-    );
+    println!("option name Hash type spin default {} min 1 max {}", DEFAULT_SIZE_MB, MAX_HASH_SIZE_MB);
+    println!("option name Threads type spin default {} min 1 max {}", DEFAULT_SEARCH_THREADS, MAX_SEARCH_THREADS);
 
     println!("uciok");
 }
@@ -144,26 +142,40 @@ fn set_option(tx: &Sender<Message>, parts: &[&str]) {
 
     let value = parts[3];
 
-    if name == "hash" {
-        let size_mb = match i32::from_str(value) {
-            Ok(size) => size,
-            Err(_) => {
+    match name.as_str() {
+        "hash" => {
+            if let Some(size_mb) = parse_int_option(value, 1, MAX_HASH_SIZE_MB) {
+                send_message(tx, Message::SetTranspositionTableSize(size_mb));
+            } else {
                 println!("Invalid hash size: {}", value);
-                return;
-            }
-        };
-
-        if size_mb < 1 || size_mb > MAX_HASH_SIZE_MB {
-            println!("Invalid hash size: {}", size_mb);
-            return;
+            };
         }
 
-        send_message(tx, Message::SetTranspositionTableSize(size_mb));
+        "threads" => {
+            if let Some(threads) = parse_int_option(value, 1, MAX_SEARCH_THREADS as i32) {
+                send_message(tx, Message::SetThreadCount(threads));
+            } else {
+                println!("Invalid thread count: {}", value);
+            };
+        }
 
-    } else {
-        parse_set_option(tx, &name, value);
-
+        _ => println!("Unknown option: {}", name)
     }
+}
+
+fn parse_int_option(value: &str, min_value: i32, max_value: i32) -> Option<i32> {
+    let value = match i32::from_str(value) {
+        Ok(v) => v,
+        Err(_) => {
+            return None;
+        }
+    };
+
+    if !(min_value..=max_value).contains(&value) {
+        return None;
+    }
+
+    Some(value)
 }
 
 fn parse_moves(idx: usize, parts: &[&str]) -> Vec<UCIMove> {
@@ -196,49 +208,28 @@ fn perft(tx: &Sender<Message>, parts: Vec<&str>) {
 
 fn go(tx: &Sender<Message>, parts: Vec<&str>) {
     if parts.is_empty() || parts.contains(&"infinite") {
-        send_message(
-            tx,
-            Message::Go {
-                depth: MAX_DEPTH as i32,
-                wtime: -1,
-                btime: -1,
-                winc: 0,
-                binc: 0,
-                movetime: i32::MAX,
-                movestogo: 1,
-                nodes: u64::MAX,
-            }
-        );
+        send_message(tx, Message::Go(SearchLimits::default()));
         return;
     }
 
-    let depth = extract_option(&parts, "depth", MAX_DEPTH as i32);
-    let wtime = extract_option(&parts, "wtime", -1);
-    let btime = extract_option(&parts, "btime", -1);
-    let winc = extract_option(&parts, "winc", 0);
-    let binc = extract_option(&parts, "binc", 0);
-    let nodes = extract_option(&parts, "nodes", u64::MAX);
-    let movetime = extract_option(&parts, "movetime", -1);
-    let movestogo = extract_option(&parts, "movestogo", 40);
+    let depth = extract_option(&parts, "depth");
+    let wtime = extract_option(&parts, "wtime");
+    let btime = extract_option(&parts, "btime");
+    let winc = extract_option(&parts, "winc");
+    let binc = extract_option(&parts, "binc");
+    let nodes = extract_option(&parts, "nodes");
+    let movetime = extract_option(&parts, "movetime");
+    let movestogo = extract_option(&parts, "movestogo");
 
-    if depth <= 0 {
-        println!("go cmd: invalid depth: {}", depth);
-        return;
-    }
+    let limits = match SearchLimits::new(depth, nodes, wtime, btime, winc, binc, movetime, movestogo) {
+        Ok(limits) => limits,
+        Err(e) => {
+            eprintln!("go: invalid search params: {}", e);
+            return;
+        }
+    };
 
-    send_message(
-        tx,
-        Message::Go {
-            depth,
-            wtime,
-            btime,
-            winc,
-            binc,
-            movetime,
-            movestogo,
-            nodes
-        },
-    );
+    send_message(tx, Message::Go(limits));
 }
 
 fn profile(tx: &Sender<Message>) {
@@ -250,19 +241,19 @@ fn fen(tx: &Sender<Message>) {
     send_message(tx, Message::Fen);
 }
 
-fn extract_option<T: std::str::FromStr>(parts: &Vec<&str>, name: &str, default_value: T) -> T {
+fn extract_option<T: std::str::FromStr>(parts: &Vec<&str>, name: &str) -> Option<T> {
     match parts.iter().position(|&item| item == name) {
         Some(pos) => {
             if pos + 1 >= parts.len() {
-                return default_value;
+                return None;
             }
 
             match T::from_str(parts[pos + 1]) {
-                Ok(value) => value,
-                Err(_) => default_value,
+                Ok(value) => Some(value),
+                Err(_) => None,
             }
         }
-        None => default_value,
+        None => None,
     }
 }
 

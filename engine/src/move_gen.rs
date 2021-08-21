@@ -35,6 +35,7 @@ pub const NEGATIVE_HISTORY_SCORE: i32 = -5000;
 
 const CAPTURE_ORDER_SCORES: [i32; CAPTURE_ORDER_SIZE] = calc_capture_order_scores();
 
+#[derive(Clone)]
 pub struct MoveGenerator {
     entries: Vec<MoveList>,
     ply: usize,
@@ -109,12 +110,14 @@ impl MoveGenerator {
     }
 }
 
+#[derive(Clone)]
 enum Stage {
     HashMove,
     CaptureMoves,
     QuietMoves
 }
 
+#[derive(Clone)]
 pub struct MoveList {
     scored_hash_move: Move,
     primary_killer: Move,

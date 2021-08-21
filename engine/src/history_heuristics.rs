@@ -24,6 +24,7 @@ const HISTORY_SIZE: usize = 2 * 8 * 64;
 
 const HEURISTICS_THRESHOLD: i32 = 5;
 
+#[derive(Clone)]
 pub struct HistoryHeuristics {
     killers: Vec<(Move, Move)>,
     cut_off_history: Vec<(u64, u64)>,

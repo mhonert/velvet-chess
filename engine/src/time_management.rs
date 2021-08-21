@@ -24,10 +24,11 @@ use crate::transposition_table::MAX_DEPTH;
 pub const TIMEEXT_MULTIPLIER: i32 = 5;
 pub const MAX_TIMELIMIT_MS: i32 = i32::MAX;
 
-pub struct TimeManager {
-    history_size: usize,
-    score_drop_threshold: i32,
+const TIMEEXT_SCORE_DROP_THRESHOLD: i32 = 20;
+const TIMEEXT_HISTORY_SIZE: usize = 6;
 
+#[derive(Clone)]
+pub struct TimeManager {
     starttime: Instant,
     timelimit_ms: i32,
     is_strict_timelimit: bool,
@@ -40,23 +41,16 @@ pub struct TimeManager {
 }
 
 impl TimeManager {
-    pub fn new(history_size: i32, score_drop_threshold: i32) -> Self {
+    pub fn new() -> Self {
         TimeManager{
-            history_size: history_size as usize,
-            score_drop_threshold,
             starttime: Instant::now(),
             timelimit_ms: 0,
             is_strict_timelimit: true,
             already_extended_timelimit: false,
             next_index: 0,
             current_depth: 0,
-            history: vec!(NO_MOVE; MAX_DEPTH),
+            history: vec![NO_MOVE; MAX_DEPTH],
         }
-    }
-
-    pub fn update_params(&mut self, history_size: i32, score_drop_threshold: i32) {
-        self.history_size = history_size as usize;
-        self.score_drop_threshold = score_drop_threshold;
     }
 
     pub fn reset(&mut self, timelimit_ms: i32, is_strict_timelimit: bool) {
@@ -107,7 +101,7 @@ impl TimeManager {
         let highest_score_drop = self.history.iter()
             .take(self.next_index)
             .rev()
-            .take(min(self.next_index, self.history_size))
+            .take(min(self.next_index, TIMEEXT_HISTORY_SIZE))
             .map(Move::score)
             .rfold((0, 0, 0), |(highest_drop, count, prev_score), score|
                 if count == 0 {
@@ -117,7 +111,7 @@ impl TimeManager {
                 }
             ).0;
 
-        highest_score_drop >= self.score_drop_threshold
+        highest_score_drop >= TIMEEXT_SCORE_DROP_THRESHOLD
     }
 
     pub fn extend_timelimit(&mut self) {
