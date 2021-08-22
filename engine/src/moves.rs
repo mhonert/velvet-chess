@@ -75,8 +75,9 @@ impl Move {
     }
 
     #[inline]
-    pub fn to_index(&self, mask: usize) -> usize {
-        self.0 as usize & mask
+    // Calculates an index in the range 0..512 based upon the (target) piece and the end position of the move
+    pub fn calc_piece_end_index(&self) -> usize {
+        (self.0 & (PIECE_MASK | END_MASK)) as usize
     }
 
     #[inline]

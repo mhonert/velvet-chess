@@ -26,8 +26,8 @@ use crate::magics::{get_bishop_attacks, get_rook_attacks, get_queen_attacks};
 
 const CAPTURE_ORDER_SIZE: usize = 5 + 5 * 6 + 1;
 
-const PRIMARY_KILLER_SCORE: i32 = -2267;
-const SECONDARY_KILLER_SCORE: i32 = -3350;
+const PRIMARY_KILLER_SCORE: i32 = -2200;
+const SECONDARY_KILLER_SCORE: i32 = -2250;
 
 pub const NEGATIVE_HISTORY_SCORE: i32 = -5000;
 

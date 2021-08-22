@@ -62,7 +62,7 @@ impl HistoryHeuristics {
     pub fn update(&mut self, depth: i32, ply: i32, color: Color, m: Move) {
         if depth >= HEURISTICS_THRESHOLD {
             let color_offset = if color == WHITE { 0 } else { HISTORY_SIZE / 2 };
-            unsafe { self.cut_off_history.get_unchecked_mut(color_offset + m.to_index(0x1FF)).0 += 1 };
+            unsafe { self.cut_off_history.get_unchecked_mut(color_offset + m.calc_piece_end_index()).0 += 1 };
         }
         self.update_killer_moves(ply, m);
     }
@@ -82,7 +82,7 @@ impl HistoryHeuristics {
             self.entries += 1;
             let color_offset = if color == WHITE { 0 } else { HISTORY_SIZE / 2 };
             unsafe {
-                self.cut_off_history.get_unchecked_mut(color_offset + m.to_index(0x1FF)).1 += 1;
+                self.cut_off_history.get_unchecked_mut(color_offset + m.calc_piece_end_index()).1 += 1;
             }
         }
     }
@@ -90,7 +90,7 @@ impl HistoryHeuristics {
     #[inline]
     pub fn get_history_score(&self, color: Color, m: Move) -> i32 {
         let color_offset = if color == WHITE { 0 } else { HISTORY_SIZE / 2 };
-        let index = color_offset + m.to_index(0x1FF);
+        let index = color_offset + m.calc_piece_end_index();
 
         let entry = unsafe { *self.cut_off_history.get_unchecked(index) };
         let move_count = entry.1;

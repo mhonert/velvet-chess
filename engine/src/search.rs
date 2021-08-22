@@ -19,7 +19,7 @@
 use crate::colors::{Color, WHITE, BLACK};
 use crate::engine::{LogLevel, Message};
 use crate::pieces::{EMPTY, R, P};
-use crate::scores::{MATE_SCORE, MIN_SCORE, MATED_SCORE };
+use crate::scores::{MATE_SCORE, MIN_SCORE, MATED_SCORE};
 use crate::transposition_table::{get_depth, get_score_type, get_untyped_move, MAX_DEPTH, ScoreType, to_root_relative_score, from_root_relative_score, TranspositionTable};
 use crate::uci_move::UCIMove;
 use std::cmp::{max, min};
@@ -253,6 +253,8 @@ impl Search {
 
         let active_player = self.board.active_player();
 
+        let mut reduction = 0;
+
         while let Some(m) = self.movegen.next_legal_move(&self.hh, &mut self.board) {
             if skipped_moves.contains(&m.without_score()) {
                 continue;
@@ -275,12 +277,12 @@ impl Search {
             let gives_check = self.board.is_in_check(-active_player);
 
             // Use principal variation search
-            let mut result = self.rec_find_best_move(rx, a, -alpha, depth - 1, 1, false, gives_check, capture_pos);
+            let mut result = self.rec_find_best_move(rx, a, -alpha, depth - reduction - 1, 1, false, gives_check, capture_pos);
             if result == CANCEL_SEARCH {
                 iteration_cancelled = true;
             } else if -result > alpha && a != MIN_SCORE {
                 // Repeat search if it falls outside the search window
-                result = self.rec_find_best_move(rx, MIN_SCORE, -alpha, depth - 2, 1, false, gives_check, capture_pos);
+                result = self.rec_find_best_move(rx, MIN_SCORE, -alpha, depth - 1, 1, false, gives_check, capture_pos);
                 if result == CANCEL_SEARCH {
                     iteration_cancelled = true;
                 }
@@ -301,6 +303,12 @@ impl Search {
                 self.time_mgr.update_best_move(best_move, depth);
 
                 current_pv = Some(self.extract_pv(best_move, depth - 1));
+
+                if depth >= 7 && reduction == 0 {
+                    reduction = 1;
+                } else {
+                    reduction = 0;
+                }
             }
 
             // Search all following moves with a null window
