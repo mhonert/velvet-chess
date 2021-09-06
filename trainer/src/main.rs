@@ -30,12 +30,12 @@ use std::time::{Instant, SystemTime};
 use tch::nn::{ModuleT, Optimizer, VarStore, AdamW, SequentialT};
 use byteorder::{WriteBytesExt, LittleEndian, ReadBytesExt};
 use std::env;
-use std::sync::mpsc::{SyncSender};
+use std::sync::mpsc::SyncSender;
 use std::thread;
 use std::sync::mpsc;
 use rand::prelude::SliceRandom;
 use lz4_flex::frame::FrameEncoder;
-use velvet::bitboard::BitBoard;
+use velvet::bitboard::{BitBoard, mirror_pos};
 use rand::SeedableRng;
 use velvet::nn_eval::{INPUTS, HL_INPUTS, HL_COUNT};
 use std::cmp::{min, max};
@@ -44,7 +44,7 @@ use crate::lr_scheduler::LrScheduler;
 
 const FEATURES_PER_BUCKET: i64 = 64 * 6 * 2;
 
-const INPUT_FEATURES: i64 = FEATURES_PER_BUCKET * 2 * 4;
+const INPUT_FEATURES: i64 = FEATURES_PER_BUCKET * 4;
 
 const DATA_WRITER_THREADS: usize = 4;
 
@@ -534,20 +534,12 @@ fn read_from_tensor_file(samples: &mut Vec<DataSample>, file_name: &str) {
         let white_king = kings & 0b111111;
         let black_king = kings >> 8;
 
-        let is_white_turn = bb_map & (1 << 15) != 0;
-
         let queens = if (bb_map & (1 << 5)) == 0 && (bb_map & (1 << 10)) == 0 { 0 } else { 0b10 };
         let rooks = if (bb_map & (1 << 4)) == 0 && (bb_map & (1 << 9)) == 0 { 0 } else { 0b01 };
 
         let bucket = queens | rooks;
 
-        let mut offset = if is_white_turn {
-            0
-        } else {
-            FEATURES_PER_BUCKET
-        };
-
-        offset += FEATURES_PER_BUCKET * bucket * 2;
+        let offset = FEATURES_PER_BUCKET * bucket;
 
         for i in 1i8..=5i8 {
             if bb_map & (1 << i) != 0 {
@@ -671,14 +663,19 @@ fn read_from_fen_file(file_name: &str, writer: &mut BufWriter<FrameEncoder<File>
         };
 
         let score = i32::from_str(score_part).expect("Could not parse result");
+        let mut result = score as f32 / 2048.0;
 
-        let result = score as f32 / 2048.0;
-        ys.push(result as f32);
-
-        let (pieces, active_player) = match parse_fen(fen.as_str()) {
+        let (mut pieces, active_player) = match parse_fen(fen.as_str()) {
             Ok(FenParseResult{pieces, active_player, ..}) => (pieces, active_player),
             Err(e) => panic!("could not parse FEN: {}",  e),
         };
+
+        if active_player == -1 {
+            mirror(&mut pieces);
+            result = -result;
+        }
+
+        ys.push(result as f32);
 
         let mut black_king_pos = 0;
         let mut white_king_pos = 0;
@@ -708,10 +705,6 @@ fn read_from_fen_file(file_name: &str, writer: &mut BufWriter<FrameEncoder<File>
             }
         }
 
-        if active_player == 1 {
-            bb_map |= 1 << 15;
-        }
-
         writer.write_u16::<LittleEndian>(bb_map).unwrap();
 
         let kings = white_king_pos as u16 | ((black_king_pos as u16) << 8);
@@ -728,6 +721,14 @@ fn read_from_fen_file(file_name: &str, writer: &mut BufWriter<FrameEncoder<File>
                 writer.write_u64::<LittleEndian>(bb_black).unwrap();
             }
         }
+    }
+}
+
+fn mirror(pieces: &mut Vec<i8>) {
+    for i in 0..32 {
+        let tmp = -pieces[i];
+        pieces[i] = -pieces[mirror_pos(i)];
+        pieces[mirror_pos(i)] = tmp;
     }
 }
 

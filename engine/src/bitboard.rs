@@ -34,6 +34,11 @@ impl Iterator for BitBoard {
     }
 }
 
+/// Mirrors the given bitboard position index along the horizontal axis
+pub fn mirror_pos(pos: usize) -> usize {
+    pos ^ 56
+}
+
 const KNIGHT_ATTACKS: [u64; 64] = calculate_single_move_patterns([21, 19, 12, 8, -12, -21, -19, -8]);
 const KING_ATTACKS: [u64; 64] = calculate_single_move_patterns([1, 10, -1, -10, 9, 11, -9, -11]);
 

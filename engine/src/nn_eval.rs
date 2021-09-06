@@ -16,21 +16,21 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::io::{BufReader};
-use crate::bitboard::BitBoard;
+use std::io::BufReader;
+use crate::bitboard::{BitBoard, mirror_pos};
 
 use byteorder::{ReadBytesExt, LittleEndian};
-use std::cmp::{max};
+use std::cmp::max;
 use crate::colors::{Color, WHITE};
 use crate::pieces::{Q, R};
 use packed_simd_2::{i16x16, i32x16};
 
 // Fixed point number precision
-const FP_PRECISION_BITS: i16 = 13;
+const FP_PRECISION_BITS: i16 = 12;
 
 // NN layer size
 const FEATURES_PER_BUCKET: usize = 64 * 6 * 2;
-pub const INPUTS: usize = FEATURES_PER_BUCKET * 2 * 4;
+pub const INPUTS: usize = FEATURES_PER_BUCKET * 4;
 pub const HL_INPUTS: usize = 64;
 pub const HL_COUNT: i8 = 2;
 const HL_NODES: usize = 64;
@@ -137,7 +137,7 @@ impl NeuralNetEval {
 
         self.bucket = calc_bucket(bitboards);
 
-        self.offset = self.bucket as usize * 768 * 2;
+        self.offset = self.bucket as usize * 768;
 
         self.psq_wtm_score = self.psq_bias;
         self.psq_btm_score = self.psq_bias;
@@ -165,39 +165,53 @@ impl NeuralNetEval {
     }
 
     pub fn add_piece(&mut self, pos: usize, piece: i8) {
-        let mut idx = self.offset + ((piece.abs() as usize - 1) * 2) as usize * 64 + pos;
+        let base_index = self.offset + ((piece.abs() as usize - 1) * 2) as usize * 64;
+
+        let mut idx = base_index + pos;
         if piece < 0 {
             idx += 64;
-        }
-
-        for (nodes, weights) in self.hidden1_nodes_wtm.iter_mut().zip(self.input_weights.chunks_exact(HL_INPUTS / 16).nth(idx).unwrap()) {
-            *nodes += *weights;
-        }
-
-        for (nodes, weights) in self.hidden1_nodes_btm.iter_mut().zip(self.input_weights.chunks_exact(HL_INPUTS / 16).nth(idx + 768).unwrap()) {
-            *nodes += *weights;
         }
 
         self.psq_wtm_score += unsafe { self.psq_weights.get_unchecked(idx) };
-        self.psq_btm_score += unsafe { self.psq_weights.get_unchecked(idx + 768) };
+
+        for (nodes, weights) in self.hidden1_nodes_wtm.iter_mut().zip(self.input_weights.chunks_exact(HL_INPUTS / 16).nth(idx).unwrap()) {
+            *nodes += *weights;
+        }
+
+        let mut idx = base_index + mirror_pos(pos);
+        if piece > 0 {
+            idx += 64;
+        }
+
+        self.psq_btm_score -= unsafe { self.psq_weights.get_unchecked(idx) };
+        for (nodes, weights) in self.hidden1_nodes_btm.iter_mut().zip(self.input_weights.chunks_exact(HL_INPUTS / 16).nth(idx).unwrap()) {
+            *nodes += *weights;
+        }
     }
 
     pub fn remove_piece(&mut self, pos: usize, piece: i8) {
-        let mut idx = self.offset + ((piece.abs() as usize - 1) * 2) as usize * 64 + pos;
+        let base_index = self.offset + ((piece.abs() as usize - 1) * 2) as usize * 64;
+
+        let mut idx = base_index + pos;
         if piece < 0 {
             idx += 64;
         }
+
+        self.psq_wtm_score -= unsafe { self.psq_weights.get_unchecked(idx) };
 
         for (nodes, weights) in self.hidden1_nodes_wtm.iter_mut().zip(self.input_weights.chunks_exact(HL_INPUTS / 16).nth(idx).unwrap()) {
             *nodes -= *weights;
         }
 
-        for (nodes, weights) in self.hidden1_nodes_btm.iter_mut().zip(self.input_weights.chunks_exact(HL_INPUTS / 16).nth(idx + 768).unwrap()) {
-            *nodes -= *weights;
+        let mut idx = base_index + mirror_pos(pos);
+        if piece > 0 {
+            idx += 64;
         }
 
-        self.psq_wtm_score -= unsafe { self.psq_weights.get_unchecked(idx) };
-        self.psq_btm_score -= unsafe { self.psq_weights.get_unchecked(idx + 768) };
+        self.psq_btm_score += unsafe { self.psq_weights.get_unchecked(idx) };
+        for (nodes, weights) in self.hidden1_nodes_btm.iter_mut().zip(self.input_weights.chunks_exact(HL_INPUTS / 16).nth(idx).unwrap()) {
+            *nodes -= *weights;
+        }
     }
 
     pub fn fast_eval(&self) -> i32 {
@@ -230,8 +244,13 @@ impl NeuralNetEval {
         }
 
         let out = (self.output_nodes.dot_product(&self.output_weights) + self.output_bias) as i32;
+        let score = out * 2048 / (1 << FP_PRECISION_BITS);
 
-        out * 2048 / (1 << FP_PRECISION_BITS)
+        if self.active_player == WHITE {
+            score
+        } else {
+            -score
+        }
     }
 }
 
