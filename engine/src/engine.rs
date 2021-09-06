@@ -157,7 +157,8 @@ impl Engine {
         let mut search = Search::new(Arc::new(AtomicBool::new(true)), Arc::new(AtomicU64::new(0)), self.log_level,
                                      limits, self.tt.as_ref().unwrap().clone(), self.board.clone(), self.search_thread_count);
 
-        search.find_best_move(Some(&self.rx), 3, skipped_moves)
+        let (m, _) = search.find_best_move(Some(&self.rx), 3, skipped_moves);
+        m
     }
 
     fn check_readiness(&mut self) {

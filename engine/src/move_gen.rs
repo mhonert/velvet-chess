@@ -857,7 +857,11 @@ pub fn evaluate_move_order(hh: &HistoryHeuristics, active_player: Color, m: Move
 
             } else if history_score == -1 {
 
-                -4096
+                if active_player == WHITE {
+                    -4096 + (7 - (m.end() / 8 - 4))
+                } else {
+                    -4096 + (m.end() / 8 - 4)
+                }
             } else {
 
                 -3600 + history_score

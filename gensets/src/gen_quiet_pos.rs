@@ -17,7 +17,7 @@
  */
 
 use velvet::colors::{BLACK, WHITE};
-use velvet::pieces::{EMPTY};
+use velvet::pieces::{EMPTY, P};
 use velvet::scores::{MAX_SCORE, MIN_SCORE };
 use velvet::transposition_table::{get_untyped_move, ScoreType};
 use velvet::moves::{Move, NO_MOVE};
@@ -27,7 +27,7 @@ use velvet::search::Search;
 pub trait GenQuietPos {
     fn is_quiet_position(&mut self) -> bool;
 
-    fn is_quiet_pv(&mut self, m: Move, depth: i32) -> bool;
+    fn is_quiet_pv(&mut self, pv: &[Move]) -> bool;
 
     fn make_quiet_position(&mut self) -> bool;
 
@@ -41,14 +41,18 @@ impl GenQuietPos for Search {
         }
 
         self.movegen.enter_ply(self.board.active_player(), NO_MOVE, NO_MOVE, NO_MOVE);
-        while let Some(m) = self.movegen.next_capture_move(&mut self.board)
-        {
+        while let Some(m) = self.movegen.next_move(&self.hh, &mut self.board) {
+            if m.is_promotion() {
+                self.movegen.leave_ply();
+                return false;
+            }
+
             let previous_piece = self.board.get_item(m.start());
             let previous_piece_id = previous_piece.abs();
-            let captured_piece_id = self.board.get_item(m.end()).abs();
+            let captured_piece_id = if m.is_en_passant() { P } else { self.board.get_item(m.end()).abs() };
 
             // only skip capture moves with a negative SEE score
-            if !self.board.has_negative_see(-self.board.active_player(), m.start(), m.end(), previous_piece_id, captured_piece_id, 0, self.board.get_occupancy_bitboard()) {
+            if captured_piece_id != EMPTY && !self.board.has_negative_see(-self.board.active_player(), m.start(), m.end(), previous_piece_id, captured_piece_id, 0, self.board.get_occupancy_bitboard()) {
                 self.movegen.leave_ply();
                 return false;
             }
@@ -58,52 +62,28 @@ impl GenQuietPos for Search {
         true
     }
 
-    fn is_quiet_pv(&mut self, m: Move, depth: i32) -> bool {
-        if self.board.is_in_check(WHITE) || self.board.is_in_check(BLACK) {
+    fn is_quiet_pv(&mut self, pv: &[Move]) -> bool {
+        if !self.is_quiet_position() {
             return false;
         }
 
-        if depth == 0 {
-            return true;
-        }
+        if let Some((m, rest_pv)) = pv.split_first() {
+            let (previous_piece, move_state) = self.board.perform_move(*m);
+            let is_quiet = !m.is_promotion() && !m.is_en_passant() && move_state == 0 && self.is_quiet_pv(rest_pv);
+            self.board.undo_move(*m, previous_piece, move_state);
 
-        let (previous_piece, move_state) = self.board.perform_move(m);
+            is_quiet
 
-        if move_state != EMPTY {
-            self.board.undo_move(m, previous_piece, move_state);
-            return false;
-        }
-
-        let active_player = self.board.active_player();
-        let entry = self.tt.get_entry(self.board.get_hash());
-        let next_move = if entry != 0 {
-            self.movegen.sanitize_move(&self.board, active_player, get_untyped_move(entry))
         } else {
-            NO_MOVE
-        };
-
-        if next_move == NO_MOVE {
-            self.board.undo_move(m, previous_piece, move_state);
-            return false;
+            true
         }
-
-        let is_valid_followup_move = next_move != NO_MOVE;
-        let is_quiet = if is_valid_followup_move {
-            self.is_quiet_pv(next_move, depth - 1)
-        } else {
-            false
-        };
-
-        self.board.undo_move(m, previous_piece, move_state);
-
-        is_quiet
     }
 
     // Updates the current position until it is quiet
     fn make_quiet_position(&mut self) -> bool {
         let _ = self.static_quiescence_search(MIN_SCORE, MAX_SCORE, 0) as i16;
 
-        loop {
+        for _ in 0..32 {
             if self.board.is_in_check(self.board.active_player()) || self.board.is_in_check(-self.board.active_player()) {
                 return false;
             }
@@ -121,6 +101,8 @@ impl GenQuietPos for Search {
 
             self.board.perform_move(m);
         }
+
+        false
     }
 
     fn static_quiescence_search(&mut self, mut alpha: i32, beta: i32, ply: i32) -> i32 {

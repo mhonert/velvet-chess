@@ -275,6 +275,7 @@ impl Board {
     }
 
     pub fn perform_move(&mut self, m: Move) -> (i8, i8) {
+        self.pos_history.push(self.state.hash);
         self.store_state();
         self.increase_half_move_count();
 
@@ -301,8 +302,6 @@ impl Board {
                 self.set_king_moved(color);
             }
 
-            self.pos_history.push(self.state.hash);
-
             if removed_piece.abs() >= R || m.is_promotion() {
                 self.nn_eval.check_refresh(self.active_player(), &self.bitboards);
             }
@@ -326,11 +325,9 @@ impl Board {
                     // Special en passant handling
                     if move_start - move_end == 7 {
                         self.remove_piece(move_start + WHITE as i32);
-                        self.pos_history.push(self.state.hash);
                         return (own_piece, P);
                     } else if move_start - move_end == 9 {
                         self.remove_piece(move_start - WHITE as i32);
-                        self.pos_history.push(self.state.hash);
                         return (own_piece, P);
                     }
                 } else if own_piece == -P {
@@ -339,11 +336,9 @@ impl Board {
                     // Special en passant handling
                     if move_start - move_end == -7 {
                         self.remove_piece(move_start + BLACK as i32);
-                        self.pos_history.push(self.state.hash);
                         return (own_piece, P);
                     } else if move_start - move_end == -9 {
                         self.remove_piece(move_start - BLACK as i32);
-                        self.pos_history.push(self.state.hash);
                         return (own_piece, P);
                     }
                 }
@@ -391,7 +386,6 @@ impl Board {
             _ => {}
         }
 
-        self.pos_history.push(self.state.hash);
         (own_piece, EMPTY)
     }
 
@@ -744,20 +738,18 @@ impl Board {
     }
 
     // Return true, if the engine considers the current position as a draw.
-    // Note: it already considers the first repetition of a position as a draw to stop searching a branch that leads to a draw earlier.
-    pub fn is_engine_draw(&self) -> bool {
-        self.pos_history.is_single_repetition(self.state.halfmove_clock)
-            || self.is_fifty_move_draw()
-            || self.is_insufficient_material_draw()
-    }
-
     pub fn is_draw(&self) -> bool {
-        self.pos_history.is_checked_single_repetition(self.state.halfmove_clock)
+        self.pos_history.is_repetition_draw(self.state.hash, self.halfmove_clock())
             || self.is_fifty_move_draw()
             || self.is_insufficient_material_draw()
     }
 
-    fn is_fifty_move_draw(&self) -> bool {
+
+    pub fn is_repetition_draw(&self) -> bool {
+        self.pos_history.is_repetition_draw(self.state.hash, self.halfmove_clock())
+    }
+
+    pub fn is_fifty_move_draw(&self) -> bool {
         self.state.halfmove_clock >= 100
     }
 
@@ -804,11 +796,6 @@ impl Board {
 
     /* Perform a Static Exchange Evaluation (SEE) to check, whether the net gain of the capture is still positive,
        after applying all immediate and discovered re-capture attacks.
-
-       Returns:
-       - a positive integer for winning captures
-       - a negative integer for losing captures
-       - a 0 otherwise
     */
     pub fn has_negative_see(&mut self, opp_color: Color, from: i32, target: i32, own_piece_id: i8, captured_piece_id: i8, threshold: i16, mut occupied_bb: u64) -> bool {
         let mut score = get_piece_value(captured_piece_id as usize);
@@ -911,6 +898,14 @@ impl Board {
 
     pub fn fast_eval(&mut self) -> i32 {
         self.nn_eval.fast_eval()
+    }
+
+    pub fn material_score(&self) -> i32 {
+        (self.get_bitboard(P).count_ones() as i32 - self.get_bitboard(-P).count_ones() as i32) * 100 +
+        (self.get_bitboard(N).count_ones() as i32 - self.get_bitboard(-N).count_ones() as i32) * 300 +
+        (self.get_bitboard(B).count_ones() as i32 - self.get_bitboard(-B).count_ones() as i32) * 330 +
+        (self.get_bitboard(R).count_ones() as i32 - self.get_bitboard(-R).count_ones() as i32) * 550 +
+        (self.get_bitboard(Q).count_ones() as i32 - self.get_bitboard(-Q).count_ones() as i32) * 990
     }
 
 }

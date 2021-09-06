@@ -210,16 +210,16 @@ impl NeuralNetEval {
 
     pub fn eval(&mut self) -> i32 {
         if self.active_player == WHITE {
-            if self.psq_wtm_score.abs() > 500 {
-                return self.psq_wtm_score as i32;
-            }
+            // if self.psq_wtm_score.abs() > 1500 {
+            //     return self.psq_wtm_score as i32;
+            // }
             for ((node, &bias), weights) in self.hidden2_nodes.iter_mut().zip(&self.hidden1_biases).zip(self.hidden1_weights.chunks_exact(HL_INPUTS / 16)) {
                 *node = relu(self.hidden1_nodes_wtm.dot_product(weights) + bias);
             }
         } else {
-            if self.psq_btm_score.abs() > 500 {
-                return self.psq_btm_score as i32;
-            }
+            // if self.psq_btm_score.abs() > 1500 {
+            //     return self.psq_btm_score as i32;
+            // }
             for ((node, &bias), weights) in self.hidden2_nodes.iter_mut().zip(&self.hidden1_biases).zip(self.hidden1_weights.chunks_exact(HL_INPUTS / 16)) {
                 *node = relu(self.hidden1_nodes_btm.dot_product(weights) + bias);
             }

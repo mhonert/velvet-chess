@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2020 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2021 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -16,52 +16,28 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::cmp::min;
-
-#[derive(Copy, Clone)]
-pub struct PositionHistory {
-    positions: [u64; 1024],
-    index: usize,
-}
+#[derive(Clone)]
+pub struct PositionHistory(Vec<u64>);
 
 impl PositionHistory {
     pub fn new() -> Self {
-        PositionHistory {
-            positions: [0; 1024],
-            index: 0,
-        }
+        PositionHistory(Vec::with_capacity(16))
     }
 
     pub fn push(&mut self, hash: u64) {
-        unsafe { *self.positions.get_unchecked_mut(self.index) = hash };
-        self.index += 1;
+        self.0.push(hash);
     }
 
     pub fn pop(&mut self) {
-        self.index -= 1;
+        self.0.pop();
     }
 
-    pub fn is_single_repetition(&self, halfmove_clock: u8) -> bool {
-        let mut pos = self.index - 1;
-        let hash = unsafe { *self.positions.get_unchecked(pos) };
-
-        let earliest_index = self.index + 2 - (min(self.index, halfmove_clock as usize));
-        while pos >= earliest_index {
-            pos -= 2;
-            if unsafe { *self.positions.get_unchecked(pos) } == hash {
-                return true;
-            }
-        }
-
-        false
-    }
-
-    pub fn is_checked_single_repetition(&self, halfmove_clock: u8) -> bool {
-         self.index > 0 && self.is_single_repetition(halfmove_clock)
+    pub fn is_repetition_draw(&self, hash: u64, halfmove_clock: u8) -> bool {
+        self.0.iter().rev().skip(1).step_by(2).take(halfmove_clock as usize / 2).any(|pos| *pos == hash)
     }
 
     pub fn clear(&mut self) {
-        self.index = 0;
+        self.0.clear();
     }
 }
 
@@ -79,13 +55,12 @@ mod tests {
         history.push(1003);
         history.push(1004);
 
+        assert!(!history.is_repetition_draw(1, 1));
+
         history.push(1);
-        assert!(!history.is_single_repetition(1));
+        assert!(!history.is_repetition_draw(2, 2));
 
         history.push(2);
-        assert!(!history.is_single_repetition(2));
-
-        history.push(1);
-        assert!(history.is_single_repetition(3));
+        assert!(history.is_repetition_draw(1, 3));
     }
 }
