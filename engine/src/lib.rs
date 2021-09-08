@@ -33,8 +33,8 @@ pub mod scores;
 pub mod search;
 pub mod transposition_table;
 pub mod uci;
+pub mod uci_move;
 
 mod pos_history;
 mod time_management;
-mod uci_move;
 mod zobrist;

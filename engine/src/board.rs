@@ -890,6 +890,7 @@ impl Board {
 
     pub fn reset_nn_eval(&mut self) {
         self.nn_eval.init_pos(self.active_player(), &self.bitboards);
+        self.nn_eval.save_base_scores();
     }
 
     pub fn eval(&mut self) -> i32 {

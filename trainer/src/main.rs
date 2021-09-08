@@ -654,7 +654,7 @@ fn read_from_fen_file(file_name: &str, writer: &mut BufWriter<FrameEncoder<File>
             panic!("Invalid test position entry: {}", line);
         }
 
-        let fen: String = parts[0..=5].join(" ");
+        let fen: String = (parts[0..=5].join(" ") as String).replace("~", "");
 
         let score_part = if parts.len() == 7 {
             parts[parts.len() - 2]

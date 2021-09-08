@@ -109,7 +109,7 @@ impl UCIMove {
     pub fn to_move(&self, board: &Board) -> Move {
         let start = self.start as i32;
         let end = self.end as i32;
-        let typ= board.get_move_type(start, end, self.promotion);
+        let typ = board.get_move_type(start, end, self.promotion);
 
         let target_piece_id = if self.promotion != EMPTY {
             self.promotion
