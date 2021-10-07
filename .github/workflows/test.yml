@@ -13,7 +13,7 @@ jobs:
 
       - name: Switch to nightly toolchain
         run: |
-          rustup override set nightly-2021-07-11
+          rustup override set nightly-2021-10-06
 
       - name: Run tests
         run: |
