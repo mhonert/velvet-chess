@@ -48,14 +48,14 @@ const INPUT_FEATURES: i64 = FEATURES_PER_BUCKET * 4;
 
 const DATA_WRITER_THREADS: usize = 4;
 
-const TEST_SETS: usize = 3;
+const TEST_SETS: usize = 4;
 
 const BATCH_SIZE: i64 = 50000;
 
 const K: f64 = 1.603;
 const K_DIV: f64 = K / 400.0;
 
-const MIN_TRAINING_SET_ID: usize = 4;
+const MIN_TRAINING_SET_ID: usize = 6;
 const FEN_TRAINING_SET_PATH: &str = "./data/train_fen/";
 const LZ4_TRAINING_SET_PATH: &str = "./data/train_lz4";
 const FEN_TEST_SET_PATH: &str = "./data/test_fen";
@@ -81,9 +81,9 @@ impl Mode for EvalNet {
             .add(nn::linear(vs / "input", INPUT_FEATURES, 64, Default::default()))
             .add(nn::linear(vs / "hidden1", 64, 64, Default::default()))
             .add_fn(|xs| xs.relu())
-            .add(nn::linear(vs / "hidden2", 64, 64, Default::default()))
+            .add(nn::linear(vs / "hidden2", 64, 16, Default::default()))
             .add_fn(|xs| xs.relu())
-            .add(nn::linear(vs / "output", 64, 1, Default::default()))
+            .add(nn::linear(vs / "output", 16, 1, Default::default()))
     }
 
     fn save_raw(&self, id: &str, vs: &nn::VarStore) {

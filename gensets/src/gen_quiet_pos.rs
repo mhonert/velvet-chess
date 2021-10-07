@@ -16,157 +16,25 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use velvet::colors::{BLACK, WHITE};
-use velvet::pieces::{EMPTY, P};
-use velvet::scores::{MAX_SCORE, MIN_SCORE };
-use velvet::transposition_table::{get_untyped_move, ScoreType};
-use velvet::moves::{Move, NO_MOVE};
-use velvet::search::Search;
+use velvet::moves::{Move};
+use velvet::search::{Search};
 
 // Code for generating quiet training positions for tuning and NN training
 pub trait GenQuietPos {
-    fn is_quiet_position(&mut self) -> bool;
-
-    fn is_quiet_pv(&mut self, pv: &[Move]) -> bool;
-
-    fn make_quiet_position(&mut self) -> bool;
-
-    fn static_quiescence_search(&mut self, alpha: i32, beta: i32, ply: i32) -> i32;
+    fn is_quiet_pv(&mut self, pv: &[Move], base_mat_score: i32) -> bool;
 }
 
 impl GenQuietPos for Search {
-    fn is_quiet_position(&mut self) -> bool {
-        if self.board.is_in_check(WHITE) || self.board.is_in_check(BLACK) {
-            return false;
-        }
-
-        self.movegen.enter_ply(self.board.active_player(), NO_MOVE, NO_MOVE, NO_MOVE);
-        while let Some(m) = self.movegen.next_move(&self.hh, &mut self.board) {
-            if m.is_promotion() {
-                self.movegen.leave_ply();
-                return false;
-            }
-
-            let previous_piece = self.board.get_item(m.start());
-            let previous_piece_id = previous_piece.abs();
-            let captured_piece_id = if m.is_en_passant() { P } else { self.board.get_item(m.end()).abs() };
-
-            // only skip capture moves with a negative SEE score
-            if captured_piece_id != EMPTY && !self.board.has_negative_see(-self.board.active_player(), m.start(), m.end(), previous_piece_id, captured_piece_id, 0, self.board.get_occupancy_bitboard()) {
-                self.movegen.leave_ply();
-                return false;
-            }
-        }
-
-        self.movegen.leave_ply();
-        true
-    }
-
-    fn is_quiet_pv(&mut self, pv: &[Move]) -> bool {
-        if !self.is_quiet_position() {
-            return false;
-        }
-
+    fn is_quiet_pv(&mut self, pv: &[Move], base_mat_score: i32) -> bool {
         if let Some((m, rest_pv)) = pv.split_first() {
             let (previous_piece, move_state) = self.board.perform_move(*m);
-            let is_quiet = !m.is_promotion() && !m.is_en_passant() && move_state == 0 && self.is_quiet_pv(rest_pv);
+            let is_quiet = self.is_quiet_pv(rest_pv, base_mat_score);
             self.board.undo_move(*m, previous_piece, move_state);
 
             is_quiet
 
         } else {
-            true
+            self.board.material_score() == base_mat_score
         }
     }
-
-    // Updates the current position until it is quiet
-    fn make_quiet_position(&mut self) -> bool {
-        let _ = self.static_quiescence_search(MIN_SCORE, MAX_SCORE, 0) as i16;
-
-        for _ in 0..32 {
-            if self.board.is_in_check(self.board.active_player()) || self.board.is_in_check(-self.board.active_player()) {
-                return false;
-            }
-
-            let entry = self.tt.get_entry(self.board.get_hash());
-            if entry == 0 {
-                return self.is_quiet_position();
-            }
-
-            let active_player = self.board.active_player();
-            let m = self.movegen.sanitize_move(&self.board, active_player, get_untyped_move(entry));
-            if m == NO_MOVE {
-                return self.is_quiet_position();
-            }
-
-            self.board.perform_move(m);
-        }
-
-        false
-    }
-
-    fn static_quiescence_search(&mut self, mut alpha: i32, beta: i32, ply: i32) -> i32 {
-        let active_player = self.board.active_player();
-
-        let position_score = self.board.eval() as i32 * active_player as i32;
-
-        if ply >= 60 {
-            return position_score;
-        }
-
-        if position_score >= beta {
-            return beta;
-        }
-
-        if alpha < position_score {
-            alpha = position_score;
-        }
-
-        self.movegen.enter_ply(active_player, NO_MOVE, NO_MOVE, NO_MOVE);
-
-        let mut best_move = NO_MOVE;
-
-        while let Some(m) = self.movegen.next_capture_move(&mut self.board) {
-            let start = m.start();
-            let end = m.end();
-            let previous_piece = self.board.get_item(start);
-            let previous_piece_id = previous_piece.abs();
-            let captured_piece_id = self.board.get_item(end).abs();
-
-            // skip capture moves with a SEE score below the given threshold
-            if captured_piece_id != EMPTY && self.board.has_negative_see(-active_player, start, end, previous_piece_id, captured_piece_id, 0, self.board.get_occupancy_bitboard()) {
-                continue;
-            }
-
-            let (_, move_state) = self.board.perform_move(m);
-
-            if self.board.is_in_check(active_player) {
-                // Invalid move
-                self.board.undo_move(m, previous_piece, move_state);
-                continue;
-            }
-
-            let score = -self.static_quiescence_search(-beta, -alpha, ply + 1);
-            self.board.undo_move(m, previous_piece, move_state);
-
-            if score >= beta {
-                self.tt.write_entry(self.board.get_hash(), 60 - ply, m, ScoreType::LowerBound);
-                self.movegen.leave_ply();
-                return beta;
-            }
-
-            if score > alpha {
-                best_move = m;
-                alpha = score;
-            }
-        }
-
-        if best_move != NO_MOVE {
-            self.tt.write_entry(self.board.get_hash(), 60 - ply, best_move, ScoreType::Exact);
-        }
-
-        self.movegen.leave_ply();
-        alpha
-    }
-
 }

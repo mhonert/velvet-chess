@@ -35,6 +35,8 @@ pub const HL_INPUTS: usize = 64;
 pub const HL_COUNT: i8 = 2;
 const HL_NODES: usize = 64;
 
+const HL_OUT_NODES: usize = 16;
+
 #[derive(Copy, Clone)]
 pub struct NeuralNetEval {
     psq_weights: [i16; INPUTS],
@@ -49,11 +51,11 @@ pub struct NeuralNetEval {
     hidden1_biases: [i16; HL_NODES],
 
     hidden2_nodes: [i16; HL_NODES],
-    hidden2_weights: [i16x16; HL_NODES * HL_NODES / 16],
-    hidden2_biases: [i16; HL_NODES],
+    hidden2_weights: [i16x16; HL_NODES * HL_OUT_NODES / 16],
+    hidden2_biases: [i16; HL_OUT_NODES],
 
-    output_nodes: [i16; HL_NODES],
-    output_weights: [i16x16; HL_NODES / 16],
+    output_nodes: [i16; HL_OUT_NODES],
+    output_weights: [i16x16; HL_OUT_NODES / 16],
     output_bias: i16,
 
     active_player: Color,
@@ -82,11 +84,11 @@ impl Default for NeuralNetEval {
             hidden1_biases: [0; HL_NODES],
 
             hidden2_nodes: [0; HL_NODES],
-            hidden2_weights: [i16x16::splat(0); HL_NODES * HL_NODES / 16],
-            hidden2_biases: [0; HL_NODES],
+            hidden2_weights: [i16x16::splat(0); HL_NODES * HL_OUT_NODES / 16],
+            hidden2_biases: [0; HL_OUT_NODES],
 
-            output_nodes: [0; HL_NODES],
-            output_weights: [i16x16::splat(0); HL_NODES / 16],
+            output_nodes: [0; HL_OUT_NODES],
+            output_weights: [i16x16::splat(0); HL_OUT_NODES / 16],
             output_bias: 0,
 
             active_player: WHITE,

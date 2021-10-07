@@ -16,9 +16,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::cmp::{max, min};
+use std::cmp::{min};
 use std::collections::HashSet;
-use std::thread;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::Path;
@@ -26,23 +25,24 @@ use std::process::exit;
 use std::str::FromStr;
 use std::sync::{Arc, mpsc};
 use std::sync::atomic::{AtomicBool, AtomicU64};
-use std::sync::mpsc::{Sender, Receiver};
+use std::sync::mpsc::{Receiver, Sender};
+use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use clap::App;
-use shakmaty::{CastlingMode, Chess, Position, Setup};
-use shakmaty::fen::{Fen, fen};
-use shakmaty_syzygy::{Dtz, SyzygyError, Tablebase, Wdl};
+use shakmaty::{CastlingMode, Chess, Position};
+use shakmaty::fen::{Fen};
+use shakmaty_syzygy::{Dtz, Tablebase};
 
+use gen_quiet_pos::GenQuietPos;
 use velvet::board::Board;
 use velvet::engine::{LogLevel, Message};
-use velvet::fen::{START_POS, create_from_fen, write_fen};
+use velvet::fen::{create_from_fen, START_POS, write_fen};
 use velvet::history_heuristics::HistoryHeuristics;
 use velvet::magics::initialize_magics;
 use velvet::move_gen::MoveGenerator;
 use velvet::moves::{Move, NO_MOVE};
 use velvet::random::Random;
-use velvet::scores::{MAX_SCORE, MIN_SCORE};
 use velvet::search::{PrincipalVariation, Search, SearchLimits};
 use velvet::transposition_table::TranspositionTable;
 use velvet::uci_move::UCIMove;
@@ -55,7 +55,7 @@ struct TestPos {
     count: u16,
     prev_score: i32,
     score: i32,
-    is_quiet: bool,
+    include: bool,
     mat_score: i32,
 }
 
@@ -207,7 +207,7 @@ fn find_test_positions(tx: &Sender<TestPos>, openings: &[String], tb_path: Strin
 
         let mut positions = collect_quiet_pos(&tb, &mut rnd, opening.as_str(), tt.clone());
         for pos in positions.iter_mut() {
-            if !pos.is_quiet {
+            if !pos.include {
                 continue;
             }
 
@@ -218,15 +218,11 @@ fn find_test_positions(tx: &Sender<TestPos>, openings: &[String], tb_path: Strin
     }
 }
 
-fn select_move(rx: Option<&Receiver<Message>>, rnd: &mut Random, move_variety: bool, search: &mut Search, mut min_depth: i32) -> (Move, PrincipalVariation) {
+fn select_move(rx: Option<&Receiver<Message>>, rnd: &mut Random, move_variety: bool, search: &mut Search, min_depth: i32) -> (Move, PrincipalVariation) {
     let mut move_candidates = Vec::with_capacity(4);
     let mut min_score = i32::MIN;
     let mut latest_move = NO_MOVE;
     let mut chosen_pv = PrincipalVariation::new();
-
-    if move_variety {
-        min_depth -= 1;
-    }
 
     loop {
         let (m, pv) = search.find_best_move(rx, min_depth, &move_candidates);
@@ -239,7 +235,7 @@ fn select_move(rx: Option<&Receiver<Message>>, rnd: &mut Random, move_variety: b
         }
 
         if move_candidates.is_empty() {
-            min_score = m.score() - 20;
+            min_score = m.score() - 10;
         }
 
         latest_move = m;
@@ -262,10 +258,9 @@ fn collect_quiet_pos(tb: &Tablebase<Chess>, rnd: &mut Random, opening: &str, tt:
     let board = create_from_fen(opening);
 
     let (_tx, rx) = mpsc::channel::<Message>();
-    let node_limit = 20000 + (rnd.rand32() % 2000) as u64;
-    let limits = SearchLimits::new(None, Some(node_limit), None, None, None, None, Some(200), None).unwrap();
-    let mut search = Search::new(Arc::new(AtomicBool::new(false)), Arc::new(AtomicU64::new(0)), LogLevel::Error, limits, tt.clone(), board, 1);
-
+    let node_limit = 10000 + (rnd.rand32() % 1000) as u64;
+    let limits = SearchLimits::new(None, Some(node_limit), None, None, None, None, Some(1), None).unwrap();
+    let mut search = Search::new(Arc::new(AtomicBool::new(false)), Arc::new(AtomicU64::new(0)), LogLevel::Error, limits, tt, board, 1);
 
     let mut positions = Vec::new();
     let mut ply = 0;
@@ -274,6 +269,8 @@ fn collect_quiet_pos(tb: &Tablebase<Chess>, rnd: &mut Random, opening: &str, tt:
 
     loop {
         ply += 1;
+
+        let is_candidate = ply >= 8 && !search.board.is_in_check(search.board.active_player());
 
         search.set_node_limit(node_limit);
         let (selected_move, pv) = select_move(Some(&rx), rnd, move_variety, &mut search, 9);
@@ -285,140 +282,56 @@ fn collect_quiet_pos(tb: &Tablebase<Chess>, rnd: &mut Random, opening: &str, tt:
                 (0, "Draw")
             };
 
-            return adjust_scores(positions, result, search.board.halfmove_count(), String::from(description));
+            return adjust_scores(positions, result, String::from(description));
         }
 
         let score = selected_move.score() * search.board.active_player() as i32;
-        move_variety = ply <= 8 && score.abs() <= 200;
+        move_variety = ply <= 12 && score.abs() <= 200;
 
         if search.board.is_insufficient_material_draw() {
-            return adjust_scores(positions, 0, search.board.halfmove_count(), String::from("Insufficient material draw"));
+            return adjust_scores(positions, 0, String::from("Insufficient material draw"));
         } else if search.board.is_repetition_draw() {
-            return adjust_scores(positions, 0, search.board.halfmove_count(), String::from("Repetition draw"));
+            return adjust_scores(positions, 0, String::from("Repetition draw"));
         } else if search.board.is_fifty_move_draw() {
-            return adjust_scores(positions, 0, search.board.halfmove_count(), String::from("50-move draw"));
+            return adjust_scores(positions, 0, String::from("50-move draw"));
         }
 
         if search.board.get_occupancy_bitboard().count_ones() <= 5 {
-            return resolve_tb_match(tb, &mut search, positions);
+            return resolve_tb_match(tb, Some(&rx), &mut duplicate_check, &mut search, positions);
         }
 
-        if score.abs() >= 4000 {
-            return adjust_scores(positions, score.signum(), search.board.halfmove_count(), String::from("Score >= 4000"));
-        }
+        let fen = write_fen(&search.board);
+        let is_quiet = is_candidate && pv.moves().len() >= 9 && search.is_quiet_pv(&pv.moves(), search.board.material_score());
 
-        if ply >= 8 && pv.moves().len() >= 7 && !search.board.is_in_check(search.board.active_player()) {
-            let quiet_fen = extract_quiet_fen(Some(&rx), &mut duplicate_check, &mut search, &pv.moves());
-            let is_quiet = quiet_fen.is_some();
-            positions.push(TestPos{
-                fen: quiet_fen,
+        if !duplicate_check.contains(&fen) && score.abs() < 6000 {
+            duplicate_check.insert(fen.clone());
+            positions.push(TestPos {
+                fen: Some(fen),
                 count: search.board.halfmove_count(),
                 prev_score: score,
                 score,
-                is_quiet,
+                include: is_quiet && score.abs() <= 3000,
                 mat_score: search.board.material_score(),
             });
-        } else {
-            positions.push(TestPos{
-                fen: None,
-                count: search.board.halfmove_count(),
-                prev_score: score,
-                score,
-                is_quiet: false,
-                mat_score: search.board.material_score(),
-            });
-
         }
 
         search.board.perform_move(selected_move);
     }
 }
 
-fn extract_quiet_fen(rx: Option<&Receiver<Message>>, duplicate_check: &mut HashSet<String>, search: &mut Search, pv: &[Move]) -> Option<String> {
 
-    let mut qs_pv = PrincipalVariation::new();
-    search.quiescence_search(search.board.active_player(), MIN_SCORE, MAX_SCORE, 0, None, &mut qs_pv);
-
-    if !qs_pv.moves().is_empty() {
-        if let Some((m, rest_pv)) = pv.split_first() {
-            let (previous_piece, move_state) = search.board.perform_move(*m);
-            let result = extract_quiet_fen(rx, duplicate_check, search, rest_pv);
-            search.board.undo_move(*m, previous_piece, move_state);
-
-            return result;
-        }
-    }
-
-    if search.board.is_in_check(search.board.active_player()) {
-        return None;
-    }
-
-    // Reached end of PV
-    let fen = write_fen(&search.board);
-    if duplicate_check.contains(&fen) {
-        return None;
-    }
-    duplicate_check.insert(fen.clone());
-
-    Some(fen)
-}
-
-fn adjust_scores(mut positions: Vec<TestPos>, mut game_result: i32, end_count: u16, result: String) -> Vec<TestPos> {
-    if positions.len() <= 2 {
-        return Vec::new();
-    }
-
-    game_result *= 4000;
-    // if game_result == 0 {
-    //     let end = positions.len();
-    //     for i in 0..positions.len() {
-    //         positions[end - i - 1].score /= 2;
-    //     }
-    // }
-
-    for i in (1..positions.len()).rev() {
-        if positions[i].mat_score != positions[i - 1].mat_score {
-            for j in (max(0, i as i32 - 8) as usize)..i {
-                positions[j].is_quiet = false;
-            }
-        }
-    }
-
-    let last_index = positions.len() - 1;
-
-    for _ in 0..7 {
-        positions[last_index].score = game_result;
-        for i in (1..positions.len()).rev() {
-            let last_score = positions[i].score;
-            let curr_score = positions[i - 1].score;
-
-            positions[i - 1].score = (last_score + curr_score) / 2;
-        }
-    }
-
-    // println!("-----------------------------------------------------------");
-    // println!("{}: {}", result, game_result);
-
-    positions
-}
-
-fn resolve_tb_match(tb: &Tablebase<Chess>, search: &mut Search, mut positions: Vec<TestPos>) -> Vec<TestPos> {
+fn resolve_tb_match(tb: &Tablebase<Chess>, rx: Option<&Receiver<Message>>, duplicate_check: &mut HashSet<String>, search: &mut Search, mut positions: Vec<TestPos>) -> Vec<TestPos> {
     let start_fen = write_fen(&search.board);
     let mut pos: Chess = start_fen.parse::<Fen>().expect("Could not parse FEN").position(CastlingMode::Standard).unwrap();
-    let dtz = tb.probe_dtz(&pos).unwrap();
-    let wdl = real_wdl(tb, &pos, dtz).unwrap();
 
-    let result = match wdl {
-        Wdl::Loss => -1,
-        Wdl::Win => 1,
-        _ => 0,
-    } * search.board.active_player() as i32;
-
-    let start_index = positions.len();
-    let score = result * 4000;
+    let mut result = 0;
 
     loop {
         if pos.is_game_over() {
+            result = match pos.outcome().unwrap() {
+                shakmaty::Outcome::Draw => 0,
+                shakmaty::Outcome::Decisive { winner } => if winner.is_white() { 1 } else { -1 },
+            };
             break;
         }
 
@@ -426,75 +339,85 @@ fn resolve_tb_match(tb: &Tablebase<Chess>, search: &mut Search, mut positions: V
         if dtz == Dtz(0) {
             break;
         }
+        pos = pos.play(&m).expect("invalid move");
 
-        let mut qs_pv = PrincipalVariation::new();
-        search.quiescence_search(search.board.active_player(), MIN_SCORE, MAX_SCORE, 0, None, &mut qs_pv);
+        let uci_move = UCIMove::from_uci(&m.to_uci(CastlingMode::Standard).to_string()).unwrap();
 
-        let is_quiet = qs_pv.moves().is_empty();
+        let m = uci_move.to_move(&search.board);
+        let (score, is_quiet) = search_tb_move(rx, search, m);
 
-        if is_quiet {
-            let fen = fen(&pos);
+        let fen = write_fen(&search.board);
 
-            positions.push(TestPos{
+        if !duplicate_check.contains(&fen) && score.abs() < 6000 {
+            duplicate_check.insert(fen.clone());
+            positions.push(TestPos {
                 fen: Some(fen),
                 count: search.board.halfmove_count(),
                 prev_score: score,
                 score,
-                is_quiet,
-                mat_score: search.board.material_score(),
-            });
-        } else {
-            positions.push(TestPos{
-                fen: None,
-                count: search.board.halfmove_count(),
-                prev_score: score,
-                score,
-                is_quiet,
+                include: is_quiet && score.abs() <= 3000,
                 mat_score: search.board.material_score(),
             });
         }
 
-        pos = pos.play(&m).expect("invalid move");
-
-        let uci_move = UCIMove::from_uci(&m.to_uci(CastlingMode::Standard).to_string()).unwrap();
-        let m = uci_move.to_move(&search.board);
         search.board.perform_move(m);
     }
 
-    let end_count = search.board.halfmove_count();
+    adjust_scores(positions, result, String::from("TB"))
+}
 
-    let end_index = positions.len();
-    for i in start_index..end_index {
-        if positions[i].score < 0 {
-            positions[i].score += ((end_count - positions[i].count) * 100) as i32;
-        } else if positions[i].score > 0 {
-            positions[i].score -= ((end_count - positions[i].count) * 100) as i32;
+fn search_tb_move(rx: Option<&Receiver<Message>>, search: &mut Search, tb_move: Move) -> (i32, bool) {
+    search.movegen.enter_ply(search.board.active_player(), NO_MOVE, NO_MOVE, NO_MOVE);
+    let mut skipped_moves = Vec::new();
+    while let Some(m) = search.movegen.next_legal_move(&search.hh, &mut search.board) {
+        if !m.is_same_move(tb_move) {
+            skipped_moves.push(m.without_score())
+        }
+    }
+    search.movegen.leave_ply();
+
+    // Only search the table base move, skip all other moves
+    let (scored_move, pv) = search.find_best_move(rx, 9, &skipped_moves);
+
+    let is_quiet = !search.board.is_in_check(search.board.active_player()) && pv.moves().len() >= 9 && search.is_quiet_pv(&pv.moves(), search.board.material_score());
+
+    (scored_move.score() * search.board.active_player() as i32, is_quiet)
+}
+
+fn adjust_scores(mut positions: Vec<TestPos>, game_result: i32, _result: String) -> Vec<TestPos> {
+    // println!("-----------------------------------------------------------");
+    // println!("{}: {}", result, game_result);
+
+    if positions.is_empty() {
+        return positions;
+    }
+
+    if game_result == 0 {
+        positions.last_mut().unwrap().score = 0;
+
+        for (i, pos) in positions.iter_mut().rev().take(32).enumerate() {
+            pos.score /= 33 - i as i32;
         }
     }
 
-    adjust_scores(positions, result, end_count, String::from("TB"))
-}
+    for i in 0..positions.len() {
+        for j in i..min(i + 16, positions.len() - 1) {
+            if game_result == 0 {
+                if positions[j].prev_score.abs() < positions[i].score.abs() {
+                    positions[i].score = (positions[i].score * 8 + positions[j].prev_score) / 9;
+                }
+                continue;
+            }
 
-fn real_wdl(tb: &Tablebase<Chess>, pos: &Chess, dtz: Dtz) -> Result<Wdl, SyzygyError> {
-    if let Some(outcome) = pos.outcome() {
-        return Ok(Wdl::from_outcome(outcome, pos.turn()));
+            let diff = positions[j].prev_score - positions[i].score;
+            if game_result.signum() == diff.signum() {
+                positions[i].score = (positions[i].score * 8 + positions[j].prev_score) / 9;
+            }
+        }
+        positions[i].include = positions[i].include && positions[i].score.abs() <= 3000;
     }
 
-    let halfmoves = min(101, pos.halfmoves()) as i32;
-    let before_zeroing = dtz.add_plies(halfmoves);
-
-    if before_zeroing.0.abs() != 100 || halfmoves == 0 {
-        return Ok(Wdl::from_dtz_after_zeroing(before_zeroing));
-    }
-
-    if halfmoves == 1 && dtz.0.abs() == 99 {
-        return Ok(Wdl::from_dtz_after_zeroing(before_zeroing));
-    }
-
-    let best = tb.best_move(pos)?.expect("has moves");
-    let mut after = pos.clone();
-    after.play_unchecked(&best.0);
-    Ok(-real_wdl(tb, &after, best.1)?)
+    positions
 }
 
 fn new_rnd_seed() -> u64 {
