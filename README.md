@@ -24,7 +24,7 @@ Since Velvet is written in Rust, a manual compilation requires the installation 
 The engine currently requires a nightly build in order to use some SIMD optimizations.
 
 ```shell
-rustup override set nightly
+rustup override set nightly-2021-10-06
 ```
 
 Then you can compile the engine using **cargo**:

@@ -1,16 +1,14 @@
 
-The major feature of this new release is the addition of a neural network for position evaluation :robot:
-
-The neural network has been trained from a set of 800 million chess positions from Velvet self-play games.
-For this I created two new tools:
-- **gensets**: Extracts and labels chess positions from games that Velvet plays against itself
-- **trainer**: Trains a neural network using the labeled chess position sets as training data 
+The major feature of this new release is the support for multi-threaded search using the Lazy SMP approach.
 
 ## Changes
-- Added neural network based evaluation
-- Optimized slider attack generation using magic bitboards
-- Refactored and simplified time management
-- Additional optimizations and minor bug-fixes
+- Added multi-threaded search
+- Added new neural network trained using self-play positions and evaluations from Velvet 2.0.0
+- Reduced neural network size by half: removed color-specific input features
+- Improved training set generation by increasing the position variety
+- Optimized neural network evaluation
+- Replaced null move reduction with null move pruning
+- Tuned and improved search
 
 ## Installation
 The chess engine is available for Windows and Linux and requires a 64 Bit CPU.
