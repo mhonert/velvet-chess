@@ -125,6 +125,8 @@ impl Search {
 
         let mut pv = PrincipalVariation::new();
 
+        helper_threads.start_search();
+
         // Use iterative deepening, i.e. increase the search depth after each iteration
         for depth in 1..(MAX_DEPTH as i32) {
             let iteration_start_time = Instant::now();
@@ -133,12 +135,9 @@ impl Search {
 
             let mut iteration_cancelled = false;
 
-            helper_threads.start_search(depth);
 
             let mut local_pv = PrincipalVariation::new();
             let (move_num, mut best_move, current_pv) = self.root_search(rx, skipped_moves, depth, &mut local_pv);
-
-            helper_threads.stop_search();
 
             let now = Instant::now();
 
@@ -182,6 +181,7 @@ impl Search {
             }
 
         }
+        helper_threads.stop_search();
 
         self.movegen.leave_ply();
 
@@ -198,7 +198,6 @@ impl Search {
         for _ in 0..self.helper_thread_count {
 
             let node_count = self.node_count.clone();
-            let limits = self.limits;
             let tt = self.tt.clone();
             let board = self.board.clone();
 
@@ -213,6 +212,7 @@ impl Search {
 
             let skipped_moves = Vec::from(skipped_moves);
             thread::spawn(move || {
+                let limits = SearchLimits::default();
                 let mut sub_search = Search::new(stop_search.clone(), node_count, LogLevel::Error, limits, tt, board, 1);
                 sub_search.movegen.enter_ply(active_player, NO_MOVE, NO_MOVE, NO_MOVE);
 
@@ -226,8 +226,16 @@ impl Search {
                     };
 
                     match msg {
-                        HelperThreadMessage::Search(depth) => {
-                            sub_search.root_search(None, &skipped_moves, depth, &mut PrincipalVariation::new());
+                        HelperThreadMessage::Search => {
+                            for depth in 1..MAX_DEPTH {
+                                let (move_count, _, _) = sub_search.root_search(None, &skipped_moves, depth as i32, &mut PrincipalVariation::new());
+                                if move_count <= 1 {
+                                    break;
+                                }
+                                if sub_search.is_stopped() {
+                                    break;
+                                }
+                            }
                             search_stopped.store(true, Ordering::Release);
                         }
 
@@ -918,7 +926,7 @@ impl PrincipalVariation {
 }
 
 enum HelperThreadMessage {
-    Search(i32),
+    Search,
     Terminate,
 }
 
@@ -937,9 +945,9 @@ impl HelperThreads {
         self.threads.push(HelperThread{tx, stop_search, search_stopped, thread_terminated})
     }
 
-    pub fn start_search(&self, depth: i32) {
+    pub fn start_search(&self) {
         for t in self.threads.iter() {
-            t.search(depth);
+            t.search();
         }
     }
 
@@ -980,10 +988,10 @@ struct HelperThread {
 }
 
 impl HelperThread {
-    pub fn search(&self, depth: i32) {
+    pub fn search(&self) {
         self.stop_search.store(false, Ordering::Release);
         self.search_stopped.store(false, Ordering::Release);
-        self.tx.send(HelperThreadMessage::Search(depth)).unwrap();
+        self.tx.send(HelperThreadMessage::Search).unwrap();
     }
 
     pub fn stop(&self) {
