@@ -243,6 +243,7 @@ impl NeuralNetEval {
             for ((node, &bias), weights) in self.hidden2_nodes.iter_mut().zip(&self.hidden1_biases).zip(self.hidden1_weights.chunks_exact(HL_INPUTS / 16)) {
                 *node = relu(self.hidden1_nodes_wtm.dot_product(weights) + bias);
             }
+
         } else {
             if (self.base_psq_btm_score - self.psq_btm_score).abs() > 500 {
                 return self.psq_btm_score as i32;
@@ -269,18 +270,14 @@ impl NeuralNetEval {
 
 fn read_quantized(reader: &mut BufReader<&[u8]>, target: &mut [i16]) {
     let size = reader.read_i32::<LittleEndian>().expect("Could not read size") as usize;
-    if size != target.len() {
-        panic!("Size mismatch: expected {}, but got {}", target.len(), size);
-    }
+    assert_eq!(size, target.len(), "Size mismatch: expected {}, but got {}", target.len(), size);
 
     reader.read_i16_into::<LittleEndian>(target).expect("Could not fill target");
 }
 
 fn read_quantized_i16x16(reader: &mut BufReader<&[u8]>, target: &mut [i16x16]) {
     let size = reader.read_i32::<LittleEndian>().expect("Could not read size") as usize;
-    if size != target.len() * 16 {
-        panic!("Size mismatch: expected {}, but got {}", target.len() * 16, size);
-    }
+    assert_eq!(size, target.len() * 16, "Size mismatch: expected {}, but got {}", target.len() * 16, size);
 
     for t in target.iter_mut() {
         let mut entry = [0i16; 16];
@@ -305,10 +302,9 @@ trait DotProduct16<T> {
 impl DotProduct16<&[i16]> for &[i16] {
     #[inline(always)]
     fn dot_product(self, weights: &[i16x16]) -> i16 {
-        (self.chunks_exact(16)
-            .map(|v| i16x16::from_slice_unaligned(v))
+        (self.array_chunks()
             .zip(weights)
-            .map(|(n, w)| (i32x16::from(n) * i32x16::from(*w)))
+            .map(|(n, w)| (i32x16::from(i16x16::from(*n)) * i32x16::from(*w)))
             .sum::<i32x16>()
             .wrapping_sum() >> FP_PRECISION_BITS) as i16
     }
