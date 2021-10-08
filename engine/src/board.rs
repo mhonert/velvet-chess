@@ -894,7 +894,7 @@ impl Board {
     }
 
     pub fn eval(&mut self) -> i32 {
-        self.nn_eval.eval()
+        self.nn_eval.eval(self.halfmove_clock())
     }
 
     pub fn fast_eval(&mut self) -> i32 {

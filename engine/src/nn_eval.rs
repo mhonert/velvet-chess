@@ -235,10 +235,10 @@ impl NeuralNetEval {
         }
     }
 
-    pub fn eval(&mut self) -> i32 {
+    pub fn eval(&mut self, half_move_clock: u8) -> i32 {
         if self.active_player == WHITE {
             if (self.base_psq_wtm_score - self.psq_wtm_score).abs() > 500 {
-                return self.psq_wtm_score as i32;
+                return adjust_eval(self.psq_wtm_score as i32, half_move_clock);
             }
             for ((node, &bias), weights) in self.hidden2_nodes.iter_mut().zip(&self.hidden1_biases).zip(self.hidden1_weights.chunks_exact(HL_INPUTS / 16)) {
                 *node = relu(self.hidden1_nodes_wtm.dot_product(weights) + bias);
@@ -246,7 +246,7 @@ impl NeuralNetEval {
 
         } else {
             if (self.base_psq_btm_score - self.psq_btm_score).abs() > 500 {
-                return self.psq_btm_score as i32;
+                return adjust_eval(self.psq_btm_score as i32, half_move_clock);
             }
             for ((node, &bias), weights) in self.hidden2_nodes.iter_mut().zip(&self.hidden1_biases).zip(self.hidden1_weights.chunks_exact(HL_INPUTS / 16)) {
                 *node = relu(self.hidden1_nodes_btm.dot_product(weights) + bias);
@@ -261,10 +261,20 @@ impl NeuralNetEval {
         let score = out * 2048 / (1 << FP_PRECISION_BITS);
 
         if self.active_player == WHITE {
-            score
+            adjust_eval(score, half_move_clock)
         } else {
-            -score
+            adjust_eval(-score, half_move_clock)
         }
+    }
+}
+
+// Scale eval score towards 0 for decreasing number of remaining half moves till the 50-move (draw) rule triggers
+fn adjust_eval(score: i32, half_move_clock: u8) -> i32 {
+    let remaining_half_moves = max(0, 100 - half_move_clock as i32);
+    if remaining_half_moves >= 95 {
+        score
+    } else {
+        score * remaining_half_moves / 95
     }
 }
 

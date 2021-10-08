@@ -576,6 +576,7 @@ impl Search {
                     best_score = score;
                     best_move = curr_move;
 
+                    // Alpha-beta pruning
                     if best_score >= beta {
                         self.tt.write_entry(hash, depth, best_move.with_score(from_root_relative_score(ply, best_score)), ScoreType::LowerBound);
 
@@ -587,11 +588,10 @@ impl Search {
                         return best_score;
                     }
 
-                    // Alpha-beta pruning
                     if best_score > alpha {
                         alpha = best_score;
                         score_type = ScoreType::Exact;
-                        pv.update(best_move, &mut &mut local_pv);
+                        pv.update(best_move, &mut local_pv);
                     }
 
                 }
