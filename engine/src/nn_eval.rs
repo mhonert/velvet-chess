@@ -254,7 +254,7 @@ impl NeuralNetEval {
 
     pub fn eval(&mut self, half_move_clock: u8) -> i32 {
         if self.active_player == WHITE {
-            if (self.base_psq_wtm_score - self.psq_wtm_score).abs() > 500 {
+            if self.psq_wtm_score.abs() > 500 && (self.base_psq_wtm_score - self.psq_wtm_score).abs() > 500 {
                 return adjust_eval(self.psq_wtm_score as i32, half_move_clock);
             }
             for ((node, &bias), weights) in self.hidden2_nodes.iter_mut().zip(&self.params.hidden1_biases).zip(self.params.hidden1_weights.chunks_exact(HL_INPUTS / 16)) {
@@ -262,7 +262,7 @@ impl NeuralNetEval {
             }
 
         } else {
-            if (self.base_psq_btm_score - self.psq_btm_score).abs() > 500 {
+            if self.psq_btm_score.abs() > 500 && (self.base_psq_btm_score - self.psq_btm_score).abs() > 500 {
                 return adjust_eval(self.psq_btm_score as i32, half_move_clock);
             }
             for ((node, &bias), weights) in self.hidden2_nodes.iter_mut().zip(&self.params.hidden1_biases).zip(self.params.hidden1_weights.chunks_exact(HL_INPUTS / 16)) {
