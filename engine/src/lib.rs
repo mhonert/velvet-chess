@@ -17,6 +17,7 @@
  */
 
 #![feature(array_chunks)]
+#![feature(once_cell)]
 
 pub mod bitboard;
 pub mod board;
