@@ -22,7 +22,6 @@ use crate::pieces::{B, K, N, P, Q, R, EMPTY};
 use crate::moves::{Move, MoveType, NO_MOVE};
 use crate::history_heuristics::{HistoryHeuristics};
 use crate::transposition_table::MAX_DEPTH;
-use crate::magics::{get_bishop_attacks, get_rook_attacks, get_queen_attacks};
 
 const CAPTURE_ORDER_SIZE: usize = 5 + 5 * 6 + 1;
 
@@ -417,7 +416,7 @@ impl MoveList {
         }
 
         for pos in BitBoard(board.get_bitboard(B * active_player)) {
-            let attacks = get_bishop_attacks(empty_bb, pos as i32);
+            let attacks = board.get_bishop_attacks(empty_bb, pos as i32);
             self.gen_piece_moves(board, B, pos as i32, attacks, opponent_bb, empty_bb);
         }
 
@@ -427,12 +426,12 @@ impl MoveList {
         }
 
         for pos in BitBoard(board.get_bitboard(R * active_player)) {
-            let attacks = get_rook_attacks(empty_bb, pos as i32);
+            let attacks = board.get_rook_attacks(empty_bb, pos as i32);
             self.gen_piece_moves(board, R, pos as i32, attacks, opponent_bb, empty_bb);
         }
 
         for pos in BitBoard(board.get_bitboard(Q * active_player)) {
-            let attacks = get_queen_attacks(empty_bb, pos as i32);
+            let attacks = board.get_queen_attacks(empty_bb, pos as i32);
             self.gen_piece_moves(board, Q, pos as i32, attacks, opponent_bb, empty_bb);
         }
 
@@ -465,17 +464,17 @@ impl MoveList {
         }
 
         for pos in BitBoard(board.get_bitboard(B * active_player)) {
-            let attacks = get_bishop_attacks(empty_bb, pos as i32);
+            let attacks = board.get_bishop_attacks(empty_bb, pos as i32);
             self.add_capture_moves(board, MoveType::Capture, B, pos as i32, attacks & opponent_bb);
         }
 
         for pos in BitBoard(board.get_bitboard(R * active_player)) {
-            let attacks = get_rook_attacks(empty_bb, pos as i32);
+            let attacks = board.get_rook_attacks(empty_bb, pos as i32);
             self.add_capture_moves(board, MoveType::Capture, R, pos as i32, attacks & opponent_bb);
         }
 
         for pos in BitBoard(board.get_bitboard(Q * active_player)) {
-            let attacks = get_queen_attacks(empty_bb, pos as i32);
+            let attacks = board.get_queen_attacks(empty_bb, pos as i32);
             self.add_capture_moves(board, MoveType::Capture, Q, pos as i32, attacks & opponent_bb);
         }
 
@@ -737,7 +736,7 @@ impl MoveList {
                 if target_piece_id != B {
                     return NO_MOVE;
                 }
-                if (get_bishop_attacks(empty_bb, start) & end_bb) == 0 {
+                if (board.get_bishop_attacks(empty_bb, start) & end_bb) == 0 {
                     return NO_MOVE;
                 }
 
@@ -748,7 +747,7 @@ impl MoveList {
                 if target_piece_id != R {
                     return NO_MOVE;
                 }
-                if (get_rook_attacks(empty_bb, start) & end_bb) == 0 {
+                if (board.get_rook_attacks(empty_bb, start) & end_bb) == 0 {
                     return NO_MOVE;
                 }
 
@@ -759,7 +758,7 @@ impl MoveList {
                 if target_piece_id != Q {
                     return NO_MOVE;
                 }
-                if (get_queen_attacks(empty_bb, start) & end_bb) == 0 {
+                if (board.get_queen_attacks(empty_bb, start) & end_bb) == 0 {
                     return NO_MOVE;
                 }
 
@@ -981,7 +980,6 @@ const fn calc_capture_order_scores() -> [i32; CAPTURE_ORDER_SIZE] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::magics::initialize_magics;
 
     #[rustfmt::skip]
     const ONLY_KINGS: [i8; 64] = [
@@ -1006,8 +1004,6 @@ mod tests {
 
     #[test]
     pub fn white_queen_moves() {
-        initialize_magics();
-
         let mut board = board_with_one_piece(WHITE, Q, 28);
 
         let moves = generate_moves_for_pos(&mut board, WHITE, 28);
@@ -1017,8 +1013,6 @@ mod tests {
 
     #[test]
     pub fn exclude_illegal_moves() {
-        initialize_magics();
-
         let mut board = board_with_one_piece(WHITE, Q, 52);
         board.perform_move(Move::new(MoveType::KingQuiet, K, board.king_pos(WHITE), 53));
         board.add_piece(BLACK, R, 51);

@@ -39,7 +39,6 @@ use velvet::board::Board;
 use velvet::engine::{LogLevel, Message};
 use velvet::fen::{create_from_fen, START_POS, write_fen};
 use velvet::history_heuristics::HistoryHeuristics;
-use velvet::magics::initialize_magics;
 use velvet::move_gen::MoveGenerator;
 use velvet::moves::{Move, NO_MOVE};
 use velvet::random::Random;
@@ -86,8 +85,6 @@ fn main() {
         exit(1);
     }
     println!("Running with {} concurrent threads", concurrency);
-
-    initialize_magics();
 
     // println!("Reading opening book: {} ...", book_file);
     // let openings = read_openings(book_file);
@@ -221,7 +218,7 @@ fn select_move(rx: Option<&Receiver<Message>>, rnd: &mut Random, move_variety: b
     let mut move_candidates = Vec::with_capacity(4);
     let mut min_score = i32::MIN;
     let mut latest_move = NO_MOVE;
-    let mut chosen_pv = PrincipalVariation::new();
+    let mut chosen_pv = PrincipalVariation::default();
 
     loop {
         let (m, pv) = search.find_best_move(rx, min_depth, &move_candidates);

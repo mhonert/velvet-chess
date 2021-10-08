@@ -123,7 +123,7 @@ impl Search {
 
         let helper_threads = self.start_helper_threads(skipped_moves);
 
-        let mut pv = PrincipalVariation::new();
+        let mut pv = PrincipalVariation::default();
 
         helper_threads.start_search();
 
@@ -136,7 +136,7 @@ impl Search {
             let mut iteration_cancelled = false;
 
 
-            let mut local_pv = PrincipalVariation::new();
+            let mut local_pv = PrincipalVariation::default();
             let (move_num, mut best_move, current_pv) = self.root_search(rx, skipped_moves, depth, &mut local_pv);
 
             let now = Instant::now();
@@ -228,7 +228,7 @@ impl Search {
                     match msg {
                         HelperThreadMessage::Search => {
                             for depth in 1..MAX_DEPTH {
-                                let (move_count, _, _) = sub_search.root_search(None, &skipped_moves, depth as i32, &mut PrincipalVariation::new());
+                                let (move_count, _, _) = sub_search.root_search(None, &skipped_moves, depth as i32, &mut PrincipalVariation::default());
                                 if move_count <= 1 {
                                     break;
                                 }
@@ -286,7 +286,7 @@ impl Search {
 
             let gives_check = self.board.is_in_check(-active_player);
 
-            let mut local_pv = PrincipalVariation::new();
+            let mut local_pv = PrincipalVariation::default();
 
             // Use principal variation search
             let mut result = self.rec_find_best_move(rx, a, -alpha, depth - reduction - 1, 1, false, gives_check, capture_pos, &mut local_pv);
@@ -445,7 +445,7 @@ impl Search {
             if pos_score.unwrap() >= beta {
                 let r = log2((depth * 3 - 3) as u32);
                 self.board.perform_null_move();
-                let result = self.rec_find_best_move(rx, -beta, -beta + 1, depth - r - 1, ply + 1, true, false, -1, &mut PrincipalVariation::new());
+                let result = self.rec_find_best_move(rx, -beta, -beta + 1, depth - r - 1, ply + 1, true, false, -1, &mut PrincipalVariation::default());
                 self.board.undo_null_move();
                 if result == CANCEL_SEARCH {
                     return CANCEL_SEARCH;
@@ -550,7 +550,7 @@ impl Search {
 
                 evaluated_move_count += 1;
 
-                let mut local_pv = PrincipalVariation::new();
+                let mut local_pv = PrincipalVariation::default();
 
                 let mut result = self.rec_find_best_move(rx, a, -alpha, depth - reductions - 1, ply + 1, false, gives_check, new_capture_pos, &mut local_pv);
                 if result == CANCEL_SEARCH {
@@ -706,7 +706,7 @@ impl Search {
                 continue;
             }
 
-            let mut local_pv = PrincipalVariation::new();
+            let mut local_pv = PrincipalVariation::default();
 
             let score = -self.quiescence_search(-active_player, -beta, -alpha, ply + 1, None, &mut local_pv);
             self.board.undo_move(m, previous_piece, move_state);
@@ -909,11 +909,13 @@ fn calc_time_limit(movetime: i32, time_left: i32, time_increment: i32, moves_to_
 #[derive(Clone)]
 pub struct PrincipalVariation(Vec<Move>);
 
-impl PrincipalVariation {
-    pub fn new() -> Self {
+impl Default for PrincipalVariation {
+    fn default() -> Self {
         PrincipalVariation(Vec::new())
     }
+}
 
+impl PrincipalVariation {
     pub fn update(&mut self, best_move: Move, follow_up: &mut PrincipalVariation) {
         self.0.clear();
         self.0.push(best_move);
@@ -1038,13 +1040,10 @@ mod tests {
     use crate::pieces::{K, R};
     use crate::moves::NO_MOVE;
     use crate::colors::{BLACK, WHITE};
-    use crate::magics::initialize_magics;
     use crate::fen::{write_fen, create_from_fen};
 
     #[test]
     fn finds_mate_in_one() {
-        initialize_magics();
-
         #[rustfmt::skip]
             let items: [i8; 64] = [
             0,  0,  0,  0,  K,  0,  0,  0,
@@ -1074,8 +1073,6 @@ mod tests {
 
     #[test]
     fn finds_mate_in_two() {
-        initialize_magics();
-
         #[rustfmt::skip]
             let items: [i8; 64] = [
             0,  0,  0,  0, -K,  0,  0,  0,

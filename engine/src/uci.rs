@@ -25,7 +25,6 @@ use std::str::FromStr;
 use std::sync::mpsc::Sender;
 use std::thread::{sleep};
 use std::time::Duration;
-use crate::magics::{initialize_magics};
 use crate::search::{SearchLimits, DEFAULT_SEARCH_THREADS, MAX_SEARCH_THREADS};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -33,7 +32,6 @@ const AUTHOR: &str = "Martin Honert";
 
 pub fn start_uci_loop(tx: &Sender<Message>) {
     println!("Velvet Chess Engine v{}", VERSION);
-    initialize_magics();
 
     loop {
         let mut line = String::new();

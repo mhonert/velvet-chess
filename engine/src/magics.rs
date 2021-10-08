@@ -16,16 +16,47 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+use std::sync::Once;
 use crate::bitboard::{gen_rook_attacks, gen_bishop_attacks, create_blocker_permutations, mask_without_outline};
 
-#[derive(Copy, Clone)]
-pub struct Magic {
+static INIT: Once = Once::new();
+
+#[derive(Clone)]
+pub struct Magics {}
+
+impl Default for Magics {
+    fn default() -> Self {
+        INIT.call_once(initialize_magics);
+        Magics{}
+    }
+}
+
+impl Magics {
+    #[inline]
+    pub fn get_bishop_attacks(&self, empty_bb: u64, pos: i32) -> u64 {
+        let magic = unsafe { BISHOP_MAGICS.get_unchecked(pos as usize) };
+        unsafe { *ATTACKS.get_unchecked(magic.offset + ((empty_bb | magic.mask).wrapping_mul(magic.number) >> (64 - 9)) as usize) }
+    }
+
+    #[inline]
+    pub fn get_rook_attacks(&self, empty_bb: u64, pos: i32) -> u64 {
+        let magic = unsafe { ROOK_MAGICS.get_unchecked(pos as usize) };
+        unsafe { *ATTACKS.get_unchecked(magic.offset + ((empty_bb | magic.mask).wrapping_mul(magic.number) >> (64 - 12)) as usize) }
+    }
+
+    #[inline]
+    pub fn get_queen_attacks(&self, empty_bb: u64, pos: i32) -> u64 {
+        self.get_bishop_attacks(empty_bb, pos) | self.get_rook_attacks(empty_bb, pos)
+    }
+}
+
+struct Magic {
     mask: u64,
     number: u64,
     offset: usize
 }
 
-pub const EMPTY_MAGIC: Magic = Magic{mask: 0, number: 0, offset: 0};
+const EMPTY_MAGIC: Magic = Magic{mask: 0, number: 0, offset: 0};
 
 const ROOK_MAGIC_NUMS: [u64; 64] = [
     0x0380051082e14004, 0x0018000c00060018, 0x020004200a008010, 0x0040080004004002,
@@ -87,13 +118,13 @@ static mut ROOK_MAGICS: [Magic; 64] = [EMPTY_MAGIC; 64];
 static mut BISHOP_MAGICS: [Magic; 64] = [EMPTY_MAGIC; 64];
 
 
-pub fn initialize_magics() {
+fn initialize_magics() {
     initialize_attacks(gen_rook_attacks, &ROOK_MAGIC_NUMS, &ROOK_MAGIC_OFFSETS[..], unsafe {&mut ATTACKS}, unsafe { &mut ROOK_MAGICS }, 12);
     initialize_attacks(gen_bishop_attacks, &BISHOP_MAGIC_NUMS, &BISHOP_MAGIC_OFFSETS[..], unsafe {&mut ATTACKS}, unsafe { &mut BISHOP_MAGICS }, 9);
 }
 
-pub fn initialize_attacks(gen_attacks: fn(u64, i32) -> u64, magic_nums: &[u64], magic_offsets: &[u32],
-                          target: &mut[u64], magics: &mut[Magic; 64], shift: u32) {
+fn initialize_attacks(gen_attacks: fn(u64, i32) -> u64, magic_nums: &[u64], magic_offsets: &[u32],
+                      target: &mut[u64], magics: &mut[Magic; 64], shift: u32) {
 
     for pos in 0..64 {
         let move_mask = gen_attacks(0, pos);
@@ -125,19 +156,3 @@ pub fn initialize_attacks(gen_attacks: fn(u64, i32) -> u64, magic_nums: &[u64], 
     }
 }
 
-#[inline]
-pub fn get_bishop_attacks(empty_bb: u64, pos: i32) -> u64 {
-    let magic = unsafe { *BISHOP_MAGICS.get_unchecked(pos as usize) };
-    unsafe { *ATTACKS.get_unchecked(magic.offset + ((empty_bb | magic.mask).wrapping_mul(magic.number) >> (64 - 9)) as usize) }
-}
-
-#[inline]
-pub fn get_rook_attacks(empty_bb: u64, pos: i32) -> u64 {
-    let magic = unsafe { *ROOK_MAGICS.get_unchecked(pos as usize) };
-    unsafe { *ATTACKS.get_unchecked(magic.offset + ((empty_bb | magic.mask).wrapping_mul(magic.number) >> (64 - 12)) as usize) }
-}
-
-#[inline]
-pub fn get_queen_attacks(empty_bb: u64, pos: i32) -> u64 {
-    get_bishop_attacks(empty_bb, pos) | get_rook_attacks(empty_bb, pos)
-}

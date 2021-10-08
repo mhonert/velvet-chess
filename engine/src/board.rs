@@ -20,7 +20,6 @@ use std::cmp::max;
 
 use crate::bitboard::{black_left_pawn_attacks, black_right_pawn_attacks, DARK_COLORED_FIELD_PATTERN, get_black_pawn_freepath, get_king_attacks, get_knight_attacks, get_pawn_attacks, get_white_pawn_freepath, LIGHT_COLORED_FIELD_PATTERN, white_left_pawn_attacks, white_right_pawn_attacks};
 use crate::colors::{BLACK, Color, WHITE};
-use crate::magics::{get_bishop_attacks, get_rook_attacks};
 use crate::moves::{Move, MoveType};
 use crate::nn_eval::NeuralNetEval;
 use crate::pieces::{B, EMPTY, get_piece_value, K, N, P, Q, R};
@@ -28,6 +27,7 @@ use crate::pos_history::PositionHistory;
 use crate::transposition_table::MAX_DEPTH;
 use crate::zobrist::{castling_zobrist_key, enpassant_zobrist_key, piece_zobrist_key, player_zobrist_key};
 use crate::board::Castling::{BlackQueenSide, BlackKingSide, WhiteQueenSide, WhiteKingSide};
+use crate::magics::Magics;
 
 #[repr(u8)]
 pub enum WhiteBoardPos {
@@ -76,6 +76,7 @@ pub fn clear_castling_bits(color: Color, castling_state: u8) -> u8 {
 
 #[derive(Clone)]
 pub struct Board {
+    magics: Magics,
     nn_eval: Box<NeuralNetEval>,
     pos_history: PositionHistory,
     items: [i8; 64],
@@ -103,14 +104,10 @@ const ALL_CASTLING: u8 = Castling::WhiteKingSide as u8
 
 impl Board {
     pub fn new(items: &[i8], active_player: Color, castling_state: u8, enpassant_target: Option<i8>, halfmove_clock: u8, fullmove_num: u16) -> Self {
-        if items.len() != 64 {
-            panic!(
-                "Expected a vector with 64 elements, but got {}",
-                items.len()
-            );
-        }
+        assert_eq!(items.len(), 64, "Expected a vector with 64 elements, but got {}", items.len());
 
         let mut board = Board {
+            magics: Magics::default(),
             pos_history: PositionHistory::new(),
             nn_eval: NeuralNetEval::new(),
             items: [0; 64],
@@ -128,9 +125,7 @@ impl Board {
 
     pub fn set_position(&mut self, items: &[i8], active_player: Color, castling_state: u8, enpassant_target: Option<i8>, halfmove_clock: u8, fullmove_num: u16) {
         self.pos_history.clear();
-        if items.len() != 64 {
-            panic!("Expected a vector with 64 elements, but got {}", items.len());
-        }
+        assert_eq!(items.len(), 64, "Expected a vector with 64 elements, but got {}", items.len());
 
         self.halfmove_count = (max(1, fullmove_num) - 1) * 2 + if active_player == WHITE { 0 } else { 1 };
         self.state.halfmove_clock = halfmove_clock;
@@ -600,12 +595,12 @@ impl Board {
 
         // Check diagonal
         let queens = self.get_bitboard(Q * opponent_color);
-        if (self.get_bitboard(B * opponent_color) | queens) & get_bishop_attacks(empty_bb, pos) != 0 {
+        if (self.get_bitboard(B * opponent_color) | queens) & self.magics.get_bishop_attacks(empty_bb, pos) != 0 {
             return true;
         }
 
         // Check orthogonal
-        if (self.get_bitboard(R * opponent_color) | queens) & get_rook_attacks(empty_bb, pos) != 0 {
+        if (self.get_bitboard(R * opponent_color) | queens) & self.magics.get_rook_attacks(empty_bb, pos) != 0 {
             return true;
         }
 
@@ -625,6 +620,21 @@ impl Board {
 
     pub fn get_bitboard(&self, piece: i8) -> u64 {
         unsafe { *self.bitboards.get_unchecked((piece + 6) as usize) }
+    }
+
+    #[inline]
+    pub fn get_bishop_attacks(&self, empty_bb: u64, pos: i32) -> u64 {
+        self.magics.get_bishop_attacks(empty_bb, pos)
+    }
+
+    #[inline]
+    pub fn get_rook_attacks(&self, empty_bb: u64, pos: i32) -> u64 {
+        self.magics.get_rook_attacks(empty_bb, pos)
+    }
+
+    #[inline]
+    pub fn get_queen_attacks(&self, empty_bb: u64, pos: i32) -> u64 {
+        self.magics.get_queen_attacks(empty_bb, pos)
     }
 
     // Returns the position of the smallest attacker or -1 if there is no attacker
@@ -648,7 +658,7 @@ impl Board {
 
             // Check bishops
             let bishops = self.get_bitboard(B) & occupied_bb;
-            let bishop_attacks = get_bishop_attacks(empty_bb, pos);
+            let bishop_attacks = self.magics.get_bishop_attacks(empty_bb, pos);
             let attacking_bishops = bishops & bishop_attacks;
             if attacking_bishops != 0 {
                 return attacking_bishops.trailing_zeros() as i32;
@@ -656,7 +666,7 @@ impl Board {
 
             // Check rooks
             let rooks = self.get_bitboard(R) & occupied_bb;
-            let rook_attacks = get_rook_attacks(empty_bb, pos);
+            let rook_attacks = self.magics.get_rook_attacks(empty_bb, pos);
             let attacking_rooks = rooks & rook_attacks;
             if attacking_rooks != 0 {
                 return attacking_rooks.trailing_zeros() as i32;
@@ -696,7 +706,7 @@ impl Board {
 
             // Check bishops
             let bishops = self.get_bitboard(-B) & occupied_bb;
-            let bishop_attacks = get_bishop_attacks(empty_bb, pos);
+            let bishop_attacks = self.magics.get_bishop_attacks(empty_bb, pos);
             let attacking_bishops = bishops & bishop_attacks;
             if attacking_bishops != 0 {
                 return attacking_bishops.trailing_zeros() as i32;
@@ -704,7 +714,7 @@ impl Board {
 
             // Check rooks
             let rooks = self.get_bitboard(-R) & occupied_bb;
-            let rook_attacks = get_rook_attacks(empty_bb, pos);
+            let rook_attacks = self.magics.get_rook_attacks(empty_bb, pos);
             let attacking_rooks = rooks & rook_attacks;
             if attacking_rooks != 0 {
                 return attacking_rooks.trailing_zeros() as i32;
@@ -913,7 +923,6 @@ impl Board {
 
 #[cfg(test)]
 mod tests {
-    use crate::magics::initialize_magics;
     use crate::moves::MoveType;
 
     use super::*;
@@ -1128,7 +1137,6 @@ mod tests {
 
     #[test]
     fn find_bishop_attack() {
-        initialize_magics();
         #[rustfmt::skip]
         let items: [i8; 64] = [
             0,  0,  0, -K,  0,  0,  0,  0,
@@ -1150,7 +1158,6 @@ mod tests {
 
     #[test]
     fn find_rook_attack() {
-        initialize_magics();
         #[rustfmt::skip]
         let items: [i8; 64] = [
             0,  0,  0, -K,  0,  0,  0,  0,
@@ -1172,7 +1179,6 @@ mod tests {
 
     #[test]
     fn find_queen_attack() {
-        initialize_magics();
         #[rustfmt::skip]
         let items: [i8; 64] = [
             0,  0,  0, -K,  0,  0,  0,  0,
@@ -1215,7 +1221,6 @@ mod tests {
 
     #[test]
     fn recognizes_white_in_check() {
-        initialize_magics();
         #[rustfmt::skip]
         let items: [i8; 64] = [
             0,  0,  0, -K,  0,  0,  0,  0,
@@ -1235,7 +1240,6 @@ mod tests {
 
     #[test]
     fn recognizes_black_in_check() {
-        initialize_magics();
         #[rustfmt::skip]
         let items: [i8; 64] = [
             0,  0,  0, -K,  0,  0,  0,  0,
