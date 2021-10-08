@@ -199,8 +199,7 @@ fn find_test_positions(tx: &Sender<TestPos>, openings: &[String], tb_path: Strin
     println!("Setting tablebase path to: {}", tb_path);
     tb.add_directory(tb_path).expect("Could not add tablebase path");
 
-    let tt = Arc::new(TranspositionTable::new(128));
-
+    let tt = TranspositionTable::new(128);
 
     loop {
         let opening = openings[rnd.rand32() as usize % openings.len()].clone();

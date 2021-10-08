@@ -16,6 +16,7 @@
 
 use crate::moves::{Move};
 use std::intrinsics::transmute;
+use std::sync::Arc;
 use crate::scores::{MATED_SCORE, MATE_SCORE};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -60,7 +61,7 @@ pub struct TranspositionTable {
 }
 
 impl TranspositionTable {
-    pub fn new(size_mb: u64) -> Self {
+    pub fn new(size_mb: u64) -> Arc<Self> {
         // Calculate table size as close to the desired size_mb as possible, but never above it
         let size_bytes = size_mb * 1_048_576;
         let entry_count = size_bytes / PER_ENTRY_BYTE_SIZE;
@@ -68,13 +69,12 @@ impl TranspositionTable {
 
         let size = (1u64 << index_bit_count) as usize;
 
-        let mut tt = TranspositionTable {
+        let mut tt = Arc::new(TranspositionTable {
             index_mask: (size as u64) - 1,
             entries: Vec::with_capacity(size),
-        };
+        });
 
-        unsafe { tt.entries.set_len(size) };
-        tt.entries.fill_with(AtomicU64::default);
+        Arc::get_mut(&mut tt).unwrap().entries.resize_with(size, AtomicU64::default);
 
         tt
     }

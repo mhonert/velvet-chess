@@ -80,7 +80,7 @@ impl Engine {
         Engine {
             rx,
             board,
-            tt: Some(Arc::new(TranspositionTable::new(tt_size_mb))),
+            tt: Some(TranspositionTable::new(tt_size_mb)),
             log_level: LogLevel::Info,
             search_thread_count: DEFAULT_SEARCH_THREADS,
         }
@@ -180,7 +180,7 @@ impl Engine {
 
     fn set_tt_size(&mut self, size_mb: i32) {
         self.tt = None;
-        self.tt = Some(Arc::new(TranspositionTable::new(size_mb as u64)));
+        self.tt = Some(TranspositionTable::new(size_mb as u64));
     }
 
     pub fn reset(&mut self) {

@@ -1059,7 +1059,7 @@ mod tests {
 
         let fen = to_fen(BLACK, &items);
 
-        let tt = Arc::new(TranspositionTable::new(1));
+        let tt = TranspositionTable::new(1);
         let limits = SearchLimits::default();
         let mut board = create_from_fen(fen.as_str());
 
@@ -1090,7 +1090,7 @@ mod tests {
 
         let fen = to_fen(WHITE, &items);
 
-        let tt = Arc::new(TranspositionTable::new(1));
+        let tt = TranspositionTable::new(1);
         let limits = SearchLimits::default();
         let mut board = create_from_fen(fen.as_str());
 
