@@ -161,7 +161,7 @@ fn play_opening(remaining_plies: i32, hh: &HistoryHeuristics, move_gen: &mut Mov
 
     move_gen.enter_ply(board.active_player(), NO_MOVE, NO_MOVE, NO_MOVE);
 
-    while let Some(m) = move_gen.next_legal_move(hh, board) {
+    while let Some(m) = move_gen.next_root_move(hh, board) {
         let (previous_piece, move_state) = board.perform_move(m);
         if board.is_in_check(-board.active_player()) {
             // Invalid move
@@ -365,7 +365,7 @@ fn resolve_tb_match(tb: &Tablebase<Chess>, rx: Option<&Receiver<Message>>, dupli
 fn search_tb_move(rx: Option<&Receiver<Message>>, search: &mut Search, tb_move: Move) -> (i32, bool) {
     search.movegen.enter_ply(search.board.active_player(), NO_MOVE, NO_MOVE, NO_MOVE);
     let mut skipped_moves = Vec::new();
-    while let Some(m) = search.movegen.next_legal_move(&search.hh, &mut search.board) {
+    while let Some(m) = search.movegen.next_root_move(&search.hh, &mut search.board) {
         if !m.is_same_move(tb_move) {
             skipped_moves.push(m.without_score())
         }

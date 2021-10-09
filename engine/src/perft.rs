@@ -16,6 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 use crate::board::Board;
+use crate::history_heuristics::HistoryHeuristics;
 use crate::move_gen::MoveGenerator;
 use crate::moves::NO_MOVE;
 
@@ -25,7 +26,7 @@ use crate::moves::NO_MOVE;
 
   Another use case for this function is to test the performance of the move generator.
 */
-pub fn perft(movegen: &mut MoveGenerator, board: &mut Board, depth: i32) -> u64 {
+pub fn perft(movegen: &mut MoveGenerator, hh: &HistoryHeuristics, board: &mut Board, depth: i32) -> u64 {
     if depth == 0 {
         return 1;
     }
@@ -35,11 +36,11 @@ pub fn perft(movegen: &mut MoveGenerator, board: &mut Board, depth: i32) -> u64 
     let active_player = board.active_player();
     movegen.enter_ply(active_player, NO_MOVE, NO_MOVE, NO_MOVE);
 
-    while let Some(m) = movegen.next_unsorted_move(board) {
+    while let Some(m) = movegen.next_move(hh, board) {
         let (previous_piece, removed_piece_id) = board.perform_move(m);
 
         if !board.is_in_check(active_player) {
-            nodes += perft(movegen, board, depth - 1);
+            nodes += perft(movegen, hh, board, depth - 1);
         }
 
         board.undo_move(m, previous_piece, removed_piece_id);

@@ -15,6 +15,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+use std::cmp::Reverse;
 use crate::bitboard::{BLACK_KING_SIDE_CASTLING_BIT_PATTERN, BLACK_QUEEN_SIDE_CASTLING_BIT_PATTERN, PAWN_DOUBLE_MOVE_LINES, WHITE_KING_SIDE_CASTLING_BIT_PATTERN, WHITE_QUEEN_SIDE_CASTLING_BIT_PATTERN, BitBoard, get_knight_attacks, get_king_attacks};
 use crate::board::{Board, WhiteBoardPos, Castling, BlackBoardPos};
 use crate::colors::{Color, BLACK, WHITE};
@@ -23,7 +24,7 @@ use crate::moves::{Move, MoveType, NO_MOVE};
 use crate::history_heuristics::{HistoryHeuristics};
 use crate::transposition_table::MAX_DEPTH;
 
-const CAPTURE_ORDER_SIZE: usize = 5 + 5 * 6 + 1;
+const CAPTURE_ORDER_SIZE: usize = 6 + 6 * 7 + 1;
 
 const PRIMARY_KILLER_SCORE: i32 = -2200;
 const SECONDARY_KILLER_SCORE: i32 = -2250;
@@ -51,42 +52,30 @@ impl MoveGenerator {
         }
     }
 
-    #[inline(always)]
     pub fn enter_ply(&mut self, active_player: Color, scored_hash_move: Move, primary_killer: Move, secondary_killer: Move) {
         self.ply += 1;
         self.entries[self.ply].init(active_player, scored_hash_move, primary_killer, secondary_killer);
     }
 
-    #[inline(always)]
     pub fn leave_ply(&mut self) {
         self.ply -= 1;
     }
 
-    pub fn reset(&mut self) {
-        self.entries[self.ply].reset();
+    pub fn next_root_move(&mut self, hh: &HistoryHeuristics, board: &mut Board) -> Option<Move> {
+        self.entries[self.ply].next_root_move(hh, board)
     }
 
-    pub fn resort(&mut self, best_move: Move) {
-        self.entries[self.ply].resort(best_move);
+    pub fn reset_root_moves(&mut self) {
+        self.entries[self.ply].reset_root_moves();
+    }
+
+    pub fn reorder_root_moves(&mut self, best_move: Move) {
+        self.entries[self.ply].reorder_root_moves(best_move);
     }
 
     #[inline(always)]
     pub fn next_move(&mut self, hh: &HistoryHeuristics, board: &mut Board) -> Option<Move> {
         self.entries[self.ply].next_move(hh, board)
-    }
-
-    #[inline(always)]
-    pub fn next_unsorted_move(&mut self, board: &mut Board) -> Option<Move> {
-        self.entries[self.ply].next_unsorted_move(board)
-    }
-
-    pub fn next_legal_move(&mut self, hh: &HistoryHeuristics, board: &mut Board) -> Option<Move> {
-        self.entries[self.ply].next_legal_move(hh, board)
-    }
-
-    // Sets up the internal state, so the next call to next_legal_move will return the same move
-    pub fn repeat_legal_move(&mut self) {
-        self.entries[self.ply].repeat_legal_move();
     }
 
     #[inline(always)]
@@ -96,6 +85,11 @@ impl MoveGenerator {
 
     pub fn update_root_move(&mut self, m: Move) {
         self.entries[self.ply].update_root_move(m);
+    }
+
+    #[inline(always)]
+    pub fn skip_bad_capture(&mut self, m: Move, captured_piece_id: i8, occupied_bb: u64, board: &mut Board) -> bool {
+        self.entries[self.ply].skip_bad_capture(m, captured_piece_id, occupied_bb, board)
     }
 
     pub fn sanitize_move(&mut self, board: &Board, active_player: Color, untyped_move: Move) -> Move {
@@ -110,7 +104,12 @@ impl MoveGenerator {
 #[derive(Clone)]
 enum Stage {
     HashMove,
+    GenerateMoves,
     CaptureMoves,
+    PrimaryKillerMove,
+    SecondaryKillerMove,
+    PostponedBadCaptureMoves,
+    SortQuietMoves,
     QuietMoves
 }
 
@@ -121,12 +120,10 @@ pub struct MoveList {
     secondary_killer: Move,
     moves: Vec<Move>, // contains all moves on root level, but only quiet moves in all other cases
     capture_moves: Vec<Move>, // not used on root level
+    bad_capture_moves: Vec<Move>, // not used on root level
     stage: Stage,
-    move_index: usize,
-    capture_index: usize,
+    root_move_index: usize,
     moves_generated: bool,
-    quiets_scored: bool,
-    quiets_sorted: bool,
     active_player: Color,
 }
 
@@ -138,12 +135,10 @@ impl MoveList {
             secondary_killer: NO_MOVE,
             moves: Vec::with_capacity(64),
             capture_moves: Vec::with_capacity(16),
+            bad_capture_moves: Vec::with_capacity(16),
             stage: Stage::HashMove,
-            move_index: 0,
-            capture_index: 0,
+            root_move_index: 0,
             moves_generated: false,
-            quiets_scored: false,
-            quiets_sorted: false,
             active_player: WHITE,
         }
     }
@@ -155,31 +150,20 @@ impl MoveList {
 
         self.moves.clear();
         self.capture_moves.clear();
+        self.bad_capture_moves.clear();
         self.moves_generated = false;
         self.active_player = active_player;
-        self.move_index = 0;
-        self.capture_index = 0;
-        self.quiets_scored = false;
-        self.quiets_sorted = false;
+        self.root_move_index = 0;
         self.stage = Stage::HashMove;
     }
 
-    pub fn reset(&mut self) {
+    pub fn reset_root_moves(&mut self) {
         self.stage = Stage::HashMove;
-        self.move_index = 0;
-        self.capture_index = 0;
+        self.root_move_index = 0;
     }
 
-    pub fn resort(&mut self, best_move: Move) {
-        let mut best_move_idx = 0;
-        for i in 0..self.moves.len() {
-            if self.moves[i].is_same_move(best_move) {
-                best_move_idx = i;
-                break;
-            }
-        }
-
-        self.moves.remove(best_move_idx);
+    pub fn reorder_root_moves(&mut self, best_move: Move) {
+        remove_move(&mut self.moves, best_move);
         self.moves.insert(0, best_move);
     }
 
@@ -196,7 +180,7 @@ impl MoveList {
     }
 
     pub fn update_root_move(&mut self, scored_move: Move) {
-        self.moves[self.move_index - 1] = scored_move;
+        self.moves[self.root_move_index - 1] = scored_move;
     }
 
     #[inline]
@@ -209,7 +193,7 @@ impl MoveList {
     #[inline]
     pub fn add_capture_move(&mut self, board: &Board, typ: MoveType, piece: i8, start: i32, end: i32) {
         let m = Move::new(typ, piece, start, end);
-        let score = evaluate_capture_move_order(&board, m);
+        let score = evaluate_capture_move_order(board, m);
         self.capture_moves.push(m.with_score(score));
     }
 
@@ -218,77 +202,61 @@ impl MoveList {
         loop {
             match self.stage {
                 Stage::HashMove => {
-                    self.capture_index = 0;
-                    self.stage = Stage::CaptureMoves;
+                    self.stage = Stage::GenerateMoves;
 
                     if self.scored_hash_move != NO_MOVE {
+                        remove_move(&mut self.capture_moves, self.scored_hash_move);
+                        remove_move(&mut self.moves, self.scored_hash_move);
                         return Some(self.scored_hash_move);
                     }
                 },
 
-                Stage::CaptureMoves => {
-                    if !self.moves_generated {
-                        self.gen_moves(board);
-                        sort_by_score_desc(&mut self.capture_moves);
-
-                        self.moves_generated = true;
-                    }
-
-                    return match self.find_next_capture_move_except_hash_move() {
-                        Some(m) => {
-                            Some(m)
-                        },
-
-                        None => {
-                            self.stage = Stage::QuietMoves;
-                            self.move_index = 0;
-
-                            if !self.quiets_scored {
-                                self.score_quiets(hh);
-                            }
-
-                            self.find_next_quiet_move_except_hash_move()
-                        }
-                    }
-                }
-
-                Stage::QuietMoves => {
-                    return self.find_next_quiet_move_except_hash_move();
-                }
-            }
-        }
-    }
-
-    #[inline(always)]
-    pub fn next_unsorted_move(&mut self, board: &mut Board) -> Option<Move> {
-        loop {
-            match self.stage {
-                Stage::HashMove => {
-                    self.capture_index = 0;
+                Stage::GenerateMoves => {
                     self.stage = Stage::CaptureMoves;
-                    if !self.moves_generated {
-                        self.gen_moves(board);
-                        self.moves_generated = true;
+                    self.gen_moves(board);
+                    self.capture_moves.sort_unstable_by_key(Move::score);
+                    self.moves_generated = true;
+                }
+
+                Stage::CaptureMoves => {
+                    match self.capture_moves.pop() {
+                        Some(m) => return Some(m),
+                        None => self.stage = Stage::PrimaryKillerMove
+                    }
+                }
+
+                Stage::PrimaryKillerMove => {
+                    self.stage = Stage::SecondaryKillerMove;
+
+                    if self.primary_killer != NO_MOVE && remove_move(&mut self.moves, self.primary_killer) != NO_MOVE {
+                        return Some(self.primary_killer.with_score(PRIMARY_KILLER_SCORE));
                     }
                 },
 
-                Stage::CaptureMoves => {
-                    return match self.find_next_capture_move_except_hash_move() {
-                        Some(m) => {
-                            Some(m)
-                        },
+                Stage::SecondaryKillerMove => {
+                    self.stage = Stage::PostponedBadCaptureMoves;
 
-                        None => {
-                            self.stage = Stage::QuietMoves;
-                            self.move_index = 0;
+                    if self.secondary_killer != NO_MOVE && remove_move(&mut self.moves, self.secondary_killer) != NO_MOVE {
+                        return Some(self.secondary_killer.with_score(SECONDARY_KILLER_SCORE));
+                    }
+                },
 
-                            self.find_next_unsorted_quiet_move()
-                        }
+                Stage::PostponedBadCaptureMoves => {
+                    if self.bad_capture_moves.is_empty() {
+                        self.stage = Stage::SortQuietMoves;
+                    } else {
+                        return Some(self.bad_capture_moves.swap_remove(0));
                     }
                 }
 
+                Stage::SortQuietMoves => {
+                    self.stage = Stage::QuietMoves;
+                    self.score_quiets(hh);
+                    self.moves.sort_unstable_by_key(Move::score)
+                }
+
                 Stage::QuietMoves => {
-                    return self.find_next_unsorted_quiet_move();
+                    return self.moves.pop();
                 }
             }
         }
@@ -296,104 +264,40 @@ impl MoveList {
 
     fn score_quiets(&mut self, hh: &HistoryHeuristics) {
         for m in self.moves.iter_mut() {
-            let score = if *m == self.primary_killer {
-                PRIMARY_KILLER_SCORE
-            } else if *m == self.secondary_killer {
-                SECONDARY_KILLER_SCORE
-            } else {
-                evaluate_move_order(hh, self.active_player, *m)
-            };
-
-            *m = m.with_score(score);
-        }
-
-        self.quiets_scored = true;
-    }
-
-    #[inline]
-    fn find_next_capture_move_except_hash_move(&mut self) -> Option<Move> {
-        while self.capture_index < self.capture_moves.len() {
-            let m = unsafe { *self.capture_moves.get_unchecked(self.capture_index) };
-            self.capture_index += 1;
-            if !m.is_same_move(self.scored_hash_move) {
-                return Some(m);
-            }
-        }
-
-        None
-    }
-
-    #[inline]
-    fn find_next_quiet_move_except_hash_move(&mut self) -> Option<Move> {
-        while self.move_index < self.moves.len() {
-            if !self.quiets_sorted {
-                self.quiets_sorted = sort_partial_by_score_desc(self.move_index, &mut self.moves);
-            }
-
-            let m = unsafe { *self.moves.get_unchecked(self.move_index) };
-            self.move_index += 1;
-            if !m.is_same_move(self.scored_hash_move) {
-                return Some(m);
-            }
-        }
-
-        None
-    }
-
-    #[inline]
-    fn find_next_unsorted_quiet_move(&mut self) -> Option<Move> {
-        if self.move_index < self.moves.len() {
-            let m = unsafe { *self.moves.get_unchecked(self.move_index) };
-            self.move_index += 1;
-            return Some(m);
-        }
-
-        None
-    }
-
-    pub fn repeat_legal_move(&mut self) {
-        if self.move_index > 0 {
-            self.move_index -= 1;
+            *m = m.with_score(evaluate_move_order(hh, self.active_player, *m));
         }
     }
 
-    pub fn next_legal_move(&mut self, hh: &HistoryHeuristics, board: &mut Board) -> Option<Move> {
+    pub fn next_root_move(&mut self, hh: &HistoryHeuristics, board: &mut Board) -> Option<Move> {
         if !self.moves_generated {
             self.gen_moves(board);
             self.score_quiets(hh);
-            sort_by_score_desc(&mut self.moves);
             self.moves.append(&mut self.capture_moves);
 
             let active_player = board.active_player();
             self.moves.retain(|&m| board.is_legal_move(active_player, m));
 
-            sort_by_score_desc(&mut self.moves);
+            self.moves.sort_by_key(|m| Reverse(m.score()));
             self.moves_generated = true;
-            self.quiets_sorted = true;
         }
 
-        if self.move_index < self.moves.len() {
-            self.move_index += 1;
-            Some(unsafe { *self.moves.get_unchecked(self.move_index - 1) })
-        } else {
-            None
+        if self.root_move_index >= self.moves.len() {
+            return None;
         }
+
+        self.root_move_index += 1;
+        Some(unsafe { *self.moves.get_unchecked(self.root_move_index - 1) })
     }
 
     #[inline(always)]
     pub fn next_capture_move(&mut self, board: &mut Board) -> Option<Move> {
         if !self.moves_generated {
-            self.gen_capture_moves(board);
-            sort_by_score_desc(&mut self.capture_moves);
             self.moves_generated = true;
+            self.gen_capture_moves(board);
+            self.capture_moves.sort_unstable_by_key(Move::score)
         }
 
-        if self.capture_index < self.capture_moves.len() {
-            self.capture_index += 1;
-            Some(unsafe { *self.capture_moves.get_unchecked(self.capture_index - 1) })
-        } else {
-            None
-        }
+        self.capture_moves.pop()
     }
 
     fn gen_moves(&mut self, board: &Board) {
@@ -804,6 +708,29 @@ impl MoveList {
         NO_MOVE
     }
 
+    // If the given move is a bad capture (i.e. has a negative SEE value), the search can be skipped for now and the move will be stored in a separate "bad capture" list
+    pub fn skip_bad_capture(&mut self, m: Move, captured_piece_id: i8, occupied_bb: u64, board: &mut Board) -> bool {
+        if !matches!(self.stage, Stage::CaptureMoves) {
+            return false;
+        }
+
+        if !board.has_negative_see(board.active_player(), m.start(), m.end(), m.piece_id(), captured_piece_id, 0, occupied_bb) {
+            return false;
+        }
+
+        self.bad_capture_moves.push(m);
+
+        true
+    }
+}
+
+#[inline(always)]
+fn remove_move(moves: &mut Vec<Move>, to_be_removed: Move) -> Move {
+    if let Some(i) = moves.iter().position(|m| m.is_same_move(to_be_removed)) {
+        return moves.swap_remove(i);
+    }
+
+    NO_MOVE
 }
 
 fn is_kingside_castling_valid_for_white(board: &Board, empty_bb: u64) -> bool {
@@ -835,114 +762,41 @@ fn is_queenside_castling_valid_for_black(board: &Board, empty_bb: u64) -> bool {
 }
 
 // Move evaluation heuristic for initial move ordering (high values are better for the active player)
+#[inline(always)]
 pub fn evaluate_move_order(hh: &HistoryHeuristics, active_player: Color, m: Move) -> i32 {
-    match m.typ() {
-        MoveType::PawnSpecial => {
-            // Promotion
-            if m.piece_id() == Q {
-                400
-            } else if m.piece_id() == N {
-                0
+    if m.is_queen_promotion() {
+        return 400;
+    }
 
-            } else {
-                -5000
-            }
+    let history_score = hh.get_history_score(active_player, m);
+    if history_score == 0 {
+        NEGATIVE_HISTORY_SCORE
+
+    } else if history_score == -1 {
+
+        if active_player == WHITE {
+            -4096 + (7 - (m.end() / 8 - 4))
+        } else {
+            -4096 + (m.end() / 8 - 4)
         }
+    } else {
 
-        _ => {
-            let history_score = hh.get_history_score(active_player, m);
-            if history_score == 0 {
-                NEGATIVE_HISTORY_SCORE
-
-            } else if history_score == -1 {
-
-                if active_player == WHITE {
-                    -4096 + (7 - (m.end() / 8 - 4))
-                } else {
-                    -4096 + (m.end() / 8 - 4)
-                }
-            } else {
-
-                -3600 + history_score
-            }
-
-        }
+        -3600 + history_score
     }
 }
 
 // Evaluate score for capture move ordering
+#[inline(always)]
 fn evaluate_capture_move_order(board: &Board, m: Move) -> i32 {
-    match m.typ() {
-        MoveType::PawnSpecial => {
-            if m.is_promotion() {
-                if m.piece_id() == Q {
-                    1000
-                } else if m.piece_id() == N {
-                    0
-                } else {
-                    NEGATIVE_HISTORY_SCORE - 1
-                }
-            } else {
-                // En Passant
-                get_capture_order_score(P as i32, P as i32)
-            }
-        }
-
-        _ => {
-            let captured_piece = board.get_item(m.end());
-            let original_piece_id = m.piece_id();
-            let captured_piece_id = captured_piece.abs();
-
-            get_capture_order_score(original_piece_id as i32, captured_piece_id as i32)
-        }
-    }
-}
-
-fn sort_by_score_desc(moves: &mut Vec<Move>) {
-    // Basic insertion sort
-    for i in 1..moves.len() {
-        let x = unsafe { *moves.get_unchecked(i) };
-        let x_score = x.score();
-        let mut j = i as i32 - 1;
-        while j >= 0 {
-            let y = unsafe { *moves.get_unchecked(j as usize) };
-            if y.score() >= x_score {
-                break;
-            }
-
-            unsafe { *moves.get_unchecked_mut(j as usize + 1) = y };
-            j -= 1;
-        }
-        unsafe { *moves.get_unchecked_mut((j + 1) as usize) = x };
-    }
-}
-
-
-fn sort_partial_by_score_desc(movenum: usize, moves: &mut Vec<Move>) -> bool {
-    let mut max_score = unsafe { (*moves.get_unchecked(movenum)).score() };
-    let mut max_index = movenum;
-
-    let mut is_sorted = true;
-
-    for i in (movenum + 1)..moves.len() {
-        let x = unsafe { *moves.get_unchecked(i) };
-        let x_score = x.score();
-
-        if x_score <= max_score {
-            continue;
-        }
-
-        is_sorted = false;
-
-        max_score = x_score;
-        max_index = i;
+    if m.is_queen_promotion() {
+        return 1000;
     }
 
-    if max_index != movenum {
-        moves.swap(movenum, max_index);
-    }
+    let captured_piece = board.get_item(m.end());
+    let original_piece_id = m.piece_id();
+    let captured_piece_id = captured_piece.abs();
 
-    is_sorted
+    get_capture_order_score(original_piece_id as i32, captured_piece_id as i32)
 }
 
 #[inline]
@@ -951,21 +805,21 @@ pub fn is_killer(m: Move) -> bool {
     score == PRIMARY_KILLER_SCORE || score == SECONDARY_KILLER_SCORE
 }
 
-#[inline]
+#[inline(always)]
 fn get_capture_order_score(attacker_id: i32, victim_id: i32) -> i32 {
-    unsafe { *CAPTURE_ORDER_SCORES.get_unchecked(((attacker_id - 1) * 6 + (victim_id - 1)) as usize) }
+    unsafe { *CAPTURE_ORDER_SCORES.get_unchecked((attacker_id * 7 + victim_id) as usize) }
 }
 
 const fn calc_capture_order_scores() -> [i32; CAPTURE_ORDER_SIZE] {
     let mut scores: [i32; CAPTURE_ORDER_SIZE] = [0; CAPTURE_ORDER_SIZE];
     let mut score: i32 = 0;
 
-    let mut victim = 0;
-    while victim <= 5 {
+    let mut victim = 1;
+    while victim <= 6 {
 
-        let mut attacker = 5;
+        let mut attacker = 6;
         while attacker >= 0 {
-            scores[(victim + attacker * 6) as usize] = score * 16;
+            scores[(attacker * 7 + victim) as usize] = score * 16;
             score += 1;
 
             attacker -= 1;
@@ -1020,33 +874,7 @@ mod tests {
         board.perform_null_move(); // so WHITE is the active player
 
         let moves = generate_moves_for_pos(&mut board, WHITE, 52);
-        assert_eq!(
-            1,
-            moves.len(),
-            "There must be only one legal move for the white queen"
-        );
-    }
-
-    #[test]
-    fn partial_sorting() {
-        let m1 = Move::new(MoveType::Quiet, Q, 1, 2).with_score(1);
-        let m2 = Move::new(MoveType::Quiet, Q, 1, 3).with_score(2);
-        let m3 = Move::new(MoveType::Quiet, Q, 1, 5).with_score(3);
-        let m4 = Move::new(MoveType::Quiet, Q, 1, 4).with_score(4);
-
-        let mut moves = vec!(m1, m2, m3, m4);
-
-        sort_partial_by_score_desc(0, &mut moves);
-        assert_eq!(moves[0], m4);
-
-        sort_partial_by_score_desc(1, &mut moves);
-        assert_eq!(moves[1], m3);
-
-        sort_partial_by_score_desc(2, &mut moves);
-        assert_eq!(moves[2], m2);
-
-        sort_partial_by_score_desc(3, &mut moves);
-        assert_eq!(moves[3], m1);
+        assert_eq!(1, moves.len(), "There must be only one legal move for the white queen");
     }
 
     fn board_with_one_piece(color: Color, piece_id: i8, pos: i32) -> Board {
@@ -1078,6 +906,4 @@ mod tests {
             .filter(|&m| board.is_legal_move(color, m))
             .collect()
     }
-
-
 }

@@ -30,6 +30,7 @@ use std::time::{SystemTime};
 use crate::moves::{NO_MOVE, Move};
 use crate::move_gen::MoveGenerator;
 use std::sync::atomic::{AtomicBool, AtomicU64};
+use crate::history_heuristics::HistoryHeuristics;
 
 pub enum Message {
     Fen,
@@ -191,7 +192,8 @@ impl Engine {
         let start = SystemTime::now();
 
         let mut movegen = MoveGenerator::new();
-        let nodes = perft(&mut movegen, &mut self.board, depth);
+        let hh = HistoryHeuristics::new();
+        let nodes = perft(&mut movegen, &hh, &mut self.board, depth);
 
         let duration = match SystemTime::now().duration_since(start) {
             Ok(v) => v,

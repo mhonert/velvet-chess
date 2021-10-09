@@ -265,7 +265,7 @@ impl Search {
 
         let mut reduction = 0;
 
-        while let Some(m) = self.movegen.next_legal_move(&self.hh, &mut self.board) {
+        while let Some(m) = self.movegen.next_root_move(&self.hh, &mut self.board) {
             if skipped_moves.contains(&m.without_score()) {
                 continue;
             }
@@ -332,9 +332,9 @@ impl Search {
             self.movegen.update_root_move(m.with_score(score));
         }
 
-        self.movegen.reset();
+        self.movegen.reset_root_moves();
         if !iteration_cancelled && best_move != NO_MOVE {
-            self.movegen.resort(best_move);
+            self.movegen.reorder_root_moves(best_move);
         }
 
         (move_num, best_move, current_pv)
@@ -532,9 +532,8 @@ impl Search {
                         // Reduce killer moves less
                         reductions -= 1;
                     }
-                } else if !is_pv && removed_piece_id < previous_piece.abs() as i8 && self.board.has_negative_see(-active_player, start, end, target_piece_id, removed_piece_id, 0, occupied_bb) {
-                    // Reduce search depth for capture moves with negative SEE score
-                    reductions += 1;
+                } else if removed_piece_id < previous_piece.abs() as i8 {
+                    skip = self.movegen.skip_bad_capture(curr_move, removed_piece_id, occupied_bb, &mut self.board)
                 }
             }
 
@@ -906,14 +905,8 @@ fn calc_time_limit(movetime: i32, time_left: i32, time_increment: i32, moves_to_
 }
 
 // Principal variation collects a sequence of best moves for a given position
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct PrincipalVariation(Vec<Move>);
-
-impl Default for PrincipalVariation {
-    fn default() -> Self {
-        PrincipalVariation(Vec::new())
-    }
-}
 
 impl PrincipalVariation {
     pub fn update(&mut self, best_move: Move, follow_up: &mut PrincipalVariation) {
