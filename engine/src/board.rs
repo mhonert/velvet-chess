@@ -316,6 +316,7 @@ impl Board {
             }
 
             MoveType::PawnSpecial => {
+                self.reset_half_move_clock();
                 if own_piece == P {
                     // Special en passant handling
                     if move_start - move_end == 7 {
@@ -326,8 +327,6 @@ impl Board {
                         return (own_piece, P);
                     }
                 } else if own_piece == -P {
-                    self.reset_half_move_clock();
-
                     // Special en passant handling
                     if move_start - move_end == -7 {
                         self.remove_piece(move_start + BLACK as i32);
