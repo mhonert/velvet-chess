@@ -117,7 +117,7 @@ impl Search {
 
         let active_player = self.board.active_player();
 
-        self.movegen.enter_ply(active_player, NO_MOVE, NO_MOVE, NO_MOVE);
+        self.movegen.enter_ply(active_player, NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE);
 
         self.set_stopped(false);
 
@@ -214,7 +214,7 @@ impl Search {
             thread::spawn(move || {
                 let limits = SearchLimits::default();
                 let mut sub_search = Search::new(stop_search.clone(), node_count, LogLevel::Error, limits, tt, board, 1);
-                sub_search.movegen.enter_ply(active_player, NO_MOVE, NO_MOVE, NO_MOVE);
+                sub_search.movegen.enter_ply(active_player, NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE);
 
                 loop {
                     let msg = match rx.recv() {
@@ -289,12 +289,12 @@ impl Search {
             let mut local_pv = PrincipalVariation::default();
 
             // Use principal variation search
-            let mut result = self.rec_find_best_move(rx, a, -alpha, depth - reduction - 1, 1, false, gives_check, capture_pos, &mut local_pv);
+            let mut result = self.rec_find_best_move(rx, a, -alpha, depth - reduction - 1, 1, false, gives_check, capture_pos, &mut local_pv, m);
             if result == CANCEL_SEARCH {
                 iteration_cancelled = true;
             } else if -result > alpha && a != MIN_SCORE {
                 // Repeat search if it falls outside the search window
-                result = self.rec_find_best_move(rx, MIN_SCORE, -alpha, depth - 1, 1, false, gives_check, capture_pos, &mut local_pv);
+                result = self.rec_find_best_move(rx, MIN_SCORE, -alpha, depth - 1, 1, false, gives_check, capture_pos, &mut local_pv, m);
                 if result == CANCEL_SEARCH {
                     iteration_cancelled = true;
                 }
@@ -350,7 +350,9 @@ impl Search {
 
     // Recursively calls itself with alternating player colors to
     // find the best possible move in response to the current board position.
-    fn rec_find_best_move(&mut self, rx: Option<&Receiver<Message>>, mut alpha: i32, beta: i32, mut depth: i32, ply: i32, null_move_performed: bool, is_in_check: bool, capture_pos: i32, pv: &mut PrincipalVariation) -> i32 {
+    fn rec_find_best_move(&mut self, rx: Option<&Receiver<Message>>, mut alpha: i32, beta: i32, mut depth: i32, ply: i32, null_move_performed: bool, is_in_check: bool,
+                          capture_pos: i32, pv: &mut PrincipalVariation, opponent_move: Move) -> i32 {
+
         self.max_reached_depth = max(ply, self.max_reached_depth);
 
         if let Some(rx) = rx {
@@ -445,7 +447,7 @@ impl Search {
             if pos_score.unwrap() >= beta {
                 let r = log2((depth * 3 - 3) as u32);
                 self.board.perform_null_move();
-                let result = self.rec_find_best_move(rx, -beta, -beta + 1, depth - r - 1, ply + 1, true, false, -1, &mut PrincipalVariation::default());
+                let result = self.rec_find_best_move(rx, -beta, -beta + 1, depth - r - 1, ply + 1, true, false, -1, &mut PrincipalVariation::default(), NO_MOVE);
                 self.board.undo_null_move();
                 if result == CANCEL_SEARCH {
                     return CANCEL_SEARCH;
@@ -461,6 +463,7 @@ impl Search {
         }
 
         let (primary_killer, secondary_killer) = self.hh.get_killer_moves(ply);
+        let counter_move = self.hh.get_counter_move(opponent_move);
 
         let mut best_score = worst_possible_score;
         let mut best_move = NO_MOVE;
@@ -483,7 +486,7 @@ impl Search {
 
         let opponent_pieces = self.board.get_all_piece_bitboard(-active_player);
 
-        self.movegen.enter_ply(active_player, hash_move, primary_killer, secondary_killer);
+        self.movegen.enter_ply(active_player, hash_move, primary_killer, secondary_killer, counter_move);
 
         let mut a = -beta;
 
@@ -551,7 +554,7 @@ impl Search {
 
                 let mut local_pv = PrincipalVariation::default();
 
-                let mut result = self.rec_find_best_move(rx, a, -alpha, depth - reductions - 1, ply + 1, false, gives_check, new_capture_pos, &mut local_pv);
+                let mut result = self.rec_find_best_move(rx, a, -alpha, depth - reductions - 1, ply + 1, false, gives_check, new_capture_pos, &mut local_pv, curr_move);
                 if result == CANCEL_SEARCH {
                     self.board.undo_move(curr_move, previous_piece, removed_piece_id);
                     self.movegen.leave_ply();
@@ -560,7 +563,7 @@ impl Search {
 
                 if -result > alpha && (reductions > 0 || (-result < beta && a != -beta)) {
                     // Repeat search without reduction and with full window
-                    result = self.rec_find_best_move(rx, -beta, -alpha, depth - 1, ply + 1, false, gives_check, new_capture_pos, &mut local_pv);
+                    result = self.rec_find_best_move(rx, -beta, -alpha, depth - 1, ply + 1, false, gives_check, new_capture_pos, &mut local_pv, curr_move);
                     if result == CANCEL_SEARCH {
                         self.board.undo_move(curr_move, previous_piece, removed_piece_id);
                         self.movegen.leave_ply();
@@ -580,7 +583,7 @@ impl Search {
                         self.tt.write_entry(hash, depth, best_move.with_score(from_root_relative_score(ply, best_score)), ScoreType::LowerBound);
 
                         if removed_piece_id == EMPTY {
-                            self.hh.update(depth, ply, active_player, best_move);
+                            self.hh.update(depth, ply, active_player, opponent_move, best_move);
                         }
 
                         self.movegen.leave_ply();
@@ -669,7 +672,7 @@ impl Search {
             alpha = position_score;
         }
 
-        self.movegen.enter_ply(active_player, NO_MOVE, NO_MOVE, NO_MOVE);
+        self.movegen.enter_ply(active_player, NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE);
 
         let mut threshold = (alpha - position_score - QS_SEE_THRESHOLD) as i16;
 

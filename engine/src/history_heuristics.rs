@@ -21,26 +21,21 @@ use crate::transposition_table::MAX_DEPTH;
 use crate::moves::{Move, NO_MOVE};
 
 const HISTORY_SIZE: usize = 2 * 8 * 64;
-
 const HEURISTICS_THRESHOLD: i32 = 5;
 
 #[derive(Clone)]
 pub struct HistoryHeuristics {
     killers: Vec<(Move, Move)>,
+    counters: Vec<[Move; 64]>,
     cut_off_history: Vec<(u64, u64)>,
     entries: u64,
-}
-
-impl Default for HistoryHeuristics {
-    fn default() -> Self {
-        HistoryHeuristics::new()
-    }
 }
 
 impl HistoryHeuristics {
     pub fn new() -> Self {
         Self {
             killers: vec![(NO_MOVE, NO_MOVE); MAX_DEPTH],
+            counters: vec![[NO_MOVE; 64]; 64 * 8],
             cut_off_history: vec![(0, 0); HISTORY_SIZE],
             entries: 0
         }
@@ -51,20 +46,33 @@ impl HistoryHeuristics {
 
         self.killers.fill((NO_MOVE, NO_MOVE));
         self.cut_off_history.fill((0, 0));
+        self.counters.fill([NO_MOVE; 64]);
     }
 
     #[inline]
     pub fn get_killer_moves(&self, ply: i32) -> (Move, Move) {
-        unsafe { *self.killers.get_unchecked(ply as usize) }
+        self.killers[ply as usize]
     }
 
     #[inline]
-    pub fn update(&mut self, depth: i32, ply: i32, color: Color, m: Move) {
+    pub fn get_counter_move(&self, opponent_move: Move) -> Move {
+        if opponent_move == NO_MOVE {
+            return NO_MOVE;
+        }
+        self.counters[opponent_move.calc_piece_end_index()][opponent_move.start() as usize]
+    }
+
+    #[inline]
+    pub fn update(&mut self, depth: i32, ply: i32, active_player: Color, opponent_move: Move, m: Move) {
         if depth >= HEURISTICS_THRESHOLD {
-            let color_offset = if color == WHITE { 0 } else { HISTORY_SIZE / 2 };
+            let color_offset = if active_player == WHITE { 0 } else { HISTORY_SIZE / 2 };
             unsafe { self.cut_off_history.get_unchecked_mut(color_offset + m.calc_piece_end_index()).0 += 1 };
         }
         self.update_killer_moves(ply, m);
+
+        if opponent_move != NO_MOVE {
+            self.update_counter_move(opponent_move, m);
+        }
     }
 
     #[inline]
@@ -74,6 +82,11 @@ impl HistoryHeuristics {
             entry.1 = entry.0;
             entry.0 = m.without_score();
         }
+    }
+
+    #[inline]
+    fn update_counter_move(&mut self, opponent_move: Move, counter_move: Move) {
+        self.counters[opponent_move.calc_piece_end_index()][opponent_move.start() as usize] = counter_move;
     }
 
     #[inline]
@@ -114,8 +127,8 @@ mod tests {
 
         let move_a = Move::new(MoveType::Quiet, Q, 1, 2);
         let move_b = Move::new(MoveType::Quiet, R, 4, 5);
-        hh.update(3, 1, WHITE, move_a);
-        hh.update(3, 1, WHITE, move_b);
+        hh.update(3, 1, WHITE, NO_MOVE, move_a);
+        hh.update(3, 1, WHITE, NO_MOVE, move_b);
 
         let (primary_killer, secondary_killer) = hh.get_killer_moves(1);
 

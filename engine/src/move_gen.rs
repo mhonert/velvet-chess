@@ -28,6 +28,7 @@ const CAPTURE_ORDER_SIZE: usize = 6 + 6 * 7 + 1;
 
 const PRIMARY_KILLER_SCORE: i32 = -2200;
 const SECONDARY_KILLER_SCORE: i32 = -2250;
+const COUNTER_MOVE_SCORE: i32 = -2275;
 
 pub const NEGATIVE_HISTORY_SCORE: i32 = -5000;
 
@@ -52,9 +53,9 @@ impl MoveGenerator {
         }
     }
 
-    pub fn enter_ply(&mut self, active_player: Color, scored_hash_move: Move, primary_killer: Move, secondary_killer: Move) {
+    pub fn enter_ply(&mut self, active_player: Color, scored_hash_move: Move, primary_killer: Move, secondary_killer: Move, counter_move: Move) {
         self.ply += 1;
-        self.entries[self.ply].init(active_player, scored_hash_move, primary_killer, secondary_killer);
+        self.entries[self.ply].init(active_player, scored_hash_move, primary_killer, secondary_killer, counter_move);
     }
 
     pub fn leave_ply(&mut self) {
@@ -93,7 +94,7 @@ impl MoveGenerator {
     }
 
     pub fn sanitize_move(&mut self, board: &Board, active_player: Color, untyped_move: Move) -> Move {
-        self.enter_ply(active_player, NO_MOVE, NO_MOVE, NO_MOVE);
+        self.enter_ply(active_player, NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE);
         let m = self.entries[self.ply].sanitize_move(board, active_player, untyped_move);
         self.leave_ply();
 
@@ -108,6 +109,7 @@ enum Stage {
     CaptureMoves,
     PrimaryKillerMove,
     SecondaryKillerMove,
+    CounterMove,
     PostponedBadCaptureMoves,
     SortQuietMoves,
     QuietMoves
@@ -118,6 +120,7 @@ pub struct MoveList {
     scored_hash_move: Move,
     primary_killer: Move,
     secondary_killer: Move,
+    counter_move: Move,
     moves: Vec<Move>, // contains all moves on root level, but only quiet moves in all other cases
     capture_moves: Vec<Move>, // not used on root level
     bad_capture_moves: Vec<Move>, // not used on root level
@@ -133,6 +136,7 @@ impl MoveList {
             scored_hash_move: NO_MOVE,
             primary_killer: NO_MOVE,
             secondary_killer: NO_MOVE,
+            counter_move: NO_MOVE,
             moves: Vec::with_capacity(64),
             capture_moves: Vec::with_capacity(16),
             bad_capture_moves: Vec::with_capacity(16),
@@ -143,10 +147,11 @@ impl MoveList {
         }
     }
 
-    pub fn init(&mut self, active_player: Color, scored_hash_move: Move, primary_killer: Move, secondary_killer: Move) {
+    pub fn init(&mut self, active_player: Color, scored_hash_move: Move, primary_killer: Move, secondary_killer: Move, counter_move: Move) {
         self.scored_hash_move = scored_hash_move;
         self.primary_killer = primary_killer;
         self.secondary_killer = secondary_killer;
+        self.counter_move = counter_move;
 
         self.moves.clear();
         self.capture_moves.clear();
@@ -234,10 +239,18 @@ impl MoveList {
                 },
 
                 Stage::SecondaryKillerMove => {
-                    self.stage = Stage::PostponedBadCaptureMoves;
+                    self.stage = Stage::CounterMove;
 
                     if self.secondary_killer != NO_MOVE && remove_move(&mut self.moves, self.secondary_killer) != NO_MOVE {
                         return Some(self.secondary_killer.with_score(SECONDARY_KILLER_SCORE));
+                    }
+                },
+
+                Stage::CounterMove => {
+                    self.stage = Stage::PostponedBadCaptureMoves;
+
+                    if self.counter_move != NO_MOVE && remove_move(&mut self.moves, self.counter_move) != NO_MOVE {
+                        return Some(self.counter_move.with_score(COUNTER_MOVE_SCORE));
                     }
                 },
 
@@ -886,7 +899,7 @@ mod tests {
     fn generate_moves_for_pos(board: &mut Board, color: Color, pos: i32) -> Vec<Move> {
         let hh = HistoryHeuristics::new();
         let mut ml = MoveList::new();
-        ml.init(color, NO_MOVE, NO_MOVE, NO_MOVE);
+        ml.init(color, NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE);
 
         let mut moves = Vec::new();
 
