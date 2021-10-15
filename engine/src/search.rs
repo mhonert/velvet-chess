@@ -64,6 +64,7 @@ pub struct Search {
     cancel_possible: bool,
     last_log_time: Instant,
     next_check_node_count: u64,
+    next_hh_age_node_count: u64,
     current_depth: i32,
     max_reached_depth: i32,
 
@@ -95,6 +96,7 @@ impl Search {
             node_count,
             last_log_time: Instant::now(),
             next_check_node_count: 0,
+            next_hh_age_node_count: 0,
             current_depth: 0,
             max_reached_depth: 0,
             is_stopped,
@@ -105,15 +107,17 @@ impl Search {
 
     pub fn find_best_move(&mut self, rx: Option<&Receiver<Message>>, min_depth: i32, skipped_moves: &[Move]) -> (Move, PrincipalVariation) {
         self.time_mgr.reset(self.limits.time_limit_ms, self.limits.strict_time_limit);
-        self.hh.clear();
 
         self.cancel_possible = false;
         self.node_count.store(0, Ordering::Relaxed);
         self.local_node_count = 0;
 
         self.next_check_node_count = min(self.limits.node_limit, 1000);
+        self.next_hh_age_node_count = 1000000;
 
         let mut last_best_move: Move = NO_MOVE;
+
+        self.hh.clear();
 
         let active_player = self.board.active_player();
 
@@ -135,9 +139,9 @@ impl Search {
 
             let mut iteration_cancelled = false;
 
-
             let mut local_pv = PrincipalVariation::default();
             let (move_num, mut best_move, current_pv) = self.root_search(rx, skipped_moves, depth, &mut local_pv);
+
 
             let now = Instant::now();
 
@@ -271,7 +275,7 @@ impl Search {
             }
             move_num += 1;
 
-            if self.log(Info) && self.local_node_count > 1000000 {
+            if self.log(Info) && self.local_node_count > 2000000 {
                 let now = Instant::now();
                 if self.time_mgr.search_duration_ms(now) >= 1000 {
                     self.last_log_time = now;
@@ -367,6 +371,11 @@ impl Search {
             return 0;
         }
 
+        if self.local_node_count >= self.next_hh_age_node_count {
+            self.hh.age_entries();
+            self.next_hh_age_node_count = self.local_node_count + 2000000;
+        }
+
         let is_pv = (alpha + 1) < beta; // in a principal variation search, non-PV nodes are searched with a zero-window
 
         // Prune, if even the best possible score cannot improve alpha (because a shorter mate has already been found)
@@ -447,7 +456,7 @@ impl Search {
             if pos_score.unwrap() >= beta {
                 let r = log2((depth * 3 - 3) as u32);
                 self.board.perform_null_move();
-                let result = self.rec_find_best_move(rx, -beta, -beta + 1, depth - r - 1, ply + 1, true, false, -1, &mut PrincipalVariation::default(), NO_MOVE);
+                let result = self.rec_find_best_move(rx, -beta, -beta + 1, depth - r - 1, ply + 1, true, false, -1, &mut PrincipalVariation::default(), opponent_move);
                 self.board.undo_null_move();
                 if result == CANCEL_SEARCH {
                     return CANCEL_SEARCH;
@@ -493,6 +502,8 @@ impl Search {
         let occupied_bb = self.board.get_occupancy_bitboard();
 
         let previous_move_was_capture = capture_pos != -1;
+
+        let hh_counter_scale = self.hh.calc_counter_scale(depth);
 
         while let Some(curr_move) = self.movegen.next_move(&self.hh, &mut self.board) {
             let start = curr_move.start();
@@ -543,12 +554,7 @@ impl Search {
             if skip {
                 self.board.undo_move(curr_move, previous_piece, removed_piece_id);
             } else {
-                let mut new_capture_pos = -1;
-                if removed_piece_id == EMPTY {
-                    self.hh.update_played_moves(depth, active_player, curr_move);
-                } else {
-                    new_capture_pos = end;
-                }
+                let new_capture_pos = if removed_piece_id != EMPTY { end } else { - 1 };
 
                 evaluated_move_count += 1;
 
@@ -583,7 +589,7 @@ impl Search {
                         self.tt.write_entry(hash, depth, best_move.with_score(from_root_relative_score(ply, best_score)), ScoreType::LowerBound);
 
                         if removed_piece_id == EMPTY {
-                            self.hh.update(depth, ply, active_player, opponent_move, best_move);
+                            self.hh.update(ply, active_player, opponent_move, best_move, hh_counter_scale);
                         }
 
                         self.movegen.leave_ply();
@@ -595,7 +601,8 @@ impl Search {
                         score_type = ScoreType::Exact;
                         pv.update(best_move, &mut local_pv);
                     }
-
+                } else if removed_piece_id == EMPTY {
+                    self.hh.update_played_moves(active_player, curr_move, hh_counter_scale);
                 }
 
                 a = -(alpha + 1);

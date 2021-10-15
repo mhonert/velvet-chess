@@ -16,19 +16,20 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+use std::cmp::min;
 use crate::colors::{Color, WHITE};
 use crate::transposition_table::MAX_DEPTH;
 use crate::moves::{Move, NO_MOVE};
 
 const HISTORY_SIZE: usize = 2 * 8 * 64;
-const HEURISTICS_THRESHOLD: i32 = 5;
+
+pub const MIN_HISTORY_SCORE: i32 = -512;
 
 #[derive(Clone)]
 pub struct HistoryHeuristics {
     killers: Vec<(Move, Move)>,
     counters: Vec<[Move; 64]>,
-    cut_off_history: Vec<(u64, u64)>,
-    entries: u64,
+    cut_off_history: Vec<i16>,
 }
 
 impl HistoryHeuristics {
@@ -36,16 +37,13 @@ impl HistoryHeuristics {
         Self {
             killers: vec![(NO_MOVE, NO_MOVE); MAX_DEPTH],
             counters: vec![[NO_MOVE; 64]; 64 * 8],
-            cut_off_history: vec![(0, 0); HISTORY_SIZE],
-            entries: 0
+            cut_off_history: vec![0; HISTORY_SIZE],
         }
     }
 
     pub fn clear(&mut self) {
-        self.entries = 0;
-
         self.killers.fill((NO_MOVE, NO_MOVE));
-        self.cut_off_history.fill((0, 0));
+        self.cut_off_history.fill(0);
         self.counters.fill([NO_MOVE; 64]);
     }
 
@@ -62,17 +60,26 @@ impl HistoryHeuristics {
         self.counters[opponent_move.calc_piece_end_index()][opponent_move.start() as usize]
     }
 
+    #[inline(always)]
+    pub fn calc_counter_scale(&self, depth: i32) -> i32 {
+        min(512, depth * depth)
+    }
+
     #[inline]
-    pub fn update(&mut self, depth: i32, ply: i32, active_player: Color, opponent_move: Move, m: Move) {
-        if depth >= HEURISTICS_THRESHOLD {
-            let color_offset = if active_player == WHITE { 0 } else { HISTORY_SIZE / 2 };
-            unsafe { self.cut_off_history.get_unchecked_mut(color_offset + m.calc_piece_end_index()).0 += 1 };
-        }
+    pub fn update(&mut self, ply: i32, active_player: Color, opponent_move: Move, m: Move, counter_scale: i32) {
+        self.update_cut_off_history(active_player, m, counter_scale);
         self.update_killer_moves(ply, m);
 
         if opponent_move != NO_MOVE {
             self.update_counter_move(opponent_move, m);
         }
+    }
+
+    #[inline]
+    fn update_cut_off_history(&mut self, active_player: Color, m: Move, counter_scale: i32) {
+        let color_offset = if active_player == WHITE { 0 } else { HISTORY_SIZE / 2 };
+        let entry = unsafe { self.cut_off_history.get_unchecked_mut(color_offset + m.calc_piece_end_index()) };
+        *entry = entry.saturating_add((counter_scale * 32 - *entry as i32 * counter_scale.abs() / 512) as i16);
     }
 
     #[inline]
@@ -90,13 +97,13 @@ impl HistoryHeuristics {
     }
 
     #[inline]
-    pub fn update_played_moves(&mut self, depth: i32, color: Color, m: Move) {
-        if depth >= HEURISTICS_THRESHOLD {
-            self.entries += 1;
-            let color_offset = if color == WHITE { 0 } else { HISTORY_SIZE / 2 };
-            unsafe {
-                self.cut_off_history.get_unchecked_mut(color_offset + m.calc_piece_end_index()).1 += 1;
-            }
+    pub fn update_played_moves(&mut self, active_player: Color, m: Move, counter_scale: i32) {
+        self.update_cut_off_history(active_player, m, -counter_scale);
+    }
+
+    pub fn age_entries(&mut self) {
+        for entry in self.cut_off_history.iter_mut() {
+            *entry >>= 1;
         }
     }
 
@@ -105,13 +112,7 @@ impl HistoryHeuristics {
         let color_offset = if color == WHITE { 0 } else { HISTORY_SIZE / 2 };
         let index = color_offset + m.calc_piece_end_index();
 
-        let entry = unsafe { *self.cut_off_history.get_unchecked(index) };
-        let move_count = entry.1;
-        if move_count <= (self.entries / 2304) {
-            return -1;
-        }
-
-        (entry.0 * 512 / move_count) as i32
+        unsafe { (*self.cut_off_history.get_unchecked(index) / 32) as i32 }
     }
 }
 
@@ -127,8 +128,8 @@ mod tests {
 
         let move_a = Move::new(MoveType::Quiet, Q, 1, 2);
         let move_b = Move::new(MoveType::Quiet, R, 4, 5);
-        hh.update(3, 1, WHITE, NO_MOVE, move_a);
-        hh.update(3, 1, WHITE, NO_MOVE, move_b);
+        hh.update(1, WHITE, NO_MOVE, move_a, 1);
+        hh.update(1, WHITE, NO_MOVE, move_b, 1);
 
         let (primary_killer, secondary_killer) = hh.get_killer_moves(1);
 

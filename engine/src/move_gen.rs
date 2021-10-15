@@ -21,7 +21,7 @@ use crate::board::{Board, WhiteBoardPos, Castling, BlackBoardPos};
 use crate::colors::{Color, BLACK, WHITE};
 use crate::pieces::{B, K, N, P, Q, R, EMPTY};
 use crate::moves::{Move, MoveType, NO_MOVE};
-use crate::history_heuristics::{HistoryHeuristics};
+use crate::history_heuristics::{HistoryHeuristics, MIN_HISTORY_SCORE};
 use crate::transposition_table::MAX_DEPTH;
 
 const CAPTURE_ORDER_SIZE: usize = 6 + 6 * 7 + 1;
@@ -210,8 +210,6 @@ impl MoveList {
                     self.stage = Stage::GenerateMoves;
 
                     if self.scored_hash_move != NO_MOVE {
-                        remove_move(&mut self.capture_moves, self.scored_hash_move);
-                        remove_move(&mut self.moves, self.scored_hash_move);
                         return Some(self.scored_hash_move);
                     }
                 },
@@ -219,6 +217,9 @@ impl MoveList {
                 Stage::GenerateMoves => {
                     self.stage = Stage::CaptureMoves;
                     self.gen_moves(board);
+                    if self.scored_hash_move != NO_MOVE {
+                        remove_move(&mut self.capture_moves, self.scored_hash_move);
+                    }
                     self.capture_moves.sort_unstable_by_key(Move::score);
                     self.moves_generated = true;
                 }
@@ -264,6 +265,9 @@ impl MoveList {
 
                 Stage::SortQuietMoves => {
                     self.stage = Stage::QuietMoves;
+                    if self.scored_hash_move != NO_MOVE {
+                        remove_move(&mut self.moves, self.scored_hash_move);
+                    }
                     self.score_quiets(hh);
                     self.moves.sort_unstable_by_key(Move::score)
                 }
@@ -782,19 +786,13 @@ pub fn evaluate_move_order(hh: &HistoryHeuristics, active_player: Color, m: Move
     }
 
     let history_score = hh.get_history_score(active_player, m);
-    if history_score == 0 {
+    if history_score == MIN_HISTORY_SCORE {
         NEGATIVE_HISTORY_SCORE
 
-    } else if history_score == -1 {
-
-        if active_player == WHITE {
-            -4096 + (7 - (m.end() / 8 - 4))
-        } else {
-            -4096 + (m.end() / 8 - 4)
-        }
+    } else if active_player == WHITE {
+        -3600 + history_score + (7 - (m.end() / 8 - 4)).signum()
     } else {
-
-        -3600 + history_score
+        -3600 + history_score + (m.end() / 8 - 4).signum()
     }
 }
 
