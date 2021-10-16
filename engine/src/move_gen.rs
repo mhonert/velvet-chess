@@ -84,10 +84,6 @@ impl MoveGenerator {
         self.entries[self.ply].next_capture_move(board)
     }
 
-    pub fn update_root_move(&mut self, m: Move) {
-        self.entries[self.ply].update_root_move(m);
-    }
-
     #[inline(always)]
     pub fn skip_bad_capture(&mut self, m: Move, captured_piece_id: i8, occupied_bb: u64, board: &mut Board) -> bool {
         self.entries[self.ply].skip_bad_capture(m, captured_piece_id, occupied_bb, board)
@@ -168,8 +164,10 @@ impl MoveList {
     }
 
     pub fn reorder_root_moves(&mut self, best_move: Move) {
-        remove_move(&mut self.moves, best_move);
-        self.moves.insert(0, best_move);
+        if let Some(i) = self.moves.iter().position(|m| m.is_same_move(best_move)) {
+            self.moves.remove(i);
+            self.moves.insert(0, best_move);
+        }
     }
 
     #[inline]
@@ -182,10 +180,6 @@ impl MoveList {
     #[inline]
     pub fn add_move(&mut self, typ: MoveType, piece: i8, start: i32, end: i32) {
         self.moves.push(Move::new(typ, piece, start, end));
-    }
-
-    pub fn update_root_move(&mut self, scored_move: Move) {
-        self.moves[self.root_move_index - 1] = scored_move;
     }
 
     #[inline]

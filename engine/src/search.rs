@@ -132,7 +132,7 @@ impl Search {
         helper_threads.start_search();
 
         // Use iterative deepening, i.e. increase the search depth after each iteration
-        for depth in 1..(MAX_DEPTH as i32) {
+        for depth in 1..=self.limits.depth_limit {
             let iteration_start_time = Instant::now();
             self.current_depth = depth;
             self.max_reached_depth = 0;
@@ -145,7 +145,7 @@ impl Search {
 
             let now = Instant::now();
 
-            if depth >= self.limits.depth_limit || best_move == NO_MOVE {
+            if best_move == NO_MOVE {
                 iteration_cancelled = true;
             }
 
@@ -183,8 +183,8 @@ impl Search {
                 // stop searching, if iteration has been cancelled or there is no valid move or only a single valid move
                 break;
             }
-
         }
+
         helper_threads.stop_search();
 
         self.movegen.leave_ply();
@@ -332,14 +332,10 @@ impl Search {
 
             // Search all following moves with a null window
             a = -(alpha + 1);
-
-            self.movegen.update_root_move(m.with_score(score));
         }
 
         self.movegen.reset_root_moves();
-        if !iteration_cancelled && best_move != NO_MOVE {
-            self.movegen.reorder_root_moves(best_move);
-        }
+        self.movegen.reorder_root_moves(best_move);
 
         (move_num, best_move, current_pv)
     }
