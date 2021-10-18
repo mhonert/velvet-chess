@@ -221,8 +221,6 @@ impl Search {
     fn start_helper_threads(&mut self, skipped_moves: &[Move]) -> HelperThreads {
         let mut helper_threads = HelperThreads::new();
 
-        let active_player = self.board.active_player();
-
         for _ in 0..(self.total_thread_count - 1) {
 
             let node_count = self.node_count.clone();
@@ -241,52 +239,9 @@ impl Search {
             let skipped_moves = Vec::from(skipped_moves);
             thread::spawn(move || {
                 let limits = SearchLimits::default();
-                let mut sub_search = Search::new(stop_search.clone(), node_count, LogLevel::Error, limits, tt, board, 1);
-                sub_search.movegen.enter_ply(active_player, NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE);
+                let sub_search = Search::new(stop_search.clone(), node_count, LogLevel::Error, limits, tt, board, 1);
 
-                loop {
-                    let msg = match rx.recv() {
-                        Ok(msg) => msg,
-                        Err(e) => {
-                            eprintln!("Helper thread communication error: {}", e);
-                            break;
-                        }
-                    };
-
-                    match msg {
-                        HelperThreadMessage::Search => {
-                            let mut window_size = INITIAL_ASPIRATION_WINDOW_SIZE;
-                            let mut window_step = INITIAL_ASPIRATION_WINDOW_STEP;
-                            let mut score = 0;
-
-                            for depth in 1..MAX_DEPTH {
-                                let (move_count, best_move, _, new_window_step) = sub_search.root_search(None, &skipped_moves, window_step, window_size, score, depth as i32, &mut PrincipalVariation::default());
-                                if new_window_step > window_step {
-                                    window_step = new_window_step;
-                                    window_size = new_window_step;
-                                } else if window_step > 16 {
-                                    window_step /= 2;
-                                    window_size /= 2;
-                                }
-
-                                if move_count <= 1 {
-                                    break;
-                                }
-                                if sub_search.is_stopped() {
-                                    break;
-                                }
-
-                                score = best_move.score();
-                            }
-                            search_stopped.store(true, Ordering::Release);
-                        }
-
-                        HelperThreadMessage::Terminate => break
-                    }
-                }
-
-                sub_search.movegen.leave_ply();
-
+                HelperThread::run(search_stopped, rx, &skipped_moves, sub_search);
                 thread_terminated.store(true, Ordering::Release);
             });
         }
@@ -1056,6 +1011,8 @@ impl HelperThreads {
 
         self.threads.clear();
     }
+
+
 }
 
 impl Drop for HelperThreads {
@@ -1097,6 +1054,53 @@ impl HelperThread {
         while !self.thread_terminated.load(Ordering::Acquire) {
             thread::yield_now();
         }
+    }
+
+    pub fn run(search_stopped: Arc<AtomicBool>, rx: Receiver<HelperThreadMessage>, skipped_moves: &[Move], mut sub_search: Search) {
+        sub_search.movegen.enter_ply(sub_search.board.active_player(), NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE);
+
+        loop {
+            let msg = match rx.recv() {
+                Ok(msg) => msg,
+                Err(e) => {
+                    eprintln!("Helper thread communication error: {}", e);
+                    break;
+                }
+            };
+
+            match msg {
+                HelperThreadMessage::Search => {
+                    let mut window_size = INITIAL_ASPIRATION_WINDOW_SIZE;
+                    let mut window_step = INITIAL_ASPIRATION_WINDOW_STEP;
+                    let mut score = 0;
+
+                    for depth in 1..MAX_DEPTH {
+                        let (move_count, best_move, _, new_window_step) = sub_search.root_search(None, skipped_moves, window_step, window_size, score, depth as i32, &mut PrincipalVariation::default());
+                        if new_window_step > window_step {
+                            window_step = new_window_step;
+                            window_size = new_window_step;
+                        } else if window_step > 16 {
+                            window_step /= 2;
+                            window_size /= 2;
+                        }
+
+                        if move_count <= 1 {
+                            break;
+                        }
+                        if sub_search.is_stopped() {
+                            break;
+                        }
+
+                        score = best_move.score();
+                    }
+                    search_stopped.store(true, Ordering::Release);
+                }
+
+                HelperThreadMessage::Terminate => break
+            }
+        }
+
+        sub_search.movegen.leave_ply();
     }
 }
 
