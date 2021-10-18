@@ -76,7 +76,7 @@ pub struct Search {
     node_count: Arc<AtomicU64>,
     is_stopped: Arc<AtomicBool>,
 
-    helper_thread_count: usize,
+    total_thread_count: usize,
 }
 
 impl Search {
@@ -103,7 +103,7 @@ impl Search {
             max_reached_depth: 0,
             is_stopped,
 
-            helper_thread_count: search_thread_count - 1,
+            total_thread_count: search_thread_count,
         }
     }
 
@@ -223,7 +223,7 @@ impl Search {
 
         let active_player = self.board.active_player();
 
-        for _ in 0..self.helper_thread_count {
+        for _ in 0..(self.total_thread_count - 1) {
 
             let node_count = self.node_count.clone();
             let tt = self.tt.clone();
@@ -333,6 +333,9 @@ impl Search {
         let active_player = self.board.active_player();
 
         let mut reduction = 0;
+        let mut tree_scale = 0;
+
+        let is_multi_threaded = self.total_thread_count > 1;
 
         self.movegen.reset_root_moves();
         while let Some(m) = self.movegen.next_root_move(&self.hh, &mut self.board) {
@@ -358,6 +361,7 @@ impl Search {
 
             let mut local_pv = PrincipalVariation::default();
 
+            let mut tree_size = self.local_node_count;
             // Use principal variation search
             let mut result = self.rec_find_best_move(rx, a, -alpha, depth - reduction - 1, 1, false, gives_check, capture_pos, &mut local_pv, m);
             if result == CANCEL_SEARCH {
@@ -402,9 +406,15 @@ impl Search {
                 }
             }
 
+            tree_size = (self.local_node_count - tree_size) << reduction;
+            if move_num == 1 {
+                tree_scale = max(13, 64 - tree_size.leading_zeros()) - 13;
+            }
+            self.movegen.update_root_move(m.with_score(min(MAX_SCORE, (tree_size >> tree_scale) as i32)));
+
         }
 
-        self.movegen.reorder_root_moves(best_move);
+        self.movegen.reorder_root_moves(best_move, is_multi_threaded);
 
         (move_num, best_move, current_pv)
     }

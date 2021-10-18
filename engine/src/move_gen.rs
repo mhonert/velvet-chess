@@ -70,8 +70,8 @@ impl MoveGenerator {
         self.entries[self.ply].reset_root_moves();
     }
 
-    pub fn reorder_root_moves(&mut self, best_move: Move) {
-        self.entries[self.ply].reorder_root_moves(best_move);
+    pub fn reorder_root_moves(&mut self, best_move: Move, sort_other_moves: bool) {
+        self.entries[self.ply].reorder_root_moves(best_move, sort_other_moves);
     }
 
     #[inline(always)]
@@ -82,6 +82,10 @@ impl MoveGenerator {
     #[inline(always)]
     pub fn next_capture_move(&mut self, board: &mut Board) -> Option<Move> {
         self.entries[self.ply].next_capture_move(board)
+    }
+
+    pub fn update_root_move(&mut self, m: Move) {
+        self.entries[self.ply].update_root_move(m);
     }
 
     #[inline(always)]
@@ -163,9 +167,12 @@ impl MoveList {
         self.root_move_index = 0;
     }
 
-    pub fn reorder_root_moves(&mut self, best_move: Move) {
+    pub fn reorder_root_moves(&mut self, best_move: Move, sort_other_moves: bool) {
         if let Some(i) = self.moves.iter().position(|m| m.is_same_move(best_move)) {
             self.moves.remove(i);
+            if sort_other_moves {
+                self.moves.sort_by_key(|m| Reverse(m.score()));
+            }
             self.moves.insert(0, best_move);
         }
     }
@@ -180,6 +187,10 @@ impl MoveList {
     #[inline]
     pub fn add_move(&mut self, typ: MoveType, piece: i8, start: i32, end: i32) {
         self.moves.push(Move::new(typ, piece, start, end));
+    }
+
+    pub fn update_root_move(&mut self, scored_move: Move) {
+        self.moves[self.root_move_index - 1] = scored_move;
     }
 
     #[inline]
