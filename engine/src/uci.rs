@@ -68,6 +68,8 @@ pub fn start_uci_loop(tx: &Sender<Message>) {
 
                 "stop" => send_message(tx, Message::Stop),
 
+                "ponderhit" => send_message(tx, Message::PonderHit),
+
                 "uci" => uci(),
 
                 "ucinewgame" => uci_new_game(tx),
@@ -98,6 +100,7 @@ fn uci() {
     println!("option name UCI_EngineAbout type string default Velvet Chess Engine (https://github.com/mhonert/velvet-chess)");
     println!("option name Hash type spin default {} min 1 max {}", DEFAULT_SIZE_MB, MAX_HASH_SIZE_MB);
     println!("option name Threads type spin default {} min 1 max {}", DEFAULT_SEARCH_THREADS, MAX_SEARCH_THREADS);
+    println!("option name Ponder type check default false");
 
     println!("uciok");
 }
@@ -157,6 +160,8 @@ fn set_option(tx: &Sender<Message>, parts: &[&str]) {
             };
         }
 
+        "ponder" => {}
+
         _ => println!("Unknown option: {}", name)
     }
 }
@@ -205,8 +210,10 @@ fn perft(tx: &Sender<Message>, parts: Vec<&str>) {
 }
 
 fn go(tx: &Sender<Message>, parts: Vec<&str>) {
+    let ponder = parts.contains(&"ponder");
+
     if parts.is_empty() || parts.contains(&"infinite") {
-        send_message(tx, Message::Go(SearchLimits::default()));
+        send_message(tx, Message::Go(SearchLimits::default(), ponder));
         return;
     }
 
@@ -227,7 +234,7 @@ fn go(tx: &Sender<Message>, parts: Vec<&str>) {
         }
     };
 
-    send_message(tx, Message::Go(limits));
+    send_message(tx, Message::Go(limits, ponder));
 }
 
 fn profile(tx: &Sender<Message>) {
@@ -239,7 +246,7 @@ fn fen(tx: &Sender<Message>) {
     send_message(tx, Message::Fen);
 }
 
-fn extract_option<T: std::str::FromStr>(parts: &Vec<&str>, name: &str) -> Option<T> {
+fn extract_option<T: std::str::FromStr>(parts: &[&str], name: &str) -> Option<T> {
     match parts.iter().position(|&item| item == name) {
         Some(pos) => {
             if pos + 1 >= parts.len() {

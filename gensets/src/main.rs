@@ -256,7 +256,7 @@ fn collect_quiet_pos(tb: &Tablebase<Chess>, rnd: &mut Random, opening: &str, tt:
     let (_tx, rx) = mpsc::channel::<Message>();
     let node_limit = 10000 + (rnd.rand32() % 1000) as u64;
     let limits = SearchLimits::new(None, Some(node_limit), None, None, None, None, Some(1), None).unwrap();
-    let mut search = Search::new(Arc::new(AtomicBool::new(false)), Arc::new(AtomicU64::new(0)), LogLevel::Error, limits, tt, board, 1);
+    let mut search = Search::new(Arc::new(AtomicBool::new(false)), Arc::new(AtomicU64::new(0)), LogLevel::Error, limits, tt, board, 1, false);
 
     let mut positions = Vec::new();
     let mut ply = 0;

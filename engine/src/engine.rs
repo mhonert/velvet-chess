@@ -34,7 +34,7 @@ use crate::history_heuristics::HistoryHeuristics;
 
 pub enum Message {
     Fen,
-    Go(SearchLimits),
+    Go(SearchLimits, bool),
     IsReady,
     NewGame,
     Perft(i32),
@@ -44,6 +44,7 @@ pub enum Message {
     SetThreadCount(i32),
     SetTranspositionTableSize(i32),
     Stop,
+    PonderHit,
 }
 
 #[repr(u8)]
@@ -125,8 +126,8 @@ impl Engine {
 
             Message::IsReady => self.check_readiness(),
 
-            Message::Go(limits) =>
-                self.go(limits),
+            Message::Go(limits, ponder) =>
+                self.go(limits, ponder),
 
             Message::Fen => println!("{}", write_fen(&self.board)),
 
@@ -137,29 +138,38 @@ impl Engine {
             },
 
             Message::Stop => (),
+
+            Message::PonderHit => println!("info Received 'ponderhit' outside ongoing search"),
         }
 
         true
     }
 
-    fn go(&mut self, limits: SearchLimits) {
-        let m = self.search(limits, &[]);
+    fn go(&mut self, limits: SearchLimits, ponder: bool) {
+        let (m, ponder_m) = self.search(limits, &[], ponder);
         if m == NO_MOVE {
             println!("bestmove 0000");
             return;
         }
 
-        println!("bestmove {}", UCIMove::from_encoded_move(&self.board, m).to_uci());
+        let move_info = UCIMove::from_encoded_move(&self.board, m).to_uci();
+
+        if ponder_m != NO_MOVE {
+            println!("bestmove {} ponder {}", move_info, UCIMove::from_encoded_move(&self.board, ponder_m).to_uci());
+        } else {
+            println!("bestmove {}", move_info);
+        };
     }
 
-    pub fn search(&mut self, mut limits: SearchLimits, skipped_moves: &[Move]) -> Move {
+    pub fn search(&mut self, mut limits: SearchLimits, skipped_moves: &[Move], ponder: bool) -> (Move, Move) {
         limits.update(self.board.active_player());
 
         let mut search = Search::new(Arc::new(AtomicBool::new(true)), Arc::new(AtomicU64::new(0)), self.log_level,
-                                     limits, self.tt.as_ref().unwrap().clone(), self.board.clone(), self.search_thread_count);
+                                     limits, self.tt.as_ref().unwrap().clone(), self.board.clone(), self.search_thread_count, ponder);
 
-        let (m, _) = search.find_best_move(Some(&self.rx), 3, skipped_moves);
-        m
+        let (m, pv) = search.find_best_move(Some(&self.rx), 3, skipped_moves);
+        let ponder_m = *pv.moves().iter().nth(1).unwrap_or(&NO_MOVE);
+        (m, ponder_m)
     }
 
     fn check_readiness(&mut self) {
@@ -216,7 +226,7 @@ impl Engine {
 
     pub fn profile(&mut self) {
         println!("Profiling ...");
-        self.go(SearchLimits::nodes(500_000));
+        self.go(SearchLimits::nodes(500_000), false);
         exit(0);
     }
 }

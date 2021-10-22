@@ -77,10 +77,12 @@ pub struct Search {
     is_stopped: Arc<AtomicBool>,
 
     total_thread_count: usize,
+
+    pondering: bool,
 }
 
 impl Search {
-    pub fn new(is_stopped: Arc<AtomicBool>, node_count: Arc<AtomicU64>, log_level: LogLevel, limits: SearchLimits, tt: Arc<TranspositionTable>, board: Board, search_thread_count: usize) -> Self {
+    pub fn new(is_stopped: Arc<AtomicBool>, node_count: Arc<AtomicU64>, log_level: LogLevel, limits: SearchLimits, tt: Arc<TranspositionTable>, board: Board, search_thread_count: usize, ponder: bool) -> Self {
         let hh = HistoryHeuristics::new();
 
         let time_mgr = TimeManager::new();
@@ -104,6 +106,7 @@ impl Search {
             is_stopped,
 
             total_thread_count: search_thread_count,
+            pondering: ponder
         }
     }
 
@@ -176,7 +179,7 @@ impl Search {
                 pv = local_pv.clone();
                 self.cancel_possible = depth >= min_depth;
                 let iteration_duration = now.duration_since(iteration_start_time);
-                if self.cancel_possible && !self.time_mgr.is_time_for_another_iteration(now, iteration_duration) {
+                if !self.pondering && self.cancel_possible && !self.time_mgr.is_time_for_another_iteration(now, iteration_duration) {
                     if self.time_mgr.should_extend_timelimit() {
                         self.time_mgr.extend_timelimit();
                     } else {
@@ -213,6 +216,12 @@ impl Search {
 
         self.movegen.leave_ply();
 
+        if let Some(r) = rx {
+            while self.pondering && !self.is_stopped() {
+                self.check_messages(r, true);
+            }
+        }
+
         self.set_stopped(true);
 
         (last_best_move, pv)
@@ -239,7 +248,7 @@ impl Search {
             let skipped_moves = Vec::from(skipped_moves);
             thread::spawn(move || {
                 let limits = SearchLimits::default();
-                let sub_search = Search::new(stop_search.clone(), node_count, LogLevel::Error, limits, tt, board, 1);
+                let sub_search = Search::new(stop_search.clone(), node_count, LogLevel::Error, limits, tt, board, 1, false);
 
                 HelperThread::run(search_stopped, rx, &skipped_moves, sub_search);
                 thread_terminated.store(true, Ordering::Release);
@@ -658,10 +667,10 @@ impl Search {
         if self.local_node_count >= self.next_check_node_count {
             self.next_check_node_count = if self.limits.node_limit != u64::MAX { self.limits.node_limit } else { self.local_node_count + 1000 };
 
-            self.check_messages(rx);
+            self.check_messages(rx, false);
 
             let now = Instant::now();
-            if self.cancel_possible && (self.node_count() >= self.limits.node_limit || self.time_mgr.is_timelimit_exceeded(now)) {
+            if !self.pondering && self.cancel_possible && (self.node_count() >= self.limits.node_limit || self.time_mgr.is_timelimit_exceeded(now)) {
                 // Cancel search if the node or time limit has been reached, but first check
                 // whether the search time should be extended
                 if !self.is_stopped() && self.time_mgr.should_extend_timelimit() {
@@ -815,35 +824,58 @@ impl Search {
         self.is_stopped.store(value, Ordering::Release);
     }
 
-    fn check_messages(&mut self, rx: &Receiver<Message>) {
-        match rx.try_recv() {
-            Ok(msg) => {
-                match msg {
-                    Message::IsReady => println!("readyok"),
+    fn check_messages(&mut self, rx: &Receiver<Message>, blocking: bool) {
+        if let Some(msg) = self.receive_message(rx, blocking) {
+            match msg {
+                Message::IsReady => println!("readyok"),
 
-                    Message::Stop => {
-                        self.set_stopped(true);
-                    }
-
-                    _ => ()
+                Message::Stop => {
+                    self.pondering = false;
+                    self.set_stopped(true);
                 }
-            },
 
-            Err(e) => {
-                match e {
-                    TryRecvError::Empty => (),
-                    TryRecvError::Disconnected => {
-                        self.set_stopped(true);
-                    }
+                Message::PonderHit => {
+                    self.pondering = false;
+                }
+
+                _ => ()
+            }
+        }
+    }
+
+    fn receive_message(&mut self, rx: &Receiver<Message>, blocking: bool) -> Option<Message> {
+        if blocking {
+            match rx.recv() {
+                Ok(msg) => Some(msg),
+                Err(e) => {
+                    self.uci_channel_error(e.to_string());
+                    None
+                }
+            }
+        } else {
+            match rx.try_recv() {
+                Ok(msg) => Some(msg),
+                Err(e) => if matches!(e, TryRecvError::Empty) {
+                    None
+                } else {
+                    self.uci_channel_error(e.to_string());
+                    None
                 }
             }
         }
+    }
+
+    fn uci_channel_error(&mut self, err_msg: String) {
+        eprintln!("info search thread could not read from UCI thread and will be stopped: {}", err_msg);
+        self.set_stopped(true);
+        self.pondering = false;
     }
 
     pub fn set_node_limit(&mut self, node_limit: u64) {
         self.limits.node_limit = node_limit;
     }
 }
+
 
 #[derive(Copy, Clone, Debug)]
 pub struct SearchLimits {
@@ -1191,7 +1223,7 @@ mod tests {
     }
 
     fn search(tt: Arc<TranspositionTable>, limits: SearchLimits, board: Board, min_depth: i32) -> Move {
-        let mut search = Search::new(Arc::new(AtomicBool::new(false)), Arc::new(AtomicU64::new(0)), LogLevel::Error, limits, tt, board, 1);
+        let mut search = Search::new(Arc::new(AtomicBool::new(false)), Arc::new(AtomicU64::new(0)), LogLevel::Error, limits, tt, board, 1, false);
         let (m, _) = search.find_best_move(None, min_depth, &[]);
         m
     }
