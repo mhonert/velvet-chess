@@ -23,13 +23,13 @@ use std::sync::atomic::{AtomicU64, Ordering};
 pub const MAX_HASH_SIZE_MB: i32 = 256 * 1024;
 
 // Transposition table entry
-// Bits 63 - 38: 26 highest bits of the hash
-const HASHCHECK_MASK: u64 = 0b1111111111111111111111111100000000000000000000000000000000000000;
+// Bits 63 - 39: 25 highest bits of the hash
+const HASHCHECK_MASK: u64 = 0b1111111111111111111111111000000000000000000000000000000000000000;
 
-// Bits 37 - 32: Depth
-pub const MAX_DEPTH: usize = 63;
+// Bits 38 - 32: Depth
+pub const MAX_DEPTH: usize = 127;
 const DEPTH_BITSHIFT: u32 = 32;
-const DEPTH_MASK: u64 = 0b111111;
+const DEPTH_MASK: u64 = 0b1111111;
 
 // Bits 31 - 30: Score Type
 #[repr(u8)]

@@ -446,7 +446,7 @@ impl Search {
         }
 
         // Quiescence search
-        if depth <= 0 || ply >= MAX_DEPTH as i32 {
+        if depth <= 0 || ply >= (MAX_DEPTH - 16) as i32 {
             return self.quiescence_search(active_player, alpha, beta, ply, pos_score, pv);
         }
 
