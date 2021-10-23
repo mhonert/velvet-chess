@@ -803,6 +803,11 @@ impl Board {
         false
     }
 
+    #[inline]
+    pub fn is_pawn_endgame(&self) -> bool {
+        (self.get_occupancy_bitboard() & !(self.get_bitboard(P) | self.get_bitboard(-P))).count_ones() == 2
+    }
+
     /* Perform a Static Exchange Evaluation (SEE) to check, whether the net gain of the capture is still positive,
        after applying all immediate and discovered re-capture attacks.
     */
@@ -855,7 +860,7 @@ impl Board {
     pub fn get_move_type(&self, start: i32, end: i32, promotion_piece_id: i8) -> MoveType {
         let start_piece_id = self.get_item(start).abs();
 
-        let typ = match start_piece_id {
+        match start_piece_id {
             P => {
                 if (start - end).abs() == 16 {
                     MoveType::PawnDoubleQuiet
@@ -892,9 +897,7 @@ impl Board {
                     MoveType::Capture
                 }
             }
-        };
-
-        typ
+        }
     }
 
     pub fn reset_nn_eval(&mut self) {

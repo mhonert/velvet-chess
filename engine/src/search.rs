@@ -490,7 +490,7 @@ impl Search {
         }
 
         // Null move pruning
-        if !is_pv && !null_move_performed && depth > 3 && !is_in_check {
+        if !is_pv && !null_move_performed && depth > 3 && !is_in_check && !self.board.is_pawn_endgame() {
             pos_score = pos_score.or_else(|| Some(self.board.eval() * active_player as i32));
             if pos_score.unwrap() >= beta {
                 let r = log2((depth * 3 - 3) as u32);
