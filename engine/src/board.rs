@@ -387,6 +387,7 @@ impl Board {
         self.store_state();
         self.increase_half_move_count();
         self.clear_en_passant();
+        self.nn_eval.set_stm(self.active_player());
     }
 
     fn reset_half_move_clock(&mut self) {
@@ -471,6 +472,7 @@ impl Board {
     pub fn undo_null_move(&mut self) {
         self.halfmove_count -= 1;
         self.restore_state();
+        self.nn_eval.set_stm(self.active_player());
     }
 
     fn add_piece_without_inc_update(&mut self, color: Color, piece: i8, pos: i32) {
