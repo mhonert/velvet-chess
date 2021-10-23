@@ -54,8 +54,7 @@ struct TestPos {
     count: u16,
     prev_score: i32,
     score: i32,
-    include: bool,
-    mat_score: i32,
+    include: bool
 }
 
 fn main() {
@@ -297,7 +296,7 @@ fn collect_quiet_pos(tb: &Tablebase<Chess>, rnd: &mut Random, opening: &str, tt:
         }
 
         let fen = write_fen(&search.board);
-        let is_quiet = is_candidate && pv.moves().len() >= 9 && search.is_quiet_pv(&pv.moves(), search.board.material_score());
+        let is_quiet = is_candidate && pv.moves().len() >= 9 && search.is_quiet_pv(&pv.moves(), search.material_score());
 
         if !duplicate_check.contains(&fen) && score.abs() < 6000 {
             duplicate_check.insert(fen.clone());
@@ -306,8 +305,7 @@ fn collect_quiet_pos(tb: &Tablebase<Chess>, rnd: &mut Random, opening: &str, tt:
                 count: search.board.halfmove_count(),
                 prev_score: score,
                 score,
-                include: is_quiet && score.abs() <= 3000,
-                mat_score: search.board.material_score(),
+                include: is_quiet && score.abs() <= 3000
             });
         }
 
@@ -351,8 +349,7 @@ fn resolve_tb_match(tb: &Tablebase<Chess>, rx: Option<&Receiver<Message>>, dupli
                 count: search.board.halfmove_count(),
                 prev_score: score,
                 score,
-                include: is_quiet && score.abs() <= 3000,
-                mat_score: search.board.material_score(),
+                include: is_quiet && score.abs() <= 3000
             });
         }
 
@@ -375,7 +372,7 @@ fn search_tb_move(rx: Option<&Receiver<Message>>, search: &mut Search, tb_move: 
     // Only search the table base move, skip all other moves
     let (scored_move, pv) = search.find_best_move(rx, 9, &skipped_moves);
 
-    let is_quiet = !search.board.is_in_check(search.board.active_player()) && pv.moves().len() >= 9 && search.is_quiet_pv(&pv.moves(), search.board.material_score());
+    let is_quiet = !search.board.is_in_check(search.board.active_player()) && pv.moves().len() >= 9 && search.is_quiet_pv(&pv.moves(), search.material_score());
 
     (scored_move.score() * search.board.active_player() as i32, is_quiet)
 }

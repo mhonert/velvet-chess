@@ -913,14 +913,6 @@ impl Board {
         self.nn_eval.fast_eval()
     }
 
-    pub fn material_score(&self) -> i32 {
-        (self.get_bitboard(P).count_ones() as i32 - self.get_bitboard(-P).count_ones() as i32) * 100 +
-        (self.get_bitboard(N).count_ones() as i32 - self.get_bitboard(-N).count_ones() as i32) * 300 +
-        (self.get_bitboard(B).count_ones() as i32 - self.get_bitboard(-B).count_ones() as i32) * 330 +
-        (self.get_bitboard(R).count_ones() as i32 - self.get_bitboard(-R).count_ones() as i32) * 550 +
-        (self.get_bitboard(Q).count_ones() as i32 - self.get_bitboard(-Q).count_ones() as i32) * 990
-    }
-
 }
 
 #[cfg(test)]

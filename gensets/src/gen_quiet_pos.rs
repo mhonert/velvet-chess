@@ -17,11 +17,13 @@
  */
 
 use velvet::moves::{Move};
+use velvet::pieces::{B, N, P, Q, R};
 use velvet::search::{Search};
 
 // Code for generating quiet training positions for tuning and NN training
 pub trait GenQuietPos {
     fn is_quiet_pv(&mut self, pv: &[Move], base_mat_score: i32) -> bool;
+    fn material_score(&self) -> i32;
 }
 
 impl GenQuietPos for Search {
@@ -34,7 +36,17 @@ impl GenQuietPos for Search {
             is_quiet
 
         } else {
-            self.board.material_score() == base_mat_score
+            self.material_score() == base_mat_score
         }
     }
+
+
+    fn material_score(&self) -> i32 {
+        (self.board.get_bitboard(P).count_ones() as i32 - self.board.get_bitboard(-P).count_ones() as i32) * 100 +
+            (self.board.get_bitboard(N).count_ones() as i32 - self.board.get_bitboard(-N).count_ones() as i32) * 300 +
+            (self.board.get_bitboard(B).count_ones() as i32 - self.board.get_bitboard(-B).count_ones() as i32) * 330 +
+            (self.board.get_bitboard(R).count_ones() as i32 - self.board.get_bitboard(-R).count_ones() as i32) * 550 +
+            (self.board.get_bitboard(Q).count_ones() as i32 - self.board.get_bitboard(-Q).count_ones() as i32) * 990
+    }
+
 }
