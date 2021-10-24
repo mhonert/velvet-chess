@@ -495,7 +495,7 @@ impl Search {
             if pos_score.unwrap() >= beta {
                 let r = log2((depth * 3 - 3) as u32);
                 self.board.perform_null_move();
-                let result = self.rec_find_best_move(rx, -beta, -beta + 1, depth - r - 1, ply + 1, true, false, -1, &mut PrincipalVariation::default(), opponent_move);
+                let result = self.rec_find_best_move(rx, -beta, -beta + 1, depth - r - 1, ply + 1, true, false, -1, &mut PrincipalVariation::default(), NO_MOVE);
                 self.board.undo_null_move();
                 if result == CANCEL_SEARCH {
                     return CANCEL_SEARCH;
