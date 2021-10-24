@@ -327,12 +327,12 @@ impl Search {
 
             let mut tree_size = self.local_node_count;
             // Use principal variation search
-            let mut result = self.rec_find_best_move(rx, a, -alpha, depth - reduction - 1, 1, false, gives_check, capture_pos, &mut local_pv, m);
+            let mut result = self.rec_find_best_move(rx, a, -alpha, depth - reduction - 1, 1, gives_check, capture_pos, &mut local_pv, m);
             if result == CANCEL_SEARCH {
                 iteration_cancelled = true;
             } else if -result > alpha && a != -beta {
                 // Repeat search if it falls outside the search window
-                result = self.rec_find_best_move(rx, -beta, -alpha, depth - 1, 1, false, gives_check, capture_pos, &mut local_pv, m);
+                result = self.rec_find_best_move(rx, -beta, -alpha, depth - 1, 1, gives_check, capture_pos, &mut local_pv, m);
                 if result == CANCEL_SEARCH {
                     iteration_cancelled = true;
                 }
@@ -393,7 +393,7 @@ impl Search {
 
     // Recursively calls itself with alternating player colors to
     // find the best possible move in response to the current board position.
-    fn rec_find_best_move(&mut self, rx: Option<&Receiver<Message>>, mut alpha: i32, beta: i32, mut depth: i32, ply: i32, null_move_performed: bool, is_in_check: bool,
+    fn rec_find_best_move(&mut self, rx: Option<&Receiver<Message>>, mut alpha: i32, beta: i32, mut depth: i32, ply: i32, is_in_check: bool,
                           capture_pos: i32, pv: &mut PrincipalVariation, opponent_move: Move) -> i32 {
 
         self.max_reached_depth = max(ply, self.max_reached_depth);
@@ -490,12 +490,12 @@ impl Search {
         }
 
         // Null move pruning
-        if !is_pv && !null_move_performed && depth > 3 && !is_in_check && !self.board.is_pawn_endgame() {
+        if !is_pv && depth > 3 && !is_in_check && !self.board.is_pawn_endgame() {
             pos_score = pos_score.or_else(|| Some(self.board.eval() * active_player as i32));
             if pos_score.unwrap() >= beta {
                 let r = log2((depth * 3 - 3) as u32);
                 self.board.perform_null_move();
-                let result = self.rec_find_best_move(rx, -beta, -beta + 1, depth - r - 1, ply + 1, true, false, -1, &mut PrincipalVariation::default(), NO_MOVE);
+                let result = self.rec_find_best_move(rx, -beta, -beta + 1, depth - r - 1, ply + 1, false, -1, &mut PrincipalVariation::default(), NO_MOVE);
                 self.board.undo_null_move();
                 if result == CANCEL_SEARCH {
                     return CANCEL_SEARCH;
@@ -599,7 +599,7 @@ impl Search {
 
                 let mut local_pv = PrincipalVariation::default();
 
-                let mut result = self.rec_find_best_move(rx, a, -alpha, depth - reductions - 1, ply + 1, false, gives_check, new_capture_pos, &mut local_pv, curr_move);
+                let mut result = self.rec_find_best_move(rx, a, -alpha, depth - reductions - 1, ply + 1, gives_check, new_capture_pos, &mut local_pv, curr_move);
                 if result == CANCEL_SEARCH {
                     self.board.undo_move(curr_move, previous_piece, removed_piece_id);
                     self.movegen.leave_ply();
@@ -608,7 +608,7 @@ impl Search {
 
                 if -result > alpha && (reductions > 0 || (-result < beta && a != -beta)) {
                     // Repeat search without reduction and with full window
-                    result = self.rec_find_best_move(rx, -beta, -alpha, depth - 1, ply + 1, false, gives_check, new_capture_pos, &mut local_pv, curr_move);
+                    result = self.rec_find_best_move(rx, -beta, -alpha, depth - 1, ply + 1, gives_check, new_capture_pos, &mut local_pv, curr_move);
                     if result == CANCEL_SEARCH {
                         self.board.undo_move(curr_move, previous_piece, removed_piece_id);
                         self.movegen.leave_ply();
