@@ -462,27 +462,32 @@ impl Search {
         if tt_entry != 0 {
             hash_move = self.movegen.sanitize_move(&self.board, active_player, get_untyped_move(tt_entry));
 
-            if !is_pv && hash_move != NO_MOVE && get_depth(tt_entry) >= depth {
+            if hash_move != NO_MOVE {
                 let score = to_root_relative_score(ply, hash_move.score());
                 match get_score_type(tt_entry) {
                     ScoreType::Exact => {
-                        return score
+                        if get_depth(tt_entry) >= depth {
+                            return score
+                        }
+                        pos_score = Some(score);
                     },
 
                     ScoreType::UpperBound => {
-                        if score <= alpha {
+                        if score <= alpha && get_depth(tt_entry) >= depth {
                             return score;
                         }
                     },
 
                     ScoreType::LowerBound => {
-                        alpha = max(alpha, score);
-                        if alpha >= beta {
-                            return score;
+                        if get_depth(tt_entry) >= depth {
+                            alpha = max(alpha, score);
+                            if alpha >= beta {
+                                return score;
+                            }
                         }
+                        pos_score = Some(score);
                     }
                 };
-                pos_score = Some(score);
             }
         } else if depth > 7 {
             // Reduce nodes without hash move from transposition table
