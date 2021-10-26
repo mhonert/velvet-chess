@@ -436,7 +436,7 @@ impl Search {
             // Extend search when in check
             depth = max(1, depth + 1);
 
-        } else if !is_pv && depth > 0 && depth <= 3 && self.board.fast_eval() * active_player as i32 - (100 * depth) >= beta  {
+        } else if !is_pv && depth > 0 && depth <= 3 {
             // Prune, if position is already so good, that it is unlikely for the opponent to counter it within the remaining search depth
             pos_score = pos_score.or_else(|| Some(self.board.eval() * active_player as i32));
 
@@ -531,10 +531,8 @@ impl Search {
         let mut allow_futile_move_pruning = false;
         if !is_pv && depth <= 6 {
             let margin = (6 << depth) * 4 + 16;
-            if self.board.fast_eval() * active_player as i32 + margin <= alpha {
-                let prune_low_score = pos_score.unwrap_or_else(|| self.board.eval() * active_player as i32);
-                allow_futile_move_pruning = prune_low_score.abs() < MATE_SCORE - 2 * MAX_DEPTH as i32 && prune_low_score + margin <= alpha;
-            }
+            let prune_low_score = pos_score.unwrap_or_else(|| self.board.eval() * active_player as i32);
+            allow_futile_move_pruning = prune_low_score.abs() < MATE_SCORE - 2 * MAX_DEPTH as i32 && prune_low_score + margin <= alpha;
         }
 
         let opponent_pieces = self.board.get_all_piece_bitboard(-active_player);

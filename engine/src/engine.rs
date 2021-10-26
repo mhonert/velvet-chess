@@ -168,7 +168,7 @@ impl Engine {
                                      limits, self.tt.as_ref().unwrap().clone(), self.board.clone(), self.search_thread_count, ponder);
 
         let (m, pv) = search.find_best_move(Some(&self.rx), 3, skipped_moves);
-        let ponder_m = *pv.moves().iter().nth(1).unwrap_or(&NO_MOVE);
+        let ponder_m = *pv.moves().get(1).unwrap_or(&NO_MOVE);
         (m, ponder_m)
     }
 
