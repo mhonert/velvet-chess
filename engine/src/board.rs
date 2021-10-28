@@ -95,6 +95,7 @@ pub struct StateEntry {
     en_passant: u16,
     castling: u8,
     halfmove_clock: u8,
+    history_start: u8,
 }
 
 const ALL_CASTLING: u8 = Castling::WhiteKingSide as u8
@@ -113,7 +114,7 @@ impl Board {
             items: [0; 64],
             bitboards: [0; 13],
             bitboards_all_pieces: [0; 3],
-            state: StateEntry{en_passant: 0, castling: 0, halfmove_clock: 0, hash: 0},
+            state: StateEntry{en_passant: 0, castling: 0, halfmove_clock: 0, hash: 0, history_start: 0},
             king_pos: [0; 3],
             halfmove_count: 0,
             history: Vec::with_capacity(MAX_DEPTH),
@@ -129,6 +130,7 @@ impl Board {
 
         self.halfmove_count = (max(1, fullmove_num) - 1) * 2 + if active_player == WHITE { 0 } else { 1 };
         self.state.halfmove_clock = halfmove_clock;
+        self.state.history_start = halfmove_clock;
         self.state.hash = 0;
         self.state.castling = castling_state;
         self.state.en_passant = 0;
@@ -265,6 +267,7 @@ impl Board {
     fn increase_half_move_count(&mut self) {
         self.halfmove_count += 1;
         self.state.halfmove_clock += 1;
+        self.state.history_start += 1;
 
         self.state.hash ^= player_zobrist_key();
     }
@@ -386,12 +389,14 @@ impl Board {
     pub fn perform_null_move(&mut self) {
         self.store_state();
         self.increase_half_move_count();
+        self.state.history_start = 0;
         self.clear_en_passant();
         self.nn_eval.set_stm(self.active_player());
     }
 
     fn reset_half_move_clock(&mut self) {
         self.state.halfmove_clock = 0;
+        self.state.history_start = 0;
     }
 
     fn set_white_has_castled(&mut self) {
@@ -750,14 +755,14 @@ impl Board {
 
     // Return true, if the engine considers the current position as a draw.
     pub fn is_draw(&self) -> bool {
-        self.pos_history.is_repetition_draw(self.state.hash, self.halfmove_clock())
+        self.pos_history.is_repetition_draw(self.state.hash, self.state.history_start)
             || self.is_fifty_move_draw()
             || self.is_insufficient_material_draw()
     }
 
 
     pub fn is_repetition_draw(&self) -> bool {
-        self.pos_history.is_repetition_draw(self.state.hash, self.halfmove_clock())
+        self.pos_history.is_repetition_draw(self.state.hash, self.state.history_start)
     }
 
     pub fn is_fifty_move_draw(&self) -> bool {
