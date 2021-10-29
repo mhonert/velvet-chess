@@ -7,3 +7,5 @@ __pycache__
 build.sh
 build_tools.sh
 build_trainer.sh
+patches
+verify-patch
