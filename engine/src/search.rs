@@ -525,11 +525,11 @@ impl Search {
         let mut evaluated_move_count = 0;
         let mut has_valid_moves = false;
 
-        let allow_reductions = depth > 2 && !is_in_check;
+        let allow_lmr = depth > 2;
 
         // Futile move pruning
         let mut allow_futile_move_pruning = false;
-        if !is_pv && depth <= 6 {
+        if !is_pv && depth <= 6 && !is_in_check {
             let margin = (6 << depth) * 4 + 16;
             let prune_low_score = pos_score.unwrap_or_else(|| self.board.eval() * active_player as i32);
             allow_futile_move_pruning = prune_low_score.abs() < MATE_SCORE - 2 * MAX_DEPTH as i32 && prune_low_score + margin <= alpha;
@@ -568,8 +568,7 @@ impl Search {
                 }
 
                 if removed_piece_id == EMPTY {
-                    if allow_reductions
-                        && !gives_check
+                    if allow_lmr
                         && evaluated_move_count > LMR_THRESHOLD
                         && !self.board.is_pawn_move_close_to_promotion(previous_piece, end, opponent_pieces) {
                         reductions += if curr_move.score() == NEGATIVE_HISTORY_SCORE { 3 } else { 2 };
@@ -581,7 +580,7 @@ impl Search {
                         reductions += LOSING_MOVE_REDUCTIONS;
                     }
 
-                    if !is_pv && allow_futile_move_pruning && evaluated_move_count > 0 && !is_in_check && !gives_check && reductions >= (depth - 1) {
+                    if allow_futile_move_pruning && evaluated_move_count > 0 && !gives_check && reductions >= (depth - 1) {
                         // Prune futile move
                         skip = true;
                     } else if reductions > 0 && is_killer(curr_move) {
