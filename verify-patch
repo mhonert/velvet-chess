@@ -1,0 +1,2 @@
+#!/bin/sh
+python3 ./pytools/patch-verifier/client.py "$@"
