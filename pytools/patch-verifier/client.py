@@ -59,7 +59,7 @@ def upload(description: str):
             description_file.write(description)
 
         log.info('Uploading to server')
-        subprocess.run(['scp -q %s/%s.* server:chess/patch-verifier/inbox/' % (patch_dir, patch_id)], check=True)
+        subprocess.run(['scp -q %s/%s.* server:chess/patch-verifier/inbox/' % (patch_dir, patch_id)], shell=True, check=True)
 
     except subprocess.CalledProcessError:
         upload_error(patch_dir, 'patch upload failed')
