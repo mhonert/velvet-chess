@@ -578,6 +578,9 @@ impl Search {
                     } else if !is_pv && (curr_move.score() == NEGATIVE_HISTORY_SCORE || self.board.has_negative_see(-active_player, start, end, target_piece_id, EMPTY, 0, occupied_bb)) {
                         // Reduce search depth for moves with negative history or negative SEE score
                         reductions += LOSING_MOVE_REDUCTIONS;
+                        if evaluated_move_count > 0 && depth <= 3 {
+                            skip = true;
+                        }
                     }
 
                     if allow_futile_move_pruning && evaluated_move_count > 0 && !gives_check && reductions >= (depth - 1) {
