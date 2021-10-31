@@ -19,7 +19,6 @@ def parse_final_results_file(result_file) -> (List[str], bool):
     elif "H0 was accepted" in lines[-2]:
         return lines[:-1], False
     else:
-        log.info("Unexpected cutechess output:", lines)
         return lines[:-1], False
 
 
