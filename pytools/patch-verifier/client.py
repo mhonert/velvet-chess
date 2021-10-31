@@ -142,14 +142,14 @@ def report_finished(result: str, ids: List[str]):
             log.info(" - %s - %s" % (patch_id, description))
 
             stc_file = io.TextIOWrapper(tar.extractfile('%s.STC.result' % patch_id))
-            (results, accepted) = parse_final_results_file(stc_file)
+            (stc_results, accepted) = parse_final_results_file(stc_file)
             if accepted:
                 ltc_file = io.TextIOWrapper(tar.extractfile('%s.LTC.result' % patch_id))
-                (results, accepted) = parse_final_results_file(ltc_file)
-                log.info('  > STC: %s' % results[0].strip())
-                log.info('  > LTC: %s' % results[0].strip())
+                (ltc_results, accepted) = parse_final_results_file(ltc_file)
+                log.info('  > STC: %s' % stc_results[0].strip())
+                log.info('  > LTC: %s' % ltc_results[0].strip())
             else:
-                log.info('  > STC: %s' % results[0].strip())
+                log.info('  > STC: %s' % stc_results[0].strip())
 
             log.info("")
 
