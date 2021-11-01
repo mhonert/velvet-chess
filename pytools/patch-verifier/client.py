@@ -103,14 +103,15 @@ def upload(description: str, skip_stc: bool, skip_ltc: bool, quickfix: bool):
 
 def create_config(skip_stc, skip_ltc, quickfix):
     config = {}
+    if quickfix:
+        config['stc'] = QUICKFIX  # Only perform a short time control verification
+        return config
+
     if not skip_stc:
         config['stc'] = STC
 
     if not skip_ltc:
         config['ltc'] = LTC
-
-    if quickfix:
-        config['stc'] = QUICKFIX  # Only perform a short time control verification
 
     return config
 
