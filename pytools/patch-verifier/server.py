@@ -275,6 +275,7 @@ def create_cutechess_config(patch_id: str):
 def cleanup_repo(patch_id: str):
     log.info("Clean-Up after error")
     subprocess.run(['git', 'checkout', '.'], cwd='repo/velvet-chess', check=True)
+    subprocess.run(['git', 'restore', '--staged', '.'], cwd='repo/velvet-chess', check=True)
     subprocess.run(['git', 'clean', '-dfq'], cwd='repo/velvet-chess', check=True)
     subprocess.run(['git', 'checkout', 'master'], cwd='repo/velvet-chess', check=True)
     subprocess.run(['git', 'branch',  '-D', '%s' % patch_id], cwd='repo/velvet-chess', check=True)
