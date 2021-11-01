@@ -2,6 +2,7 @@ import argparse
 import datetime
 import glob
 import io
+import json
 import logging as log
 import os
 import shutil
@@ -17,6 +18,25 @@ from common import (parse_final_results, parse_final_results_file, parse_ongoing
 BASE_DIR = 'pytools/patch-verifier/tmp'
 
 
+STC = {
+    'tc': '40/8+0.08',
+    'low_elo': 0,
+    'high_elo': 5
+}
+
+LTC = {
+    'tc': '40/50+0.5',
+    'low_elo': 0,
+    'high_elo': 5
+}
+
+QUICKFIX = {
+    'tc': '40/5+0.05',
+    'low_elo': -3,
+    'high_elo': 1
+}
+
+
 def main():
     log.basicConfig(stream=sys.stdout, level=log.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -26,19 +46,30 @@ def main():
     upload_parser = subparsers.add_parser('upload', help='Uploads a new patch to the server for verification')
     upload_parser.add_argument('description', type=str, help='Description of the patch. Will be included in the commit message')
 
+    skips = upload_parser.add_mutually_exclusive_group()
+    skips.add_argument('--skip-ltc', help='Skips long time control verification', action='store_true')
+    skips.add_argument('--skip-stc', help='Skips short time control verification', action='store_true')
+    skips.add_argument('--quickfix', help='Quick verification for refactorings or minor bug-fixes', action='store_true')
+
     subparsers.add_parser('report', help='Fetches all available verification results')
 
     args = parser.parse_args()
 
     if args.command == 'upload':
-        upload(args.description)
+        upload(args.description, args.skip_stc, args.skip_ltc, args.quickfix)
     elif args.command == 'report':
         report()
     else:
         parser.print_usage()
 
 
-def upload(description: str):
+def upload(description: str, skip_stc: bool, skip_ltc: bool, quickfix: bool):
+    if skip_stc:
+        log.info("Skipping STC verification")
+
+    if skip_ltc:
+        log.info("Skipping LTC verification")
+
     Path('%s/patches' % BASE_DIR).mkdir(parents=True, exist_ok=True)
 
     log.info('Upload patch "%s" to server ...' % description)
@@ -58,6 +89,9 @@ def upload(description: str):
         with open('%s/%s.txt' % (patch_dir, patch_id), 'w') as description_file:
             description_file.write(description)
 
+        with open('%s/%s.json' % (patch_dir, patch_id), 'w') as config_file:
+            json.dump(create_config(skip_stc, skip_ltc, quickfix), config_file)
+
         log.info('Uploading to server')
         subprocess.run(['scp -q %s/%s.* server:chess/patch-verifier/inbox/' % (patch_dir, patch_id)], shell=True, check=True)
 
@@ -65,6 +99,20 @@ def upload(description: str):
         upload_error(patch_dir, 'patch upload failed')
 
     log.info('Upload successful')
+
+
+def create_config(skip_stc, skip_ltc, quickfix):
+    config = {}
+    if not skip_stc:
+        config['stc'] = STC
+
+    if not skip_ltc:
+        config['ltc'] = LTC
+
+    if quickfix:
+        config['stc'] = QUICKFIX  # Only perform a short time control verification
+
+    return config
 
 
 def report():

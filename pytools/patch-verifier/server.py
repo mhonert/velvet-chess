@@ -9,16 +9,11 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict
 
 from common import parse_final_results, parse_ongoing_results
 
 BASE_PATH = os.getcwd()
-
-TIME_CONTROLS = {
-    'STC': '40/6+0.06',
-    'LTC': '40/60+0.6'
-}
 
 
 def main():
@@ -46,55 +41,41 @@ def main():
     scan(config)
 
 
-def scan(config):
+def read_config(patch_id: str) -> Dict:
+    with open('inbox/%s.json' % patch_id) as file:
+        return json.load(file)
+
+
+def scan(server_config):
     log.info('Scanning inbox for new patches ...')
     while True:
         for patch_file in sorted(glob.glob('inbox/*.patch')):
             patch_id = patch_file.lstrip('inbox/').rstrip('.patch')
             patch_descr = Path('inbox/%s.txt' % patch_id).read_text()
+            patch_config = read_config(patch_id)
+
+            if not patch_config['stc'] and not patch_config['ltc']:
+                log.error('Patch contains no options for STC or LTC verification')
+                exit(-1)
 
             log.info('Found patch %s - %s' % (patch_id, patch_descr))
 
             if not Path('bin/velvet-%s' % patch_id).exists():
                 build_patch(patch_file, patch_id)
 
-            stc_completed = False
-            if Path('work/%s.STC.result' % patch_id).exists():
-                (_, sprt) = parse_ongoing_results('work/%s.STC.result' % patch_id)
-                stc_completed = 'was accepted' in sprt
-
-            if not stc_completed:
-                verify(config, 'STC', 0, 5, patch_id)
-            else:
-                log.info('STC verification was already completed')
-
-            (stc_results, stc_accepted) = parse_final_results('work/%s.STC.result' % patch_id)
-            log.info(stc_results[0].strip())
-            log.info(stc_results[1].strip())
-
+            (stc_elo_result, stc_sprt_result, stc_accepted) = verify(server_config, patch_config['stc'], 'STC', patch_id)
             if not stc_accepted:
                 reject_patch(patch_id)
                 log.info('Scanning inbox for new patches ...')
                 continue
 
-            ltc_completed = False
-            if Path('work/%s.LTC.result' % patch_id).exists():
-                (_, sprt) = parse_ongoing_results('work/%s.LTC.result' % patch_id)
-                ltc_completed = 'was accepted' in sprt
+            (ltc_elo_result, ltc_sprt_result, ltc_accepted) = verify(server_config, patch_config['ltc'], 'LTC', patch_id)
+            if not ltc_accepted:
+                reject_patch(patch_id)
+                log.info('Scanning inbox for new patches ...')
+                continue
 
-            if not ltc_completed:
-                verify(config, 'LTC', 0, 5, patch_id)
-            else:
-                log.info('LTC verification was already completed')
-
-            (ltc_results, ltc_accepted) = parse_final_results('work/%s.LTC.result' % patch_id)
-            log.info(ltc_results[0].strip())
-            log.info(ltc_results[1].strip())
-
-            stc_sprt_result = stc_results[1].rstrip(' - H1 was accepted').strip()
-            ltc_sprt_result = ltc_results[1].rstrip(' - H1 was accepted').strip()
-            accept_patch(patch_id, patch_descr, stc_results[0].strip(), stc_sprt_result, ltc_results[0].strip(), ltc_sprt_result)
-
+            accept_patch(patch_id, patch_descr, stc_elo_result, stc_sprt_result, ltc_elo_result, ltc_sprt_result)
             log.info('Scanning inbox for new patches ...')
 
         time.sleep(5)
@@ -130,6 +111,31 @@ def build_patch(patch_file, patch_id):
     create_cutechess_config(patch_id)
 
 
+def verify(server_config, patch_config, mode: str, patch_id: str) -> (str, str, bool):
+    if not patch_config:
+        return None, None, True
+
+    completed = False
+    if Path('work/%s.%s.result' % (patch_id, mode)).exists():
+        (_, sprt) = parse_ongoing_results('work/%s.%s.result' % (patch_id, mode))
+        completed = 'was accepted' in sprt
+
+    if not completed:
+        run_cutechess(server_config, patch_config, mode, patch_id)
+    else:
+        log.info('%s verification was already completed' % mode)
+
+    (results, accepted) = parse_final_results('work/%s.%s.result' % (patch_id, mode))
+
+    elo_result = results[0].strip()
+    sprt_result = results[1].strip()
+
+    log.info(elo_result)
+    log.info(sprt_result)
+
+    return elo_result, sprt_result, accepted
+
+
 def get_acc_patch_branch() -> Optional[str]:
     subprocess.run(['git', 'checkout', 'master'], cwd='repo/velvet-chess', check=True)
     subprocess.run(['git', 'pull'], cwd='repo/velvet-chess', check=True)
@@ -163,11 +169,18 @@ def new_patch_branch() -> str:
 def accept_patch(patch_id: str, descr: str, stc_elo_result: str, stc_sprt_result: str, ltc_elo_result: str, ltc_sprt_result: str):
     log.info("Patch was accepted!")
     shutil.move('inbox/%s.patch' % patch_id, 'work/%s.patch' % patch_id)
+    shutil.move('inbox/%s.json' % patch_id, 'work/%s.json' % patch_id)
     shutil.move('inbox/%s.txt' % patch_id, 'work/%s.txt' % patch_id)
 
     subprocess.run(['git', 'add', '-A'], cwd='repo/velvet-chess', check=True)
 
-    commit_message = "%s\n\nSTC results:\n%s\n%s\n\nLTC results:\n%s\n%s" % (descr, stc_elo_result, stc_sprt_result, ltc_elo_result, ltc_sprt_result)
+    commit_message = descr
+    if stc_elo_result is not None:
+        commit_message += '\n\nSTC results:\n%s\n%s' % (stc_elo_result, stc_sprt_result)
+
+    if ltc_elo_result is not None:
+        commit_message += '\n\nLTC results:\n%s\n%s' % (ltc_elo_result, ltc_sprt_result)
+
     subprocess.run(['git', 'commit', '-m', commit_message], cwd='repo/velvet-chess', check=True)
 
     target_branch = get_acc_patch_branch()
@@ -198,6 +211,7 @@ def reject_patch(patch_id: str):
     log.info("Patch was rejected")
     cleanup_repo(patch_id)
     shutil.move('inbox/%s.patch' % patch_id, 'work/%s.patch' % patch_id)
+    shutil.move('inbox/%s.json' % patch_id, 'work/%s.json' % patch_id)
     shutil.move('inbox/%s.txt' % patch_id, 'work/%s.txt' % patch_id)
 
     log.info('Package files')
@@ -211,23 +225,26 @@ def reject_patch(patch_id: str):
     Path('work').mkdir()
 
 
-def verify(config, mode: str, min_elo: int, max_elo: int, patch_id: str):
+def run_cutechess(server_config, patch_config, mode: str, patch_id: str):
 
-    tc = TIME_CONTROLS[mode]
+    tc = patch_config['tc']
     log.info('Start %s (%s) verification ...' % (mode, tc))
 
-    options = ['-tb', config.tb_path,
+    options = ['-tb', server_config.tb_path,
                '-rounds', '10000',
-               '-concurrency', str(config.cpu_cores),
+               '-concurrency', str(server_config.cpu_cores),
                '-ratinginterval', '10',
-               '-games', '2', '-repeat',
-               '-openings', 'file=%s' % config.book_file, 'format=epd', 'order=random',
+               '-games', '2',
+               '-openings', 'file=%s' % server_config.book_file, 'format=epd', 'order=random',
                '-each', 'option.Hash=256', 'option.Threads=1', 'restart=off', 'tc=%s' % tc]
 
     engines = ['-engine', 'conf=challenger',
                '-engine', 'conf=baseline']
 
-    sprt = ['-sprt', 'elo0=%s' % str(min_elo), 'elo1=%s' % str(max_elo), 'alpha=0.05', 'beta=0.05']
+    low_elo = patch_config['low_elo']
+    high_elo = patch_config['high_elo']
+
+    sprt = ['-sprt', 'elo0=%s' % str(low_elo), 'elo1=%s' % str(high_elo), 'alpha=0.05', 'beta=0.05']
 
     pgn_out = ['-pgnout', '../work/%s.%s.pgn' % (patch_id, mode)]
 
@@ -235,7 +252,6 @@ def verify(config, mode: str, min_elo: int, max_elo: int, patch_id: str):
 
     with open(result_file_name, 'w') as result_file:
         subprocess.run(['./cutechess-cli', *engines, *sprt, *options, *pgn_out], stdout=result_file, cwd='bin', check=True)
-
 
 
 def create_cutechess_config(patch_id: str):
