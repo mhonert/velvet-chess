@@ -479,11 +479,8 @@ impl Search {
                     },
 
                     ScoreType::LowerBound => {
-                        if get_depth(tt_entry) >= depth {
-                            alpha = max(alpha, score);
-                            if alpha >= beta {
-                                return score;
-                            }
+                        if get_depth(tt_entry) >= depth && max(alpha, score) >= beta {
+                            return score;
                         }
                         pos_score = Some(score);
                     }
