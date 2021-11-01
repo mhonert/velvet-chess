@@ -174,12 +174,11 @@ def report_in_progress(ids: List[str]):
         log.info(" - %s - %s" % (patch_id, description))
         log.info("")
 
+        if Path('%s/work/%s.STC.result' % (BASE_DIR, patch_id)).exists():
+            report_ongoing_result('STC',  patch_id)
         if Path('%s/work/%s.LTC.result' % (BASE_DIR, patch_id)).exists():
-            report_final_result('STC',  patch_id)
-            hl()
             report_ongoing_result('LTC', patch_id)
-        else:
-            report_ongoing_result('STC', patch_id)
+        hl()
 
 
 def report_finished(result: str, ids: List[str]):
@@ -190,29 +189,31 @@ def report_finished(result: str, ids: List[str]):
             description = descr_file.read()
             log.info(" - %s - %s" % (patch_id, description))
 
-            stc_file = io.TextIOWrapper(tar.extractfile('%s.STC.result' % patch_id))
-            (stc_results, accepted) = parse_final_results_file(stc_file)
-            if accepted:
+            try:
+                stc_file = io.TextIOWrapper(tar.extractfile('%s.STC.result' % patch_id))
+                (stc_results, _) = parse_final_results_file(stc_file)
+                log.info('  > STC: %s' % stc_results[0].strip())
+            except KeyError:
+                pass
+
+            try:
                 ltc_file = io.TextIOWrapper(tar.extractfile('%s.LTC.result' % patch_id))
-                (ltc_results, accepted) = parse_final_results_file(ltc_file)
-                log.info('  > STC: %s' % stc_results[0].strip())
+                (ltc_results, _) = parse_final_results_file(ltc_file)
                 log.info('  > LTC: %s' % ltc_results[0].strip())
-            else:
-                log.info('  > STC: %s' % stc_results[0].strip())
+            except KeyError:
+                pass
 
             log.info("")
 
 
 def report_final_result(mode: str, patch_id: str):
     (results, _) = parse_final_results('%s/work/%s.%s.result' % (BASE_DIR, patch_id, mode))
-    log.info('%s verification successful!' % mode)
     log.info('%s Elo result : %s' % (mode, results[0].strip()))
     log.info('%s SPRT result: %s' % (mode, results[1].strip()))
 
 
 def report_ongoing_result(mode: str, patch_id: str):
     (elo, sprt) = parse_ongoing_results('%s/work/%s.%s.result' % (BASE_DIR, patch_id, mode))
-    log.info('%s verification ongoing ...' % mode)
     log.info('%s Elo result : %s' % (mode, elo))
     log.info('%s SPRT result: %s' % (mode, sprt))
 
