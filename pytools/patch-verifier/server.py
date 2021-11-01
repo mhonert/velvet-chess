@@ -54,7 +54,7 @@ def scan(server_config):
             patch_descr = Path('inbox/%s.txt' % patch_id).read_text()
             patch_config = read_config(patch_id)
 
-            if not patch_config['stc'] and not patch_config['ltc']:
+            if not 'stc' in patch_config and not 'ltc' in patch_config:
                 log.error('Patch contains no options for STC or LTC verification')
                 exit(-1)
 
@@ -63,13 +63,13 @@ def scan(server_config):
             if not Path('bin/velvet-%s' % patch_id).exists():
                 build_patch(patch_file, patch_id)
 
-            (stc_elo_result, stc_sprt_result, stc_accepted) = verify(server_config, patch_config['stc'], 'STC', patch_id)
+            (stc_elo_result, stc_sprt_result, stc_accepted) = verify(server_config, patch_config.get('stc'), 'STC', patch_id)
             if not stc_accepted:
                 reject_patch(patch_id)
                 log.info('Scanning inbox for new patches ...')
                 continue
 
-            (ltc_elo_result, ltc_sprt_result, ltc_accepted) = verify(server_config, patch_config['ltc'], 'LTC', patch_id)
+            (ltc_elo_result, ltc_sprt_result, ltc_accepted) = verify(server_config, patch_config.get('ltc'), 'LTC', patch_id)
             if not ltc_accepted:
                 reject_patch(patch_id)
                 log.info('Scanning inbox for new patches ...')
@@ -93,7 +93,7 @@ def build_patch(patch_file, patch_id):
         subprocess.run(['git', 'checkout', '-b', '%s' % patch_id], cwd='repo/velvet-chess', check=True)
 
         log.info('Apply patch')
-        subprocess.run(['git', 'apply', '../../%s' % str(patch_file)], cwd='repo/velvet-chess', check=True)
+        subprocess.run(['git', 'apply', '-3', '../../%s' % str(patch_file)], cwd='repo/velvet-chess', check=True)
 
         log.info('Build binary')
         cargo_env = dict(os.environ, RUSTFLAGS='-Ctarget-feature=+crt-static,-bmi2 -Ctarget-cpu=x86-64-v3')
