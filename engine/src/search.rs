@@ -387,7 +387,8 @@ impl Search {
         self.node_count.load(Ordering::Relaxed)
     }
 
-    fn inc_node_count(&self) {
+    fn inc_node_count(&mut self) {
+        self.local_node_count += 1;
         self.node_count.fetch_add(1, Ordering::Relaxed);
     }
 
@@ -450,7 +451,6 @@ impl Search {
             return self.quiescence_search(active_player, alpha, beta, ply, pos_score, pv);
         }
 
-        self.local_node_count += 1;
         self.inc_node_count();
 
         // Check transposition table
@@ -479,11 +479,8 @@ impl Search {
                     },
 
                     ScoreType::LowerBound => {
-                        if get_depth(tt_entry) >= depth {
-                            alpha = max(alpha, score);
-                            if alpha >= beta {
-                                return score;
-                            }
+                        if get_depth(tt_entry) >= depth && max(alpha, score) >= beta {
+                            return score;
                         }
                         pos_score = Some(score);
                     }
@@ -578,6 +575,9 @@ impl Search {
                     } else if !is_pv && (curr_move.score() == NEGATIVE_HISTORY_SCORE || self.board.has_negative_see(-active_player, start, end, target_piece_id, EMPTY, 0, occupied_bb)) {
                         // Reduce search depth for moves with negative history or negative SEE score
                         reductions += LOSING_MOVE_REDUCTIONS;
+                        if evaluated_move_count > 0 && depth <= 3 {
+                            skip = true;
+                        }
                     }
 
                     if allow_futile_move_pruning && evaluated_move_count > 0 && !gives_check && reductions >= (depth - 1) {
@@ -695,7 +695,6 @@ impl Search {
             return CANCEL_SEARCH;
         }
 
-        self.local_node_count += 1;
         self.inc_node_count();
 
         self.max_reached_depth = max(ply, self.max_reached_depth);
