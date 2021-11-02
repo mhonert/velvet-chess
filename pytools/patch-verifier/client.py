@@ -134,6 +134,10 @@ def sync():
 def create_report():
     inbox = find_patch_ids('%s/inbox/' % BASE_DIR, '.patch')
     in_progress = find_patch_ids('%s/work/' % BASE_DIR, '.STC.result')
+    for patch_id in find_patch_ids('%s/work/' % BASE_DIR, '.LTC.result'):
+        if patch_id not in in_progress:
+            in_progress.append(patch_id)
+
     accepted = find_patch_ids('%s/accepted/' % BASE_DIR, '.tar.gz')[-10:]
     rejected = find_patch_ids('%s/rejected/' % BASE_DIR, '.tar.gz')[-10:]
 
