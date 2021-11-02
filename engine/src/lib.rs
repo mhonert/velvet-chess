@@ -16,9 +16,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#![feature(array_chunks)]
-#![feature(once_cell)]
-
 pub mod bitboard;
 pub mod board;
 pub mod colors;
