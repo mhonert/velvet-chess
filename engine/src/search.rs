@@ -437,13 +437,6 @@ impl Search {
             // Extend search when in check
             depth = max(1, depth + 1);
 
-        } else if !is_pv && depth > 0 && depth <= 3 {
-            // Prune, if position is already so good, that it is unlikely for the opponent to counter it within the remaining search depth
-            pos_score = pos_score.or_else(|| Some(self.board.eval() * active_player as i32));
-
-            if pos_score.unwrap().abs() < MATE_SCORE - (2 * MAX_DEPTH as i32) && pos_score.unwrap() - (100 * depth) >= beta {
-                return self.quiescence_search(active_player, alpha, beta, ply, pos_score, pv);
-            }
         }
 
         // Quiescence search
@@ -491,22 +484,32 @@ impl Search {
             depth -= 1;
         }
 
-        // Null move pruning
-        if !is_pv && depth > 3 && !is_in_check && !self.board.is_pawn_endgame() {
-            pos_score = pos_score.or_else(|| Some(self.board.eval() * active_player as i32));
-            if pos_score.unwrap() >= beta {
-                let r = log2((depth * 3 - 3) as u32);
-                self.board.perform_null_move();
-                let result = self.rec_find_best_move(rx, -beta, -beta + 1, depth - r - 1, ply + 1, false, -1, &mut PrincipalVariation::default(), NO_MOVE);
-                self.board.undo_null_move();
-                if result == CANCEL_SEARCH {
-                    return CANCEL_SEARCH;
+        if !is_pv && !is_in_check {
+            if depth <= 3 {
+                // Jump directly to QS, if position is already so good, that it is unlikely for the opponent to counter it within the remaining search depth
+                pos_score = pos_score.or_else(|| Some(self.board.eval() * active_player as i32));
+                let score = pos_score.unwrap();
+
+                if score.abs() < MATE_SCORE - (2 * MAX_DEPTH as i32) && score - (100 * depth) >= beta {
+                    return self.quiescence_search(active_player, alpha, beta, ply, pos_score, pv);
                 }
-                if -result >= beta {
-                    return if result.abs() < MATE_SCORE - 2 * MAX_DEPTH as i32 {
-                        -result
-                    } else {
-                        beta
+            } else if !self.board.is_pawn_endgame() {
+                // Null move pruning
+                pos_score = pos_score.or_else(|| Some(self.board.eval() * active_player as i32));
+                if pos_score.unwrap() >= beta {
+                    let r = log2((depth * 3 - 3) as u32);
+                    self.board.perform_null_move();
+                    let result = self.rec_find_best_move(rx, -beta, -beta + 1, depth - r - 1, ply + 1, false, -1, &mut PrincipalVariation::default(), NO_MOVE);
+                    self.board.undo_null_move();
+                    if result == CANCEL_SEARCH {
+                        return CANCEL_SEARCH;
+                    }
+                    if -result >= beta {
+                        return if result.abs() < MATE_SCORE - 2 * MAX_DEPTH as i32 {
+                            -result
+                        } else {
+                            beta
+                        }
                     }
                 }
             }
