@@ -18,11 +18,12 @@
 
 use std::io::BufReader;
 use crate::bitboard::{BitBoard, mirror_pos};
-
 use byteorder::{ReadBytesExt, LittleEndian};
 use std::cmp::max;
+use std::sync::{Arc, Once};
 use crate::colors::{Color, WHITE};
 use crate::pieces::{Q, R};
+use unroll::unroll_for_loops;
 
 // Fixed point number precision
 const FP_PRECISION_BITS: i16 = 12;
@@ -36,7 +37,9 @@ const HL_NODES: usize = 64;
 
 const HL_OUT_NODES: usize = 16;
 
-#[derive(Clone)]
+static INIT_NN_PARAMS: Once = Once::new();
+static mut NN_PARAMS: Option<Arc<NeuralNetParams>> = None;
+
 struct NeuralNetParams {
     psq_weights: [i16; INPUTS],
     psq_bias: i16,
@@ -55,7 +58,7 @@ struct NeuralNetParams {
 }
 
 impl NeuralNetParams {
-    pub fn new() -> Self {
+    pub fn new() -> Arc<Self> {
         let mut reader = BufReader::new(&include_bytes!("../nets/velvet.qnn")[..]);
 
         let precision_bits = reader.read_i8().unwrap() as i16;
@@ -80,7 +83,7 @@ impl NeuralNetParams {
 
         params.psq_bias = psq_reader.read_i16::<LittleEndian>().expect("Could not read psq bias");
 
-        params
+        Arc::new(params)
     }
 }
 
@@ -107,7 +110,7 @@ impl Default for NeuralNetParams {
 
 #[derive(Clone)]
 pub struct NeuralNetEval {
-    params: NeuralNetParams,
+    params: Arc<NeuralNetParams>,
 
     hidden1_nodes_wtm: [i16; HL_INPUTS], // wtm - white to move
     hidden1_nodes_btm: [i16; HL_INPUTS], // btm - black to move
@@ -128,8 +131,9 @@ pub struct NeuralNetEval {
 impl NeuralNetEval {
 
     pub fn new() -> Box<Self> {
+        INIT_NN_PARAMS.call_once(|| unsafe { NN_PARAMS = Some(NeuralNetParams::new()) });
         Box::new(NeuralNetEval {
-            params: NeuralNetParams::new(),
+            params: unsafe { NN_PARAMS.clone().unwrap() },
 
             hidden1_nodes_wtm: [0; HL_INPUTS],
             hidden1_nodes_btm: [0; HL_INPUTS],
@@ -188,6 +192,7 @@ impl NeuralNetEval {
         }
     }
 
+    #[unroll_for_loops]
     pub fn add_piece(&mut self, pos: usize, piece: i8) {
         let base_index = self.offset + ((piece.abs() as usize - 1) * 2) as usize * 64;
 
@@ -197,7 +202,6 @@ impl NeuralNetEval {
         }
 
         self.psq_wtm_score += unsafe { self.params.psq_weights.get_unchecked(idx) };
-
         for (nodes, weights) in self.hidden1_nodes_wtm.iter_mut().zip(self.params.input_weights.chunks_exact(HL_INPUTS).nth(idx).unwrap()) {
             *nodes += *weights;
         }
@@ -213,6 +217,7 @@ impl NeuralNetEval {
         }
     }
 
+    #[unroll_for_loops]
     pub fn remove_piece(&mut self, pos: usize, piece: i8) {
         let base_index = self.offset + ((piece.abs() as usize - 1) * 2) as usize * 64;
 
@@ -246,13 +251,14 @@ impl NeuralNetEval {
         }
     }
 
+    #[unroll_for_loops]
     pub fn eval(&mut self, half_move_clock: u8) -> i32 {
         if self.active_player == WHITE {
             if self.psq_wtm_score.abs() > 500 && (self.base_psq_wtm_score - self.psq_wtm_score).abs() > 500 {
                 return adjust_eval(self.psq_wtm_score as i32, half_move_clock);
             }
             for ((node, &bias), weights) in self.hidden2_nodes.iter_mut().zip(&self.params.hidden1_biases).zip(self.params.hidden1_weights.chunks_exact(HL_INPUTS)) {
-                *node = relu(dot_product(&self.hidden1_nodes_wtm, weights) + bias);
+                *node = relu(dot_product::<HL_INPUTS>(&self.hidden1_nodes_wtm, weights) + bias);
             }
 
         } else {
@@ -260,15 +266,15 @@ impl NeuralNetEval {
                 return adjust_eval(self.psq_btm_score as i32, half_move_clock);
             }
             for ((node, &bias), weights) in self.hidden2_nodes.iter_mut().zip(&self.params.hidden1_biases).zip(self.params.hidden1_weights.chunks_exact(HL_INPUTS)) {
-                *node = relu(dot_product(&self.hidden1_nodes_btm, weights) + bias);
+                *node = relu(dot_product::<HL_INPUTS>(&self.hidden1_nodes_btm, weights) + bias);
             }
         }
 
         for ((node, &bias), weights) in self.output_nodes.iter_mut().zip(&self.params.hidden2_biases).zip(self.params.hidden2_weights.chunks_exact(HL_NODES)) {
-            *node = relu(dot_product(&self.hidden2_nodes, weights) + bias);
+            *node = relu(dot_product::<HL_NODES>(&self.hidden2_nodes, weights) + bias);
         }
 
-        let out = (dot_product(&self.output_nodes, &self.params.output_weights) + self.params.output_bias) as i32;
+        let out = (dot_product::<HL_OUT_NODES>(&self.output_nodes, &self.params.output_weights) + self.params.output_bias) as i32;
         let score = out * 2048 / (1 << FP_PRECISION_BITS);
 
         if self.active_player == WHITE {
@@ -306,8 +312,97 @@ fn calc_bucket(bitboards: &[u64; 13]) -> u8 {
 }
 
 #[inline(always)]
-fn dot_product(nodes: &[i16], weights: &[i16]) -> i16 {
-    (nodes.iter().zip(weights).map(|(&n, &w)| (n as i32 * w as i32)).sum::<i32>() >> FP_PRECISION_BITS) as i16
+fn dot_product<const N: usize>(nodes: &[i16], weights: &[i16]) -> i16 {
+    #[cfg(target_feature = "avx2")]
+        {
+            avx2::dot_product::<N>(nodes, weights)
+        }
+
+    #[cfg(all(target_feature = "sse2", not(target_feature = "avx2")))]
+        {
+            sse2::dot_product::<N>(nodes, weights)
+        }
+
+    #[cfg(not(any(target_feature = "sse2", target_feature = "avx2")))]
+        {
+            fallback::dot_product::<N>(nodes, weights)
+        }
+}
+
+#[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+mod avx2 {
+    use core::arch::x86_64::*;
+    use unroll::unroll_for_loops;
+    use std::intrinsics::transmute;
+    use crate::nn_eval::FP_PRECISION_BITS;
+
+    #[inline(always)]
+    #[unroll_for_loops]
+    pub fn dot_product<const N: usize>(nodes: &[i16], weights: &[i16]) -> i16 {
+        unsafe {
+            let n = _mm256_loadu_si256(transmute(nodes.as_ptr()));
+            let w = _mm256_loadu_si256(transmute(weights.as_ptr()));
+            let mut acc = _mm256_madd_epi16(n, w);
+
+            for i in 1..(N / 16) {
+                let n = _mm256_loadu_si256(transmute(nodes.as_ptr().add(i * 16)));
+                let w = _mm256_loadu_si256(transmute(weights.as_ptr().add(i * 16)));
+                acc = _mm256_add_epi32(acc, _mm256_madd_epi16(n, w));
+            }
+
+            // Horizontal sum of the lanes
+            let sum128 = _mm_add_epi32(_mm256_castsi256_si128(acc), _mm256_extracti128_si256::<1>(acc));
+            let hi64 = _mm_unpackhi_epi64(sum128, sum128);
+            let sum64 = _mm_add_epi32(hi64, sum128);
+            let hi32 = _mm_shuffle_epi32::<0b10110001>(sum64);
+            let sum32 = _mm_add_epi32(sum64, hi32);
+
+            (_mm_cvtsi128_si32(sum32) >> FP_PRECISION_BITS) as i16
+        }
+    }
+}
+
+#[cfg(all(target_arch = "x86_64", target_feature = "sse2", not(target_feature = "avx2")))]
+mod sse2 {
+    use core::arch::x86_64::*;
+    use std::intrinsics::transmute;
+    use crate::nn_eval::FP_PRECISION_BITS;
+    use unroll::unroll_for_loops;
+
+    #[inline(always)]
+    #[unroll_for_loops]
+    pub fn dot_product<const N: usize>(nodes: &[i16], weights: &[i16]) -> i16 {
+        unsafe {
+            let n = _mm_loadu_si128(transmute(nodes.as_ptr()));
+            let w = _mm_loadu_si128(transmute(weights.as_ptr()));
+            let mut acc = _mm_madd_epi16(n, w);
+
+            for i in 1..(N / 8) {
+                let n = _mm_loadu_si128(transmute(nodes.as_ptr().add(i * 8)));
+                let w = _mm_loadu_si128(transmute(weights.as_ptr().add(i * 8)));
+                acc = _mm_add_epi32(acc, _mm_madd_epi16(n, w));
+            }
+
+            let hi64 = _mm_shuffle_epi32::<0b01001110>(acc);
+            let sum64 = _mm_add_epi32(hi64, acc);
+            let hi32 = _mm_shufflelo_epi16::<0b01001110>(sum64);
+            let sum32 = _mm_add_epi32(sum64, hi32);
+
+            (_mm_cvtsi128_si32(sum32) >> FP_PRECISION_BITS) as i16
+        }
+    }
+}
+
+#[cfg(not(any(target_feature = "sse2", target_feature = "avx2")))]
+mod fallback {
+    use unroll::unroll_for_loops;
+    use crate::nn_eval::FP_PRECISION_BITS;
+
+    #[inline(always)]
+    #[unroll_for_loops]
+    pub fn dot_product<const N: usize>(nodes: &[i16], weights: &[i16]) -> i16 {
+        (nodes.iter().zip(weights).map(|(&n, &w)| (n as i32 * w as i32)).sum::<i32>() >> FP_PRECISION_BITS) as i16
+    }
 }
 
 #[inline(always)]
