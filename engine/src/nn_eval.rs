@@ -40,20 +40,24 @@ const HL_OUT_NODES: usize = 16;
 static INIT_NN_PARAMS: Once = Once::new();
 static mut NN_PARAMS: Option<Arc<NeuralNetParams>> = None;
 
+#[derive(Clone)]
+#[repr(align(32))]
+struct A32<T>(T); // Wrapper to ensure 32 Byte alignment of the wrapped type for SIMD load/store instructions
+
 struct NeuralNetParams {
-    psq_weights: [i16; INPUTS],
+    psq_weights: A32<[i16; INPUTS]>,
     psq_bias: i16,
 
-    input_weights: [i16; INPUTS * HL_INPUTS],
-    input_biases: [i16; HL_INPUTS],
+    input_weights: A32<[i16; INPUTS * HL_INPUTS]>,
+    input_biases: A32<[i16; HL_INPUTS]>,
 
-    hidden1_weights: [i16; HL_INPUTS * HL_NODES],
-    hidden1_biases: [i16; HL_NODES],
+    hidden1_weights: A32<[i16; HL_INPUTS * HL_NODES]>,
+    hidden1_biases: A32<[i16; HL_NODES]>,
 
-    hidden2_weights: [i16; HL_NODES * HL_OUT_NODES],
-    hidden2_biases: [i16; HL_OUT_NODES],
+    hidden2_weights: A32<[i16; HL_NODES * HL_OUT_NODES]>,
+    hidden2_biases: A32<[i16; HL_OUT_NODES]>,
 
-    output_weights: [i16; HL_OUT_NODES],
+    output_weights: A32<[i16; HL_OUT_NODES]>,
     output_bias: i16,
 }
 
@@ -65,21 +69,21 @@ impl NeuralNetParams {
         assert_eq!(precision_bits, FP_PRECISION_BITS, "NN has been quantized with a different fixed point precision, expected: {}, got: {}", FP_PRECISION_BITS, precision_bits);
 
         let mut params = NeuralNetParams::default();
-        read_quantized(&mut reader, &mut params.input_weights);
-        read_quantized(&mut reader, &mut params.input_biases);
+        read_quantized(&mut reader, &mut params.input_weights.0);
+        read_quantized(&mut reader, &mut params.input_biases.0);
 
-        read_quantized(&mut reader, &mut params.hidden1_weights);
-        read_quantized(&mut reader, &mut params.hidden1_biases);
+        read_quantized(&mut reader, &mut params.hidden1_weights.0);
+        read_quantized(&mut reader, &mut params.hidden1_biases.0);
 
-        read_quantized(&mut reader, &mut params.hidden2_weights);
-        read_quantized(&mut reader, &mut params.hidden2_biases);
+        read_quantized(&mut reader, &mut params.hidden2_weights.0);
+        read_quantized(&mut reader, &mut params.hidden2_biases.0);
 
-        read_quantized(&mut reader, &mut params.output_weights);
+        read_quantized(&mut reader, &mut params.output_weights.0);
 
         params.output_bias = reader.read_i16::<LittleEndian>().expect("Could not read output bias");
 
         let mut psq_reader = BufReader::new(&include_bytes!("../nets/velvet_psq.qnn")[..]);
-        read_quantized(&mut psq_reader, &mut params.psq_weights);
+        read_quantized(&mut psq_reader, &mut params.psq_weights.0);
 
         params.psq_bias = psq_reader.read_i16::<LittleEndian>().expect("Could not read psq bias");
 
@@ -90,19 +94,19 @@ impl NeuralNetParams {
 impl Default for NeuralNetParams {
     fn default() -> Self {
         NeuralNetParams{
-            psq_weights: [0; INPUTS],
+            psq_weights: A32([0; INPUTS]),
             psq_bias: 0,
 
-            input_weights: [0; INPUTS * HL_INPUTS],
-            input_biases: [0; HL_INPUTS],
+            input_weights: A32([0; INPUTS * HL_INPUTS]),
+            input_biases: A32([0; HL_INPUTS]),
 
-            hidden1_weights: [0; HL_INPUTS * HL_NODES],
-            hidden1_biases: [0; HL_NODES],
+            hidden1_weights: A32([0; HL_INPUTS * HL_NODES]),
+            hidden1_biases: A32([0; HL_NODES]),
 
-            hidden2_weights: [0; HL_NODES * HL_OUT_NODES],
-            hidden2_biases: [0; HL_OUT_NODES],
+            hidden2_weights: A32([0; HL_NODES * HL_OUT_NODES]),
+            hidden2_biases: A32([0; HL_OUT_NODES]),
 
-            output_weights: [0; HL_OUT_NODES],
+            output_weights: A32([0; HL_OUT_NODES]),
             output_bias: 0,
         }
     }
@@ -112,10 +116,10 @@ impl Default for NeuralNetParams {
 pub struct NeuralNetEval {
     params: Arc<NeuralNetParams>,
 
-    hidden1_nodes_wtm: [i16; HL_INPUTS], // wtm - white to move
-    hidden1_nodes_btm: [i16; HL_INPUTS], // btm - black to move
-    hidden2_nodes: [i16; HL_NODES],
-    output_nodes: [i16; HL_OUT_NODES],
+    hidden1_nodes_wtm: A32<[i16; HL_INPUTS]>, // wtm - white to move
+    hidden1_nodes_btm: A32<[i16; HL_INPUTS]>, // btm - black to move
+    hidden2_nodes: A32<[i16; HL_NODES]>,
+    output_nodes: A32<[i16; HL_OUT_NODES]>,
 
     active_player: Color,
     bucket: u8,
@@ -135,10 +139,10 @@ impl NeuralNetEval {
         Box::new(NeuralNetEval {
             params: unsafe { NN_PARAMS.clone().unwrap() },
 
-            hidden1_nodes_wtm: [0; HL_INPUTS],
-            hidden1_nodes_btm: [0; HL_INPUTS],
-            hidden2_nodes: [0; HL_NODES],
-            output_nodes: [0; HL_OUT_NODES],
+            hidden1_nodes_wtm: A32([0; HL_INPUTS]),
+            hidden1_nodes_btm: A32([0; HL_INPUTS]),
+            hidden2_nodes: A32([0; HL_NODES]),
+            output_nodes: A32([0; HL_OUT_NODES]),
 
             active_player: WHITE,
             bucket: 0b11,
@@ -155,8 +159,8 @@ impl NeuralNetEval {
     pub fn init_pos(&mut self, active_player: Color, bitboards: &[u64; 13]) {
         self.active_player = active_player;
 
-        self.hidden1_nodes_wtm.copy_from_slice(&self.params.input_biases);
-        self.hidden1_nodes_btm.copy_from_slice(&self.params.input_biases);
+        self.hidden1_nodes_wtm.0.copy_from_slice(&self.params.input_biases.0);
+        self.hidden1_nodes_btm.0.copy_from_slice(&self.params.input_biases.0);
 
         self.bucket = calc_bucket(bitboards);
 
@@ -201,8 +205,8 @@ impl NeuralNetEval {
             idx += 64;
         }
 
-        self.psq_wtm_score += unsafe { self.params.psq_weights.get_unchecked(idx) };
-        for (nodes, weights) in self.hidden1_nodes_wtm.iter_mut().zip(self.params.input_weights.chunks_exact(HL_INPUTS).nth(idx).unwrap()) {
+        self.psq_wtm_score += unsafe { self.params.psq_weights.0.get_unchecked(idx) };
+        for (nodes, weights) in self.hidden1_nodes_wtm.0.iter_mut().zip(self.params.input_weights.0.chunks_exact(HL_INPUTS).nth(idx).unwrap()) {
             *nodes += *weights;
         }
 
@@ -211,8 +215,8 @@ impl NeuralNetEval {
             idx += 64;
         }
 
-        self.psq_btm_score -= unsafe { self.params.psq_weights.get_unchecked(idx) };
-        for (nodes, weights) in self.hidden1_nodes_btm.iter_mut().zip(self.params.input_weights.chunks_exact(HL_INPUTS).nth(idx).unwrap()) {
+        self.psq_btm_score -= unsafe { self.params.psq_weights.0.get_unchecked(idx) };
+        for (nodes, weights) in self.hidden1_nodes_btm.0.iter_mut().zip(self.params.input_weights.0.chunks_exact(HL_INPUTS).nth(idx).unwrap()) {
             *nodes += *weights;
         }
     }
@@ -226,9 +230,9 @@ impl NeuralNetEval {
             idx += 64;
         }
 
-        self.psq_wtm_score -= unsafe { self.params.psq_weights.get_unchecked(idx) };
+        self.psq_wtm_score -= unsafe { self.params.psq_weights.0.get_unchecked(idx) };
 
-        for (nodes, weights) in self.hidden1_nodes_wtm.iter_mut().zip(self.params.input_weights.chunks_exact(HL_INPUTS).nth(idx).unwrap()) {
+        for (nodes, weights) in self.hidden1_nodes_wtm.0.iter_mut().zip(self.params.input_weights.0.chunks_exact(HL_INPUTS).nth(idx).unwrap()) {
             *nodes -= *weights;
         }
 
@@ -237,8 +241,8 @@ impl NeuralNetEval {
             idx += 64;
         }
 
-        self.psq_btm_score += unsafe { self.params.psq_weights.get_unchecked(idx) };
-        for (nodes, weights) in self.hidden1_nodes_btm.iter_mut().zip(self.params.input_weights.chunks_exact(HL_INPUTS).nth(idx).unwrap()) {
+        self.psq_btm_score += unsafe { self.params.psq_weights.0.get_unchecked(idx) };
+        for (nodes, weights) in self.hidden1_nodes_btm.0.iter_mut().zip(self.params.input_weights.0.chunks_exact(HL_INPUTS).nth(idx).unwrap()) {
             *nodes -= *weights;
         }
     }
@@ -257,24 +261,24 @@ impl NeuralNetEval {
             if self.psq_wtm_score.abs() > 500 && (self.base_psq_wtm_score - self.psq_wtm_score).abs() > 500 {
                 return adjust_eval(self.psq_wtm_score as i32, half_move_clock);
             }
-            for ((node, &bias), weights) in self.hidden2_nodes.iter_mut().zip(&self.params.hidden1_biases).zip(self.params.hidden1_weights.chunks_exact(HL_INPUTS)) {
-                *node = relu(dot_product::<HL_INPUTS>(&self.hidden1_nodes_wtm, weights) + bias);
+            for ((node, &bias), weights) in self.hidden2_nodes.0.iter_mut().zip(&self.params.hidden1_biases.0).zip(self.params.hidden1_weights.0.chunks_exact(HL_INPUTS)) {
+                *node = relu(dot_product::<HL_INPUTS>(&self.hidden1_nodes_wtm.0, weights) + bias);
             }
 
         } else {
             if self.psq_btm_score.abs() > 500 && (self.base_psq_btm_score - self.psq_btm_score).abs() > 500 {
                 return adjust_eval(self.psq_btm_score as i32, half_move_clock);
             }
-            for ((node, &bias), weights) in self.hidden2_nodes.iter_mut().zip(&self.params.hidden1_biases).zip(self.params.hidden1_weights.chunks_exact(HL_INPUTS)) {
-                *node = relu(dot_product::<HL_INPUTS>(&self.hidden1_nodes_btm, weights) + bias);
+            for ((node, &bias), weights) in self.hidden2_nodes.0.iter_mut().zip(&self.params.hidden1_biases.0).zip(self.params.hidden1_weights.0.chunks_exact(HL_INPUTS)) {
+                *node = relu(dot_product::<HL_INPUTS>(&self.hidden1_nodes_btm.0, weights) + bias);
             }
         }
 
-        for ((node, &bias), weights) in self.output_nodes.iter_mut().zip(&self.params.hidden2_biases).zip(self.params.hidden2_weights.chunks_exact(HL_NODES)) {
-            *node = relu(dot_product::<HL_NODES>(&self.hidden2_nodes, weights) + bias);
+        for ((node, &bias), weights) in self.output_nodes.0.iter_mut().zip(&self.params.hidden2_biases.0).zip(self.params.hidden2_weights.0.chunks_exact(HL_NODES)) {
+            *node = relu(dot_product::<HL_NODES>(&self.hidden2_nodes.0, weights) + bias);
         }
 
-        let out = (dot_product::<HL_OUT_NODES>(&self.output_nodes, &self.params.output_weights) + self.params.output_bias) as i32;
+        let out = (dot_product::<HL_OUT_NODES>(&self.output_nodes.0, &self.params.output_weights.0) + self.params.output_bias) as i32;
         let score = out * 2048 / (1 << FP_PRECISION_BITS);
 
         if self.active_player == WHITE {
@@ -340,13 +344,13 @@ mod avx2 {
     #[unroll_for_loops]
     pub fn dot_product<const N: usize>(nodes: &[i16], weights: &[i16]) -> i16 {
         unsafe {
-            let n = _mm256_loadu_si256(transmute(nodes.as_ptr()));
-            let w = _mm256_loadu_si256(transmute(weights.as_ptr()));
+            let n = _mm256_load_si256(transmute(nodes.as_ptr()));
+            let w = _mm256_load_si256(transmute(weights.as_ptr()));
             let mut acc = _mm256_madd_epi16(n, w);
 
             for i in 1..(N / 16) {
-                let n = _mm256_loadu_si256(transmute(nodes.as_ptr().add(i * 16)));
-                let w = _mm256_loadu_si256(transmute(weights.as_ptr().add(i * 16)));
+                let n = _mm256_load_si256(transmute(nodes.as_ptr().add(i * 16)));
+                let w = _mm256_load_si256(transmute(weights.as_ptr().add(i * 16)));
                 acc = _mm256_add_epi32(acc, _mm256_madd_epi16(n, w));
             }
 
@@ -373,13 +377,13 @@ mod sse2 {
     #[unroll_for_loops]
     pub fn dot_product<const N: usize>(nodes: &[i16], weights: &[i16]) -> i16 {
         unsafe {
-            let n = _mm_loadu_si128(transmute(nodes.as_ptr()));
-            let w = _mm_loadu_si128(transmute(weights.as_ptr()));
+            let n = _mm_load_si128(transmute(nodes.as_ptr()));
+            let w = _mm_load_si128(transmute(weights.as_ptr()));
             let mut acc = _mm_madd_epi16(n, w);
 
             for i in 1..(N / 8) {
-                let n = _mm_loadu_si128(transmute(nodes.as_ptr().add(i * 8)));
-                let w = _mm_loadu_si128(transmute(weights.as_ptr().add(i * 8)));
+                let n = _mm_load_si128(transmute(nodes.as_ptr().add(i * 8)));
+                let w = _mm_load_si128(transmute(weights.as_ptr().add(i * 8)));
                 acc = _mm_add_epi32(acc, _mm_madd_epi16(n, w));
             }
 
