@@ -338,17 +338,15 @@ mod avx2 {
     #[inline(always)]
     pub fn dot_product<const N: usize>(nodes: &[i16], weights: &[i16]) -> i16 {
         unsafe {
-            let n = _mm256_load_si256(transmute(nodes.as_ptr()));
-            let w = _mm256_load_si256(transmute(weights.as_ptr()));
-            let mut acc = _mm256_madd_epi16(n, w);
+            let mut acc = _mm256_setzero_si256();
 
-            for i in 1..(N / 16) {
+            for i in 0..(N / 16) {
                 let n = _mm256_load_si256(transmute(nodes.as_ptr().add(i * 16)));
                 let w = _mm256_load_si256(transmute(weights.as_ptr().add(i * 16)));
                 acc = _mm256_add_epi32(acc, _mm256_madd_epi16(n, w));
             }
 
-            // Horizontal sum of the lanes
+            // Final horizontal sum of the lanes for the accumulator
             let sum128 = _mm_add_epi32(_mm256_castsi256_si128(acc), _mm256_extracti128_si256::<1>(acc));
             let hi64 = _mm_unpackhi_epi64(sum128, sum128);
             let sum64 = _mm_add_epi32(hi64, sum128);
@@ -369,16 +367,15 @@ mod sse2 {
     #[inline(always)]
     pub fn dot_product<const N: usize>(nodes: &[i16], weights: &[i16]) -> i16 {
         unsafe {
-            let n = _mm_load_si128(transmute(nodes.as_ptr()));
-            let w = _mm_load_si128(transmute(weights.as_ptr()));
-            let mut acc = _mm_madd_epi16(n, w);
+            let mut acc = _mm_setzero_si128();
 
-            for i in 1..(N / 8) {
+            for i in 0..(N / 8) {
                 let n = _mm_load_si128(transmute(nodes.as_ptr().add(i * 8)));
                 let w = _mm_load_si128(transmute(weights.as_ptr().add(i * 8)));
                 acc = _mm_add_epi32(acc, _mm_madd_epi16(n, w));
             }
 
+            // Final horizontal sum of the lanes for the accumulator
             let hi64 = _mm_shuffle_epi32::<0b01001110>(acc);
             let sum64 = _mm_add_epi32(hi64, acc);
             let hi32 = _mm_shufflelo_epi16::<0b01001110>(sum64);
