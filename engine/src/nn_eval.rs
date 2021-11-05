@@ -23,7 +23,6 @@ use std::cmp::max;
 use std::sync::{Arc, Once};
 use crate::colors::{Color, WHITE};
 use crate::pieces::{Q, R};
-use unroll::unroll_for_loops;
 
 // Fixed point number precision
 const FP_PRECISION_BITS: i16 = 12;
@@ -196,7 +195,6 @@ impl NeuralNetEval {
         }
     }
 
-    #[unroll_for_loops]
     pub fn add_piece(&mut self, pos: usize, piece: i8) {
         let base_index = self.offset + ((piece.abs() as usize - 1) * 2) as usize * 64;
 
@@ -221,7 +219,6 @@ impl NeuralNetEval {
         }
     }
 
-    #[unroll_for_loops]
     pub fn remove_piece(&mut self, pos: usize, piece: i8) {
         let base_index = self.offset + ((piece.abs() as usize - 1) * 2) as usize * 64;
 
@@ -255,7 +252,6 @@ impl NeuralNetEval {
         }
     }
 
-    #[unroll_for_loops]
     pub fn eval(&mut self, half_move_clock: u8) -> i32 {
         if self.active_player == WHITE {
             if self.psq_wtm_score.abs() > 500 && (self.base_psq_wtm_score - self.psq_wtm_score).abs() > 500 {
@@ -336,12 +332,10 @@ fn dot_product<const N: usize>(nodes: &[i16], weights: &[i16]) -> i16 {
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 mod avx2 {
     use core::arch::x86_64::*;
-    use unroll::unroll_for_loops;
     use std::intrinsics::transmute;
     use crate::nn_eval::FP_PRECISION_BITS;
 
     #[inline(always)]
-    #[unroll_for_loops]
     pub fn dot_product<const N: usize>(nodes: &[i16], weights: &[i16]) -> i16 {
         unsafe {
             let n = _mm256_load_si256(transmute(nodes.as_ptr()));
@@ -371,10 +365,8 @@ mod sse2 {
     use core::arch::x86_64::*;
     use std::intrinsics::transmute;
     use crate::nn_eval::FP_PRECISION_BITS;
-    use unroll::unroll_for_loops;
 
     #[inline(always)]
-    #[unroll_for_loops]
     pub fn dot_product<const N: usize>(nodes: &[i16], weights: &[i16]) -> i16 {
         unsafe {
             let n = _mm_load_si128(transmute(nodes.as_ptr()));
@@ -399,11 +391,9 @@ mod sse2 {
 
 #[cfg(not(any(target_feature = "sse2", target_feature = "avx2")))]
 mod fallback {
-    use unroll::unroll_for_loops;
     use crate::nn_eval::FP_PRECISION_BITS;
 
     #[inline(always)]
-    #[unroll_for_loops]
     pub fn dot_product<const N: usize>(nodes: &[i16], weights: &[i16]) -> i16 {
         (nodes.iter().zip(weights).map(|(&n, &w)| (n as i32 * w as i32)).sum::<i32>() >> FP_PRECISION_BITS) as i16
     }
