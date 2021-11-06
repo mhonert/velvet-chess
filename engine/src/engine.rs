@@ -22,7 +22,6 @@ use crate::perft::perft;
 use crate::search::{SearchLimits, Search, DEFAULT_SEARCH_THREADS};
 use crate::transposition_table::{TranspositionTable, DEFAULT_SIZE_MB};
 use crate::uci_move::UCIMove;
-use std::process::exit;
 use std::sync::{mpsc, Arc};
 use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
@@ -131,7 +130,10 @@ impl Engine {
 
             Message::Fen => println!("{}", write_fen(&self.board)),
 
-            Message::Profile => self.profile(),
+            Message::Profile => {
+                self.profile();
+                return false;
+            },
 
             Message::Quit => {
                 return false;
@@ -226,7 +228,6 @@ impl Engine {
 
     pub fn profile(&mut self) {
         println!("Profiling ...");
-        self.go(SearchLimits::nodes(500_000), false);
-        exit(0);
+        self.go(SearchLimits::nodes(100_000), false);
     }
 }

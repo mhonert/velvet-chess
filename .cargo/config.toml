@@ -1,2 +1,2 @@
 [build]
-rustflags = ["-Ctarget-cpu=native"]
+rustflags = ["-Ctarget-cpu=native", "-Cinline-threshold=500"]

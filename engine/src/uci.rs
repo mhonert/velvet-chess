@@ -239,7 +239,7 @@ fn go(tx: &Sender<Message>, parts: Vec<&str>) {
 
 fn profile(tx: &Sender<Message>) {
     send_message(tx, Message::Profile);
-    sleep(Duration::from_secs(5));
+    sleep(Duration::from_millis(500));
 }
 
 fn fen(tx: &Sender<Message>) {

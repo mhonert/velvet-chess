@@ -7,82 +7,114 @@ on:
 jobs:
   build-linux:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - exec_postfix: "avx2"
+            add_rustflags: "-Ctarget-feature=+crt-static,-bmi2 -Ctarget-cpu=x86-64-v3"
+          - exec_postfix: "sse4-popcnt"
+            add_rustflags: "-Ctarget-feature=+crt-static -Ctarget-cpu=x86-64-v2"
+          - exec_postfix: "nopopcnt"
+            add_rustflags: "-Ctarget-feature=+crt-static"
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
 
-      - name: Install linux-musl target
-        run: |
-          rustup target add x86_64-unknown-linux-musl
+      - uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Build x86_64-avx2
-        env:
-          RUSTFLAGS: "-Ctarget-feature=+crt-static,-bmi2 -Ctarget-cpu=x86-64-v3"
+      - name: Install LLVM tools
         run: |
-          cargo build --release --target x86_64-unknown-linux-musl --bin velvet
-          strip target/x86_64-unknown-linux-musl/release/velvet
-          mv target/x86_64-unknown-linux-musl/release/velvet velvet-linux-x86_64-avx2
+          rustup update
+          rustup component add llvm-tools-preview
+          rustup show
+          cargo install cargo-binutils || true
 
-      - name: Build x86_64-sse4-popcnt
+      - name: Profile
         env:
-          RUSTFLAGS: "-Ctarget-feature=+crt-static -Ctarget-cpu=x86-64-v2"
+          RUSTFLAGS: '${{ matrix.add_rustflags }} -Cprofile-generate=${{ runner.temp }}/pgo-data'
         run: |
           rm -rf target
-          cargo build --release --target x86_64-unknown-linux-musl --bin velvet
-          strip target/x86_64-unknown-linux-musl/release/velvet
-          mv target/x86_64-unknown-linux-musl/release/velvet velvet-linux-x86_64-sse4-popcnt
+          mkdir -p ${RUNNER_TEMP}/pgo-data
+          cargo build --release --bin velvet
+          printf 'profile\n' | target/release/velvet
+          cargo profdata -- merge -o ${RUNNER_TEMP}/pgo-data/merged.profdata ${RUNNER_TEMP}/pgo-data
 
-      - name: Build x86_64-nopopcnt
+      - name: Build
         env:
-          RUSTFLAGS: "-Ctarget-feature=+crt-static"
+          RUSTFLAGS: '${{ matrix.add_rustflags }} -Cprofile-use=${{ runner.temp }}/pgo-data/merged.profdata -Cllvm-args=-pgo-warn-missing-function -Cinline-threshold=500'
         run: |
-          rm -rf target
-          cargo build --release --target x86_64-unknown-linux-musl --bin velvet
-          strip target/x86_64-unknown-linux-musl/release/velvet
-          mv target/x86_64-unknown-linux-musl/release/velvet velvet-linux-x86_64-nopopcnt
+          cargo strip --release --bin velvet
+          mv target/release/velvet velvet-linux-x86_64-${{ matrix.exec_postfix }}
+          ls -ltrh
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v2
         with:
           name: velvet-linux
-          path: velvet-*
+          path: velvet-linux-x86_64-${{ matrix.exec_postfix }}
 
   build-windows:
     runs-on: windows-latest
+    strategy:
+      matrix:
+        include:
+          - exec_postfix: "avx2"
+            add_rustflags: "-Ctarget-feature=+crt-static,-bmi2 -Ctarget-cpu=x86-64-v3"
+          - exec_postfix: "sse4-popcnt"
+            add_rustflags: "-Ctarget-feature=+crt-static -Ctarget-cpu=x86-64-v2"
+          - exec_postfix: "nopopcnt"
+            add_rustflags: "-Ctarget-feature=+crt-static"
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
 
-      - name: Build x86_64-avx2
-        env:
-          RUSTFLAGS: "-Ctarget-feature=+crt-static,-bmi2 -Ctarget-cpu=x86-64-v3"
-        run: |
-          cargo build --release --bin velvet
-          mv .\target\release\velvet.exe velvet-windows-x86_64-avx2.exe
+      - uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Build x86_64-see-popcnt
-        env:
-          RUSTFLAGS: "-Ctarget-feature=+crt-static -Ctarget-cpu=x86-64-v2"
+      - name: Install LLVM tools
         run: |
-          rm target -r -fo
-          cargo build --release --bin velvet
-          mv .\target\release\velvet.exe velvet-windows-x86_64-sse4-popcnt.exe
+          rustup update
+          rustup component add llvm-tools-preview
+          rustup show
+          cargo install cargo-binutils || true
 
-      - name: Build x86_64-nopopcnt
+      - name: Profile
         env:
-          RUSTFLAGS: "-Ctarget-feature=+crt-static"
+          RUSTFLAGS: '${{ matrix.add_rustflags }} -Cprofile-generate=${{ runner.temp }}\pgo-data'
         run: |
-          rm target -r -fo
+          if (Test-Path target) { rm target -r -fo }
+          mkdir -p ${{ runner.temp }}\pgo-data
           cargo build --release --bin velvet
-          mv .\target\release\velvet.exe velvet-windows-x86_64-nopopcnt.exe
+          'profile' | .\target\release\velvet
+          cargo profdata -- merge -o ${{ runner.temp }}\pgo-data\merged.profdata ${{ runner.temp }}\pgo-data
+
+      - name: Build
+        env:
+          RUSTFLAGS: '${{ matrix.add_rustflags }} -Cprofile-use=${{ runner.temp }}\pgo-data\merged.profdata -Cllvm-args=-pgo-warn-missing-function -Cinline-threshold=500'
+        run: |
+          cargo strip --release --bin velvet
+          mv .\target\release\velvet.exe velvet-windows-x86_64-${{ matrix.exec_postfix }}.exe
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v2
         with:
           name: velvet-windows
-          path: velvet*.exe
+          path: velvet-windows-x86_64-${{ matrix.exec_postfix }}.exe
 
   release:
     if: github.repository == 'mhonert/velvet-chess'
