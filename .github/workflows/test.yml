@@ -1,9 +1,6 @@
 name: Test
 
-#on: [push]
-on:
-  push:
-    tags: "v*"
+on: [push]
 
 jobs:
   build:
