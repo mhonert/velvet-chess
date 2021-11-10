@@ -268,7 +268,7 @@ fn collect_quiet_pos(tb: &Tablebase<Chess>, rnd: &mut Random, opening: &str, tt:
         let is_candidate = ply >= 8 && !search.board.is_in_check(search.board.active_player());
 
         search.set_node_limit(node_limit);
-        let (selected_move, pv) = select_move(Some(&rx), rnd, move_variety, &mut search, 9);
+        let (selected_move, pv) = select_move(Some(&rx), rnd, move_variety, &mut search, 10);
 
         if selected_move == NO_MOVE {
             let (result, description) = if search.board.is_in_check(search.board.active_player()) {
@@ -296,7 +296,7 @@ fn collect_quiet_pos(tb: &Tablebase<Chess>, rnd: &mut Random, opening: &str, tt:
         }
 
         let fen = write_fen(&search.board);
-        let is_quiet = is_candidate && pv.moves().len() >= 9 && search.is_quiet_pv(&pv.moves(), search.material_score());
+        let is_quiet = is_candidate && pv.moves().len() >= 10 && search.is_quiet_pv(&pv.moves(), search.material_score());
 
         if !duplicate_check.contains(&fen) && score.abs() < 6000 {
             duplicate_check.insert(fen.clone());
@@ -370,9 +370,9 @@ fn search_tb_move(rx: Option<&Receiver<Message>>, search: &mut Search, tb_move: 
     search.movegen.leave_ply();
 
     // Only search the table base move, skip all other moves
-    let (scored_move, pv) = search.find_best_move(rx, 9, &skipped_moves);
+    let (scored_move, pv) = search.find_best_move(rx, 10, &skipped_moves);
 
-    let is_quiet = !search.board.is_in_check(search.board.active_player()) && pv.moves().len() >= 9 && search.is_quiet_pv(&pv.moves(), search.material_score());
+    let is_quiet = !search.board.is_in_check(search.board.active_player()) && pv.moves().len() >= 10 && search.is_quiet_pv(&pv.moves(), search.material_score());
 
     (scored_move.score() * search.board.active_player() as i32, is_quiet)
 }
