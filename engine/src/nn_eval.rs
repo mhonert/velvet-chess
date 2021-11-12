@@ -126,9 +126,6 @@ pub struct NeuralNetEval {
 
     psq_wtm_score: i16,
     psq_btm_score: i16,
-
-    base_psq_wtm_score: i16,
-    base_psq_btm_score: i16,
 }
 
 impl NeuralNetEval {
@@ -149,9 +146,6 @@ impl NeuralNetEval {
 
             psq_wtm_score: 0,
             psq_btm_score: 0,
-
-            base_psq_wtm_score: 0,
-            base_psq_btm_score: 0,
         })
     }
 
@@ -177,11 +171,6 @@ impl NeuralNetEval {
                 self.add_piece(pos as usize, -piece);
             }
         }
-    }
-
-    pub fn save_base_scores(&mut self) {
-        self.base_psq_wtm_score = self.psq_wtm_score;
-        self.base_psq_btm_score = self.psq_btm_score;
     }
 
     pub fn set_stm(&mut self, active_player: Color) {
@@ -244,17 +233,9 @@ impl NeuralNetEval {
         }
     }
 
-    pub fn fast_eval(&self) -> i32 {
-        if self.active_player == WHITE {
-            self.psq_wtm_score as i32
-        } else {
-            self.psq_btm_score as i32
-        }
-    }
-
     pub fn eval(&mut self, half_move_clock: u8) -> i32 {
         if self.active_player == WHITE {
-            if self.psq_wtm_score.abs() > 500 && (self.base_psq_wtm_score - self.psq_wtm_score).abs() > 500 {
+            if self.psq_wtm_score.abs() > 600 {
                 return adjust_eval(self.psq_wtm_score as i32, half_move_clock);
             }
             for ((node, &bias), weights) in self.hidden2_nodes.0.iter_mut().zip(&self.params.hidden1_biases.0).zip(self.params.hidden1_weights.0.chunks_exact(HL_INPUTS)) {
@@ -262,7 +243,7 @@ impl NeuralNetEval {
             }
 
         } else {
-            if self.psq_btm_score.abs() > 500 && (self.base_psq_btm_score - self.psq_btm_score).abs() > 500 {
+            if self.psq_btm_score.abs() > 600 {
                 return adjust_eval(self.psq_btm_score as i32, half_move_clock);
             }
             for ((node, &bias), weights) in self.hidden2_nodes.0.iter_mut().zip(&self.params.hidden1_biases.0).zip(self.params.hidden1_weights.0.chunks_exact(HL_INPUTS)) {

@@ -31,9 +31,8 @@ const TIMEEXT_HISTORY_SIZE: usize = 6;
 pub struct TimeManager {
     starttime: Instant,
     timelimit_ms: i32,
-    is_strict_timelimit: bool,
 
-    already_extended_timelimit: bool,
+    allow_time_extension: bool,
 
     next_index: usize,
     current_depth: i32,
@@ -45,8 +44,7 @@ impl TimeManager {
         TimeManager{
             starttime: Instant::now(),
             timelimit_ms: 0,
-            is_strict_timelimit: true,
-            already_extended_timelimit: false,
+            allow_time_extension: true,
             next_index: 0,
             current_depth: 0,
             history: vec![NO_MOVE; MAX_DEPTH],
@@ -56,9 +54,8 @@ impl TimeManager {
     pub fn reset(&mut self, timelimit_ms: i32, is_strict_timelimit: bool) {
         self.starttime = Instant::now();
         self.timelimit_ms = timelimit_ms;
-        self.is_strict_timelimit = is_strict_timelimit;
 
-        self.already_extended_timelimit = false;
+        self.allow_time_extension = !is_strict_timelimit;
         self.history.fill(NO_MOVE);
         self.next_index = 0;
         self.current_depth = 0;
@@ -94,7 +91,7 @@ impl TimeManager {
     }
 
     pub fn should_extend_timelimit(&self) -> bool {
-        if self.is_strict_timelimit || self.already_extended_timelimit {
+        if !self.allow_time_extension {
             return false;
         }
 
@@ -115,7 +112,12 @@ impl TimeManager {
     }
 
     pub fn extend_timelimit(&mut self) {
-        self.already_extended_timelimit = true;
+        self.allow_time_extension = false;
         self.timelimit_ms *= TIMEEXT_MULTIPLIER;
+    }
+
+    pub fn reduce_timelimit(&mut self) {
+        self.allow_time_extension = false;
+        self.timelimit_ms /= 4;
     }
 }

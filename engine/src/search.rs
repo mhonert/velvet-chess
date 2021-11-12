@@ -138,20 +138,10 @@ impl Search {
 
         helper_threads.start_search();
 
-        let hash = self.board.get_hash();
-        let tt_entry = self.tt.get_entry(hash);
-
-        let mut score = self.board.eval();
-        if tt_entry != 0 {
-            let hash_move = self.movegen.sanitize_move(&self.board, active_player, get_untyped_move(tt_entry));
-
-            if hash_move != NO_MOVE {
-                score = to_root_relative_score(0, hash_move.score());
-            }
-        }
-
         let mut window_size = INITIAL_ASPIRATION_WINDOW_SIZE;
         let mut window_step = INITIAL_ASPIRATION_WINDOW_STEP;
+
+        let mut score = 0;
 
         // Use iterative deepening, i.e. increase the search depth after each iteration
         for depth in 1..=self.limits.depth_limit {
@@ -208,9 +198,13 @@ impl Search {
             last_best_move = best_move;
             score = best_move.score();
 
-            if iteration_cancelled || move_num <= 1 {
+            if iteration_cancelled || move_num == 0 {
                 // stop searching, if iteration has been cancelled or there is no valid move or only a single valid move
                 break;
+            }
+
+            if depth == 1 && move_num == 1 {
+                self.time_mgr.reduce_timelimit();
             }
         }
 
@@ -468,6 +462,9 @@ impl Search {
                     match get_score_type(tt_entry) {
                         ScoreType::Exact => {
                             if tt_depth >= depth {
+                                if is_pv {
+                                    self.enhance_pv_from_tt(pv);
+                                }
                                 return hash_score
                             }
                             pos_score = Some(hash_score);
@@ -931,6 +928,24 @@ impl Search {
     pub fn set_node_limit(&mut self, node_limit: u64) {
         self.limits.node_limit = node_limit;
     }
+
+    fn enhance_pv_from_tt(&mut self, pv: &mut PrincipalVariation) {
+        if self.board.is_draw() {
+            return;
+        }
+
+        let tt_entry = self.tt.get_entry(self.board.get_hash());
+        let hash_move = self.movegen.sanitize_move(&self.board, self.board.active_player(), get_untyped_move(tt_entry));
+
+        if hash_move != NO_MOVE {
+            pv.add(hash_move);
+            if hash_move.score().abs() < MATE_SCORE - 1 {
+                let (previous_piece, removed_piece_id) = self.board.perform_move(hash_move);
+                self.enhance_pv_from_tt(pv);
+                self.board.undo_move(hash_move, previous_piece, removed_piece_id);
+            }
+        }
+    }
 }
 
 
@@ -1050,6 +1065,10 @@ impl PrincipalVariation {
 
     pub fn moves(&self) -> Vec<Move> {
         self.0.clone()
+    }
+
+    pub fn add(&mut self, best_move: Move) {
+        self.0.push(best_move);
     }
 }
 
