@@ -17,7 +17,7 @@
  */
 
 use std::intrinsics::transmute;
-use crate::moves::MoveType::PawnSpecial;
+use crate::moves::MoveType::{PawnSpecial};
 use crate::pieces::{P, Q};
 use std::fmt;
 
@@ -151,6 +151,11 @@ impl Move {
     #[inline]
     pub fn is_en_passant(&self) -> bool {
         self.typ() as u8 == PawnSpecial as u8 && self.piece_id() == P
+    }
+
+    #[inline]
+    pub fn is_quiet(&self) -> bool {
+        matches!(self.typ(), MoveType::PawnQuiet | MoveType::Quiet | MoveType::PawnDoubleQuiet | MoveType::KingQuiet | MoveType::Castling)
     }
 
 }
