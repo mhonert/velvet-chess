@@ -445,6 +445,8 @@ impl Search {
             return self.quiescence_search(active_player, alpha, beta, ply, pos_score, pv);
         }
 
+        let hh_counter_scale = self.hh.calc_counter_scale(depth);
+
         self.inc_node_count();
 
         let hash = self.board.get_hash();
@@ -454,6 +456,7 @@ impl Search {
 
         let mut check_se = false;
         if excluded_singular_move == NO_MOVE {
+
             // Check transposition table
             let tt_entry = self.tt.get_entry(hash);
             if tt_entry != 0 {
@@ -479,6 +482,10 @@ impl Search {
 
                         ScoreType::LowerBound => {
                             if tt_depth >= depth && max(alpha, hash_score) >= beta {
+                                if hash_move.is_quiet() {
+                                    self.hh.update_killer_moves(ply, hash_move);
+                                    self.hh.update_counter_move(opponent_move, hash_move);
+                                }
                                 return hash_score;
                             }
                             pos_score = Some(hash_score);
@@ -550,8 +557,6 @@ impl Search {
         let occupied_bb = self.board.get_occupancy_bitboard();
 
         let previous_move_was_capture = capture_pos != -1;
-
-        let hh_counter_scale = self.hh.calc_counter_scale(depth);
 
         let mut is_singular = false;
 
