@@ -434,11 +434,6 @@ impl Search {
             depth = max(1, depth + 1);
         }
 
-        // Quiescence search
-        if depth <= 0 || ply >= (MAX_DEPTH - 16) as i32 {
-            return self.quiescence_search(active_player, alpha, beta, ply, pos_score, pv);
-        }
-
         let hh_counter_scale = self.hh.calc_counter_scale(depth);
 
         self.inc_node_count();
@@ -473,12 +468,18 @@ impl Search {
 
                         ScoreType::UpperBound => {
                             if hash_score <= alpha && tt_depth >= depth {
+                                if is_pv {
+                                    self.enhance_pv_from_tt(pv);
+                                }
                                 return hash_score;
                             }
                         },
 
                         ScoreType::LowerBound => {
                             if tt_depth >= depth && max(alpha, hash_score) >= beta {
+                                if is_pv {
+                                    self.enhance_pv_from_tt(pv);
+                                }
                                 if hash_move.is_quiet() {
                                     self.hh.update_killer_moves(ply, hash_move);
                                     self.hh.update_counter_move(opponent_move, hash_move);
@@ -495,6 +496,11 @@ impl Search {
             } else if depth > 7 {
                 // Reduce nodes without hash move from transposition table
                 depth -= 1;
+            }
+
+            // Quiescence search
+            if depth <= 0 || ply >= (MAX_DEPTH - 16) as i32 {
+                return self.quiescence_search(active_player, alpha, beta, ply, pos_score, pv);
             }
 
             if !is_pv && !flags.in_check() {
