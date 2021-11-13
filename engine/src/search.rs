@@ -432,11 +432,6 @@ impl Search {
             depth = max(1, depth + 1);
         }
 
-        // Quiescence search
-        if depth <= 0 || ply >= (MAX_DEPTH - 16) as i32 {
-            return self.quiescence_search(active_player, alpha, beta, ply, pos_score, pv);
-        }
-
         let hh_counter_scale = self.hh.calc_counter_scale(depth);
 
         self.inc_node_count();
@@ -471,12 +466,18 @@ impl Search {
 
                         ScoreType::UpperBound => {
                             if hash_score <= alpha && tt_depth >= depth {
+                                if is_pv {
+                                    self.enhance_pv_from_tt(pv);
+                                }
                                 return hash_score;
                             }
                         },
 
                         ScoreType::LowerBound => {
                             if tt_depth >= depth && max(alpha, hash_score) >= beta {
+                                if is_pv {
+                                    self.enhance_pv_from_tt(pv);
+                                }
                                 if hash_move.is_quiet() {
                                     self.hh.update_killer_moves(ply, hash_move);
                                     self.hh.update_counter_move(opponent_move, hash_move);
@@ -493,6 +494,11 @@ impl Search {
             } else if depth > 7 {
                 // Reduce nodes without hash move from transposition table
                 depth -= 1;
+            }
+
+            // Quiescence search
+            if depth <= 0 || ply >= (MAX_DEPTH - 16) as i32 {
+                return self.quiescence_search(active_player, alpha, beta, ply, pos_score, pv);
             }
 
             if !is_pv && !flags.in_check() {
@@ -760,12 +766,13 @@ impl Search {
         }
 
         if position_score >= beta {
-            return beta;
+            return position_score;
         }
 
         // Prune nodes where the position score is already so far below alpha that it is very unlikely to be raised by any available move
         let prune_low_captures = position_score < alpha - QS_PRUNE_MARGIN;
 
+        let mut best_score = position_score;
         if alpha < position_score {
             alpha = position_score;
         }
@@ -811,6 +818,12 @@ impl Search {
             let score = -self.quiescence_search(-active_player, -beta, -alpha, ply + 1, None, &mut local_pv);
             self.board.undo_move(m, previous_piece, move_state);
 
+            if score <= best_score {
+                // No improvement
+                continue;
+            }
+
+            best_score = score;
             if score >= beta {
                 self.movegen.leave_ply();
                 return score;
@@ -824,7 +837,7 @@ impl Search {
         }
 
         self.movegen.leave_ply();
-        alpha
+        best_score
     }
 
     fn get_base_stats(&self, duration: Duration) -> String {
