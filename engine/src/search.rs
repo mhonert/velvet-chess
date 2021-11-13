@@ -768,12 +768,13 @@ impl Search {
         }
 
         if position_score >= beta {
-            return beta;
+            return position_score;
         }
 
         // Prune nodes where the position score is already so far below alpha that it is very unlikely to be raised by any available move
         let prune_low_captures = position_score < alpha - QS_PRUNE_MARGIN;
 
+        let mut best_score = position_score;
         if alpha < position_score {
             alpha = position_score;
         }
@@ -819,6 +820,12 @@ impl Search {
             let score = -self.quiescence_search(-active_player, -beta, -alpha, ply + 1, None, &mut local_pv);
             self.board.undo_move(m, previous_piece, move_state);
 
+            if score <= best_score {
+                // No improvement
+                continue;
+            }
+
+            best_score = score;
             if score >= beta {
                 self.movegen.leave_ply();
                 return score;
@@ -832,7 +839,7 @@ impl Search {
         }
 
         self.movegen.leave_ply();
-        alpha
+        best_score
     }
 
     fn get_base_stats(&self, duration: Duration) -> String {
