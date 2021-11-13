@@ -352,18 +352,16 @@ impl Search {
                 pv.update(best_move, &mut local_pv);
                 current_pv = Some(self.pv_info(&pv.moves()));
 
-                if best_score > alpha {
-                    alpha = score;
+                alpha = score;
 
-                    self.time_mgr.update_best_move(best_move, depth);
+                self.time_mgr.update_best_move(best_move, depth);
 
-                    if depth >= 7 && reduction == 0 {
-                        reduction = 1;
-                    } else {
-                        reduction = 0;
-                    }
-                    a = -(alpha + 1);
+                if depth >= 7 && reduction == 0 {
+                    reduction = 1;
+                } else {
+                    reduction = 0;
                 }
+                a = -(alpha + 1);
             }
 
             tree_size = (self.local_node_count - tree_size) << reduction;
