@@ -6,7 +6,7 @@
 
 **Velvet Chess Engine** is a UCI chess engine written in [Rust](https://www.rust-lang.org).
 
-Version 2.0.0 is currently ranked around 2900 Elo in the Computer Chess Rating Lists (CCRL):
+Version 3.0.0 is currently ranked around 3000 Elo in the Computer Chess Rating Lists (CCRL):
 - [CCRL Blitz](https://www.computerchess.org.uk/ccrl/404/cgi/compare_engines.cgi?family=Velvet&print=Rating+list)
 - [CCRL 40/15](https://www.computerchess.org.uk/ccrl/4040/cgi/compare_engines.cgi?family=Velvet&print=Rating+list)
 
@@ -21,6 +21,7 @@ Executables for Windows and Linux can be downloaded from the [releases page](htt
 ### :computer: Manual compilation
 
 Since Velvet is written in Rust, a manual compilation requires the installation of the Rust tool chain (e.g. using [rustup](https://rustup.rs/)).
+The installed Rust version must support the Rust 2021 Edition (i.e. v1.56 and upwards).
 
 Then you can compile the engine using **cargo**:
 
@@ -33,5 +34,4 @@ This project is licensed under the GNU General Public License - see the [LICENSE
 
 ### :tada: Acknowledgements
 - The [Chess Programming Wiki (CPW)](https://www.chessprogramming.org/Main_Page) has excellent articles and descriptions
-- The testers from the [Computer Chess Rating Lists (CCRL)](https://www.computerchess.org.uk/ccrl/) are doing a great job testing lots
-  of chess engines for the rating lists
+- A big thanks to all the chess engine testers out there
