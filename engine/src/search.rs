@@ -322,7 +322,9 @@ impl Search {
             let mut local_pv = PrincipalVariation::default();
 
             let mut tree_size = self.local_node_count;
+
             // Use principal variation search
+            self.inc_node_count();
             let mut result = self.rec_find_best_move(rx, a, -alpha, depth - reduction - 1, 1, SearchFlags::new().check(gives_check), capture_pos, &mut local_pv, m, NO_MOVE);
             if result == CANCEL_SEARCH {
                 iteration_cancelled = true;
@@ -433,8 +435,6 @@ impl Search {
         }
 
         let hh_counter_scale = self.hh.calc_counter_scale(depth);
-
-        self.inc_node_count();
 
         let hash = self.board.get_hash();
 
@@ -652,6 +652,7 @@ impl Search {
 
                 let mut local_pv = PrincipalVariation::default();
 
+                self.inc_node_count();
                 let mut result = self.rec_find_best_move(rx, a, -alpha, depth + se_extension - reductions - 1, ply + 1, flags.check(gives_check), new_capture_pos, &mut local_pv, curr_move, NO_MOVE);
                 if result == CANCEL_SEARCH {
                     self.board.undo_move(curr_move, previous_piece, removed_piece_id);
@@ -752,8 +753,6 @@ impl Search {
             return CANCEL_SEARCH;
         }
 
-        self.inc_node_count();
-
         self.max_reached_depth = max(ply, self.max_reached_depth);
 
         if self.board.is_insufficient_material_draw() {
@@ -815,6 +814,7 @@ impl Search {
 
             let mut local_pv = PrincipalVariation::default();
 
+            self.inc_node_count();
             let score = -self.quiescence_search(-active_player, -beta, -alpha, ply + 1, None, &mut local_pv);
             self.board.undo_move(m, previous_piece, move_state);
 
