@@ -1,14 +1,22 @@
 
-The major feature of this new release is the support for multi-threaded search using the Lazy SMP approach.
+This minor release provides support for pondering and an estimated strength increase of about 50 Elo.
 
 ## Changes
-- Added multi-threaded search
-- Added new neural network trained using self-play positions and evaluations from Velvet 2.0.0
-- Reduced neural network size by half: removed color-specific input features
-- Improved training set generation by increasing the position variety
-- Optimized neural network evaluation
-- Replaced null move reduction with null move pruning
-- Tuned and improved search
+- New engine feature: Pondering support
+- Search improvements:
+  - Singular extensions
+  - Disable null move pruning in pawn endgames
+  - SEE and history based pruning of quiet moves
+  - Update counter/killer moves for TT cut-offs
+  - Some small bug fixes and improvements
+  
+- Technical changes:
+  - New tooling for automated patch verification
+  - Removed dependency on packed_simd library, which required Rust Nightly builds
+  - Switched back to Rust Stable
+  - Use PGO (profile-guided optimization) builds in pipeline
+  - Increased search depth limit
+  - Some minor refactorings
 
 ## Installation
 The chess engine is available for Windows and Linux and requires a 64 Bit CPU.
