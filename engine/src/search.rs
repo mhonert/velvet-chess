@@ -28,12 +28,14 @@ use crate::moves::{Move, NO_MOVE};
 use crate::move_gen::{NEGATIVE_HISTORY_SCORE, is_killer, MoveGenerator};
 use LogLevel::Info;
 use crate::time_management::{MAX_TIMELIMIT_MS, TIMEEXT_MULTIPLIER, TimeManager};
-use crate::board::Board;
+use crate::board::{Board, StateEntry};
 use std::sync::Arc;
 use crate::history_heuristics::HistoryHeuristics;
 use std::sync::atomic::{AtomicBool, Ordering, AtomicU64};
 use std::sync::mpsc::{TryRecvError, Receiver, channel, Sender};
 use std::thread;
+use std::thread::JoinHandle;
+use crate::pos_history::PositionHistory;
 
 pub const DEFAULT_SEARCH_THREADS: usize = 1;
 pub const MAX_SEARCH_THREADS: usize = 256;
@@ -54,8 +56,6 @@ const INITIAL_ASPIRATION_WINDOW_SIZE: i32 = 16;
 const INITIAL_ASPIRATION_WINDOW_STEP: i32 = 16;
 
 
-
-#[derive(Clone)]
 pub struct Search {
     pub board: Board,
     pub movegen: MoveGenerator,
@@ -78,13 +78,14 @@ pub struct Search {
     node_count: Arc<AtomicU64>,
     is_stopped: Arc<AtomicBool>,
 
-    total_thread_count: usize,
+    threads: HelperThreads,
+    is_helper_thread: bool,
 
     pondering: bool,
 }
 
 impl Search {
-    pub fn new(is_stopped: Arc<AtomicBool>, node_count: Arc<AtomicU64>, log_level: LogLevel, limits: SearchLimits, tt: Arc<TranspositionTable>, board: Board, search_thread_count: usize, ponder: bool) -> Self {
+    pub fn new(is_stopped: Arc<AtomicBool>, node_count: Arc<AtomicU64>, log_level: LogLevel, limits: SearchLimits, tt: Arc<TranspositionTable>, board: Board, is_helper_thread: bool) -> Self {
         let hh = HistoryHeuristics::new();
 
         let time_mgr = TimeManager::new();
@@ -107,24 +108,62 @@ impl Search {
             max_reached_depth: 0,
             is_stopped,
 
-            total_thread_count: search_thread_count,
-            pondering: ponder
+            threads: HelperThreads::new(),
+            is_helper_thread,
+
+            pondering: false,
         }
     }
 
+    pub fn resize_tt(&mut self, new_size_mb: i32) {
+        // Remove all additional threads, which reference the transposition table
+        let thread_count = self.threads.count();
+        self.threads.resize(0, &self.node_count, &self.tt, &self.board, &self.is_stopped);
+
+        // Resize transposition table
+        Arc::get_mut(&mut self.tt).unwrap().resize(new_size_mb as u64);
+
+        // Restart threads
+        self.threads.resize(thread_count, &self.node_count, &self.tt, &self.board, &self.is_stopped);
+
+        self.clear_tt();
+    }
+
+    pub fn reset_threads(&mut self, thread_count: i32) {
+        self.threads.resize((thread_count - 1) as usize, &self.node_count, &self.tt, &self.board, &self.is_stopped);
+    }
+
+    pub fn clear_tt(&mut self) {
+        self.threads.clear_tt();
+        TranspositionTable::clear(&self.tt, 0, self.threads.count() + 1);
+    }
+
+    pub fn update(&mut self, board: &Board, limits: SearchLimits, ponder: bool) {
+        self.pondering = ponder;
+        self.board.reset(board.pos_history.clone(), board.bitboards, board.halfmove_count, board.state);
+        self.limits = limits;
+    }
+
+    pub fn update_limits(&mut self, limits: SearchLimits) {
+        self.limits = limits;
+    }
+
+    pub fn reset(&mut self) {
+        self.local_node_count = 0;
+        self.next_hh_age_node_count = 1000000;
+        self.hh.clear();
+    }
+
     pub fn find_best_move(&mut self, rx: Option<&Receiver<Message>>, min_depth: i32, skipped_moves: &[Move]) -> (Move, PrincipalVariation) {
+        self.reset();
         self.time_mgr.reset(self.limits.time_limit_ms, self.limits.strict_time_limit);
 
         self.cancel_possible = false;
         self.node_count.store(0, Ordering::Relaxed);
-        self.local_node_count = 0;
 
         self.next_check_node_count = min(self.limits.node_limit, 1000);
-        self.next_hh_age_node_count = 1000000;
 
         let mut last_best_move: Move = NO_MOVE;
-
-        self.hh.clear();
 
         let active_player = self.board.active_player();
 
@@ -132,11 +171,9 @@ impl Search {
 
         self.set_stopped(false);
 
-        let helper_threads = self.start_helper_threads(skipped_moves);
-
         let mut pv = PrincipalVariation::default();
 
-        helper_threads.start_search();
+        self.threads.start_search(&self.board, skipped_moves);
 
         let mut window_size = INITIAL_ASPIRATION_WINDOW_SIZE;
         let mut window_step = INITIAL_ASPIRATION_WINDOW_STEP;
@@ -208,8 +245,6 @@ impl Search {
             }
         }
 
-        helper_threads.stop_search();
-
         self.movegen.leave_ply();
 
         if let Some(r) = rx {
@@ -220,38 +255,9 @@ impl Search {
 
         self.set_stopped(true);
 
+        self.threads.wait_for_completion();
+
         (last_best_move, pv)
-    }
-
-    fn start_helper_threads(&mut self, skipped_moves: &[Move]) -> HelperThreads {
-        let mut helper_threads = HelperThreads::new();
-
-        for _ in 0..(self.total_thread_count - 1) {
-
-            let node_count = self.node_count.clone();
-            let tt = self.tt.clone();
-            let board = self.board.clone();
-
-            let search_stopped = Arc::new(AtomicBool::new(true));
-            let stop_search = Arc::new(AtomicBool::new(false));
-            let thread_terminated = Arc::new(AtomicBool::new(false));
-
-            search_stopped.store(false, Ordering::Release);
-
-            let (tx, rx) = channel::<HelperThreadMessage>();
-            helper_threads.add(tx, stop_search.clone(), search_stopped.clone(), thread_terminated.clone());
-
-            let skipped_moves = Vec::from(skipped_moves);
-            thread::spawn(move || {
-                let limits = SearchLimits::default();
-                let sub_search = Search::new(stop_search.clone(), node_count, LogLevel::Error, limits, tt, board, 1, false);
-
-                HelperThread::run(search_stopped, rx, &skipped_moves, sub_search);
-                thread_terminated.store(true, Ordering::Release);
-            });
-        }
-
-        helper_threads
     }
 
     fn root_search(&mut self, rx: Option<&Receiver<Message>>, skipped_moves: &[Move], window_step: i32, window_size: i32, score: i32, depth: i32, pv: &mut PrincipalVariation) -> (i32, Move, Option<String>, i32) {
@@ -294,8 +300,6 @@ impl Search {
 
         let mut reduction = 0;
         let mut tree_scale = 0;
-
-        let is_multi_threaded = self.total_thread_count > 1;
 
         self.movegen.reset_root_moves();
         while let Some(m) = self.movegen.next_root_move(&self.hh, &mut self.board) {
@@ -374,7 +378,7 @@ impl Search {
 
         }
 
-        self.movegen.reorder_root_moves(best_move, is_multi_threaded);
+        self.movegen.reorder_root_moves(best_move, self.is_helper_thread);
 
         (move_num, best_move, current_pv)
     }
@@ -458,6 +462,7 @@ impl Search {
                                 if is_pv {
                                     self.enhance_pv_from_tt(pv);
                                 }
+
                                 return hash_score
                             }
                             pos_score = Some(hash_score);
@@ -498,7 +503,7 @@ impl Search {
 
             // Quiescence search
             if depth <= 0 || ply >= (MAX_DEPTH - 16) as i32 {
-                return self.quiescence_search(active_player, alpha, beta, ply, pos_score, pv);
+                return self.quiescence_search(rx, active_player, alpha, beta, ply, pos_score, pv);
             }
 
             if !is_pv && !flags.in_check() {
@@ -508,12 +513,13 @@ impl Search {
                     let score = pos_score.unwrap();
 
                     if score.abs() < MATE_SCORE - (2 * MAX_DEPTH as i32) && score - (100 * depth) >= beta {
-                        return self.quiescence_search(active_player, alpha, beta, ply, pos_score, pv);
+                        return self.quiescence_search(rx, active_player, alpha, beta, ply, pos_score, pv);
                     }
                 } else if !self.board.is_pawn_endgame() {
                     // Null move pruning
                     pos_score = pos_score.or_else(|| Some(self.board.eval() * active_player as i32));
                     if pos_score.unwrap() >= beta {
+                        self.tt.prefetch(self.board.get_hash());
                         let r = log2((depth * 3 - 3) as u32);
                         self.board.perform_null_move();
                         let result = self.rec_find_best_move(rx, -beta, -beta + 1, depth - r - 1, ply + 1, flags.null_move_search(), -1, &mut PrincipalVariation::default(), NO_MOVE, NO_MOVE);
@@ -646,6 +652,8 @@ impl Search {
             if skip {
                 self.board.undo_move(curr_move, previous_piece, removed_piece_id);
             } else {
+                self.tt.prefetch(self.board.get_hash());
+
                 let new_capture_pos = if removed_piece_id != EMPTY { end } else { - 1 };
 
                 evaluated_move_count += 1;
@@ -748,7 +756,11 @@ impl Search {
         }
     }
 
-    pub fn quiescence_search(&mut self, active_player: Color, mut alpha: i32, beta: i32, ply: i32, pos_score: Option<i32>, pv: &mut PrincipalVariation) -> i32 {
+    pub fn quiescence_search(&mut self, rx: Option<&Receiver<Message>>, active_player: Color, mut alpha: i32, beta: i32, ply: i32, pos_score: Option<i32>, pv: &mut PrincipalVariation) -> i32 {
+        if let Some(rx) = rx {
+            self.check_search_limits(rx)
+        }
+
         if self.is_stopped() {
             return CANCEL_SEARCH;
         }
@@ -815,7 +827,7 @@ impl Search {
             let mut local_pv = PrincipalVariation::default();
 
             self.inc_node_count();
-            let score = -self.quiescence_search(-active_player, -beta, -alpha, ply + 1, None, &mut local_pv);
+            let score = -self.quiescence_search(rx, -active_player, -beta, -alpha, ply + 1, None, &mut local_pv);
             self.board.undo_move(m, previous_piece, move_state);
 
             if score <= best_score {
@@ -1083,10 +1095,13 @@ impl PrincipalVariation {
     }
 }
 
-enum HelperThreadMessage {
-    Search,
+enum ToThreadMessage {
+    Search{pos_history: PositionHistory, bitboards: [u64; 13], halfmove_count: u16, state: StateEntry, skipped_moves: Vec<Move>},
+    ClearTT{thread_no: usize, total_threads: usize},
     Terminate,
 }
+
+type FromThreadMessage = ();
 
 struct HelperThreads {
     threads: Vec<HelperThread>
@@ -1099,23 +1114,57 @@ impl HelperThreads {
         }
     }
 
-    pub fn add(&mut self, tx: Sender<HelperThreadMessage>, stop_search: Arc<AtomicBool>, search_stopped: Arc<AtomicBool>, thread_terminated: Arc<AtomicBool>) {
-        self.threads.push(HelperThread{tx, stop_search, search_stopped, thread_terminated})
-    }
+    pub fn resize(&mut self, target_count: usize, node_count: &Arc<AtomicU64>, tt: &Arc<TranspositionTable>, board: &Board, is_stopped: &Arc<AtomicBool>) {
+        if target_count < self.threads.len() {
+            self.threads.drain(target_count..).for_each(|t| {
+                t.terminate();
+                t.handle.join().unwrap();
+            });
+            return;
+        }
 
-    pub fn start_search(&self) {
-        for t in self.threads.iter() {
-            t.search();
+        let additional_count = target_count - self.threads.len();
+        for _ in 0..additional_count {
+            let (to_tx, to_rx) = channel::<ToThreadMessage>();
+            let (from_tx, from_rx) = channel::<FromThreadMessage>();
+
+            let node_count = node_count.clone();
+            let tt = tt.clone();
+            let board = board.clone();
+            let is_stopped = is_stopped.clone();
+
+            let handle = thread::spawn(move || {
+                let limits = SearchLimits::default();
+                let sub_search = Search::new(is_stopped, node_count, LogLevel::Error, limits, tt, board, true);
+                HelperThread::run(to_rx, from_tx, sub_search);
+            });
+
+            self.threads.push(HelperThread{handle, to_tx, from_rx});
         }
     }
 
-    pub fn stop_search(&self) {
+    pub fn count(&self) -> usize {
+        self.threads.len()
+    }
+
+    pub fn start_search(&self, board: &Board, skipped_moves: &[Move]) {
         for t in self.threads.iter() {
-            t.stop();
+            t.search(board, skipped_moves);
+        }
+    }
+
+    pub fn clear_tt(&self) {
+        let total_count = self.threads.len() + 1;
+        for (i, t) in self.threads.iter().enumerate() {
+            t.clear_tt(i + 1, total_count);
         }
 
+        self.wait_for_completion();
+    }
+
+    pub fn wait_for_completion(&self) {
         for t in self.threads.iter() {
-            t.wait_till_stopped();
+            t.wait_for_completion();
         }
     }
 
@@ -1124,14 +1173,10 @@ impl HelperThreads {
             t.terminate();
         }
 
-        for t in self.threads.iter() {
-            t.wait_till_terminated();
+        while let Some(t) = self.threads.pop() {
+            t.handle.join().unwrap();
         }
-
-        self.threads.clear();
     }
-
-
 }
 
 impl Drop for HelperThreads {
@@ -1141,42 +1186,46 @@ impl Drop for HelperThreads {
 }
 
 struct HelperThread {
-    tx: Sender<HelperThreadMessage>,
-    stop_search: Arc<AtomicBool>,
-    search_stopped: Arc<AtomicBool>,
-    thread_terminated: Arc<AtomicBool>,
+    handle: JoinHandle<()>,
+    to_tx: Sender<ToThreadMessage>,
+    from_rx: Receiver<FromThreadMessage>,
 }
 
 impl HelperThread {
-    pub fn search(&self) {
-        self.stop_search.store(false, Ordering::Release);
-        self.search_stopped.store(false, Ordering::Release);
-        self.tx.send(HelperThreadMessage::Search).unwrap();
-    }
-
-    pub fn stop(&self) {
-        self.stop_search.store(true, Ordering::Release);
-    }
-
-    pub fn wait_till_stopped(&self) {
-        while !self.search_stopped.load(Ordering::Acquire) {
-            thread::yield_now();
-        }
+    pub fn search(&self, board: &Board, skipped_moves: &[Move]) {
+        match self.to_tx.send(ToThreadMessage::Search{
+            pos_history: board.pos_history.clone(),
+            bitboards: board.bitboards,
+            halfmove_count: board.halfmove_count,
+            state: board.state,
+            skipped_moves: Vec::from(skipped_moves),
+        }) {
+            Ok(_) => {},
+            Err(e) => {
+                println!("Could not send message: {}", e);
+                panic!("Could not send message!");
+            }
+        };
     }
 
     pub fn terminate(&self) {
-        self.stop();
-        self.tx.send(HelperThreadMessage::Terminate).unwrap();
+        self.to_tx.send(ToThreadMessage::Terminate).unwrap();
     }
 
-    pub fn wait_till_terminated(&self) {
-        while !self.thread_terminated.load(Ordering::Acquire) {
-            thread::yield_now();
-        }
+    pub fn clear_tt(&self, thread_no: usize, total_threads: usize) {
+        self.to_tx.send(ToThreadMessage::ClearTT{thread_no, total_threads}).unwrap();
     }
 
-    pub fn run(search_stopped: Arc<AtomicBool>, rx: Receiver<HelperThreadMessage>, skipped_moves: &[Move], mut sub_search: Search) {
-        sub_search.movegen.enter_ply(sub_search.board.active_player(), NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE);
+    pub fn wait_for_completion(&self) {
+        match self.from_rx.recv() {
+            Ok(_) => (),
+            Err(e) => {
+                eprintln!("Channel communication error while waiting for helper thread: {}", e);
+            }
+        };
+    }
+
+    pub fn run(rx: Receiver<ToThreadMessage>, tx: Sender<FromThreadMessage>, mut sub_search: Search) {
 
         loop {
             let msg = match rx.recv() {
@@ -1188,13 +1237,18 @@ impl HelperThread {
             };
 
             match msg {
-                HelperThreadMessage::Search => {
+                ToThreadMessage::Search{pos_history, bitboards, halfmove_count, state, skipped_moves} => {
                     let mut window_size = INITIAL_ASPIRATION_WINDOW_SIZE;
                     let mut window_step = INITIAL_ASPIRATION_WINDOW_STEP;
                     let mut score = 0;
 
+                    sub_search.reset();
+                    sub_search.board.reset(pos_history, bitboards, halfmove_count, state);
+
+                    sub_search.movegen.enter_ply(sub_search.board.active_player(), NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE);
+
                     for depth in 1..MAX_DEPTH {
-                        let (move_count, best_move, _, new_window_step) = sub_search.root_search(None, skipped_moves, window_step, window_size, score, depth as i32, &mut PrincipalVariation::default());
+                        let (move_count, best_move, _, new_window_step) = sub_search.root_search(None, &skipped_moves, window_step, window_size, score, depth as i32, &mut PrincipalVariation::default());
                         if new_window_step > window_step {
                             window_step = new_window_step;
                             window_size = new_window_step;
@@ -1212,14 +1266,21 @@ impl HelperThread {
 
                         score = best_move.score();
                     }
-                    search_stopped.store(true, Ordering::Release);
+
+                    sub_search.movegen.leave_ply();
+
+                    tx.send(()).unwrap();
                 }
 
-                HelperThreadMessage::Terminate => break
+                ToThreadMessage::ClearTT {thread_no, total_threads} => {
+                    sub_search.tt.clear(thread_no, total_threads);
+                    tx.send(()).unwrap();
+                },
+
+                ToThreadMessage::Terminate => break
             }
         }
 
-        sub_search.movegen.leave_ply();
     }
 }
 
@@ -1350,7 +1411,7 @@ mod tests {
     }
 
     fn search(tt: Arc<TranspositionTable>, limits: SearchLimits, board: Board, min_depth: i32) -> Move {
-        let mut search = Search::new(Arc::new(AtomicBool::new(false)), Arc::new(AtomicU64::new(0)), LogLevel::Error, limits, tt, board, 1, false);
+        let mut search = Search::new(Arc::new(AtomicBool::new(false)), Arc::new(AtomicU64::new(0)), LogLevel::Error, limits, tt, board, false);
         let (m, _) = search.find_best_move(None, min_depth, &[]);
         m
     }

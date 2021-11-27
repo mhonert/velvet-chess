@@ -57,9 +57,12 @@ pub enum LogLevel {
 pub struct Engine {
     rx: Receiver<Message>,
     board: Board,
-    tt: Option<Arc<TranspositionTable>>,
     log_level: LogLevel,
-    search_thread_count: usize,
+    new_thread_count: Option<i32>,
+    current_thread_count: i32,
+    new_tt_size: Option<i32>,
+    current_tt_size: i32,
+    search: Search,
 }
 
 pub fn spawn_engine_thread() -> Sender<Message> {
@@ -78,12 +81,20 @@ impl Engine {
         let mut board = create_from_fen(fen);
         board.reset_nn_eval();
 
+        let search = Search::new(Arc::new(AtomicBool::new(true)), Arc::new(AtomicU64::new(0)),
+                                 LogLevel::Info, SearchLimits::default(),
+                                 TranspositionTable::new(tt_size_mb),
+                                 board.clone(), false);
+
         Engine {
             rx,
             board,
-            tt: Some(TranspositionTable::new(tt_size_mb)),
             log_level: LogLevel::Info,
-            search_thread_count: DEFAULT_SEARCH_THREADS,
+            new_tt_size: None,
+            new_thread_count: None,
+            current_tt_size: DEFAULT_SIZE_MB as i32,
+            current_thread_count: DEFAULT_SEARCH_THREADS as i32,
+            search
         }
     }
 
@@ -117,16 +128,23 @@ impl Engine {
 
             Message::SetPosition(fen, moves) => self.set_position(fen, moves),
 
-            Message::SetTranspositionTableSize(size_mb) => self.set_tt_size(size_mb),
+            Message::SetTranspositionTableSize(size_mb) => {
+                if size_mb != self.current_tt_size {
+                    self.new_tt_size = Some(size_mb);
+                }
+            },
 
-            Message::SetThreadCount(count) => self.search_thread_count = count as usize,
+            Message::SetThreadCount(count) => {
+                if count != self.current_thread_count {
+                    self.new_thread_count = Some(count);
+                }
+            },
 
             Message::Perft(depth) => self.perft(depth),
 
             Message::IsReady => self.check_readiness(),
 
-            Message::Go(limits, ponder) =>
-                self.go(limits, ponder),
+            Message::Go(limits, ponder) => self.go(limits, ponder),
 
             Message::Fen => println!("{}", write_fen(&self.board)),
 
@@ -161,20 +179,32 @@ impl Engine {
         } else {
             println!("bestmove {}", move_info);
         };
+
     }
 
     pub fn search(&mut self, mut limits: SearchLimits, skipped_moves: &[Move], ponder: bool) -> (Move, Move) {
         limits.update(self.board.active_player());
 
-        let mut search = Search::new(Arc::new(AtomicBool::new(true)), Arc::new(AtomicU64::new(0)), self.log_level,
-                                     limits, self.tt.as_ref().unwrap().clone(), self.board.clone(), self.search_thread_count, ponder);
+        self.search.update(&self.board, limits, ponder);
 
-        let (m, pv) = search.find_best_move(Some(&self.rx), 3, skipped_moves);
+        let (m, pv) = self.search.find_best_move(Some(&self.rx), 3, skipped_moves);
         let ponder_m = *pv.moves().get(1).unwrap_or(&NO_MOVE);
         (m, ponder_m)
     }
 
     fn check_readiness(&mut self) {
+        if let Some(new_thread_count) = self.new_thread_count {
+            self.search.reset_threads(new_thread_count);
+            self.current_thread_count = new_thread_count;
+            self.new_thread_count = None;
+        }
+
+        if let Some(new_tt_size) = self.new_tt_size {
+            self.search.resize_tt(new_tt_size);
+            self.current_tt_size = new_tt_size;
+            self.new_tt_size = None;
+        }
+
         println!("readyok")
     }
 
@@ -191,13 +221,8 @@ impl Engine {
         self.board.reset_nn_eval();
     }
 
-    fn set_tt_size(&mut self, size_mb: i32) {
-        self.tt = None;
-        self.tt = Some(TranspositionTable::new(size_mb as u64));
-    }
-
     pub fn reset(&mut self) {
-        self.tt.as_ref().unwrap().clear();
+        self.search.clear_tt();
     }
 
     fn perft(&mut self, depth: i32) {

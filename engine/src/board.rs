@@ -18,7 +18,7 @@
 
 use std::cmp::max;
 
-use crate::bitboard::{black_left_pawn_attacks, black_right_pawn_attacks, DARK_COLORED_FIELD_PATTERN, get_black_pawn_freepath, get_king_attacks, get_knight_attacks, get_pawn_attacks, get_white_pawn_freepath, LIGHT_COLORED_FIELD_PATTERN, white_left_pawn_attacks, white_right_pawn_attacks};
+use crate::bitboard::{BitBoard, black_left_pawn_attacks, black_right_pawn_attacks, DARK_COLORED_FIELD_PATTERN, get_black_pawn_freepath, get_king_attacks, get_knight_attacks, get_pawn_attacks, get_white_pawn_freepath, LIGHT_COLORED_FIELD_PATTERN, white_left_pawn_attacks, white_right_pawn_attacks};
 use crate::colors::{BLACK, Color, WHITE};
 use crate::moves::{Move, MoveType};
 use crate::nn_eval::NeuralNetEval;
@@ -76,15 +76,16 @@ pub fn clear_castling_bits(color: Color, castling_state: u8) -> u8 {
 
 #[derive(Clone)]
 pub struct Board {
+    pub pos_history: PositionHistory,
+    pub bitboards: [u64; 13],
+    pub state: StateEntry,
+    pub halfmove_count: u16,
+
     magics: Magics,
     nn_eval: Box<NeuralNetEval>,
-    pos_history: PositionHistory,
     items: [i8; 64],
-    bitboards: [u64; 13],
     bitboards_all_pieces: [u64; 3],
-    state: StateEntry,
     king_pos: [i32; 3],
-    halfmove_count: u16,
 
     history: Vec<StateEntry>,
 }
@@ -109,7 +110,7 @@ impl Board {
 
         let mut board = Board {
             magics: Magics::default(),
-            pos_history: PositionHistory::new(),
+            pos_history: PositionHistory::default(),
             nn_eval: NeuralNetEval::new(),
             items: [0; 64],
             bitboards: [0; 13],
@@ -122,6 +123,36 @@ impl Board {
 
         board.set_position(items, active_player, castling_state, enpassant_target, halfmove_clock, fullmove_num);
         board
+    }
+
+    pub fn reset(&mut self, pos_history: PositionHistory, bitboards: [u64; 13], halfmove_count: u16, state: StateEntry) {
+        let white_bb = bitboards[7..=12].iter().fold(0, |acc, i| acc | i);
+        let black_bb = bitboards[0..=5].iter().fold(0, |acc, i| acc | i);
+
+        let white_king = bitboards[12].trailing_zeros() as i32;
+        let black_king = bitboards[0].trailing_zeros() as i32;
+
+        self.pos_history = pos_history;
+        self.bitboards = bitboards;
+        self.bitboards_all_pieces = [black_bb, 0, white_bb];
+        self.state = state;
+        self.halfmove_count = halfmove_count;
+        self.king_pos = [black_king, 0, white_king];
+        self.history.clear();
+
+        self.items.fill(0);
+
+        for color in (BLACK..=WHITE).step_by(2) {
+            for piece_id in 1i8..=6i8 {
+                let piece = piece_id * color;
+                for pos in BitBoard(bitboards[(piece + 6) as usize]) {
+                    self.items[pos as usize] = piece;
+                }
+            }
+        }
+
+        self.recalculate_hash();
+        self.nn_eval.init_pos(self.active_player(), &self.bitboards);
     }
 
     pub fn set_position(&mut self, items: &[i8], active_player: Color, castling_state: u8, enpassant_target: Option<i8>, halfmove_clock: u8, fullmove_num: u16) {

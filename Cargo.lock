@@ -977,9 +977,9 @@ dependencies = [
 
 [[package]]
 name = "tch"
-version = "0.5.0"
+version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f26115a35496899782cc16c8e5a51c9375e7f3c0e7dcafa9f1883338e938a04f"
+checksum = "2b73f876b186599e22b01fa6ebfeea2dee2f11e8083463ab3572933d8201436b"
 dependencies = [
  "half",
  "lazy_static",
@@ -1033,9 +1033,9 @@ dependencies = [
 
 [[package]]
 name = "torch-sys"
-version = "0.5.0"
+version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "88ade099a9f752b2e57c7852fe022e3542ec7e196675acbc9bb0d3a380e18c62"
+checksum = "34cc0f21b1aad5d71d529e9fe4dbbbdbf53918d7b4bde946f523839aa32cffae"
 dependencies = [
  "anyhow",
  "cc",

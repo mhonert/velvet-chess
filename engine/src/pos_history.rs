@@ -19,10 +19,13 @@
 #[derive(Clone)]
 pub struct PositionHistory(Vec<u64>);
 
-impl PositionHistory {
-    pub fn new() -> Self {
+impl Default for PositionHistory {
+    fn default() -> Self {
         PositionHistory(Vec::with_capacity(16))
     }
+}
+
+impl PositionHistory {
 
     pub fn push(&mut self, hash: u64) {
         self.0.push(hash);
@@ -48,7 +51,7 @@ mod tests {
     #[test]
     fn detects_single_repetition() {
 
-        let mut history = PositionHistory::new();
+        let mut history = PositionHistory::default();
         history.push(1000);
         history.push(1001);
         history.push(1002);

@@ -37,7 +37,7 @@ use shakmaty_syzygy::{Dtz, Tablebase};
 use gen_quiet_pos::GenQuietPos;
 use velvet::board::Board;
 use velvet::engine::{LogLevel, Message};
-use velvet::fen::{create_from_fen, START_POS, write_fen};
+use velvet::fen::{create_from_fen, read_fen, START_POS, write_fen};
 use velvet::history_heuristics::HistoryHeuristics;
 use velvet::move_gen::MoveGenerator;
 use velvet::moves::{Move, NO_MOVE};
@@ -196,11 +196,12 @@ fn find_test_positions(tx: &Sender<TestPos>, openings: &[String], tb_path: Strin
     tb.add_directory(tb_path).expect("Could not add tablebase path");
 
     let tt = TranspositionTable::new(128);
+    let mut search = Search::new(Arc::new(AtomicBool::new(false)), Arc::new(AtomicU64::new(0)), LogLevel::Error, SearchLimits::default(), tt, create_from_fen(START_POS), false);
 
     loop {
         let opening = openings[rnd.rand32() as usize % openings.len()].clone();
 
-        let mut positions = collect_quiet_pos(&tb, &mut rnd, opening.as_str(), tt.clone());
+        let mut positions = collect_quiet_pos(&tb, &mut rnd, opening.as_str(), &mut search);
         for pos in positions.iter_mut() {
             if !pos.include {
                 continue;
@@ -245,17 +246,17 @@ fn select_move(rx: Option<&Receiver<Message>>, rnd: &mut Random, move_variety: b
     (latest_move, chosen_pv)
 }
 
-fn collect_quiet_pos(tb: &Tablebase<Chess>, rnd: &mut Random, opening: &str, tt: Arc<TranspositionTable>) -> Vec<TestPos> {
+fn collect_quiet_pos(tb: &Tablebase<Chess>, rnd: &mut Random, opening: &str, search: &mut Search) -> Vec<TestPos> {
 
-    tt.clear();
+    search.clear_tt();
 
     let mut duplicate_check = HashSet::new();
-    let board = create_from_fen(opening);
+    read_fen(&mut search.board, opening).unwrap();
 
     let (_tx, rx) = mpsc::channel::<Message>();
     let node_limit = 10000 + (rnd.rand32() % 1000) as u64;
     let limits = SearchLimits::new(None, Some(node_limit), None, None, None, None, Some(1), None).unwrap();
-    let mut search = Search::new(Arc::new(AtomicBool::new(false)), Arc::new(AtomicU64::new(0)), LogLevel::Error, limits, tt, board, 1, false);
+    search.update_limits(limits);
 
     let mut positions = Vec::new();
     let mut ply = 0;
@@ -268,7 +269,7 @@ fn collect_quiet_pos(tb: &Tablebase<Chess>, rnd: &mut Random, opening: &str, tt:
         let is_candidate = ply >= 8 && !search.board.is_in_check(search.board.active_player());
 
         search.set_node_limit(node_limit);
-        let (selected_move, pv) = select_move(Some(&rx), rnd, move_variety, &mut search, 10);
+        let (selected_move, pv) = select_move(Some(&rx), rnd, move_variety, search, 10);
 
         if selected_move == NO_MOVE {
             let (result, description) = if search.board.is_in_check(search.board.active_player()) {
@@ -292,7 +293,7 @@ fn collect_quiet_pos(tb: &Tablebase<Chess>, rnd: &mut Random, opening: &str, tt:
         }
 
         if search.board.get_occupancy_bitboard().count_ones() <= 5 {
-            return resolve_tb_match(tb, Some(&rx), &mut duplicate_check, &mut search, positions);
+            return resolve_tb_match(tb, Some(&rx), &mut duplicate_check, search, positions);
         }
 
         let fen = write_fen(&search.board);

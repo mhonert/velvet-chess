@@ -52,68 +52,120 @@ impl ScoreType {
 const SCORE_TYPE_BITSHIFT: u32 = 30;
 const SCORE_TYPE_MASK: u64 = 0b11;
 
+const SLOTS_PER_SEGMENT: usize = 8;
+
 pub const DEFAULT_SIZE_MB: u64 = 32;
-const PER_ENTRY_BYTE_SIZE: u64 = 8;
+const SEGMENT_BYTE_SIZE: u64 = (64 / 8) * SLOTS_PER_SEGMENT as u64;
 
 pub struct TranspositionTable {
     index_mask: u64,
-    entries: Vec<AtomicU64>,
+    segments: A64<Vec<[AtomicU64; SLOTS_PER_SEGMENT]>>,
 }
+
+#[repr(align(64))]
+struct A64<T>(T); // Wrapper to ensure 64 Byte alignment
 
 impl TranspositionTable {
     pub fn new(size_mb: u64) -> Arc<Self> {
-        // Calculate table size as close to the desired size_mb as possible, but never above it
-        let size_bytes = size_mb * 1_048_576;
-        let entry_count = size_bytes / PER_ENTRY_BYTE_SIZE;
-        let index_bit_count = 31 - (entry_count as u32 | 1).leading_zeros();
-
-        let size = (1u64 << index_bit_count) as usize;
-
         let mut tt = Arc::new(TranspositionTable {
-            index_mask: (size as u64) - 1,
-            entries: Vec::with_capacity(size),
+            index_mask: 0,
+            segments: A64(Vec::with_capacity(0)),
         });
 
-        Arc::get_mut(&mut tt).unwrap().entries.resize_with(size, AtomicU64::default);
+        Arc::get_mut(&mut tt).unwrap().resize(size_mb);
+        TranspositionTable::clear(&tt, 0, 1);
 
         tt
     }
 
+    pub fn resize(&mut self, size_mb: u64) {
+        // Calculate table size as close to the desired size_mb as possible, but never above it
+        let size_bytes = size_mb * 1_048_576;
+        let segment_count = size_bytes / SEGMENT_BYTE_SIZE;
+        let index_bit_count = 31 - (segment_count as u32 | 1).leading_zeros();
+
+        let size = (1u64 << index_bit_count) as usize;
+        self.index_mask = (size as u64) - 1;
+
+        if size > self.segments.0.len() {
+            self.segments.0.reserve_exact(size - self.segments.0.len());
+            unsafe { self.segments.0.set_len(size) };
+        } else {
+            self.segments.0.truncate(size);
+            self.segments.0.shrink_to_fit();
+        }
+    }
+
     // Important: mate scores must be stored relative to the current node, not relative to the root node
-    pub fn write_entry(&self, hash: u64, depth: i32, scored_move: Move, typ: ScoreType) {
+    pub fn write_entry(&self, hash: u64, new_depth: i32, scored_move: Move, typ: ScoreType) {
+        let index = self.calc_index(hash);
+        let segment = unsafe { self.segments.0.get_unchecked(index) };
+
+        for slot in segment.iter() {
+            let existing_entry = slot.load(Ordering::Relaxed) ^ hash;
+            if existing_entry & HASHCHECK_MASK == 0 {
+                slot.store(0, Ordering::Relaxed);
+            }
+        }
+
         let mut new_entry = hash;
-        new_entry ^= (depth as u64) << DEPTH_BITSHIFT;
+        new_entry ^= (new_depth as u64) << DEPTH_BITSHIFT;
         new_entry ^= (typ as u64) << SCORE_TYPE_BITSHIFT;
         new_entry ^= scored_move.to_bit29() as u64;
 
-        let index = self.calc_index(hash);
-        unsafe { self.entries.get_unchecked(index).store(new_entry, Ordering::Relaxed) };
+        segment[new_depth as usize & (SLOTS_PER_SEGMENT - 1)].store(new_entry, Ordering::Relaxed);
     }
 
     pub fn get_entry(&self, hash: u64) -> u64 {
         let index = self.calc_index(hash);
+        let slots = unsafe { self.segments.0.get_unchecked(index) };
 
-        let entry = unsafe { self.entries.get_unchecked(index).load(Ordering::Relaxed) } ^ hash;
-        if (entry & HASHCHECK_MASK) != 0 {
-            return 0;
+        for slot in slots.iter() {
+            let entry = slot.load(Ordering::Relaxed) ^ hash;
+            if (entry & HASHCHECK_MASK) == 0 {
+                return entry;
+            }
         }
 
-        entry
+        0
     }
 
     fn calc_index(&self, hash: u64) -> usize {
         (hash & self.index_mask) as usize
     }
 
-    pub fn clear(&self) {
-        for entry in self.entries.iter() {
-            entry.store(0, Ordering::Relaxed)
+    pub fn clear(&self, thread_no: usize, total_threads: usize) {
+        let chunk_size = (self.segments.0.len() + total_threads - 1) / total_threads;
+
+        for segment in self.segments.0.chunks(chunk_size).skip(thread_no).take(1).last().unwrap().iter() {
+            for entry in segment.iter() {
+                entry.store(0, Ordering::Relaxed);
+            }
+        }
+    }
+
+    #[inline(always)]
+    pub fn prefetch(&self, hash: u64) {
+        #[cfg(target_feature = "sse")]
+        {
+            let index = self.calc_index(hash);
+            unsafe {
+                core::arch::x86_64::_mm_prefetch::<0>(self.segments.0.as_ptr().add(index) as *const i8);
+            }
+        }
+
+        #[cfg(not(target_feature = "sse"))]
+        {
+            // No op
         }
     }
 
     // hash_full returns an approximation of the fill level in per mill
     pub fn hash_full(&self) -> usize {
-        self.entries.iter().take(1000).filter(|entry| entry.load(Ordering::Relaxed) != 0).count()
+        self.segments.0.iter().take(1024 / SLOTS_PER_SEGMENT)
+            .flat_map(|entries| entries.iter())
+            .filter(|entry| entry.load(Ordering::Relaxed) != 0)
+            .count() * 1000 / 1024
     }
 }
 
@@ -152,6 +204,7 @@ pub fn get_depth(entry: u64) -> i32 {
 pub fn get_score_type(entry: u64) -> ScoreType {
     ScoreType::from(((entry >> SCORE_TYPE_BITSHIFT) & SCORE_TYPE_MASK) as u8)
 }
+
 
 #[cfg(test)]
 mod tests {
@@ -194,7 +247,7 @@ mod tests {
     fn encodes_positive_score_correctly() {
         let tt = TranspositionTable::new(1);
         let score = MAX_SCORE;
-        let hash = u64::max_value();
+        let hash = u64::MAX;
         let m = NO_MOVE.with_score(score);
         tt.write_entry(hash, 1, m, ScoreType::Exact);
 

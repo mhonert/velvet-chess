@@ -265,6 +265,7 @@ fn extract_option<T: std::str::FromStr>(parts: &[&str], name: &str) -> Option<T>
 fn parse_position_cmd(parts: &[&str]) -> String {
     if parts.is_empty() {
         eprintln!("position command: missing fen/startpos");
+        return String::from(START_POS);
     }
 
     let pos_end = parts

@@ -27,7 +27,7 @@ use std::str::FromStr;
 use itertools::Itertools;
 use velvet::fen::{parse_fen, FenParseResult};
 use std::time::{Instant, SystemTime};
-use tch::nn::{ModuleT, Optimizer, VarStore, AdamW, SequentialT};
+use tch::nn::{ModuleT, Optimizer, VarStore, SequentialT};
 use byteorder::{WriteBytesExt, LittleEndian, ReadBytesExt};
 use std::env;
 use std::sync::mpsc::SyncSender;
@@ -235,7 +235,7 @@ impl Mode for PieceSquareTables {
 
 type DataSample = (Vec<i64>, f32);
 
-fn config_optimizer(vs: &VarStore, initial_lr: f64) -> Optimizer<AdamW> {
+fn config_optimizer(vs: &VarStore, initial_lr: f64) -> Optimizer {
     let mut opt = nn::AdamW::default().build(vs, initial_lr).unwrap();
     opt.set_weight_decay(0.35);
 
