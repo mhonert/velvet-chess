@@ -1,22 +1,12 @@
 
-This minor release provides support for pondering and an estimated strength increase of about 50 Elo.
+This is a patch release to fix time-losses in multi-threaded search.
+Single-threaded strength should be the same as v3.1.0.
 
 ## Changes
-- New engine feature: Pondering support
-- Search improvements:
-  - Singular extensions
-  - Disable null move pruning in pawn endgames
-  - SEE and history based pruning of quiet moves
-  - Update counter/killer moves for TT cut-offs
-  - Some small bug fixes and improvements
-  
 - Technical changes:
-  - New tooling for automated patch verification
-  - Removed dependency on packed_simd library, which required Rust Nightly builds
-  - Switched back to Rust Stable
-  - Use PGO (profile-guided optimization) builds in pipeline
-  - Increased search depth limit
-  - Some minor refactorings
+  - Fix for time-losses in multi-threaded search
+  - Use segmented transposition table with new replacement scheme
+  - Speed up transposition table clearing if option to use multiple threads is set
 
 ## Installation
 The chess engine is available for Windows and Linux and requires a 64 Bit CPU.
