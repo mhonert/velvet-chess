@@ -1,8 +1,11 @@
 ## :chess_pawn: Velvet Chess Engine
 
+[<img src="logo/velvet_logo_square.png" align="middle" alt="Velvet Logo">](logo/velvet_logo_square.png?raw=true)
+
 ![Release](https://img.shields.io/github/v/release/mhonert/velvet-chess)
 ![Test](https://img.shields.io/github/workflow/status/mhonert/velvet-chess/Test?label=Test&logo=github)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+
 
 **Velvet Chess Engine** is a UCI chess engine written in [Rust](https://www.rust-lang.org).
 
