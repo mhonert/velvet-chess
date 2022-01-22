@@ -73,6 +73,7 @@ pub struct Search {
     current_depth: i32,
     max_reached_depth: i32,
 
+    local_total_node_count: u64,
     local_node_count: u64,
 
     node_count: Arc<AtomicU64>,
@@ -99,6 +100,7 @@ impl Search {
             time_mgr,
             movegen: MoveGenerator::new(),
             cancel_possible: false,
+            local_total_node_count: 0,
             local_node_count: 0,
             node_count,
             last_log_time: Instant::now(),
@@ -149,6 +151,7 @@ impl Search {
     }
 
     pub fn reset(&mut self) {
+        self.local_total_node_count = 0;
         self.local_node_count = 0;
         self.next_hh_age_node_count = 1000000;
         self.hh.clear();
@@ -273,6 +276,10 @@ impl Search {
                 return (move_num, best_move, current_pv, step);
             }
 
+            // Bulk update of global node count
+            self.node_count.fetch_add(self.local_node_count, Ordering::Relaxed);
+            self.local_node_count = 0;
+
             let best_score = best_move.score();
             if best_score <= alpha {
                 alpha = max(MIN_SCORE, alpha - step);
@@ -308,7 +315,7 @@ impl Search {
             }
             move_num += 1;
 
-            if self.log(Info) && self.local_node_count > 2000000 {
+            if self.log(Info) && self.local_total_node_count > 2000000 {
                 let now = Instant::now();
                 if self.time_mgr.search_duration_ms(now) >= 1000 {
                     self.last_log_time = now;
@@ -325,7 +332,7 @@ impl Search {
 
             let mut local_pv = PrincipalVariation::default();
 
-            let mut tree_size = self.local_node_count;
+            let mut tree_size = self.local_total_node_count;
 
             // Use principal variation search
             self.inc_node_count();
@@ -370,7 +377,7 @@ impl Search {
                 a = -(alpha + 1);
             }
 
-            tree_size = (self.local_node_count - tree_size) << reduction;
+            tree_size = (self.local_total_node_count - tree_size) << reduction;
             if move_num == 1 {
                 tree_scale = max(13, 64 - tree_size.leading_zeros()) - 13;
             }
@@ -388,8 +395,8 @@ impl Search {
     }
 
     fn inc_node_count(&mut self) {
+        self.local_total_node_count += 1;
         self.local_node_count += 1;
-        self.node_count.fetch_add(1, Ordering::Relaxed);
     }
 
     // Recursively calls itself with alternating player colors to
@@ -411,9 +418,15 @@ impl Search {
             return 0;
         }
 
-        if self.local_node_count >= self.next_hh_age_node_count {
+        if depth > 2 {
+            // Bulk update of global node count
+            self.node_count.fetch_add(self.local_node_count, Ordering::Relaxed);
+            self.local_node_count = 0;
+        }
+
+        if self.local_total_node_count >= self.next_hh_age_node_count {
             self.hh.age_entries();
-            self.next_hh_age_node_count = self.local_node_count + 2000000;
+            self.next_hh_age_node_count = self.local_total_node_count + 2000000;
         }
 
         let is_pv = (alpha + 1) < beta; // in a principal variation search, non-PV nodes are searched with a zero-window
@@ -732,8 +745,8 @@ impl Search {
     }
 
     fn check_search_limits(&mut self, rx: &Receiver<Message>) {
-        if self.local_node_count >= self.next_check_node_count {
-            self.next_check_node_count = if self.limits.node_limit != u64::MAX { self.limits.node_limit } else { self.local_node_count + 1000 };
+        if self.local_total_node_count >= self.next_check_node_count {
+            self.next_check_node_count = if self.limits.node_limit != u64::MAX { self.limits.node_limit } else { self.local_total_node_count + 1000 };
 
             self.check_messages(rx, false);
 

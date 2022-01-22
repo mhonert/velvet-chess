@@ -1,9 +1,8 @@
 
-This patch release only contains changes in the build pipeline
+This patch release contains fixes to improve scalability for high thread counts
 
 ## Changes
- - Disable profile-guided optimizations (PGO) in build pipeline
- - Do not strip debug symbols from executables
+ - Update global node count in bulk
 
 ## Installation
 The chess engine is available for Windows and Linux and requires a 64 Bit CPU.
