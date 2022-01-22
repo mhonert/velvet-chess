@@ -30,28 +30,11 @@ jobs:
             ~/.cargo/git/db/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Install LLVM tools
-        run: |
-          rustup update
-          rustup component add llvm-tools-preview
-          rustup show
-          cargo install cargo-binutils || true
-
-      - name: Profile
-        env:
-          RUSTFLAGS: '${{ matrix.add_rustflags }} -Cprofile-generate=${{ runner.temp }}/pgo-data'
-        run: |
-          rm -rf target
-          mkdir -p ${RUNNER_TEMP}/pgo-data
-          cargo build --release --bin velvet
-          printf 'profile\n' | target/release/velvet
-          cargo profdata -- merge -o ${RUNNER_TEMP}/pgo-data/merged.profdata ${RUNNER_TEMP}/pgo-data
-
       - name: Build
         env:
-          RUSTFLAGS: '${{ matrix.add_rustflags }} -Cprofile-use=${{ runner.temp }}/pgo-data/merged.profdata -Cllvm-args=-pgo-warn-missing-function -Cinline-threshold=500'
+          RUSTFLAGS: '${{ matrix.add_rustflags }} -Cinline-threshold=500'
         run: |
-          cargo strip --release --bin velvet
+          cargo build --release --bin velvet
           mv target/release/velvet velvet-linux-x86_64-${{ matrix.exec_postfix }}
           ls -ltrh
 
@@ -86,28 +69,11 @@ jobs:
             ~/.cargo/git/db/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Install LLVM tools
-        run: |
-          rustup update
-          rustup component add llvm-tools-preview
-          rustup show
-          cargo install cargo-binutils || true
-
-      - name: Profile
-        env:
-          RUSTFLAGS: '${{ matrix.add_rustflags }} -Cprofile-generate=${{ runner.temp }}\pgo-data'
-        run: |
-          if (Test-Path target) { rm target -r -fo }
-          mkdir -p ${{ runner.temp }}\pgo-data
-          cargo build --release --bin velvet
-          'profile' | .\target\release\velvet
-          cargo profdata -- merge -o ${{ runner.temp }}\pgo-data\merged.profdata ${{ runner.temp }}\pgo-data
-
       - name: Build
         env:
-          RUSTFLAGS: '${{ matrix.add_rustflags }} -Cprofile-use=${{ runner.temp }}\pgo-data\merged.profdata -Cllvm-args=-pgo-warn-missing-function -Cinline-threshold=500'
+          RUSTFLAGS: '${{ matrix.add_rustflags }} -Cinline-threshold=500'
         run: |
-          cargo strip --release --bin velvet
+          cargo build --release --bin velvet
           mv .\target\release\velvet.exe velvet-windows-x86_64-${{ matrix.exec_postfix }}.exe
 
       - name: Upload artifacts

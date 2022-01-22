@@ -1,12 +1,9 @@
 
-This is a patch release to fix time-losses in multi-threaded search.
-Single-threaded strength should be the same as v3.1.0.
+This patch release only contains changes in the build pipeline
 
 ## Changes
-- Technical changes:
-  - Fix for time-losses in multi-threaded search
-  - Use segmented transposition table with new replacement scheme
-  - Speed up transposition table clearing if option to use multiple threads is set
+ - Disable profile-guided optimizations (PGO) in build pipeline
+ - Do not strip debug symbols from executables
 
 ## Installation
 The chess engine is available for Windows and Linux and requires a 64 Bit CPU.
