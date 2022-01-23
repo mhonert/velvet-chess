@@ -272,13 +272,16 @@ impl Search {
             pv.clear();
 
             let (move_num, best_move, current_pv) = self.bounded_root_search(rx, skipped_moves, alpha, beta, depth, pv);
+
+            // Bulk update of global node count
+            if self.local_node_count > 0 {
+                self.node_count.fetch_add(self.local_node_count, Ordering::Relaxed);
+                self.local_node_count = 0;
+            }
+
             if best_move == NO_MOVE {
                 return (move_num, best_move, current_pv, step);
             }
-
-            // Bulk update of global node count
-            self.node_count.fetch_add(self.local_node_count, Ordering::Relaxed);
-            self.local_node_count = 0;
 
             let best_score = best_move.score();
             if best_score <= alpha {
@@ -414,14 +417,14 @@ impl Search {
             return CANCEL_SEARCH;
         }
 
-        if self.board.is_draw() {
-            return 0;
-        }
-
-        if depth > 2 {
+        if self.local_node_count > 1000 {
             // Bulk update of global node count
             self.node_count.fetch_add(self.local_node_count, Ordering::Relaxed);
             self.local_node_count = 0;
+        }
+
+        if self.board.is_draw() {
+            return 0;
         }
 
         if self.local_total_node_count >= self.next_hh_age_node_count {
