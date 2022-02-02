@@ -52,7 +52,7 @@ impl ScoreType {
 const SCORE_TYPE_BITSHIFT: u32 = 30;
 const SCORE_TYPE_MASK: u64 = 0b11;
 
-const SLOTS_PER_SEGMENT: usize = 8;
+const SLOTS_PER_SEGMENT: usize = 4;
 
 pub const DEFAULT_SIZE_MB: u64 = 32;
 const SEGMENT_BYTE_SIZE: u64 = (64 / 8) * SLOTS_PER_SEGMENT as u64;
@@ -82,7 +82,7 @@ impl TranspositionTable {
         // Calculate table size as close to the desired size_mb as possible, but never above it
         let size_bytes = size_mb * 1_048_576;
         let segment_count = size_bytes / SEGMENT_BYTE_SIZE;
-        let index_bit_count = 31 - (segment_count as u32 | 1).leading_zeros();
+        let index_bit_count = 63 - (segment_count as u64 | 1).leading_zeros();
 
         let size = (1u64 << index_bit_count) as usize;
         self.index_mask = (size as u64) - 1;
@@ -104,7 +104,7 @@ impl TranspositionTable {
         for slot in segment.iter() {
             let existing_entry = slot.load(Ordering::Relaxed) ^ hash;
             if existing_entry & HASHCHECK_MASK == 0 {
-                slot.store(0, Ordering::Relaxed);
+                slot.store(u64::MAX, Ordering::Relaxed);
             }
         }
 
@@ -139,7 +139,7 @@ impl TranspositionTable {
 
         for segment in self.segments.0.chunks(chunk_size).skip(thread_no).take(1).last().unwrap().iter() {
             for entry in segment.iter() {
-                entry.store(0, Ordering::Relaxed);
+                entry.store(u64::MAX, Ordering::Relaxed);
             }
         }
     }
@@ -164,7 +164,7 @@ impl TranspositionTable {
     pub fn hash_full(&self) -> usize {
         self.segments.0.iter().take(1024 / SLOTS_PER_SEGMENT)
             .flat_map(|entries| entries.iter())
-            .filter(|entry| entry.load(Ordering::Relaxed) != 0)
+            .filter(|entry| entry.load(Ordering::Relaxed) != u64::MAX)
             .count() * 1000 / 1024
     }
 }
