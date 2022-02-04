@@ -102,7 +102,7 @@ impl TranspositionTable {
         for slot in segment.iter() {
             let existing_entry = slot.load(Ordering::Relaxed) ^ hash;
             if existing_entry & HASHCHECK_MASK == 0 {
-                slot.store(u64::MAX, Ordering::Relaxed);
+                slot.store(0, Ordering::Relaxed);
             }
         }
 
@@ -137,7 +137,7 @@ impl TranspositionTable {
 
         for segment in self.segments.0.chunks(chunk_size).skip(thread_no).take(1).last().unwrap().iter() {
             for entry in segment.iter() {
-                entry.store(u64::MAX, Ordering::Relaxed);
+                entry.store(0, Ordering::Relaxed);
             }
         }
     }
@@ -162,7 +162,7 @@ impl TranspositionTable {
     pub fn hash_full(&self) -> usize {
         self.segments.0.iter().take(1024 / SLOTS_PER_SEGMENT)
             .flat_map(|entries| entries.iter())
-            .filter(|entry| entry.load(Ordering::Relaxed) != u64::MAX)
+            .filter(|entry| entry.load(Ordering::Relaxed) != 0)
             .count() * 1000 / 1024
     }
 }

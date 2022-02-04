@@ -452,6 +452,7 @@ mod tests {
         let mut bitwriter = BitWriter::new();
 
         writer.write_u32::<LittleEndian>(values.len() as u32).expect("Could not write size");
+        writer.write_i16::<LittleEndian>(2000).expect("Could not zero-rep marker");
         codebook.write(&mut writer).expect("Could not write codebook");
         for &value in values.iter() {
             bitwriter.write(&mut writer, codebook.get_code(value)).expect("Could not write code");
