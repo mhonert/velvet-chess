@@ -1,6 +1,8 @@
 
 This release improves the neural network based evaluation
 
+Estimated strength increase: ~ 130 Elo
+
 ## Changes
 - Neural network trainer
   - fixed a bug which prevented successful training of networks with bigger hidden layers
