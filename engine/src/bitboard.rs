@@ -34,8 +34,8 @@ impl Iterator for BitBoard {
     }
 }
 
-/// Mirrors the given bitboard position index along the horizontal axis
-pub fn mirror_pos(pos: usize) -> usize {
+/// Mirrors the given bitboard position index vertically
+pub fn v_mirror(pos: usize) -> usize {
     pos ^ 56
 }
 

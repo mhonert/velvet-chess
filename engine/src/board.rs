@@ -21,7 +21,7 @@ use std::cmp::max;
 use crate::bitboard::{BitBoard, black_left_pawn_attacks, black_right_pawn_attacks, DARK_COLORED_FIELD_PATTERN, get_black_pawn_freepath, get_king_attacks, get_knight_attacks, get_pawn_attacks, get_white_pawn_freepath, LIGHT_COLORED_FIELD_PATTERN, white_left_pawn_attacks, white_right_pawn_attacks};
 use crate::colors::{BLACK, Color, WHITE};
 use crate::moves::{Move, MoveType};
-use crate::nn_eval::NeuralNetEval;
+use crate::nn::eval::NeuralNetEval;
 use crate::pieces::{B, EMPTY, get_piece_value, K, N, P, Q, R};
 use crate::pos_history::PositionHistory;
 use crate::transposition_table::MAX_DEPTH;
@@ -152,7 +152,7 @@ impl Board {
         }
 
         self.recalculate_hash();
-        self.nn_eval.init_pos(self.active_player(), &self.bitboards);
+        self.nn_eval.init_pos(&self.bitboards);
     }
 
     pub fn set_position(&mut self, items: &[i8], active_player: Color, castling_state: u8, enpassant_target: Option<i8>, halfmove_clock: u8, fullmove_num: u16) {
@@ -304,6 +304,7 @@ impl Board {
     }
 
     pub fn perform_move(&mut self, m: Move) -> (i8, i8) {
+        self.nn_eval.start_move();
         self.pos_history.push(self.state.hash);
         self.store_state();
         self.increase_half_move_count();
@@ -314,8 +315,6 @@ impl Board {
 
         let own_piece = self.remove_piece(move_start);
         let color = own_piece.signum();
-
-        self.nn_eval.set_stm(self.active_player());
 
         self.clear_en_passant();
 
@@ -329,11 +328,13 @@ impl Board {
             if target_piece_id == K {
                 self.set_king_pos(color, move_end);
                 self.set_king_moved(color);
+
             }
 
             if removed_piece.abs() >= R || m.is_promotion() {
-                self.nn_eval.check_refresh(self.active_player(), &self.bitboards);
+                self.nn_eval.check_refresh();
             }
+
             return (own_piece, removed_piece.abs());
         }
 
@@ -372,7 +373,7 @@ impl Board {
                 }
 
                 if target_piece_id >= R { // Rook or Queen Promotion
-                    self.nn_eval.check_refresh(self.active_player(), &self.bitboards);
+                    self.nn_eval.check_refresh();
                 }
             }
 
@@ -422,7 +423,6 @@ impl Board {
         self.increase_half_move_count();
         self.state.history_start = 0;
         self.clear_en_passant();
-        self.nn_eval.set_stm(self.active_player());
     }
 
     fn reset_half_move_clock(&mut self) {
@@ -451,6 +451,7 @@ impl Board {
     }
 
     pub fn undo_move(&mut self, m: Move, piece: i8, removed_piece_id: i8) {
+        self.nn_eval.start_undo();
         self.pos_history.pop();
 
         let move_start = m.start();
@@ -498,17 +499,15 @@ impl Board {
 
         self.halfmove_count -= 1;
         self.restore_state();
-        self.nn_eval.set_stm(self.active_player());
 
         if removed_piece_id >= R || m.is_promotion() {
-            self.nn_eval.check_refresh(self.active_player(), &self.bitboards);
+            self.nn_eval.check_refresh();
         }
     }
 
     pub fn undo_null_move(&mut self) {
         self.halfmove_count -= 1;
         self.restore_state();
-        self.nn_eval.set_stm(self.active_player());
     }
 
     fn add_piece_without_inc_update(&mut self, color: Color, piece: i8, pos: i32) {
@@ -939,11 +938,11 @@ impl Board {
     }
 
     pub fn reset_nn_eval(&mut self) {
-        self.nn_eval.init_pos(self.active_player(), &self.bitboards);
+        self.nn_eval.check_refresh();
     }
 
     pub fn eval(&mut self) -> i32 {
-        self.nn_eval.eval(self.halfmove_clock())
+        self.nn_eval.eval(self.active_player(), self.halfmove_clock(), &self.bitboards)
     }
 
 }

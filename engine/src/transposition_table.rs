@@ -19,6 +19,7 @@ use std::intrinsics::transmute;
 use std::sync::Arc;
 use crate::scores::{MATED_SCORE, MATE_SCORE};
 use std::sync::atomic::{AtomicU64, Ordering};
+use crate::align::A64;
 
 pub const MAX_HASH_SIZE_MB: i32 = 256 * 1024;
 
@@ -61,9 +62,6 @@ pub struct TranspositionTable {
     index_mask: u64,
     segments: A64<Vec<[AtomicU64; SLOTS_PER_SEGMENT]>>,
 }
-
-#[repr(align(64))]
-struct A64<T>(T); // Wrapper to ensure 64 Byte alignment
 
 impl TranspositionTable {
     pub fn new(size_mb: u64) -> Arc<Self> {

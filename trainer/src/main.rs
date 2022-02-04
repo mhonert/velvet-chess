@@ -24,31 +24,37 @@ use tch::{nn, nn::OptimizerConfig, Device, Tensor, Reduction, Kind};
 use std::fs::File;
 use std::io::{BufReader, BufRead, BufWriter, Error, Write, ErrorKind, stdout};
 use std::str::FromStr;
-use itertools::Itertools;
+use itertools::{Itertools};
 use velvet::fen::{parse_fen, FenParseResult};
-use std::time::{Instant, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 use tch::nn::{ModuleT, Optimizer, VarStore, SequentialT};
 use byteorder::{WriteBytesExt, LittleEndian, ReadBytesExt};
 use std::env;
-use std::sync::mpsc::SyncSender;
+use std::sync::mpsc::{SyncSender};
 use std::thread;
-use std::sync::mpsc;
+use std::sync::{Arc, mpsc};
 use rand::prelude::SliceRandom;
 use lz4_flex::frame::FrameEncoder;
-use velvet::bitboard::{BitBoard, mirror_pos};
+use velvet::bitboard::{BitBoard, v_mirror};
 use rand::SeedableRng;
-use velvet::nn_eval::{INPUTS, HL_INPUTS, HL_COUNT};
+pub use velvet::nn::{INPUTS};
 use std::cmp::{min, max};
+use std::collections::{HashSet};
+use std::collections::hash_map::DefaultHasher;
+use std::hash::Hasher;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
+use velvet::nn::HL_NODES;
+use velvet::nn::io::{BitWriter, CodeBook};
 use crate::lr_scheduler::LrScheduler;
 
 const FEATURES_PER_BUCKET: i64 = 64 * 6 * 2;
 
-const INPUT_FEATURES: i64 = FEATURES_PER_BUCKET * 4;
+const INPUT_FEATURES: i64 = FEATURES_PER_BUCKET * 5;
 
 const DATA_WRITER_THREADS: usize = 4;
 
-const TEST_SETS: usize = 4;
+const TEST_SETS: usize = 3;
 
 const BATCH_SIZE: i64 = 50000;
 
@@ -78,12 +84,9 @@ impl Mode for EvalNet {
 
     fn net(&self, vs: &nn::Path) -> SequentialT {
         nn::seq_t()
-            .add(nn::linear(vs / "input", INPUT_FEATURES, 64, Default::default()))
-            .add(nn::linear(vs / "hidden1", 64, 64, Default::default()))
+            .add(nn::linear(vs / "input", INPUT_FEATURES, HL_NODES as i64, Default::default()))
             .add_fn(|xs| xs.relu())
-            .add(nn::linear(vs / "hidden2", 64, 16, Default::default()))
-            .add_fn(|xs| xs.relu())
-            .add(nn::linear(vs / "output", 16, 1, Default::default()))
+            .add(nn::linear(vs / "output", HL_NODES as i64, 1, Default::default()))
     }
 
     fn save_raw(&self, id: &str, vs: &nn::VarStore) {
@@ -94,7 +97,7 @@ impl Mode for EvalNet {
 
         writer.write_i8('V' as i8).unwrap();
 
-        let hidden_layers = 2;
+        let hidden_layers = 0;
         writer.write_i8(hidden_layers).unwrap(); // Number of hidden layers
 
         write_layer(&mut writer, vars.get("input.weight").unwrap(), vars.get("input.bias").unwrap(), 1.0).expect("Could not write layer");
@@ -115,11 +118,9 @@ impl Mode for EvalNet {
         let file = File::open(in_file).unwrap_or_else(|_| panic!("Could not open NN file: {}", in_file));
         let mut reader = BufReader::new(file);
 
-        read_header(&mut reader, HL_COUNT as usize).expect("could not read NN header data");
+        read_header(&mut reader, 0).expect("could not read NN header data");
 
         let input = read_layer(&mut reader).expect("could not read NN input layer");
-        let hidden1 = read_layer(&mut reader).expect("could not read NN hidden layer 1");
-        let hidden2 = read_layer(&mut reader).expect("could not read NN hidden layer 2");
         let output = read_layer(&mut reader).expect("could not read NN output layer");
 
         // Regroup input weights for faster incremental updates
@@ -137,7 +138,7 @@ impl Mode for EvalNet {
         let mut max_sum = f32::MIN;
         let mut min_sum = f32::MAX;
 
-        for c in input.weights.chunks(768 * HL_INPUTS).into_iter() {
+        for c in input.weights.chunks(768 * HL_NODES).into_iter() {
             let mut weights = c.to_vec();
             weights.sort_by_key(|w| -(w * 1000.0) as i32);
             let w_max_sum = weights.iter().take(32).sum::<f32>();
@@ -172,15 +173,12 @@ impl Mode for EvalNet {
 
         writer.write_i8(precision_bits as i8).unwrap();
 
+        print!("Input weights: ");
         write_quantized(&mut writer, fp_one, input_weights).expect("Could not write quantized input weights");
+        print!("Input biases: ");
         write_quantized(&mut writer, fp_one, input.biases).expect("Could not write quantized input biases");
 
-        write_quantized(&mut writer, fp_one, hidden1.weights).expect("Could not write quantized hidden1 layer weights");
-        write_quantized(&mut writer, fp_one, hidden1.biases).expect("Could not write quantized hidden1 layer biases");
-
-        write_quantized(&mut writer, fp_one, hidden2.weights).expect("Could not write quantized hidden2 layer weights");
-        write_quantized(&mut writer, fp_one, hidden2.biases).expect("Could not write quantized hidden2 layer biases");
-
+        print!("Output weights: ");
         write_quantized(&mut writer, fp_one, output.weights).expect("Could not write quantized output layer weights");
 
         writer.write_i16::<LittleEndian>((output.biases[0] * fp_one as f32) as i16).expect("Could not write quantized output bias");
@@ -268,12 +266,12 @@ pub fn main() {
     mode.print_info();
 
     println!("Scanning available training sets ...");
-    let max_training_set_id = convert_sets("training", FEN_TRAINING_SET_PATH, LZ4_TRAINING_SET_PATH, MIN_TRAINING_SET_ID);
+    let max_training_set_id = convert_sets("training", FEN_TRAINING_SET_PATH, LZ4_TRAINING_SET_PATH, MIN_TRAINING_SET_ID, true);
     let training_set_count = (max_training_set_id - MIN_TRAINING_SET_ID) + 1;
     println!("Using {} training sets with a total of {} positions", training_set_count, training_set_count * POS_PER_SET);
 
     println!("Scanning available test sets ...");
-    let max_test_set_id = convert_sets("test", FEN_TEST_SET_PATH, LZ4_TEST_SET_PATH, 1);
+    let max_test_set_id = convert_sets("test", FEN_TEST_SET_PATH, LZ4_TEST_SET_PATH, 1, false);
 
     let device = Device::cuda_if_available();
     let vs = nn::VarStore::new(device);
@@ -289,8 +287,10 @@ pub fn main() {
 
     test_ys = test_ys.multiply_scalar(2048.0 * K_DIV).sigmoid();
 
-    let (tx, rx) = mpsc::sync_channel::<(usize, Tensor, Tensor)>(18);
-    spawn_data_reader_threads(data_reader_threads, max_training_set_id, device, &tx);
+    let stop_readers = Arc::new(AtomicBool::default());
+
+    let (tx, rx) = mpsc::sync_channel::<(usize, Tensor, Tensor)>(data_reader_threads * 2);
+    spawn_data_reader_threads(data_reader_threads, max_training_set_id, device, &tx, &stop_readers);
 
     let net = mode.net(&vs.root());
 
@@ -384,7 +384,7 @@ pub fn main() {
             println!("- Epoch finished: {:.2} samples/s", samples_per_sec);
 
             if epoch > max_epochs {
-                if (epoch - last_improved_epoch) > 3 {
+                if (epoch - last_improved_epoch) > 2 {
                     break;
                 }
 
@@ -396,9 +396,15 @@ pub fn main() {
             epoch_changed = false;
             epoch_sample_count = 0;
             epoch_start = Instant::now();
-
         }
     }
+
+    println!("- Stopping reader threads ...");
+    stop_readers.store(true, Ordering::Release);
+    thread::sleep(Duration::from_millis(50));
+    while !matches!(rx.try_recv(), Err(_)) {
+        thread::sleep(Duration::from_millis(10));
+    };
 
     println!("- Training finished in {:.1} minutes", Instant::now().duration_since(start_time).as_secs() as f64 / 60.0);
     mode.save_quantized(net_id);
@@ -454,7 +460,7 @@ fn to_dense_tensors(samples: &[DataSample], device: Device) -> (Tensor, Tensor) 
     (xs, Tensor::of_slice(&ys).view((samples.len() as i64, 1)).to_device_(device, Kind::Float, false, true))
 }
 
-fn convert_sets(caption: &str, in_path: &str, out_path: &str, min_id: usize) -> usize {
+fn convert_sets(caption: &str, in_path: &str, out_path: &str, min_id: usize, use_game_result: bool) -> usize {
     let mut max_set_id = 0;
     let mut min_unconverted_id = 25000;
     for id in min_id..25000 {
@@ -471,13 +477,13 @@ fn convert_sets(caption: &str, in_path: &str, out_path: &str, min_id: usize) -> 
 
     if min_unconverted_id < max_set_id {
         println!("Converting {} added {} sets ...", (max_set_id - min_unconverted_id + 1), caption);
-        convert_test_pos(in_path.to_string(), out_path.to_string(), min_unconverted_id, max_set_id).expect("Could not convert test positions!");
+        convert_test_pos(in_path.to_string(), out_path.to_string(), min_unconverted_id, max_set_id, use_game_result).expect("Could not convert test positions!");
     }
 
     max_set_id
 }
 
-fn convert_test_pos(in_path: String, out_path: String, min_unconverted_id: usize, max_training_set_id: usize) -> Result<(), Error> {
+fn convert_test_pos(in_path: String, out_path: String, min_unconverted_id: usize, max_training_set_id: usize, use_game_result: bool) -> Result<(), Error> {
     let mut threads = Vec::new();
     for c in 1..=DATA_WRITER_THREADS {
         let in_path2 = in_path.clone();
@@ -491,7 +497,7 @@ fn convert_test_pos(in_path: String, out_path: String, min_unconverted_id: usize
                 let encoder = lz4_flex::frame::FrameEncoder::new(file);
                 let mut writer = BufWriter::with_capacity(1024 * 1024, encoder);
 
-                let ys = read_from_fen_file(format!("{}/test_pos_{}.fen", in_path2, i).as_str(), &mut writer);
+                let ys = read_from_fen_file(format!("{}/test_pos_{}.fen", in_path2, i).as_str(), &mut writer, use_game_result);
                 writer.write_u16::<LittleEndian>(u16::MAX).unwrap();
 
                 for y in ys {
@@ -534,22 +540,26 @@ fn read_from_tensor_file(samples: &mut Vec<DataSample>, file_name: &str) {
         let white_king = kings & 0b111111;
         let black_king = kings >> 8;
 
-        let queens = if (bb_map & (1 << 5)) == 0 && (bb_map & (1 << 10)) == 0 { 0 } else { 0b10 };
-        let rooks = if (bb_map & (1 << 4)) == 0 && (bb_map & (1 << 9)) == 0 { 0 } else { 0b01 };
+        let bucket = if (bb_map & (1 << 4)) == 0 && (bb_map & (1 << 9)) == 0 {
+            let own_rooks = if (bb_map & (1 << 3)) == 0 { 0b00 } else { 0b10 };
+            let opp_rooks = if (bb_map & (1 << 8)) == 0 { 0b00 } else { 0b01 };
 
-        let bucket = queens | rooks;
+            own_rooks | opp_rooks
+        } else {
+            4
+        };
 
-        let offset = FEATURES_PER_BUCKET * bucket;
+        let offset = FEATURES_PER_BUCKET * bucket as i64;
 
         for i in 1i8..=5i8 {
-            if bb_map & (1 << i) != 0 {
+            if bb_map & (1 << (i - 1)) != 0 {
                 let bb = reader.read_u64::<LittleEndian>().unwrap();
                 for pos in BitBoard(bb) {
                     xs.push(offset + (i as i64 - 1) * 2 * 64 + pos as i64);
                 }
             }
 
-            if bb_map & (1 << (i as usize + 5)) != 0 {
+            if bb_map & (1 << (i as usize + 4)) != 0 {
                 let bb = reader.read_u64::<LittleEndian>().unwrap();
                 for pos in BitBoard(bb) {
                     xs.push(offset + (i as i64 - 1) * 2 * 64 + 64 + pos as i64);
@@ -576,8 +586,8 @@ fn read_from_tensor_file(samples: &mut Vec<DataSample>, file_name: &str) {
 fn write_layer(writer: &mut BufWriter<File>, weights: &Tensor, biases: &Tensor, scale: f32) -> Result<(), Error> {
     let size = weights.size();
 
-    writer.write_i16::<LittleEndian>(size[0] as i16)?;
-    writer.write_i16::<LittleEndian>(size[1] as i16)?;
+    writer.write_i32::<LittleEndian>(size[0] as i32)?;
+    writer.write_i32::<LittleEndian>(size[1] as i32)?;
 
     let ws: Vec<f32> = weights.into();
     for &weight in ws.iter() {
@@ -592,9 +602,10 @@ fn write_layer(writer: &mut BufWriter<File>, weights: &Tensor, biases: &Tensor, 
     Ok(())
 }
 
-fn spawn_data_reader_threads(threads: usize, max_training_set_id: usize, device: Device, tx: &SyncSender<(usize, Tensor, Tensor)>) {
+fn spawn_data_reader_threads(threads: usize, max_training_set_id: usize, device: Device, tx: &SyncSender<(usize, Tensor, Tensor)>, is_stopped: &Arc<AtomicBool>) {
     for start in MIN_TRAINING_SET_ID..(threads + MIN_TRAINING_SET_ID) {
         let tx2 = tx.clone();
+        let is_stopped = is_stopped.clone();
         thread::spawn(move || {
             let mut epoch = 1;
 
@@ -624,6 +635,9 @@ fn spawn_data_reader_threads(threads: usize, max_training_set_id: usize, device:
 
                         let (xs, ys) = to_sparse_tensors(batch, device);
                         tx2.send((epoch, xs, ys)).expect("Could not send training batch");
+                        if is_stopped.load(Ordering::Acquire) {
+                            return;
+                        }
                     }
                 }
                 epoch += 1;
@@ -632,7 +646,9 @@ fn spawn_data_reader_threads(threads: usize, max_training_set_id: usize, device:
     }
 }
 
-fn read_from_fen_file(file_name: &str, writer: &mut BufWriter<FrameEncoder<File>>) -> Vec<f32> {
+
+fn read_from_fen_file(file_name: &str, writer: &mut BufWriter<FrameEncoder<File>>, use_game_result: bool) -> Vec<f32> {
+
     let file = File::open(file_name).expect("Could not open test position file");
     let mut reader = BufReader::new(file);
 
@@ -650,20 +666,45 @@ fn read_from_fen_file(file_name: &str, writer: &mut BufWriter<FrameEncoder<File>
         };
 
         let parts = line.trim_end().split(' ').collect_vec();
-        if parts.len() < 7 {
-            panic!("Invalid test position entry: {}", line);
-        }
 
-        let fen: String = (parts[0..=5].join(" ") as String).replace("~", "");
+        let mut result = if parts.len() == 10 {
+            const SCORE_IDX: usize = 6;
+            let score = i32::from_str(parts[SCORE_IDX]).expect("Could not parse score");
 
-        let score_part = if parts.len() == 7 {
-            parts[parts.len() - 2]
+            if !use_game_result {
+                score as f32 / 2048.0
+            } else {
+                const SCORE_PLY_IDX: usize = 7;
+                let score_ply = i32::from_str(parts[SCORE_PLY_IDX]).expect("Could not parse score ply");
+
+                const RESULT_IDX: usize = 8;
+                let game_result = i32::from_str(parts[RESULT_IDX]).expect("Could not parse game result");
+                const RESULT_PLY_IDX: usize = 9;
+                let game_result_ply = i32::from_str(parts[RESULT_PLY_IDX]).expect("Could not parse game result ply");
+
+                let p1 = (score * (game_result_ply - score_ply)) / game_result_ply;
+
+                if game_result != 0 {
+                    let p2 = (game_result * 4000 * score_ply) / game_result_ply + game_result * 60;
+
+                    p2 as f32 / 2048.0
+                } else {
+                    let p2 = (-100 * (game_result_ply - score_ply)) / game_result_ply;
+
+                    (p1 + p2) as f32 / (2048.0 * 2.0)
+                }
+            }
+
+        } else if parts.len() == 8 {
+            const SCORE_IDX: usize = 7;
+            let score = i32::from_str(parts[SCORE_IDX]).expect("Could not parse score");
+            score as f32 / 2048.0
+
         } else {
-            parts[parts.len() - 1]
+            panic!("Invalid test position entry: {}", line);
         };
 
-        let score = i32::from_str(score_part).expect("Could not parse result");
-        let mut result = score as f32 / 2048.0;
+        let fen: String = (parts[0..=5].join(" ") as String).replace("~", "");
 
         let (mut pieces, active_player) = match parse_fen(fen.as_str()) {
             Ok(FenParseResult{pieces, active_player, ..}) => (pieces, active_player),
@@ -698,10 +739,10 @@ fn read_from_fen_file(file_name: &str, writer: &mut BufWriter<FrameEncoder<File>
         let mut bb_map = 0;
         for i in 1i8..=5i8 {
             if bb[(i + 6) as usize] != 0 {
-                bb_map |= 1 << i;
+                bb_map |= 1 << (i - 1);
             }
             if bb[(-i + 6) as usize] != 0 {
-                bb_map |= 1 << (i + 5);
+                bb_map |= 1 << (i + 4);
             }
         }
 
@@ -727,8 +768,8 @@ fn read_from_fen_file(file_name: &str, writer: &mut BufWriter<FrameEncoder<File>
 fn mirror(pieces: &mut Vec<i8>) {
     for i in 0..32 {
         let tmp = -pieces[i];
-        pieces[i] = -pieces[mirror_pos(i)];
-        pieces[mirror_pos(i)] = tmp;
+        pieces[i] = -pieces[v_mirror(i)];
+        pieces[v_mirror(i)] = tmp;
     }
 }
 
@@ -753,8 +794,8 @@ fn read_header(reader: &mut BufReader<File>, expected_hl_count: usize) -> Result
 }
 
 fn read_layer(reader: &mut BufReader<File>) -> Result<Layer, Error> {
-    let out_count = reader.read_i16::<LittleEndian>()? as usize;
-    let in_count = reader.read_i16::<LittleEndian>()? as usize;
+    let out_count = reader.read_i32::<LittleEndian>()? as usize;
+    let in_count = reader.read_i32::<LittleEndian>()? as usize;
 
     let mut weights = Vec::with_capacity(out_count * in_count);
 
@@ -773,13 +814,66 @@ fn read_layer(reader: &mut BufReader<File>) -> Result<Layer, Error> {
     Ok(Layer{weights, biases})
 }
 
+fn write_quantized(writer: &mut dyn Write, fp_one: i16, values: Vec<f32>) -> Result<(), Error> {
+    writer.write_u32::<LittleEndian>(values.len() as u32)?;
 
-fn write_quantized(writer: &mut BufWriter<File>, fp_one: i16, values: Vec<f32>) -> Result<(), Error> {
-    writer.write_i32::<LittleEndian>(values.len() as i32)?;
-    for &v in values.iter() {
-        writer.write_i16::<LittleEndian>((v * fp_one as f32) as i16)?;
+    let values = values.iter().map(|v| (v * fp_one as f32) as i16).collect_vec();
+
+    let mut unused_values = HashSet::<i16>::from_iter(i16::MIN..=i16::MAX);
+    for v in values.iter() {
+        unused_values.remove(v);
     }
+
+    let rep_zero_marker = unused_values.iter().copied().next().expect("No free value as marker available!");
+    writer.write_i16::<LittleEndian>(rep_zero_marker)?;
+
+    let mut outputs = Vec::with_capacity(values.len());
+    let mut index = 0;
+    let mut checksum = DefaultHasher::default();
+    values.iter().for_each(|v| checksum.write_i16(*v));
+    println!("{:016x}", checksum.finish());
+
+    let mut total_repetitions = 0;
+    while index < values.len() {
+        let value = values[index];
+        if let Some(repetitions) = find_zero_repetitions(value, &values[index..]) {
+            total_repetitions += repetitions as usize;
+            index += repetitions as usize;
+            outputs.push(rep_zero_marker);
+            outputs.push((repetitions as i32 - 32768) as i16);
+            continue;
+        }
+
+        outputs.push(value);
+        index += 1;
+    }
+    println!("Total repetitions: {}", total_repetitions);
+
+
+    let codes = CodeBook::from_values(&outputs);
+    codes.write(writer)?;
+
+    let mut bit_writer = BitWriter::new();
+    for v in outputs.iter() {
+        let code = codes.get_code(*v);
+        bit_writer.write(writer, code)?;
+    }
+
+    bit_writer.flush(writer)?;
 
     Ok(())
 }
 
+fn find_zero_repetitions(curr_value: i16, values: &[i16]) -> Option<u16> {
+    if curr_value != 0 {
+        return None;
+    }
+
+    let reps = values.iter().take(65535).take_while(|&v| *v == 0).count() as u16;
+
+    if reps > 2 {
+        Some(reps)
+    } else {
+        None
+    }
+}

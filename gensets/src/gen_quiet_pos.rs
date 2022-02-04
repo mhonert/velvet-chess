@@ -16,7 +16,11 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use velvet::moves::{Move};
+use std::collections::HashSet;
+use std::sync::mpsc::Receiver;
+use velvet::engine::Message;
+use velvet::fen::write_fen;
+use velvet::moves::{Move, NO_MOVE};
 use velvet::pieces::{B, N, P, Q, R};
 use velvet::search::{Search};
 
@@ -24,22 +28,23 @@ use velvet::search::{Search};
 pub trait GenQuietPos {
     fn is_quiet_pv(&mut self, pv: &[Move], base_mat_score: i32) -> bool;
     fn material_score(&self) -> i32;
+    fn piece_count(&self) -> i32;
+    fn eval_pv_end_pos(&mut self, rx: Option<&Receiver<Message>>, duplicate_check: &mut HashSet<u64>, pv: &[Move], ply: u16) -> Option<(String, u16, i32)>;
 }
 
 impl GenQuietPos for Search {
-    fn is_quiet_pv(&mut self, pv: &[Move], base_mat_score: i32) -> bool {
+    fn is_quiet_pv(&mut self, pv: &[Move], base_piece_count: i32) -> bool {
         if let Some((m, rest_pv)) = pv.split_first() {
             let (previous_piece, move_state) = self.board.perform_move(*m);
-            let is_quiet = self.is_quiet_pv(rest_pv, base_mat_score);
+            let is_quiet = move_state == 0 && m.is_quiet() && !self.board.is_in_check(self.board.active_player()) && self.is_quiet_pv(rest_pv, base_piece_count);
             self.board.undo_move(*m, previous_piece, move_state);
 
             is_quiet
 
         } else {
-            self.material_score() == base_mat_score
+            self.piece_count() == base_piece_count
         }
     }
-
 
     fn material_score(&self) -> i32 {
         (self.board.get_bitboard(P).count_ones() as i32 - self.board.get_bitboard(-P).count_ones() as i32) * 100 +
@@ -49,4 +54,51 @@ impl GenQuietPos for Search {
             (self.board.get_bitboard(Q).count_ones() as i32 - self.board.get_bitboard(-Q).count_ones() as i32) * 990
     }
 
+    fn piece_count(&self) -> i32 {
+        self.board.get_occupancy_bitboard().count_ones() as i32
+    }
+
+    fn eval_pv_end_pos(&mut self, rx: Option<&Receiver<Message>>, duplicate_check: &mut HashSet<u64>, pv: &[Move], ply: u16) -> Option<(String, u16, i32)> {
+        if let Some((m, rest_pv)) = pv.split_first() {
+            let (previous_piece, move_state) = self.board.perform_move(*m);
+            let result = self.eval_pv_end_pos(rx, duplicate_check, rest_pv, ply + 1);
+            self.board.undo_move(*m, previous_piece, move_state);
+
+            return result;
+        }
+
+        let hash = self.board.get_hash();
+        if duplicate_check.contains(&hash) {
+            return None;
+        }
+
+        duplicate_check.insert(hash);
+
+        if self.board.is_in_check(self.board.active_player()) {
+            return None;
+        }
+
+        self.set_node_limit(500);
+        let (best_move, pv) = self.find_best_move(rx, 4, &[]);
+        if best_move == NO_MOVE {
+            return None;
+        }
+
+        if pv.moves().len() >= 2 && !self.is_quiet_pv(&pv.moves()[..2], self.piece_count()) {
+            return None;
+        }
+
+        self.set_node_limit(30000);
+        let (best_move, pv) = self.find_best_move(rx, 8, &[]);
+        if pv.moves().len() >= 4 && !self.is_quiet_pv(&pv.moves()[..4], self.piece_count()) {
+            return None;
+        }
+
+        let score = best_move.score() * self.board.active_player() as i32;
+        if score.abs() > 3000 {
+            return None;
+        }
+
+        Some((write_fen(&self.board), ply, score))
+    }
 }

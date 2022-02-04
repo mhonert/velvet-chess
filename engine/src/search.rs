@@ -19,7 +19,7 @@
 use crate::colors::{Color, WHITE, BLACK};
 use crate::engine::{LogLevel, Message};
 use crate::pieces::{EMPTY, R, P};
-use crate::scores::{MATE_SCORE, MIN_SCORE, MATED_SCORE, MAX_SCORE};
+use crate::scores::{MATE_SCORE, MIN_SCORE, MATED_SCORE, MAX_SCORE, sanitize_score};
 use crate::transposition_table::{get_depth, get_score_type, get_untyped_move, MAX_DEPTH, ScoreType, to_root_relative_score, from_root_relative_score, TranspositionTable};
 use crate::uci_move::UCIMove;
 use std::cmp::{max, min};
@@ -161,6 +161,8 @@ impl Search {
         self.reset();
         self.time_mgr.reset(self.limits.time_limit_ms, self.limits.strict_time_limit);
 
+        self.last_log_time = Instant::now();
+
         self.cancel_possible = false;
         self.node_count.store(0, Ordering::Relaxed);
 
@@ -285,14 +287,14 @@ impl Search {
 
             let best_score = best_move.score();
             if best_score <= alpha {
-                alpha = max(MIN_SCORE, alpha - step);
+                alpha = max(MIN_SCORE, alpha.saturating_sub(step));
             } else if best_score >= beta {
-                beta = min(MAX_SCORE, beta + step);
+                beta = min(MAX_SCORE, beta.saturating_add(step));
             } else {
                 return (move_num, best_move, current_pv, step);
             }
 
-            step *= 2;
+            step = min(MATE_SCORE / 2, step.saturating_mul(2));
         }
     }
 
@@ -470,7 +472,7 @@ impl Search {
                 hash_move = self.movegen.sanitize_move(&self.board, active_player, get_untyped_move(tt_entry));
 
                 if hash_move != NO_MOVE {
-                    hash_score = to_root_relative_score(ply, hash_move.score());
+                    hash_score = to_root_relative_score(ply, sanitize_score(hash_move.score()));
                     let tt_depth = get_depth(tt_entry);
                     match get_score_type(tt_entry) {
                         ScoreType::Exact => {
@@ -773,10 +775,6 @@ impl Search {
     }
 
     pub fn quiescence_search(&mut self, rx: Option<&Receiver<Message>>, active_player: Color, mut alpha: i32, beta: i32, ply: i32, pos_score: Option<i32>, pv: &mut PrincipalVariation) -> i32 {
-        if let Some(rx) = rx {
-            self.check_search_limits(rx)
-        }
-
         if self.is_stopped() {
             return CANCEL_SEARCH;
         }
@@ -1108,6 +1106,10 @@ impl PrincipalVariation {
 
     pub fn add(&mut self, best_move: Move) {
         self.0.push(best_move);
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
     }
 }
 
@@ -1442,5 +1444,4 @@ mod tests {
             assert_eq!(log2(i), (i as f32).log2() as i32)
         }
     }
-
 }

@@ -1,8 +1,16 @@
 
-This patch release contains fixes to improve scalability for high thread counts
+This release improves the neural network based evaluation
 
 ## Changes
- - Update global node count in bulk
+- Neural network trainer
+  - fixed a bug which prevented successful training of networks with bigger hidden layers
+  - added data compression support for trained network files
+  
+- Neural network evaluation
+  - increased hidden layer size from 64 to 256
+  - implemented some optimizations:
+      - defer updates and calculations until *eval* is called
+      - remove additional hidden layers
 
 ## Installation
 The chess engine is available for Windows and Linux and requires a 64 Bit CPU.

@@ -915,9 +915,9 @@ dependencies = [
 
 [[package]]
 name = "shakmaty"
-version = "0.19.0"
+version = "0.20.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5d2f76c665c10e915a3371689a668796f9fe1f93b47a6dd1955e0ebe91477f51"
+checksum = "376e74d5792319700064103f88da8064ae9dd0369f3d9ef9decb2a788fcedff5"
 dependencies = [
  "arrayvec",
  "bitflags",
@@ -926,16 +926,14 @@ dependencies = [
 
 [[package]]
 name = "shakmaty-syzygy"
-version = "0.16.1"
+version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "843936b87a002da1b1ede40340064b31505ade6d848b735ccd43c9c7ca251948"
+checksum = "8721c3ffc42a133d4ae2d50a108009b76030ce224bfef8552b4d7f20cacc86eb"
 dependencies = [
  "arrayvec",
  "bitflags",
  "byteorder",
  "itertools",
- "lazy_static",
- "num-integer",
  "once_cell",
  "positioned-io-preview",
  "rustc-hash",
@@ -1105,9 +1103,10 @@ checksum = "f1bddf1187be692e79c5ffeab891132dfb0f236ed36a43c7ed39f1165ee20191"
 
 [[package]]
 name = "velvet"
-version = "3.1.3"
+version = "4.0.0"
 dependencies = [
  "byteorder",
+ "itertools",
 ]
 
 [[package]]

@@ -28,7 +28,7 @@ use crate::{POS_PER_SET, BATCH_SIZE, K_DIV};
 
 // find_lr performs a short training run with decreasing learning rates (lr) and plots a diagram for the lr and the calculated loss
 // This diagram can then be used to (visually) determine an appropriate initial learning rate.
-pub fn find_lr(test_xs: &Tensor, test_ys: &Tensor, rx: &Receiver<(usize, Tensor, Tensor)>, net: &impl ModuleT, opt: &mut Optimizer<nn::AdamW>) {
+pub fn find_lr(test_xs: &Tensor, test_ys: &Tensor, rx: &Receiver<(usize, Tensor, Tensor)>, net: &impl ModuleT, opt: &mut Optimizer) {
     let mut lr = 0.0001;
 
     let beta = 0.98;

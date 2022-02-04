@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2020 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2021 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -16,26 +16,10 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub mod bitboard;
-pub mod board;
-pub mod colors;
-pub mod engine;
-pub mod fen;
-pub mod history_heuristics;
-pub mod magics;
-pub mod move_gen;
-pub mod moves;
-pub mod nn;
-pub mod perft;
-pub mod pieces;
-pub mod random;
-pub mod scores;
-pub mod search;
-pub mod transposition_table;
-pub mod uci;
-pub mod uci_move;
+#[derive(Clone)]
+#[repr(align(32))]
+pub struct A32<T>(pub T); // Wrapper to ensure 32 Byte alignment of the wrapped type (e.g. for SIMD load/store instructions)
 
-mod align;
-mod pos_history;
-mod time_management;
-mod zobrist;
+#[derive(Clone)]
+#[repr(align(64))]
+pub struct A64<T>(pub T); // Wrapper to ensure 64 Byte alignment (e.g. for cache line alignment)

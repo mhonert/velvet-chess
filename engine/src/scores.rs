@@ -16,8 +16,22 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+use crate::transposition_table::MAX_DEPTH;
+
 pub const MIN_SCORE: i32 = -8191;
 pub const MAX_SCORE: i32 = 8191;
 
 pub const MATED_SCORE: i32 = -8000;
 pub const MATE_SCORE: i32 = 8000;
+
+pub fn is_mate_score(score: i32) -> bool {
+    score.abs() > MATE_SCORE - MAX_DEPTH as i32 * 2
+}
+
+pub fn sanitize_eval_score(score: i32) -> i32 {
+    score.min(MATE_SCORE - 1000).max(MATED_SCORE + 1000)
+}
+
+pub fn sanitize_score(score: i32) -> i32 {
+    score.min(MATE_SCORE).max(MATED_SCORE)
+}
