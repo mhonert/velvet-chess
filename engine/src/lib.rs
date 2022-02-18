@@ -19,6 +19,8 @@
 pub mod bitboard;
 pub mod board;
 pub mod colors;
+pub mod compression;
+pub mod egbb;
 pub mod engine;
 pub mod fen;
 pub mod history_heuristics;

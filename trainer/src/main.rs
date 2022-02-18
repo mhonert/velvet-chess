@@ -45,7 +45,7 @@ use std::hash::Hasher;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use velvet::nn::HL_NODES;
-use velvet::nn::io::{BitWriter, CodeBook};
+use velvet::compression::{BitWriter, CodeBook};
 use crate::lr_scheduler::LrScheduler;
 
 const FEATURES_PER_BUCKET: i64 = 64 * 6 * 2;

@@ -17,6 +17,7 @@
  */
 
 use std::cmp::max;
+use std::sync::{Arc, Once};
 
 use crate::bitboard::{BitBoard, black_left_pawn_attacks, black_right_pawn_attacks, DARK_COLORED_FIELD_PATTERN, get_black_pawn_freepath, get_king_attacks, get_knight_attacks, get_pawn_attacks, get_white_pawn_freepath, LIGHT_COLORED_FIELD_PATTERN, white_left_pawn_attacks, white_right_pawn_attacks};
 use crate::colors::{BLACK, Color, WHITE};
@@ -27,6 +28,7 @@ use crate::pos_history::PositionHistory;
 use crate::transposition_table::MAX_DEPTH;
 use crate::zobrist::{castling_zobrist_key, enpassant_zobrist_key, piece_zobrist_key, player_zobrist_key};
 use crate::board::Castling::{BlackQueenSide, BlackKingSide, WhiteQueenSide, WhiteKingSide};
+use crate::egbb::BitBases;
 use crate::magics::Magics;
 
 #[repr(u8)]
@@ -74,6 +76,10 @@ pub fn clear_castling_bits(color: Color, castling_state: u8) -> u8 {
     castling_state & unsafe { *UNSET_CASTLING_BY_COLOR.get_unchecked((color + 1) as usize) }
 }
 
+
+static INIT_EGBB: Once = Once::new();
+static mut EGBB: Option<Arc<BitBases>> = None;
+
 #[derive(Clone)]
 pub struct Board {
     pub pos_history: PositionHistory,
@@ -83,6 +89,8 @@ pub struct Board {
 
     magics: Magics,
     nn_eval: Box<NeuralNetEval>,
+    egbb: Arc<BitBases>,
+
     items: [i8; 64],
     bitboards_all_pieces: [u64; 3],
     king_pos: [i32; 3],
@@ -93,8 +101,8 @@ pub struct Board {
 #[derive(Copy, Clone)]
 pub struct StateEntry {
     hash: u64,
-    en_passant: u16,
-    castling: u8,
+    pub en_passant: u16,
+    pub castling: u8,
     halfmove_clock: u8,
     history_start: u8,
 }
@@ -107,11 +115,13 @@ const ALL_CASTLING: u8 = Castling::WhiteKingSide as u8
 impl Board {
     pub fn new(items: &[i8], active_player: Color, castling_state: u8, enpassant_target: Option<i8>, halfmove_clock: u8, fullmove_num: u16) -> Self {
         assert_eq!(items.len(), 64, "Expected a vector with 64 elements, but got {}", items.len());
+        INIT_EGBB.call_once(|| unsafe { EGBB = Some(BitBases::new()) });
 
         let mut board = Board {
             magics: Magics::default(),
             pos_history: PositionHistory::default(),
             nn_eval: NeuralNetEval::new(),
+            egbb: unsafe { EGBB.clone().unwrap() },
             items: [0; 64],
             bitboards: [0; 13],
             bitboards_all_pieces: [0; 3],
@@ -790,6 +800,16 @@ impl Board {
             || self.is_insufficient_material_draw()
     }
 
+    pub fn is_bitbase_draw(&self, piece_count: usize) -> bool {
+        if let Some(result) = self.egbb.probe(self.active_player(), piece_count,
+                                              self.king_pos(WHITE) as u32, self.king_pos(BLACK) as u32,
+                                              &self.bitboards, self.state.castling != 0, self.state.en_passant != 0) {
+            result == 0
+        } else {
+            false
+        }
+    }
+
 
     pub fn is_repetition_draw(&self) -> bool {
         self.pos_history.is_repetition_draw(self.state.hash, self.state.history_start)
@@ -810,7 +830,7 @@ impl Board {
                     | self.get_bitboard(-N)
                     | self.get_bitboard(B)
                     | self.get_bitboard(-B);
-                knights_or_bishops != 0
+                knights_or_bishops != 0 || self.is_bitbase_draw(3)
             }
 
             4 => {
@@ -818,10 +838,10 @@ impl Board {
                 let white_bishops = self.get_bitboard(B);
                 let black_bishops = self.get_bitboard(-B);
 
-                ((white_bishops & LIGHT_COLORED_FIELD_PATTERN) != 0
+                (((white_bishops & LIGHT_COLORED_FIELD_PATTERN) != 0
                     && (black_bishops & LIGHT_COLORED_FIELD_PATTERN) != 0)
                     || ((white_bishops & DARK_COLORED_FIELD_PATTERN) != 0
-                        && (black_bishops & DARK_COLORED_FIELD_PATTERN) != 0)
+                        && (black_bishops & DARK_COLORED_FIELD_PATTERN) != 0)) || self.is_bitbase_draw(4)
             }
 
             _ => false,
@@ -942,7 +962,20 @@ impl Board {
     }
 
     pub fn eval(&mut self) -> i32 {
-        self.nn_eval.eval(self.active_player(), self.halfmove_clock(), &self.bitboards)
+        let score = self.nn_eval.eval(self.active_player(), self.halfmove_clock(), &self.bitboards);
+        score
+        // if let Some(result) = self.egbb.probe(self.active_player(), self.get_occupancy_bitboard().count_ones() as usize,
+        //                                       self.king_pos(WHITE) as u32, self.king_pos(BLACK) as u32,
+        //                                       &self.bitboards, self.state.castling != 0, self.state.en_passant != 0) {
+        //
+        //     match result {
+        //         1 => score + 600,
+        //         -1 => score - 600,
+        //         _ => 0,
+        //     }
+        // } else {
+        //     score
+        // }
     }
 
 }

@@ -1,0 +1,16 @@
+[package]
+name = "genegbb"
+version = "1.0.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+velvet = { path = "../engine"}
+
+byteorder = "1.4.3"
+clap = "2.33.3"
+itertools = "0.10.0"
+shakmaty = "0.20.3"
+shakmaty-syzygy = "0.18.0"
+crossbeam-channel = "0.5.2"

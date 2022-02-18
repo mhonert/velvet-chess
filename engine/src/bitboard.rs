@@ -35,8 +35,14 @@ impl Iterator for BitBoard {
 }
 
 /// Mirrors the given bitboard position index vertically
-pub fn v_mirror(pos: usize) -> usize {
-    pos ^ 56
+// pub fn v_mirror<T: From<u8> + std::ops::BitXor<Output = T>>(pos: T) -> T {
+pub fn v_mirror<T: From<u8> + std::ops::BitXor<Output = T>>(pos: T) -> T {
+    pos ^ T::from(56)
+}
+
+/// Mirrors the given bitboard position index horizontally
+pub fn h_mirror<T: From<u8> + std::ops::BitXor<Output = T>>(pos: T) -> T {
+    pos ^ T::from(7)
 }
 
 const KNIGHT_ATTACKS: [u64; 64] = calculate_single_move_patterns([21, 19, 12, 8, -12, -21, -19, -8]);

@@ -2,6 +2,7 @@
 
 members = [
     "engine",
+    "genegbb",
     "gensets",
     "genmagics",
     "trainer",

@@ -152,7 +152,7 @@ impl NeuralNetEval {
             *nodes += *weights;
         }
 
-        let mut idx = self.btm_offset + base_index + v_mirror(pos);
+        let mut idx = self.btm_offset + base_index + v_mirror(pos) as usize;
         if piece > 0 {
             idx += 64;
         }

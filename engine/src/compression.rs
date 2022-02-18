@@ -1,6 +1,24 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2021 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2022 mhonert (https://github.com/mhonert)
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+/*
+ * Velvet Chess Engine
+ * Copyright (C) 2022 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -21,54 +39,6 @@ use std::collections::HashMap;
 use std::io::{Error, ErrorKind, Read, Write};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use itertools::Itertools;
-
-pub fn read_quantized(reader: &mut dyn Read, target: &mut [i16]) -> Result<(), Error> {
-    let size = reader.read_u32::<LittleEndian>()? as usize;
-    if size != target.len() {
-        return Result::Err(Error::new(ErrorKind::InvalidData, format!("Size mismatch: expected {}, but got {}", target.len(), size)));
-    }
-
-    let zero_rep_marker = reader.read_i16::<LittleEndian>()?;
-
-    let codebook = CodeBook::from_reader(reader).expect("Could not read codebook for unpacking the NN data");
-    let mut bitreader = BitReader::new();
-
-    let mut index = 0;
-
-    while index < size {
-        let mut value = read_value(&codebook, reader, &mut bitreader)?;
-        let repetitions = if value == zero_rep_marker {
-            value = 0;
-            read_value(&codebook, reader, &mut bitreader)? as i32 + 32768
-        } else {
-            1
-        };
-
-        for _ in 0..repetitions {
-            target[index] = value;
-            index += 1;
-        }
-    }
-
-    Ok(())
-}
-
-fn read_value(codebook: &CodeBook, reader: &mut dyn Read, bitreader: &mut BitReader) -> Result<i16, Error> {
-    let mut code: BitPattern = 0;
-    let mut bit_count = 0;
-
-    while let Some(bit) = bitreader.read(reader)? {
-        code <<= 1;
-        code |= bit as BitPattern;
-        bit_count += 1;
-
-        if let Some(value) = codebook.get_value(bit_count, code) {
-            return Ok(value);
-        }
-    }
-
-    Result::Err(Error::new(ErrorKind::UnexpectedEof, "Could not read additional bits"))
-}
 
 pub type BitCount = u8;
 pub type BitPattern = u32;
@@ -212,7 +182,7 @@ impl CodeBook {
 
 type Bit = u8;
 
-struct BitReader {
+pub struct BitReader {
     bit_index: usize,
     buffer: Option<u32>,
 }
@@ -238,6 +208,23 @@ impl BitReader {
 
         Ok(Some(bit))
     }
+}
+
+pub fn read_value(codebook: &CodeBook, reader: &mut dyn Read, bitreader: &mut BitReader) -> Result<i16, Error> {
+    let mut code: BitPattern = 0;
+    let mut bit_count = 0;
+
+    while let Some(bit) = bitreader.read(reader)? {
+        code <<= 1;
+        code |= bit as BitPattern;
+        bit_count += 1;
+
+        if let Some(value) = codebook.get_value(bit_count, code) {
+            return Ok(value);
+        }
+    }
+
+    Result::Err(Error::new(ErrorKind::UnexpectedEof, "Could not read additional bits"))
 }
 
 pub struct BitWriter {
@@ -433,33 +420,4 @@ mod tests {
             assert_eq!([1, 1, 1, 0, 0, 0, 1], [bit1, bit2, bit3, bit4, bit5, bit6, bit7]);
         }
     }
-
-    #[test]
-    fn compression_roundtrip() {
-        let values: Vec<i16> = Vec::from_iter(-100..100);
-        let output = write_values(&values);
-
-        let mut read_values = vec![0; values.len()];
-        let mut reader = Cursor::new(output);
-        read_quantized(&mut reader, &mut read_values).expect("Could not read values");
-
-        assert_eq!(values, read_values);
-    }
-
-    fn write_values(values: &[i16]) -> Vec<u8> {
-        let codebook = CodeBook::from_values(values);
-        let mut writer = Cursor::new(Vec::<u8>::new());
-        let mut bitwriter = BitWriter::new();
-
-        writer.write_u32::<LittleEndian>(values.len() as u32).expect("Could not write size");
-        writer.write_i16::<LittleEndian>(2000).expect("Could not zero-rep marker");
-        codebook.write(&mut writer).expect("Could not write codebook");
-        for &value in values.iter() {
-            bitwriter.write(&mut writer, codebook.get_code(value)).expect("Could not write code");
-        }
-        bitwriter.flush(&mut writer).expect("Could not flush");
-
-        writer.into_inner()
-    }
-
 }

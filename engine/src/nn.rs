@@ -16,16 +16,15 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::io::BufReader;
+use std::io::{BufReader, Error, ErrorKind, Read};
 use std::sync::Arc;
 
 use byteorder::{LittleEndian, ReadBytesExt};
 
 use crate::align::A32;
-use crate::nn::io::read_quantized;
+use crate::compression::{BitReader, CodeBook, read_value};
 
 pub mod eval;
-pub mod io;
 
 // NN layer size
 pub const FEATURES_PER_BUCKET: usize = 64 * 6 * 2;
@@ -72,4 +71,72 @@ impl Default for NeuralNetParams {
             output_bias: 0,
         }
     }
+}
+
+fn read_quantized(reader: &mut dyn Read, target: &mut [i16]) -> Result<(), Error> {
+    let size = reader.read_u32::<LittleEndian>()? as usize;
+    if size != target.len() {
+        return Result::Err(Error::new(ErrorKind::InvalidData, format!("Size mismatch: expected {}, but got {}", target.len(), size)));
+    }
+
+    let zero_rep_marker = reader.read_i16::<LittleEndian>()?;
+
+    let codebook = CodeBook::from_reader(reader).expect("Could not read codebook for unpacking the NN data");
+    let mut bitreader = BitReader::new();
+
+    let mut index = 0;
+
+    while index < size {
+        let mut value = read_value(&codebook, reader, &mut bitreader)?;
+        let repetitions = if value == zero_rep_marker {
+            value = 0;
+            read_value(&codebook, reader, &mut bitreader)? as i32 + 32768
+        } else {
+            1
+        };
+
+        for _ in 0..repetitions {
+            target[index] = value;
+            index += 1;
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Cursor;
+    use byteorder::WriteBytesExt;
+    use crate::compression::{BitWriter, CodeBook};
+    use super::*;
+
+    #[test]
+    fn compression_roundtrip() {
+        let values: Vec<i16> = Vec::from_iter(-100..100);
+        let output = write_values(&values);
+
+        let mut read_values = vec![0; values.len()];
+        let mut reader = Cursor::new(output);
+        read_quantized(&mut reader, &mut read_values).expect("Could not read values");
+
+        assert_eq!(values, read_values);
+    }
+
+    fn write_values(values: &[i16]) -> Vec<u8> {
+        let codebook = CodeBook::from_values(values);
+        let mut writer = Cursor::new(Vec::<u8>::new());
+        let mut bitwriter = BitWriter::new();
+
+        writer.write_u32::<LittleEndian>(values.len() as u32).expect("Could not write size");
+        writer.write_i16::<LittleEndian>(2000).expect("Could not zero-rep marker");
+        codebook.write(&mut writer).expect("Could not write codebook");
+        for &value in values.iter() {
+            bitwriter.write(&mut writer, codebook.get_code(value)).expect("Could not write code");
+        }
+        bitwriter.flush(&mut writer).expect("Could not flush");
+
+        writer.into_inner()
+    }
+
 }
