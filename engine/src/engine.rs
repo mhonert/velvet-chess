@@ -172,14 +172,21 @@ impl Engine {
             return;
         }
 
-        let move_info = UCIMove::from_encoded_move(&self.board, m).to_uci();
+        let move_info = UCIMove::from_move(&self.board, m);
 
         if ponder_m != NO_MOVE {
-            println!("bestmove {} ponder {}", move_info, UCIMove::from_encoded_move(&self.board, ponder_m).to_uci());
+            println!("bestmove {} ponder {}", move_info, self.encode_ponder_move(m, ponder_m));
         } else {
             println!("bestmove {}", move_info);
         };
+    }
 
+    fn encode_ponder_move(&mut self, own_move: Move, ponder_move: Move) -> String {
+        let (own_piece, removed_piece) = self.board.perform_move(own_move);
+        let ponder_move_uci = UCIMove::from_move(&self.board, ponder_move);
+        self.board.undo_move(own_move, own_piece, removed_piece);
+
+        ponder_move_uci
     }
 
     pub fn search(&mut self, mut limits: SearchLimits, skipped_moves: &[Move], ponder: bool) -> (Move, Move) {

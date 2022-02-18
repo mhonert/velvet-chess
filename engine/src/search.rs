@@ -35,6 +35,7 @@ use std::sync::atomic::{AtomicBool, Ordering, AtomicU64};
 use std::sync::mpsc::{TryRecvError, Receiver, channel, Sender};
 use std::thread;
 use std::thread::JoinHandle;
+use crate::board::castling::CastlingRules;
 use crate::pos_history::PositionHistory;
 
 pub const DEFAULT_SEARCH_THREADS: usize = 1;
@@ -142,7 +143,7 @@ impl Search {
 
     pub fn update(&mut self, board: &Board, limits: SearchLimits, ponder: bool) {
         self.pondering = ponder;
-        self.board.reset(board.pos_history.clone(), board.bitboards, board.halfmove_count, board.state);
+        self.board.reset(board.pos_history.clone(), board.bitboards, board.halfmove_count, board.state, board.castling_rules);
         self.limits = limits;
     }
 
@@ -324,7 +325,7 @@ impl Search {
                 let now = Instant::now();
                 if self.time_mgr.search_duration_ms(now) >= 1000 {
                     self.last_log_time = now;
-                    let uci_move = UCIMove::from_encoded_move(&self.board, m).to_uci();
+                    let uci_move = UCIMove::from_move(&self.board, m);
                     println!("info depth {} currmove {} currmovenumber {}", depth, uci_move, move_num);
                 }
             }
@@ -890,7 +891,7 @@ impl Search {
 
     fn pv_info(&mut self, pv: &[Move]) -> String {
         if let Some((m, rest_pv)) = pv.split_first() {
-            let uci_move = UCIMove::from_encoded_move(&self.board, *m).to_uci();
+            let uci_move = UCIMove::from_move(&self.board, *m);
             let (previous_piece, move_state) = self.board.perform_move(*m);
 
             let followup_moves = self.pv_info(rest_pv);
@@ -1114,7 +1115,7 @@ impl PrincipalVariation {
 }
 
 enum ToThreadMessage {
-    Search{pos_history: PositionHistory, bitboards: [u64; 13], halfmove_count: u16, state: StateEntry, skipped_moves: Vec<Move>},
+    Search{pos_history: PositionHistory, bitboards: [u64; 13], halfmove_count: u16, state: StateEntry, castling_rules: CastlingRules, skipped_moves: Vec<Move>},
     ClearTT{thread_no: usize, total_threads: usize},
     Terminate,
 }
@@ -1216,6 +1217,7 @@ impl HelperThread {
             bitboards: board.bitboards,
             halfmove_count: board.halfmove_count,
             state: board.state,
+            castling_rules: board.castling_rules,
             skipped_moves: Vec::from(skipped_moves),
         }) {
             Ok(_) => {},
@@ -1255,13 +1257,13 @@ impl HelperThread {
             };
 
             match msg {
-                ToThreadMessage::Search{pos_history, bitboards, halfmove_count, state, skipped_moves} => {
+                ToThreadMessage::Search{pos_history, bitboards, halfmove_count, state, castling_rules, skipped_moves} => {
                     let mut window_size = INITIAL_ASPIRATION_WINDOW_SIZE;
                     let mut window_step = INITIAL_ASPIRATION_WINDOW_STEP;
                     let mut score = 0;
 
                     sub_search.reset();
-                    sub_search.board.reset(pos_history, bitboards, halfmove_count, state);
+                    sub_search.board.reset(pos_history, bitboards, halfmove_count, state, castling_rules);
 
                     sub_search.movegen.enter_ply(sub_search.board.active_player(), NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE);
 
@@ -1360,7 +1362,8 @@ fn log2(i: u32) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::board::Board;
+    use crate::board::{Board};
+    use crate::board::castling::{CastlingRules, CastlingState};
     use crate::pieces::{K, R};
     use crate::moves::NO_MOVE;
     use crate::colors::{BLACK, WHITE};
@@ -1435,7 +1438,7 @@ mod tests {
     }
 
     fn to_fen(active_player: Color, items: &[i8; 64]) -> String {
-        write_fen(&Board::new(items, active_player, 0, None, 0, 1))
+        write_fen(&Board::new(items, active_player, CastlingState::default(), None, 0, 1, CastlingRules::default()))
     }
 
     #[test]

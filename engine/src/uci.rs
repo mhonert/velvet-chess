@@ -97,10 +97,11 @@ fn send_message(tx: &Sender<Message>, msg: Message) {
 fn uci() {
     println!("id name Velvet v{}", VERSION);
     println!("id author {}", AUTHOR);
-    println!("option name UCI_EngineAbout type string default Velvet Chess Engine (https://github.com/mhonert/velvet-chess)");
     println!("option name Hash type spin default {} min 1 max {}", DEFAULT_SIZE_MB, MAX_HASH_SIZE_MB);
-    println!("option name Threads type spin default {} min 1 max {}", DEFAULT_SEARCH_THREADS, MAX_SEARCH_THREADS);
     println!("option name Ponder type check default false");
+    println!("option name Threads type spin default {} min 1 max {}", DEFAULT_SEARCH_THREADS, MAX_SEARCH_THREADS);
+    println!("option name UCI_Chess960 type check default false");
+    println!("option name UCI_EngineAbout type string default Velvet Chess Engine (https://github.com/mhonert/velvet-chess)");
 
     println!("uciok");
 }
@@ -161,6 +162,8 @@ fn set_option(tx: &Sender<Message>, parts: &[&str]) {
         }
 
         "ponder" => {}
+
+        "uci_chess960" => {}
 
         _ => println!("Unknown option: {}", name)
     }

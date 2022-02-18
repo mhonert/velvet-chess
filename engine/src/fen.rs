@@ -16,12 +16,14 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::board::{Board, WhiteBoardPos, BlackBoardPos, Castling};
+use crate::board::{Board, WhiteBoardPos, BlackBoardPos};
 use crate::colors::{Color, BLACK, WHITE};
 use crate::pieces;
 use std::error::Error;
 use std::fmt;
 use std::process::exit;
+use crate::board::castling::{Castling, CastlingRules, CastlingState};
+use crate::pieces::K;
 
 pub const START_POS: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
@@ -33,7 +35,8 @@ pub struct FenError {
 pub struct FenParseResult {
     pub pieces: Vec<i8>,
     pub active_player: Color,
-    castling_state: u8,
+    castling_rules: CastlingRules,
+    castling_state: CastlingState,
     enpassant_target: Option<i8>,
     halfmove_clock: u8,
     fullmove_num: u16,
@@ -50,14 +53,15 @@ impl fmt::Display for FenError {
 pub fn read_fen(board: &mut Board, fen: &str) -> Result<(), FenError> {
     match parse_fen(fen) {
         Err(e) => Err(e),
-        Ok(FenParseResult{pieces, active_player, castling_state, enpassant_target, halfmove_clock, fullmove_num}) => {
+        Ok(FenParseResult{pieces, active_player, castling_rules, castling_state, enpassant_target, halfmove_clock, fullmove_num}) => {
             board.set_position(
                 &pieces,
                 active_player,
                 castling_state,
                 enpassant_target,
                 halfmove_clock,
-                fullmove_num
+                fullmove_num,
+                castling_rules,
             );
             Result::Ok(())
         }
@@ -67,8 +71,8 @@ pub fn read_fen(board: &mut Board, fen: &str) -> Result<(), FenError> {
 pub fn parse_fen(fen: &str) -> Result<FenParseResult, FenError> {
     let mut fen_parts = fen.split(' ');
 
-    let pieces = match fen_parts.next().and_then(read_pieces) {
-        Some(pieces) => pieces,
+    let (pieces, white_king, black_king) = match fen_parts.next().and_then(read_pieces) {
+        Some((pieces, white_king, black_king)) => (pieces, white_king, black_king),
         None => {
             return Result::Err(FenError {
                 msg: format!("Error in piece part: {}", fen),
@@ -85,8 +89,8 @@ pub fn parse_fen(fen: &str) -> Result<FenParseResult, FenError> {
         }
     };
 
-    let castling_state = match fen_parts.next().and_then(read_castling) {
-        Some(castling) => castling,
+    let (castling_rules, castling_state) = match fen_parts.next().and_then(|castling| read_castling(castling, white_king & 7, black_king & 7)) {
+        Some((castling_rules, castling_state)) => (castling_rules, castling_state),
         None => {
             return Result::Err(FenError {
                 msg: format!("Error in castling part: {}", fen),
@@ -109,6 +113,7 @@ pub fn parse_fen(fen: &str) -> Result<FenParseResult, FenError> {
     Result::Ok(FenParseResult{
         pieces,
         active_player,
+        castling_rules,
         castling_state,
         enpassant_target,
         halfmove_clock,
@@ -118,7 +123,7 @@ pub fn parse_fen(fen: &str) -> Result<FenParseResult, FenError> {
 
 pub fn create_from_fen(fen: &str) -> Board {
     let items: [i8; 64] = [0; 64];
-    let mut board = Board::new(&items, WHITE, 0, None, 0, 1);
+    let mut board = Board::new(&items, WHITE, CastlingState::default(), None, 0, 1, CastlingRules::default());
     match read_fen(&mut board, fen) {
         Ok(_) => board,
         Err(_) => {
@@ -132,12 +137,14 @@ pub fn create_from_fen(fen: &str) -> Board {
 // add 6 to get the index to the FEN character for the piece:
 const PIECE_FEN_CHARS: &str = "kqrbnp/PNBRQK";
 
-fn read_pieces(piece_placements: &str) -> Option<Vec<i8>> {
+fn read_pieces(piece_placements: &str) -> Option<(Vec<i8>, i8, i8)> {
     let mut pieces: Vec<i8> = Vec::new();
+    let mut white_king = 0;
+    let mut black_king = 0;
 
     for piece_row in piece_placements.split('/') {
         for piece in piece_row.chars() {
-            if piece >= '1' && piece <= '8' {
+            if ('1'..='8').contains(&piece) {
                 let empty_squares = match piece.to_digit(10) {
                     Some(chars) => chars,
                     None => return None,
@@ -154,10 +161,16 @@ fn read_pieces(piece_placements: &str) -> Option<Vec<i8>> {
                 None => return None,
             };
             pieces.push(piece_id);
+
+            if piece_id == K {
+                white_king = (pieces.len() - 1) as i8;
+            } else if piece_id == -K {
+                black_king = (pieces.len() - 1) as i8;
+            }
         }
     }
 
-    Some(pieces)
+    Some((pieces, white_king, black_king))
 }
 
 fn read_color(color: &str) -> Option<Color> {
@@ -168,19 +181,55 @@ fn read_color(color: &str) -> Option<Color> {
     }
 }
 
-fn read_castling(castling: &str) -> Option<u8> {
-    let mut state: u8 = 0;
+fn read_castling(castling: &str, w_king_col: i8, b_king_col: i8) -> Option<(CastlingRules, CastlingState)> {
+    let mut state = CastlingState::default();
+    let mut is_chess960 = false;
+    let mut king_side_rook_col = 7;
+    let mut queen_side_rook_col = 0;
+    let mut start_king_col = 0;
+
     for ch in castling.bytes() {
         match ch {
-            b'K' => state |= Castling::WhiteKingSide as u8,
-            b'Q' => state |= Castling::WhiteQueenSide as u8,
-            b'k' => state |= Castling::BlackKingSide as u8,
-            b'q' => state |= Castling::BlackQueenSide as u8,
+            b'K' => state.set_can_castle(Castling::WhiteKingSide),
+            b'Q' => state.set_can_castle(Castling::WhiteQueenSide),
+            b'k' => state.set_can_castle(Castling::BlackKingSide),
+            b'q' => state.set_can_castle(Castling::BlackQueenSide),
+            b'A'..=b'H' => {
+                is_chess960 = true;
+                start_king_col = w_king_col;
+                let rook_col = (ch - b'A') as i8;
+                if rook_col < start_king_col {
+                    state.set_can_castle(Castling::WhiteQueenSide);
+                    queen_side_rook_col = rook_col;
+                } else {
+                    state.set_can_castle(Castling::WhiteKingSide);
+                    king_side_rook_col = rook_col;
+                }
+            }
+            b'a'..=b'h' => {
+                is_chess960 = true;
+                start_king_col = b_king_col;
+                let rook_col = (ch - b'a') as i8;
+                if rook_col < start_king_col {
+                    state.set_can_castle(Castling::BlackQueenSide);
+                    queen_side_rook_col = rook_col;
+                } else {
+                    state.set_can_castle(Castling::BlackKingSide);
+                    king_side_rook_col = rook_col;
+                }
+            }
             b'-' => (),
             _ => return None,
         }
     }
-    Some(state)
+
+    let rules = if is_chess960 {
+        CastlingRules::new(true, start_king_col, king_side_rook_col as i8, queen_side_rook_col as i8)
+    } else {
+        CastlingRules::default()
+    };
+
+    Some((rules, state))
 }
 
 fn read_enpassant(en_passant: &str) -> Option<i8> {
@@ -276,20 +325,39 @@ fn write_color(color: Color) -> &'static str {
 fn write_castling(board: &Board) -> String {
     let mut result = String::new();
 
-    if board.can_castle(Castling::WhiteKingSide) {
-        result.push('K');
-    }
+    if board.castling_rules.is_chess960() {
+        if board.can_castle(Castling::WhiteKingSide) {
+            result.push(char::from(b'A' + (board.castling_rules.ks_rook_start(WHITE) & 7) as u8));
+        }
 
-    if board.can_castle(Castling::WhiteQueenSide) {
-        result.push('Q');
-    }
+        if board.can_castle(Castling::WhiteQueenSide) {
+            result.push(char::from(b'A' + (board.castling_rules.qs_rook_start(WHITE) & 7) as u8));
+        }
 
-    if board.can_castle(Castling::BlackKingSide) {
-        result.push('k');
-    }
+        if board.can_castle(Castling::BlackKingSide) {
+            result.push(char::from(b'a' + (board.castling_rules.ks_rook_start(BLACK) & 7) as u8));
+        }
 
-    if board.can_castle(Castling::BlackQueenSide) {
-        result.push('q');
+        if board.can_castle(Castling::BlackQueenSide) {
+            result.push(char::from(b'a' + (board.castling_rules.qs_rook_start(BLACK) & 7) as u8));
+        }
+
+    } else {
+        if board.can_castle(Castling::WhiteKingSide) {
+            result.push('K');
+        }
+
+        if board.can_castle(Castling::WhiteQueenSide) {
+            result.push('Q');
+        }
+
+        if board.can_castle(Castling::BlackKingSide) {
+            result.push('k');
+        }
+
+        if board.can_castle(Castling::BlackQueenSide) {
+            result.push('q');
+        }
     }
 
     if result.is_empty() {
@@ -384,6 +452,13 @@ mod tests {
     #[test]
     fn read_write_fullmove_count() {
         test_fen("rnbqkbnr/ppppppp1/8/6Pp/8/8/PPPPPP1P/RNBQKBNR b KQkq - 2 4");
+    }
+
+    #[test]
+    fn read_write_chess960_fen() {
+        test_fen("qrbnnkrb/pppppppp/8/8/8/8/PPPPPPPP/QRBNNKRB w GBgb - 0 1");
+        test_fen("b1q1rrkb/pppppppp/3nn3/8/P7/1PPP4/4PPPP/BQNNRKRB w GE - 1 9");
+        test_fen("rkqbr1bn/p2ppppp/1pp2n2/8/5P2/3P1N2/PPP1PRPP/RKQB2BN w Aa - 3 9");
     }
 
     fn test_fen(fen: &str) {

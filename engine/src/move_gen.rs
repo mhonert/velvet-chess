@@ -16,9 +16,9 @@
  */
 
 use std::cmp::Reverse;
-use crate::bitboard::{BLACK_KING_SIDE_CASTLING_BIT_PATTERN, BLACK_QUEEN_SIDE_CASTLING_BIT_PATTERN, PAWN_DOUBLE_MOVE_LINES, WHITE_KING_SIDE_CASTLING_BIT_PATTERN, WHITE_QUEEN_SIDE_CASTLING_BIT_PATTERN, BitBoard, get_knight_attacks, get_king_attacks};
-use crate::board::{Board, WhiteBoardPos, Castling, BlackBoardPos};
-use crate::colors::{Color, BLACK, WHITE};
+use crate::bitboard::{PAWN_DOUBLE_MOVE_LINES, BitBoard, get_knight_attacks, get_king_attacks};
+use crate::board::{Board};
+use crate::colors::{Color, BLACK, WHITE, ToIndex};
 use crate::pieces::{B, K, N, P, Q, R, EMPTY};
 use crate::moves::{Move, MoveType, NO_MOVE};
 use crate::history_heuristics::{HistoryHeuristics, MIN_HISTORY_SCORE};
@@ -361,12 +361,7 @@ impl MoveList {
             self.gen_piece_moves(board, Q, pos as i32, attacks, opponent_bb, empty_bb);
         }
 
-        if active_player == WHITE {
-            self.gen_white_king_moves(board, board.king_pos(WHITE), opponent_bb, empty_bb);
-
-        } else {
-            self.gen_black_king_moves(board, board.king_pos(BLACK), opponent_bb, empty_bb);
-        }
+        self.gen_king_moves(active_player, board, opponent_bb, empty_bb);
     }
 
     fn gen_capture_moves(&mut self, board: &Board) {
@@ -415,7 +410,7 @@ impl MoveList {
         self.add_pawn_quiet_moves(MoveType::PawnQuiet, target_bb, 8);
 
         // Double move
-        target_bb &= unsafe{ *PAWN_DOUBLE_MOVE_LINES.get_unchecked(WHITE as usize + 1) };
+        target_bb &= unsafe{ *PAWN_DOUBLE_MOVE_LINES.get_unchecked(WHITE.idx()) };
         target_bb >>= 8;
 
         target_bb &= empty_bb;
@@ -464,7 +459,7 @@ impl MoveList {
         self.add_pawn_quiet_moves(MoveType::PawnQuiet, target_bb, -8);
 
         // Double move
-        target_bb &= unsafe { *PAWN_DOUBLE_MOVE_LINES.get_unchecked(((BLACK as i32) + 1) as usize) };
+        target_bb &= unsafe { *PAWN_DOUBLE_MOVE_LINES.get_unchecked(BLACK.idx()) };
         target_bb <<= 8;
 
         target_bb &= empty_bb;
@@ -541,57 +536,31 @@ impl MoveList {
         }
     }
 
-    fn gen_white_king_moves(&mut self, board: &Board, pos: i32, opponent_bb: u64, empty_bb: u64) {
+    fn gen_king_moves(&mut self, color: Color, board: &Board, opponent_bb: u64, empty_bb: u64) {
+        let pos = board.king_pos(color);
         let king_targets = get_king_attacks(pos);
 
         // Captures
         self.add_capture_moves(board, MoveType::KingCapture, K, pos, king_targets & opponent_bb);
 
-        self.gen_white_quiet_king_moves(board, pos, empty_bb, king_targets);
+        self.gen_quiet_king_moves(color, board, pos, empty_bb, king_targets);
     }
 
-    fn gen_white_quiet_king_moves(&mut self, board: &Board, pos: i32, empty_bb: u64, king_targets: u64) {
+    fn gen_quiet_king_moves(&mut self, color: Color, board: &Board, pos: i32, empty_bb: u64, king_targets: u64) {
         // Normal moves
         self.add_moves(MoveType::KingQuiet, K, pos, king_targets & empty_bb);
 
         // // Castling moves
-        if pos != WhiteBoardPos::KingStart as i32 {
+        if !board.castling_rules.is_king_start(color, pos) {
             return;
         }
 
-        if board.can_castle(Castling::WhiteKingSide) && is_kingside_castling_valid_for_white(board, empty_bb) {
-            self.add_move(MoveType::Castling, K, pos, pos + 2);
+        if board.can_castle_king_side(color) && board.castling_rules.is_ks_castling_valid(color, board, empty_bb) {
+            self.add_move(MoveType::Castling, K, pos, board.castling_rules.ks_rook_start(color));
         }
 
-        if board.can_castle(Castling::WhiteQueenSide) && is_queenside_castling_valid_for_white(board, empty_bb) {
-            self.add_move(MoveType::Castling, K, pos, pos - 2);
-        }
-    }
-
-    fn gen_black_king_moves(&mut self, board: &Board, pos: i32, opponent_bb: u64, empty_bb: u64) {
-        let king_targets = get_king_attacks(pos);
-
-        // Captures
-        self.add_capture_moves(board, MoveType::KingCapture, K, pos, king_targets & opponent_bb);
-
-        self.gen_black_quiet_king_moves(board, pos, empty_bb, king_targets)
-    }
-
-    fn gen_black_quiet_king_moves(&mut self, board: &Board, pos: i32, empty_bb: u64, king_targets: u64) {
-        // Normal moves
-        self.add_moves(MoveType::KingQuiet, K, pos, king_targets & empty_bb);
-
-        // Castling moves
-        if pos != BlackBoardPos::KingStart as i32 {
-            return;
-        }
-
-        if board.can_castle(Castling::BlackKingSide) && is_kingside_castling_valid_for_black(board, empty_bb) {
-            self.add_move(MoveType::Castling, K, pos, pos + 2);
-        }
-
-        if board.can_castle(Castling::BlackQueenSide) && is_queenside_castling_valid_for_black(board, empty_bb) {
-            self.add_move(MoveType::Castling, K, pos, pos - 2);
+        if board.can_castle_queen_side(color) && board.castling_rules.is_qs_castling_valid(color, board, empty_bb) {
+            self.add_move(MoveType::Castling, K, pos, board.castling_rules.qs_rook_start(color));
         }
     }
 
@@ -694,11 +663,7 @@ impl MoveList {
             K => {
                 let king_targets = get_king_attacks(start) & end_bb;
                 if captured_piece == EMPTY {
-                    if active_player == WHITE {
-                        self.gen_white_quiet_king_moves(board, start, empty_bb, king_targets);
-                    } else {
-                        self.gen_black_quiet_king_moves(board, start, empty_bb, king_targets);
-                    }
+                    self.gen_quiet_king_moves(active_player, board, start, empty_bb, king_targets);
                 } else {
                     if target_piece_id != K {
                         return NO_MOVE;
@@ -753,34 +718,6 @@ fn remove_move(moves: &mut Vec<Move>, to_be_removed: Move) -> Move {
     }
 
     NO_MOVE
-}
-
-fn is_kingside_castling_valid_for_white(board: &Board, empty_bb: u64) -> bool {
-    (empty_bb & WHITE_KING_SIDE_CASTLING_BIT_PATTERN) == WHITE_KING_SIDE_CASTLING_BIT_PATTERN
-        && !board.is_attacked(BLACK, WhiteBoardPos::KingStart as i32)
-        && !board.is_attacked(BLACK, WhiteBoardPos::KingStart as i32 + 1)
-        && !board.is_attacked(BLACK, WhiteBoardPos::KingStart as i32 + 2)
-}
-
-fn is_queenside_castling_valid_for_white(board: &Board, empty_bb: u64) -> bool {
-    (empty_bb & WHITE_QUEEN_SIDE_CASTLING_BIT_PATTERN) == WHITE_QUEEN_SIDE_CASTLING_BIT_PATTERN
-        && !board.is_attacked(BLACK, WhiteBoardPos::KingStart as i32)
-        && !board.is_attacked(BLACK, WhiteBoardPos::KingStart as i32 - 1)
-        && !board.is_attacked(BLACK, WhiteBoardPos::KingStart as i32 - 2)
-}
-
-fn is_kingside_castling_valid_for_black(board: &Board, empty_bb: u64) -> bool {
-    (empty_bb & BLACK_KING_SIDE_CASTLING_BIT_PATTERN) == BLACK_KING_SIDE_CASTLING_BIT_PATTERN
-        && !board.is_attacked(WHITE, BlackBoardPos::KingStart as i32)
-        && !board.is_attacked(WHITE, BlackBoardPos::KingStart as i32 + 1)
-        && !board.is_attacked(WHITE, BlackBoardPos::KingStart as i32 + 2)
-}
-
-fn is_queenside_castling_valid_for_black(board: &Board, empty_bb: u64) -> bool {
-    (empty_bb & BLACK_QUEEN_SIDE_CASTLING_BIT_PATTERN) == BLACK_QUEEN_SIDE_CASTLING_BIT_PATTERN
-        && !board.is_attacked(WHITE, BlackBoardPos::KingStart as i32)
-        && !board.is_attacked(WHITE, BlackBoardPos::KingStart as i32 - 1)
-        && !board.is_attacked(WHITE, BlackBoardPos::KingStart as i32 - 2)
 }
 
 // Move evaluation heuristic for initial move ordering (high values are better for the active player)
@@ -849,6 +786,7 @@ const fn calc_capture_order_scores() -> [i32; CAPTURE_ORDER_SIZE] {
 
 #[cfg(test)]
 mod tests {
+    use crate::board::castling::{CastlingRules, CastlingState};
     use super::*;
 
     #[rustfmt::skip]
@@ -896,7 +834,7 @@ mod tests {
     fn board_with_one_piece(color: Color, piece_id: i8, pos: i32) -> Board {
         let mut items = ONLY_KINGS;
         items[pos as usize] = piece_id * color;
-        Board::new(&items, color, 0, None, 0, 1)
+        Board::new(&items, color, CastlingState::default(), None, 0, 1, CastlingRules::default())
     }
 
     fn generate_moves_for_pos(board: &mut Board, color: Color, pos: i32) -> Vec<Move> {

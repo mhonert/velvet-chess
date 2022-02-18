@@ -35,7 +35,7 @@ pub fn enpassant_zobrist_key(en_passant_state: u16) -> u64 {
 
 #[inline]
 pub fn castling_zobrist_key(castling_state: u8) -> u64 {
-    unsafe { *CASTLING_ZOBRIST_KEYS.get_unchecked(castling_state as usize & 0xf) }
+    unsafe { *CASTLING_ZOBRIST_KEYS.get_unchecked(castling_state as usize) }
 }
 
 #[inline]
