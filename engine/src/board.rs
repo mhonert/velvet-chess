@@ -318,40 +318,66 @@ impl Board {
 
         self.clear_en_passant();
 
-        if self.get_item(move_end) != EMPTY {
-            // Capture move (except en passant)
-            let removed_piece = self.remove_piece(move_end);
-            self.add_piece(color, target_piece_id, move_end as usize);
-
-            self.reset_half_move_clock();
-
-            if target_piece_id == K {
-                self.set_king_pos(color, move_end);
-                self.set_king_moved(color);
-
-            }
-
-            if removed_piece.abs() >= R || m.is_promotion() {
-                self.nn_eval.check_refresh();
-            }
-
-            return (own_piece, removed_piece.abs());
-        }
-
-        self.add_piece(color, target_piece_id, move_end as usize);
-
         match m.typ() {
             MoveType::PawnQuiet => {
+                self.add_piece(color, target_piece_id, move_end as usize);
                 self.reset_half_move_clock();
             }
 
+            MoveType::Quiet => {
+                self.add_piece(color, target_piece_id, move_end as usize);
+            }
+
             MoveType::PawnDoubleQuiet => {
+                self.add_piece(color, target_piece_id, move_end as usize);
                 self.reset_half_move_clock();
                 self.set_enpassant(move_start as i8);
             }
 
+            MoveType::Capture => {
+                // Capture move (except en passant)
+                let removed_piece = self.remove_piece(move_end);
+                self.add_piece(color, target_piece_id, move_end as usize);
+
+                self.reset_half_move_clock();
+
+                if removed_piece.abs() >= R {
+                    self.nn_eval.check_refresh();
+                }
+
+                return (own_piece, removed_piece.abs());
+            }
+
+            MoveType::KingCapture => {
+                let removed_piece = self.remove_piece(move_end);
+                self.add_piece(color, target_piece_id, move_end as usize);
+
+                self.reset_half_move_clock();
+
+                self.set_king_pos(color, move_end);
+                self.set_king_moved(color);
+
+                if removed_piece.abs() >= R {
+                    self.nn_eval.check_refresh();
+                }
+
+                return (own_piece, removed_piece.abs());
+            }
+
             MoveType::PawnSpecial => {
                 self.reset_half_move_clock();
+
+                if self.get_item(move_end) != EMPTY {
+                    // Capture move with promotion
+                    let removed_piece = self.remove_piece(move_end);
+                    self.add_piece(color, target_piece_id, move_end as usize);
+
+                    self.nn_eval.check_refresh();
+
+                    return (own_piece, removed_piece.abs());
+                }
+
+                self.add_piece(color, target_piece_id, move_end as usize);
                 if own_piece == P {
                     // Special en passant handling
                     if move_start - move_end == 7 {
@@ -378,11 +404,13 @@ impl Board {
             }
 
             MoveType::KingQuiet => {
+                self.add_piece(color, target_piece_id, move_end as usize);
                 self.set_king_pos(color, move_end);
                 self.set_king_moved(color);
             }
 
             MoveType::Castling => {
+                self.add_piece(color, target_piece_id, move_end as usize);
                 if own_piece == K {
                     self.set_king_pos(WHITE, move_end);
 
@@ -412,7 +440,6 @@ impl Board {
                 }
             }
 
-            _ => {}
         }
 
         (own_piece, EMPTY)
