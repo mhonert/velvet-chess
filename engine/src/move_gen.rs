@@ -560,11 +560,11 @@ impl MoveList {
         }
 
         if board.can_castle(Castling::WhiteKingSide) && is_kingside_castling_valid_for_white(board, empty_bb) {
-            self.add_move(MoveType::Castling, K, pos, pos + 2);
+            self.add_move(MoveType::Castling, K, pos, WhiteBoardPos::KingSideRook as i32);
         }
 
         if board.can_castle(Castling::WhiteQueenSide) && is_queenside_castling_valid_for_white(board, empty_bb) {
-            self.add_move(MoveType::Castling, K, pos, pos - 2);
+            self.add_move(MoveType::Castling, K, pos, WhiteBoardPos::QueenSideRook as i32);
         }
     }
 
@@ -587,11 +587,11 @@ impl MoveList {
         }
 
         if board.can_castle(Castling::BlackKingSide) && is_kingside_castling_valid_for_black(board, empty_bb) {
-            self.add_move(MoveType::Castling, K, pos, pos + 2);
+            self.add_move(MoveType::Castling, K, pos, BlackBoardPos::KingSideRook as i32);
         }
 
         if board.can_castle(Castling::BlackQueenSide) && is_queenside_castling_valid_for_black(board, empty_bb) {
-            self.add_move(MoveType::Castling, K, pos, pos - 2);
+            self.add_move(MoveType::Castling, K, pos, BlackBoardPos::QueenSideRook as i32);
         }
     }
 

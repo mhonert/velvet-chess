@@ -16,9 +16,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::board::Board;
+use crate::board::{BlackBoardPos, Board, WhiteBoardPos};
 use crate::pieces::{B, EMPTY, N, Q, R};
-use crate::moves::{Move};
+use crate::moves::{Move, MoveType};
 
 pub struct UCIMove {
     pub start: i8,
@@ -43,9 +43,23 @@ impl UCIMove {
             EMPTY
         };
 
+        let mut end = m.end() as i8;
+
+        if matches!(m.typ(), MoveType::Castling) {
+            if end == WhiteBoardPos::KingSideRook as i8 {
+                end = WhiteBoardPos::KingSideRook as i8 - 1;
+            } else if end == BlackBoardPos::KingSideRook as i8 {
+                end = BlackBoardPos::KingSideRook as i8 - 1;
+            } else if end == WhiteBoardPos::QueenSideRook as i8 {
+                end = WhiteBoardPos::QueenSideRook as i8 + 2;
+            } else {
+                end = BlackBoardPos::QueenSideRook as i8 + 2;
+            }
+        }
+
         UCIMove {
             start: m.start() as i8,
-            end: m.end() as i8,
+            end,
             promotion,
         }
     }
@@ -108,8 +122,20 @@ impl UCIMove {
 
     pub fn to_move(&self, board: &Board) -> Move {
         let start = self.start as i32;
-        let end = self.end as i32;
+        let mut end = self.end as i32;
         let typ = board.get_move_type(start, end, self.promotion);
+
+        if matches!(typ, MoveType::Castling) {
+            if end == WhiteBoardPos::KingSideRook as i32 - 1 {
+                end = WhiteBoardPos::KingSideRook as i32;
+            } else if end == BlackBoardPos::KingSideRook as i32 - 1 {
+                end = BlackBoardPos::KingSideRook as i32;
+            } else if end == WhiteBoardPos::QueenSideRook as i32 + 2 {
+                end = WhiteBoardPos::QueenSideRook as i32;
+            } else {
+                end = BlackBoardPos::QueenSideRook as i32;
+            }
+        }
 
         let target_piece_id = if self.promotion != EMPTY {
             self.promotion

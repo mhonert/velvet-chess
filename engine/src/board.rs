@@ -410,32 +410,29 @@ impl Board {
             }
 
             MoveType::Castling => {
-                self.add_piece(color, target_piece_id, move_end as usize);
-                if own_piece == K {
-                    self.set_king_pos(WHITE, move_end);
+                self.remove_piece(move_end);
 
-                    // Special castling handling
-                    if move_start - move_end == -2 {
-                        self.remove_piece(WhiteBoardPos::KingSideRook as i32);
-                        self.add_piece(WHITE, R, WhiteBoardPos::KingStart as usize + 1);
-                        self.set_white_has_castled();
-                    } else if move_start - move_end == 2 {
-                        self.remove_piece(WhiteBoardPos::QueenSideRook as i32);
-                        self.add_piece(WHITE, R, WhiteBoardPos::KingStart as usize - 1);
-                        self.set_white_has_castled();
+                if own_piece == K {
+                    self.set_white_has_castled();
+                    if move_end == WhiteBoardPos::QueenSideRook as i32 {
+                        self.set_king_pos(WHITE, WhiteBoardPos::QueenSideRook as i32 + 2);
+                        self.add_piece(WHITE, K, WhiteBoardPos::QueenSideRook as usize + 2);
+                        self.add_piece(WHITE, R, WhiteBoardPos::QueenSideRook as usize + 3);
+                    } else {
+                        self.set_king_pos(WHITE, WhiteBoardPos::KingSideRook as i32 - 1);
+                        self.add_piece(WHITE, K, WhiteBoardPos::KingSideRook as usize - 1);
+                        self.add_piece(WHITE, R, WhiteBoardPos::KingSideRook as usize - 2);
                     }
                 } else if own_piece == -K {
-                    self.set_king_pos(BLACK, move_end);
-
-                    // Special castling handling
-                    if move_start - move_end == -2 {
-                        self.remove_piece(BlackBoardPos::KingSideRook as i32);
-                        self.add_piece(BLACK, R, BlackBoardPos::KingStart as usize + 1);
-                        self.set_black_has_castled();
-                    } else if move_start - move_end == 2 {
-                        self.remove_piece(BlackBoardPos::QueenSideRook as i32);
-                        self.add_piece(BLACK, R, BlackBoardPos::KingStart as usize - 1);
-                        self.set_black_has_castled();
+                    self.set_black_has_castled();
+                    if move_end == BlackBoardPos::QueenSideRook as i32 {
+                        self.set_king_pos(BLACK, BlackBoardPos::QueenSideRook as i32 + 2);
+                        self.add_piece(BLACK, K, BlackBoardPos::QueenSideRook as usize + 2);
+                        self.add_piece(BLACK, R, BlackBoardPos::QueenSideRook as usize + 3);
+                    } else {
+                        self.set_king_pos(BLACK, BlackBoardPos::KingSideRook as i32 - 1);
+                        self.add_piece(BLACK, K, BlackBoardPos::KingSideRook as usize - 1);
+                        self.add_piece(BLACK, R, BlackBoardPos::KingSideRook as usize - 2);
                     }
                 }
             }
@@ -485,50 +482,108 @@ impl Board {
         let move_end = m.end();
 
         let color = piece.signum();
-        self.remove_piece_without_inc_update(move_end);
-        self.add_piece_without_inc_update(color, piece, move_start);
-
-        if m.is_en_passant() {
-            if (move_start - move_end).abs() == 7 {
-                self.add_piece_without_inc_update(-color, P * -color, move_start + color as i32);
-            } else if (move_start - move_end).abs() == 9 {
-                self.add_piece_without_inc_update(-color, P * -color, move_start - color as i32);
-            }
-        } else if removed_piece_id != EMPTY {
-            self.add_piece_without_inc_update(-color, removed_piece_id * -color, move_end);
-        }
-
-        if piece == K {
-            // White King
-            self.set_king_pos(WHITE, move_start);
-
-            // Undo Castle?
-            if move_start - move_end == -2 {
-                self.remove_piece_without_inc_update(WhiteBoardPos::KingStart as i32 + 1);
-                self.add_piece_without_inc_update(WHITE, R, WhiteBoardPos::KingSideRook as i32);
-            } else if move_start - move_end == 2 {
-                self.remove_piece_without_inc_update(WhiteBoardPos::KingStart as i32 - 1);
-                self.add_piece_without_inc_update(WHITE, R, WhiteBoardPos::QueenSideRook as i32);
-            }
-        } else if piece == -K {
-            // Black King
-            self.set_king_pos(BLACK, move_start);
-
-            // Undo Castle?
-            if move_start - move_end == -2 {
-                self.remove_piece_without_inc_update(BlackBoardPos::KingStart as i32 + 1);
-                self.add_piece_without_inc_update(BLACK, -R, BlackBoardPos::KingSideRook as i32);
-            } else if move_start - move_end == 2 {
-                self.remove_piece_without_inc_update(BlackBoardPos::KingStart as i32 - 1);
-                self.add_piece_without_inc_update(BLACK, -R, BlackBoardPos::QueenSideRook as i32);
-            }
-        }
 
         self.halfmove_count -= 1;
         self.restore_state();
 
-        if removed_piece_id >= R || m.is_promotion() {
-            self.nn_eval.check_refresh();
+        match m.typ() {
+            MoveType::Quiet | MoveType::PawnQuiet | MoveType::PawnDoubleQuiet => {
+                self.remove_piece_without_inc_update(move_end);
+                self.add_piece_without_inc_update(color, piece, move_start);
+            }
+
+            MoveType::Capture => {
+                self.remove_piece_without_inc_update(move_end);
+                self.add_piece_without_inc_update(color, piece, move_start);
+                self.add_piece_without_inc_update(-color, removed_piece_id * -color, move_end);
+
+                if removed_piece_id >= R {
+                    self.nn_eval.check_refresh();
+                }
+            }
+
+            MoveType::KingCapture => {
+                self.remove_piece_without_inc_update(move_end);
+                self.add_piece_without_inc_update(color, piece, move_start);
+                self.add_piece_without_inc_update(-color, removed_piece_id * -color, move_end);
+
+                if piece == K {
+                    // White King
+                    self.set_king_pos(WHITE, move_start);
+                } else {
+                    // Black King
+                    self.set_king_pos(BLACK, move_start);
+                }
+
+                if removed_piece_id >= R {
+                    self.nn_eval.check_refresh();
+                }
+            }
+
+            MoveType::PawnSpecial => {
+                self.remove_piece_without_inc_update(move_end);
+                self.add_piece_without_inc_update(color, piece, move_start);
+
+                if m.is_en_passant() {
+                    if (move_start - move_end).abs() == 7 {
+                        self.add_piece_without_inc_update(-color, P * -color, move_start + color as i32);
+                    } else if (move_start - move_end).abs() == 9 {
+                        self.add_piece_without_inc_update(-color, P * -color, move_start - color as i32);
+                    }
+                } else if removed_piece_id != EMPTY {
+                    self.add_piece_without_inc_update(-color, removed_piece_id * -color, move_end);
+                    self.nn_eval.check_refresh();
+
+                } else if m.is_promotion() {
+                    self.nn_eval.check_refresh();
+                }
+            }
+
+            MoveType::KingQuiet => {
+                self.remove_piece_without_inc_update(move_end);
+                self.add_piece_without_inc_update(color, piece, move_start);
+
+                if piece == K {
+                    self.set_king_pos(WHITE, move_start);
+                } else if piece == -K {
+                    self.set_king_pos(BLACK, move_start);
+                }
+            }
+
+            MoveType::Castling => {
+                if piece == K {
+                    if move_end == WhiteBoardPos::QueenSideRook as i32 {
+                        self.remove_piece_without_inc_update(WhiteBoardPos::QueenSideRook as i32 + 2);
+                        self.remove_piece_without_inc_update(WhiteBoardPos::QueenSideRook as i32 + 3);
+
+                        self.add_piece_without_inc_update(WHITE, R, WhiteBoardPos::QueenSideRook as i32);
+                    } else {
+                        self.remove_piece_without_inc_update(WhiteBoardPos::KingSideRook as i32 - 1);
+                        self.remove_piece_without_inc_update(WhiteBoardPos::KingSideRook as i32 - 2);
+
+                        self.add_piece_without_inc_update(WHITE, R, WhiteBoardPos::KingSideRook as i32);
+                    }
+
+                    self.set_king_pos(WHITE, move_start);
+                    self.add_piece_without_inc_update(WHITE, K, move_start);
+
+                } else {
+                    if move_end == BlackBoardPos::QueenSideRook as i32 {
+                        self.remove_piece_without_inc_update(BlackBoardPos::QueenSideRook as i32 + 2);
+                        self.remove_piece_without_inc_update(BlackBoardPos::QueenSideRook as i32 + 3);
+
+                        self.add_piece_without_inc_update(BLACK, -R, BlackBoardPos::QueenSideRook as i32);
+                    } else {
+                        self.remove_piece_without_inc_update(BlackBoardPos::KingSideRook as i32 - 1);
+                        self.remove_piece_without_inc_update(BlackBoardPos::KingSideRook as i32 - 2);
+
+                        self.add_piece_without_inc_update(BLACK, -R, BlackBoardPos::KingSideRook as i32);
+                    }
+
+                    self.set_king_pos(BLACK, move_start);
+                    self.add_piece_without_inc_update(BLACK, -K, move_start);
+                }
+            }
         }
     }
 
