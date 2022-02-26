@@ -29,20 +29,12 @@ pub enum Castling {
     BlackKingSide = 1 << 1,
     WhiteQueenSide = 1 << 2,
     BlackQueenSide = 1 << 3,
-
-    WhiteHasCastled = 1 << 4,
-    BlackHasCastled = 1 << 5,
 }
 
 #[derive(Default, Copy, Clone, PartialEq, Debug)]
 pub struct CastlingState(u8);
 
 impl CastlingState {
-    const HAS_CASTLED: [u8; 2] = [
-        Castling::BlackHasCastled as u8,
-        Castling::WhiteHasCastled as u8,
-    ];
-
     const CLEAR_BY_COLOR: [u8; 2] = [
         !(BlackQueenSide as u8 | BlackKingSide as u8),
         !(WhiteQueenSide as u8 | WhiteKingSide as u8),
@@ -83,9 +75,7 @@ impl CastlingState {
     #[inline]
     pub fn set_has_castled(&mut self, color: Color) {
         let idx = color.idx();
-
         self.0 &= unsafe { *Self::CLEAR_BY_COLOR.get_unchecked(idx) };
-        self.0 |= unsafe { *Self::HAS_CASTLED.get_unchecked(color.idx()) };
     }
 
     #[inline]
