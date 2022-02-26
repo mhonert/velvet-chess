@@ -83,6 +83,14 @@ fn test_perft_testpos6() {
     assert_eq!(89890, perft_for_fen(fen, 3));
 }
 
+#[test]
+fn test_perft_chess960() {
+    assert_eq!(6417013, perft_for_fen("b1q1rrkb/pppppppp/3nn3/8/P7/1PPP4/4PPPP/BQNNRKRB w GE - 1 9", 5));
+    assert_eq!(9183776, perft_for_fen("qbbnnrkr/2pp2pp/p7/1p2pp2/8/P3PP2/1PPP1KPP/QBBNNR1R w hf - 0 9", 5));
+    assert_eq!(6718715, perft_for_fen("b1qnrrkb/ppp1pp1p/n2p1Pp1/8/8/P7/1PPPP1PP/BNQNRKRB w GE - 0 9", 5));
+    assert_eq!(7697880, perft_for_fen("nq1bbrkr/pp2nppp/2pp4/4p3/1PP1P3/1B6/P2P1PPP/NQN1BRKR w HFhf - 2 9", 5));
+}
+
 fn perft_for_fen(fen: &str, depth: i32) -> u64 {
     let mut movegen = MoveGenerator::new();
     let hh = HistoryHeuristics::new();

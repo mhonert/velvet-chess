@@ -35,6 +35,7 @@ use std::sync::atomic::{AtomicBool, Ordering, AtomicU64};
 use std::sync::mpsc::{TryRecvError, Receiver, channel, Sender};
 use std::thread;
 use std::thread::JoinHandle;
+use crate::board::castling::CastlingRules;
 use crate::pos_history::PositionHistory;
 
 pub const DEFAULT_SEARCH_THREADS: usize = 1;
@@ -142,7 +143,7 @@ impl Search {
 
     pub fn update(&mut self, board: &Board, limits: SearchLimits, ponder: bool) {
         self.pondering = ponder;
-        self.board.reset(board.pos_history.clone(), board.bitboards, board.halfmove_count, board.state);
+        self.board.reset(board.pos_history.clone(), board.bitboards, board.halfmove_count, board.state, board.castling_rules);
         self.limits = limits;
     }
 
@@ -1114,7 +1115,7 @@ impl PrincipalVariation {
 }
 
 enum ToThreadMessage {
-    Search{pos_history: PositionHistory, bitboards: [u64; 13], halfmove_count: u16, state: StateEntry, skipped_moves: Vec<Move>},
+    Search{pos_history: PositionHistory, bitboards: [u64; 13], halfmove_count: u16, state: StateEntry, castling_rules: CastlingRules, skipped_moves: Vec<Move>},
     ClearTT{thread_no: usize, total_threads: usize},
     Terminate,
 }
@@ -1216,6 +1217,7 @@ impl HelperThread {
             bitboards: board.bitboards,
             halfmove_count: board.halfmove_count,
             state: board.state,
+            castling_rules: board.castling_rules,
             skipped_moves: Vec::from(skipped_moves),
         }) {
             Ok(_) => {},
@@ -1255,13 +1257,13 @@ impl HelperThread {
             };
 
             match msg {
-                ToThreadMessage::Search{pos_history, bitboards, halfmove_count, state, skipped_moves} => {
+                ToThreadMessage::Search{pos_history, bitboards, halfmove_count, state, castling_rules, skipped_moves} => {
                     let mut window_size = INITIAL_ASPIRATION_WINDOW_SIZE;
                     let mut window_step = INITIAL_ASPIRATION_WINDOW_STEP;
                     let mut score = 0;
 
                     sub_search.reset();
-                    sub_search.board.reset(pos_history, bitboards, halfmove_count, state);
+                    sub_search.board.reset(pos_history, bitboards, halfmove_count, state, castling_rules);
 
                     sub_search.movegen.enter_ply(sub_search.board.active_player(), NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE);
 

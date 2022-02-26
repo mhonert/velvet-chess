@@ -40,8 +40,7 @@ impl UCIMove {
         let mut end = m.end() as i8;
         let color = board.active_player();
 
-        // TODO Chess960 (+ special case Arena?)
-        if matches!(m.typ(), MoveType::Castling) {
+        if matches!(m.typ(), MoveType::Castling) && !board.castling_rules.is_chess960() {
             if board.castling_rules.is_ks_castling(color, end as i32) {
                 end = CastlingRules::ks_king_end(color) as i8;
             } else {
@@ -122,11 +121,18 @@ impl UCIMove {
             K => {
                 let color = board.active_player();
                 if board.castling_rules.is_king_start(color, start) {
-                    // TODO: castling encoding: standard and frc
-                    if board.can_castle_king_side(color) && (end == CastlingRules::ks_king_end(color) || board.castling_rules.is_ks_castling(color, end as i32)) {
-                        return Move::new(MoveType::Castling, K, start, board.castling_rules.ks_rook_start(color));
-                    } else if board.can_castle_queen_side(color) && (end == CastlingRules::qs_king_end(color) || board.castling_rules.is_qs_castling(color, end as i32)) {
-                        return Move::new(MoveType::Castling, K, start, board.castling_rules.qs_rook_start(color));
+                    if board.castling_rules.is_chess960() {
+                        if board.can_castle_king_side(color) && board.castling_rules.is_ks_castling(color, end as i32) {
+                            return Move::new(MoveType::Castling, K, start, board.castling_rules.ks_rook_start(color));
+                        } else if board.can_castle_queen_side(color) && board.castling_rules.is_qs_castling(color, end as i32) {
+                            return Move::new(MoveType::Castling, K, start, board.castling_rules.qs_rook_start(color));
+                        }
+                    } else {
+                        if board.can_castle_king_side(color) && end == CastlingRules::ks_king_end(color) {
+                            return Move::new(MoveType::Castling, K, start, board.castling_rules.ks_rook_start(color));
+                        } else if board.can_castle_queen_side(color) && end == CastlingRules::qs_king_end(color) {
+                            return Move::new(MoveType::Castling, K, start, board.castling_rules.qs_rook_start(color));
+                        }
                     }
                 }
 
@@ -236,10 +242,51 @@ mod tests {
             0,  0,  0,  0,  K,  0,  0,  R,
         ];
 
-        let board = Board::new(&items, WHITE, CastlingState::default(), None, 0, 1, CastlingRules::default());
+        let board = Board::new(&items, WHITE, CastlingState::ALL, None, 0, 1, CastlingRules::default());
 
-        let m = UCIMove::new(60, 62, K);
-        assert_eq!("e1g1", UCIMove::from_move(&board, m.to_move(&board)));
+        let uci_move = UCIMove::from_move(&board, Move::new(MoveType::Castling, K, 60, 63));
+        assert_eq!("e1g1", uci_move);
+    }
+
+    #[test]
+    fn write_castling_move_chess960() {
+        #[rustfmt::skip]
+        let items: [i8; 64] = [
+            0,  0,  0, -K,  0,  0,  0,  0,
+            0,  0,  0, -P,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  P,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  K,  0,  0,  R,
+        ];
+
+        let board = Board::new(&items, WHITE, CastlingState::ALL, None, 0, 1, CastlingRules::new(true, 4, 7, 0));
+
+        let uci_move = UCIMove::from_move(&board, Move::new(MoveType::Castling, K, 60, 63));
+        assert_eq!("e1h1", uci_move);
+    }
+
+    #[test]
+    fn read_castling_move_chess960() {
+        #[rustfmt::skip]
+        let items: [i8; 64] = [
+            0,  0,  0, -K,  0,  0,  0,  0,
+            0,  0,  0, -P,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  P,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  K,  0,  0,  R,
+        ];
+
+        let board = Board::new(&items, WHITE, CastlingState::ALL, None, 0, 1, CastlingRules::new(true, 4, 7, 0));
+
+        let m = UCIMove::from_uci("e1h1").unwrap().to_move(&board);
+        assert_eq!(m.end(), board.castling_rules.ks_rook_start(WHITE));
+        assert!(matches!(m.typ(), MoveType::Castling));
     }
 
     #[test]

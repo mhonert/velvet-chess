@@ -95,13 +95,14 @@ impl Board {
         board
     }
 
-    pub fn reset(&mut self, pos_history: PositionHistory, bitboards: [u64; 13], halfmove_count: u16, state: StateEntry) {
+    pub fn reset(&mut self, pos_history: PositionHistory, bitboards: [u64; 13], halfmove_count: u16, state: StateEntry, castling_rules: CastlingRules) {
         let white_bb = bitboards[7..=12].iter().fold(0, |acc, i| acc | i);
         let black_bb = bitboards[0..=5].iter().fold(0, |acc, i| acc | i);
 
         let white_king = bitboards[12].trailing_zeros() as i32;
         let black_king = bitboards[0].trailing_zeros() as i32;
 
+        self.castling_rules = castling_rules;
         self.pos_history = pos_history;
         self.bitboards = bitboards;
         self.bitboards_all_pieces = [black_bb, white_bb];

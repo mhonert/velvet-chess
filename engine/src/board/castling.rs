@@ -109,6 +109,7 @@ impl CastlingState {
 
 #[derive(Clone, Copy)]
 pub struct CastlingRules {
+    chess960: bool,
     king_start: [i8; 2],
     king_side_rook: [i8; 2],
     queen_side_rook: [i8; 2],
@@ -117,7 +118,7 @@ pub struct CastlingRules {
 impl Default for CastlingRules {
     /// Returns the Castling Rules for standard chess
     fn default() -> Self {
-        CastlingRules::new(4, 7, 0)
+        CastlingRules::new(false, 4, 7, 0)
     }
 }
 
@@ -129,6 +130,7 @@ impl CastlingRules {
     const QS_ROOK_END: [u8; 2] = [ 3, 56 + 3 ];
 
     pub fn new(
+        chess960: bool,
         king_start_col: i8,
         king_side_rook_col: i8,
         queen_side_rook_col: i8,
@@ -142,10 +144,15 @@ impl CastlingRules {
         let b_queen_side_rook = queen_side_rook_col;
 
         CastlingRules{
+            chess960,
             king_start: [b_king_start, w_king_start],
             king_side_rook: [b_king_side_rook, w_king_side_rook],
             queen_side_rook: [b_queen_side_rook, w_queen_side_rook],
         }
+    }
+
+    pub fn is_chess960(&self) -> bool {
+        self.chess960
     }
 
     pub fn is_ks_castling(&self, color: Color, move_to: i32) -> bool {
@@ -240,7 +247,7 @@ impl CastlingRules {
             return false;
         }
 
-        for pos in BitBoard(king_route_bb ^ 1u64 << king_end) {
+        for pos in BitBoard(king_route_bb) {
             if board.is_attacked(opp_color, pos as i32) {
                 return false;
             }
