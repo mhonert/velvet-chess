@@ -16,12 +16,13 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::board::{Board, WhiteBoardPos, BlackBoardPos, Castling};
+use crate::board::{Board, WhiteBoardPos, BlackBoardPos};
 use crate::colors::{Color, BLACK, WHITE};
 use crate::pieces;
 use std::error::Error;
 use std::fmt;
 use std::process::exit;
+use crate::board::castling::{Castling, CastlingRules, CastlingState};
 
 pub const START_POS: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
@@ -33,7 +34,7 @@ pub struct FenError {
 pub struct FenParseResult {
     pub pieces: Vec<i8>,
     pub active_player: Color,
-    castling_state: u8,
+    castling_state: CastlingState,
     enpassant_target: Option<i8>,
     halfmove_clock: u8,
     fullmove_num: u16,
@@ -51,13 +52,15 @@ pub fn read_fen(board: &mut Board, fen: &str) -> Result<(), FenError> {
     match parse_fen(fen) {
         Err(e) => Err(e),
         Ok(FenParseResult{pieces, active_player, castling_state, enpassant_target, halfmove_clock, fullmove_num}) => {
+            // TODO: Chess960
             board.set_position(
                 &pieces,
                 active_player,
                 castling_state,
                 enpassant_target,
                 halfmove_clock,
-                fullmove_num
+                fullmove_num,
+                CastlingRules::default()
             );
             Result::Ok(())
         }
@@ -118,7 +121,7 @@ pub fn parse_fen(fen: &str) -> Result<FenParseResult, FenError> {
 
 pub fn create_from_fen(fen: &str) -> Board {
     let items: [i8; 64] = [0; 64];
-    let mut board = Board::new(&items, WHITE, 0, None, 0, 1);
+    let mut board = Board::new(&items, WHITE, CastlingState::default(), None, 0, 1, CastlingRules::default());
     match read_fen(&mut board, fen) {
         Ok(_) => board,
         Err(_) => {
@@ -137,7 +140,7 @@ fn read_pieces(piece_placements: &str) -> Option<Vec<i8>> {
 
     for piece_row in piece_placements.split('/') {
         for piece in piece_row.chars() {
-            if piece >= '1' && piece <= '8' {
+            if ('1'..='8').contains(&piece) {
                 let empty_squares = match piece.to_digit(10) {
                     Some(chars) => chars,
                     None => return None,
@@ -168,14 +171,14 @@ fn read_color(color: &str) -> Option<Color> {
     }
 }
 
-fn read_castling(castling: &str) -> Option<u8> {
-    let mut state: u8 = 0;
+fn read_castling(castling: &str) -> Option<CastlingState> {
+    let mut state = CastlingState::default();
     for ch in castling.bytes() {
         match ch {
-            b'K' => state |= Castling::WhiteKingSide as u8,
-            b'Q' => state |= Castling::WhiteQueenSide as u8,
-            b'k' => state |= Castling::BlackKingSide as u8,
-            b'q' => state |= Castling::BlackQueenSide as u8,
+            b'K' => state.set_can_castle(Castling::WhiteKingSide),
+            b'Q' => state.set_can_castle(Castling::WhiteQueenSide),
+            b'k' => state.set_can_castle(Castling::BlackKingSide),
+            b'q' => state.set_can_castle(Castling::BlackQueenSide),
             b'-' => (),
             _ => return None,
         }

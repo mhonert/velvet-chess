@@ -56,8 +56,8 @@ const SCORE_SHIFT: u32 = 15;
 
 impl Move {
     #[inline]
-    pub fn new(typ: MoveType, piece: i8, start: i32, end: i32) -> Self {
-        Move((piece.abs() as u32) | ((end as u32) << END_SHIFT) | ((start as u32) << START_SHIFT) | ((typ as u32) << TYPE_SHIFT))
+    pub fn new(typ: MoveType, piece_id: i8, start: i32, end: i32) -> Self {
+        Move((piece_id as u32) | ((end as u32) << END_SHIFT) | ((start as u32) << START_SHIFT) | ((typ as u32) << TYPE_SHIFT))
     }
 
     #[inline]

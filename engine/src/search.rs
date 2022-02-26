@@ -324,7 +324,7 @@ impl Search {
                 let now = Instant::now();
                 if self.time_mgr.search_duration_ms(now) >= 1000 {
                     self.last_log_time = now;
-                    let uci_move = UCIMove::from_encoded_move(&self.board, m).to_uci();
+                    let uci_move = UCIMove::from_move(&self.board, m);
                     println!("info depth {} currmove {} currmovenumber {}", depth, uci_move, move_num);
                 }
             }
@@ -890,7 +890,7 @@ impl Search {
 
     fn pv_info(&mut self, pv: &[Move]) -> String {
         if let Some((m, rest_pv)) = pv.split_first() {
-            let uci_move = UCIMove::from_encoded_move(&self.board, *m).to_uci();
+            let uci_move = UCIMove::from_move(&self.board, *m);
             let (previous_piece, move_state) = self.board.perform_move(*m);
 
             let followup_moves = self.pv_info(rest_pv);
@@ -1360,7 +1360,8 @@ fn log2(i: u32) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::board::Board;
+    use crate::board::{Board};
+    use crate::board::castling::{CastlingRules, CastlingState};
     use crate::pieces::{K, R};
     use crate::moves::NO_MOVE;
     use crate::colors::{BLACK, WHITE};
@@ -1435,7 +1436,7 @@ mod tests {
     }
 
     fn to_fen(active_player: Color, items: &[i8; 64]) -> String {
-        write_fen(&Board::new(items, active_player, 0, None, 0, 1))
+        write_fen(&Board::new(items, active_player, CastlingState::default(), None, 0, 1, CastlingRules::default()))
     }
 
     #[test]

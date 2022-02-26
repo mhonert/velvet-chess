@@ -16,8 +16,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::board::{BlackBoardPos, Board, WhiteBoardPos};
-use crate::pieces::{B, EMPTY, N, Q, R};
+use crate::board::{Board};
+use crate::board::castling::{CastlingRules};
+use crate::pieces::{P, B, EMPTY, N, Q, R, K};
 use crate::moves::{Move, MoveType};
 
 pub struct UCIMove {
@@ -35,33 +36,30 @@ impl UCIMove {
         }
     }
 
-    pub fn from_encoded_move(board: &Board, m: Move) -> Self {
-        let current_piece = board.get_item(m.start() as i32).abs();
-        let promotion = if m.piece_id() != current_piece {
-            m.piece_id()
-        } else {
-            EMPTY
-        };
-
+    pub fn from_move(board: &Board, m: Move) -> String {
         let mut end = m.end() as i8;
+        let color = board.active_player();
 
+        // TODO Chess960 (+ special case Arena?)
         if matches!(m.typ(), MoveType::Castling) {
-            if end == WhiteBoardPos::KingSideRook as i8 {
-                end = WhiteBoardPos::KingSideRook as i8 - 1;
-            } else if end == BlackBoardPos::KingSideRook as i8 {
-                end = BlackBoardPos::KingSideRook as i8 - 1;
-            } else if end == WhiteBoardPos::QueenSideRook as i8 {
-                end = WhiteBoardPos::QueenSideRook as i8 + 2;
+            if board.castling_rules.is_ks_castling(color, end as i32) {
+                end = CastlingRules::ks_king_end(color) as i8;
             } else {
-                end = BlackBoardPos::QueenSideRook as i8 + 2;
+                end = CastlingRules::qs_king_end(color) as i8;
             }
         }
 
-        UCIMove {
-            start: m.start() as i8,
-            end,
-            promotion,
-        }
+        let mut result = String::with_capacity(5);
+        result.push(uci_col(m.start() as i8 & 7));
+        result.push(uci_row(m.start() as i8 / 8));
+        result.push(uci_col(end & 7));
+        result.push(uci_row(end / 8));
+
+        if m.is_promotion() {
+            result.push(uci_promotion(m.piece_id()));
+        };
+
+        result
     }
 
     pub fn from_uci(uci: &str) -> Option<Self> {
@@ -101,49 +99,52 @@ impl UCIMove {
         })
     }
 
-    pub fn to_uci(&self) -> String {
-        let start_col = self.start & 7;
-        let start_row = self.start / 8;
-        let end_col = self.end & 7;
-        let end_row = self.end / 8;
-
-        let mut result = String::with_capacity(5);
-        result.push(uci_col(start_col));
-        result.push(uci_row(start_row));
-        result.push(uci_col(end_col));
-        result.push(uci_row(end_row));
-
-        if self.promotion != EMPTY {
-            result.push(uci_promotion(self.promotion));
-        }
-
-        result
-    }
-
     pub fn to_move(&self, board: &Board) -> Move {
         let start = self.start as i32;
-        let mut end = self.end as i32;
-        let typ = board.get_move_type(start, end, self.promotion);
+        let end = self.end as i32;
 
-        if matches!(typ, MoveType::Castling) {
-            if end == WhiteBoardPos::KingSideRook as i32 - 1 {
-                end = WhiteBoardPos::KingSideRook as i32;
-            } else if end == BlackBoardPos::KingSideRook as i32 - 1 {
-                end = BlackBoardPos::KingSideRook as i32;
-            } else if end == WhiteBoardPos::QueenSideRook as i32 + 2 {
-                end = WhiteBoardPos::QueenSideRook as i32;
-            } else {
-                end = BlackBoardPos::QueenSideRook as i32;
+        let start_piece_id = board.get_item(start).abs();
+        match start_piece_id {
+            P => {
+                if (start - end).abs() == 16 {
+                    Move::new(MoveType::PawnDoubleQuiet, P, start, end)
+                } else if self.promotion != EMPTY && self.promotion != start_piece_id {
+                    Move::new(MoveType::PawnSpecial, self.promotion, start, end)
+                } else if (start - end).abs() == 8 {
+                    Move::new(MoveType::PawnQuiet, P, start, end)
+                } else if board.get_item(end) == EMPTY {
+                    Move::new(MoveType::PawnSpecial, P, start, end)
+                } else {
+                    Move::new(MoveType::Capture, P, start, end)
+                }
+            },
+
+            K => {
+                let color = board.active_player();
+                if board.castling_rules.is_king_start(color, start) {
+                    // TODO: castling encoding: standard and frc
+                    if board.can_castle_king_side(color) && (end == CastlingRules::ks_king_end(color) || board.castling_rules.is_ks_castling(color, end as i32)) {
+                        return Move::new(MoveType::Castling, K, start, board.castling_rules.ks_rook_start(color));
+                    } else if board.can_castle_queen_side(color) && (end == CastlingRules::qs_king_end(color) || board.castling_rules.is_qs_castling(color, end as i32)) {
+                        return Move::new(MoveType::Castling, K, start, board.castling_rules.qs_rook_start(color));
+                    }
+                }
+
+                if board.get_item(end) == EMPTY {
+                    Move::new(MoveType::KingQuiet, K, start, end)
+                } else {
+                    Move::new(MoveType::KingCapture, K, start, end)
+                }
+            },
+
+            _ => {
+                if board.get_item(end) == EMPTY {
+                    Move::new(MoveType::Quiet, start_piece_id, start, end)
+                } else {
+                    Move::new(MoveType::Capture, start_piece_id, start, end)
+                }
             }
         }
-
-        let target_piece_id = if self.promotion != EMPTY {
-            self.promotion
-        } else {
-            board.get_item(start).abs()
-        };
-
-        Move::new(typ, target_piece_id, start, end)
     }
 }
 
@@ -187,18 +188,58 @@ fn uci_promotion(promotion: i8) -> char {
 
 #[cfg(test)]
 mod tests {
+    use crate::board::castling::{CastlingRules, CastlingState};
+    use crate::colors::WHITE;
+    use crate::fen::{create_from_fen, START_POS};
+    use crate::pieces::{K, P};
     use super::*;
 
     #[test]
     fn write_standard_move() {
+        let board = create_from_fen(START_POS);
         let m = UCIMove::new(52, 36, EMPTY);
-        assert_eq!("e2e4", m.to_uci());
+
+        assert_eq!("e2e4", UCIMove::from_move(&board, m.to_move(&board)));
     }
 
     #[test]
     fn write_promotion_move() {
+        #[rustfmt::skip]
+            let items: [i8; 64] = [
+            0,  0,  0, -K,  0,  0,  0,  0,
+            P,  0,  0, -P,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  P,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  K,  0,  0,  0,  0,
+        ];
+
+        let board = Board::new(&items, WHITE, CastlingState::default(), None, 0, 1, CastlingRules::default());
+
         let m = UCIMove::new(8, 0, Q);
-        assert_eq!("a7a8q", m.to_uci());
+        assert_eq!("a7a8q", UCIMove::from_move(&board, m.to_move(&board)));
+    }
+
+    #[test]
+    fn write_castling_move() {
+        #[rustfmt::skip]
+            let items: [i8; 64] = [
+            0,  0,  0, -K,  0,  0,  0,  0,
+            0,  0,  0, -P,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  P,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  K,  0,  0,  R,
+        ];
+
+        let board = Board::new(&items, WHITE, CastlingState::default(), None, 0, 1, CastlingRules::default());
+
+        let m = UCIMove::new(60, 62, K);
+        assert_eq!("e1g1", UCIMove::from_move(&board, m.to_move(&board)));
     }
 
     #[test]
