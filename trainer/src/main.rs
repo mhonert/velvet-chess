@@ -711,7 +711,7 @@ fn read_from_fen_file(file_name: &str, writer: &mut BufWriter<FrameEncoder<File>
             Err(e) => panic!("could not parse FEN: {}",  e),
         };
 
-        if active_player == -1 {
+        if active_player.is_black() {
             mirror(&mut pieces);
             result = -result;
         }

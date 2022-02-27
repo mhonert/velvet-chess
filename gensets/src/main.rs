@@ -161,7 +161,7 @@ fn play_opening(remaining_plies: i32, hh: &HistoryHeuristics, move_gen: &mut Mov
 
     while let Some(m) = move_gen.next_root_move(hh, board) {
         let (previous_piece, move_state) = board.perform_move(m);
-        if board.is_in_check(-board.active_player()) {
+        if board.is_in_check(board.active_player().flip()) {
             // Invalid move
             board.undo_move(m, previous_piece, move_state);
             continue;
@@ -285,7 +285,7 @@ fn collect_quiet_pos(rx: Option<&Receiver<Message>>, rnd: &mut Random, opening: 
             return;
         }
 
-        let score = max(-4000, min(4000, selected_move.score() * search.board.active_player() as i32));
+        let score = max(-4000, min(4000, search.board.active_player().score(selected_move.score())));
         if num > 8 && score.abs() < (MATE_SCORE - MAX_DEPTH as i32 * 2) && selected_move.is_quiet() && !duplicate_check.contains(&search.board.get_hash()) {
             let mut qs_pv = PrincipalVariation::default();
             search.quiescence_search(rx, search.board.active_player(), MIN_SCORE, MAX_SCORE, 0, None, &mut qs_pv);

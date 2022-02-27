@@ -315,10 +315,10 @@ fn write_pieces(board: &Board) -> String {
 }
 
 fn write_color(color: Color) -> &'static str {
-    match color {
-        WHITE => "w",
-        BLACK => "b",
-        _ => panic!("Unexpected color {}", color),
+    if color.is_white() {
+        "w"
+    } else {
+        "b"
     }
 }
 

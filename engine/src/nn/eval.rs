@@ -20,7 +20,7 @@ use crate::bitboard::{BitBoard, v_mirror};
 use std::cmp::{max};
 use std::sync::{Arc, Once};
 use crate::align::A32;
-use crate::colors::{Color, WHITE};
+use crate::colors::{Color};
 use crate::nn::{FEATURES_PER_BUCKET, FP_PRECISION_BITS, HL_NODES, NeuralNetParams};
 use crate::pieces::{Q, R};
 use crate::scores::{sanitize_eval_score};
@@ -199,7 +199,7 @@ impl NeuralNetEval {
     pub fn eval(&mut self, active_player: Color, half_move_clock: u8, bitboards: &[u64; 13]) -> i32 {
         self.apply_updates(bitboards);
 
-        let output = if active_player == WHITE {
+        let output = if active_player.is_white() {
             (forward_pass::<HL_NODES>(&self.hidden_nodes_wtm.0, &self.params.output_weights.0) + self.params.output_bias) as i32
         } else {
             -(forward_pass::<HL_NODES>(&self.hidden_nodes_btm.0, &self.params.output_weights.0) + self.params.output_bias) as i32

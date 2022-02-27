@@ -94,7 +94,7 @@ impl GenQuietPos for Search {
             return None;
         }
 
-        let score = best_move.score() * self.board.active_player() as i32;
+        let score = self.board.active_player().score(best_move.score());
         if score.abs() > 3000 {
             return None;
         }

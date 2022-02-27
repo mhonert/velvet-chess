@@ -19,7 +19,7 @@
 use crate::bitboard::{BitBoard, get_from_to_mask};
 use crate::board::Board;
 use crate::board::castling::Castling::{BlackKingSide, BlackQueenSide, WhiteKingSide, WhiteQueenSide};
-use crate::colors::{Color, Flip, ToIndex};
+use crate::colors::{Color};
 use crate::zobrist::castling_zobrist_key;
 
 #[repr(u8)]
@@ -36,18 +36,18 @@ pub struct CastlingState(u8);
 
 impl CastlingState {
     const CLEAR_BY_COLOR: [u8; 2] = [
-        !(BlackQueenSide as u8 | BlackKingSide as u8),
         !(WhiteQueenSide as u8 | WhiteKingSide as u8),
+        !(BlackQueenSide as u8 | BlackKingSide as u8),
     ];
 
     const KING_SIDE: [Castling; 2] = [
+        Castling::WhiteKingSide,
         Castling::BlackKingSide,
-        Castling::WhiteKingSide
     ];
 
     const QUEEN_SIDE: [Castling; 2] = [
+        Castling::WhiteQueenSide,
         Castling::BlackQueenSide,
-        Castling::WhiteQueenSide
     ];
 
     const ALL_CASTLING: u8 = Castling::WhiteKingSide as u8
@@ -75,7 +75,7 @@ impl CastlingState {
     #[inline]
     pub fn set_has_castled(&mut self, color: Color) {
         let idx = color.idx();
-        self.0 &= unsafe { *Self::CLEAR_BY_COLOR.get_unchecked(idx) };
+        self.0 &= Self::CLEAR_BY_COLOR[idx];
     }
 
     #[inline]
@@ -85,7 +85,7 @@ impl CastlingState {
 
     #[inline]
     pub fn clear(&mut self, color: Color) {
-        self.0 &= unsafe { *Self::CLEAR_BY_COLOR.get_unchecked(color.idx()) };
+        self.0 &= Self::CLEAR_BY_COLOR[color.idx()];
     }
 
     #[inline]
@@ -99,11 +99,11 @@ impl CastlingState {
     }
 
     fn king_side(color: Color) -> Castling {
-        unsafe { *Self::KING_SIDE.get_unchecked(color.idx()) }
+        Self::KING_SIDE[color.idx()]
     }
 
     fn queen_side(color: Color) -> Castling {
-        unsafe { *Self::QUEEN_SIDE.get_unchecked(color.idx()) }
+        Self::QUEEN_SIDE[color.idx()]
     }
 }
 
@@ -123,11 +123,11 @@ impl Default for CastlingRules {
 }
 
 impl CastlingRules {
-    const KS_KING_END: [u8; 2] = [ 7 - 1, 63 - 1 ];
-    const KS_ROOK_END: [u8; 2] = [ 7 - 2, 63 - 2 ];
+    const KS_KING_END: [u8; 2] = [ 63 - 1, 7 - 1 ];
+    const KS_ROOK_END: [u8; 2] = [ 63 - 2, 7 - 2 ];
 
-    const QS_KING_END: [u8; 2] = [ 2, 56 + 2 ];
-    const QS_ROOK_END: [u8; 2] = [ 3, 56 + 3 ];
+    const QS_KING_END: [u8; 2] = [ 56 + 2, 2 ];
+    const QS_ROOK_END: [u8; 2] = [ 56 + 3, 3 ];
 
     pub fn new(
         chess960: bool,
@@ -145,9 +145,9 @@ impl CastlingRules {
 
         CastlingRules{
             chess960,
-            king_start: [b_king_start, w_king_start],
-            king_side_rook: [b_king_side_rook, w_king_side_rook],
-            queen_side_rook: [b_queen_side_rook, w_queen_side_rook],
+            king_start: [w_king_start, b_king_start],
+            king_side_rook: [w_king_side_rook, b_king_side_rook],
+            queen_side_rook: [w_queen_side_rook, b_queen_side_rook],
         }
     }
 
@@ -164,73 +164,53 @@ impl CastlingRules {
     }
 
     pub fn is_king_start(&self, color: Color, pos: i32) -> bool {
-        unsafe {
-            *self.king_start.get_unchecked(color.idx()) == pos as i8
-        }
+        self.king_start(color) == pos
     }
 
     pub fn king_start(&self, color: Color) -> i32 {
-        unsafe {
-            *self.king_start.get_unchecked(color.idx()) as i32
-        }
+        self.king_start[color.idx()] as i32
     }
 
     pub fn ks_rook_start(&self, color: Color) -> i32 {
-        unsafe {
-            *self.king_side_rook.get_unchecked(color.idx()) as i32
-        }
+        self.king_side_rook[color.idx()] as i32
     }
 
     pub fn qs_rook_start(&self, color: Color) -> i32 {
-        unsafe {
-            *self.queen_side_rook.get_unchecked(color.idx()) as i32
-        }
+        self.queen_side_rook[color.idx()] as i32
     }
 
     pub fn ks_king_end(color: Color) -> i32 {
-        unsafe {
-            *Self::KS_KING_END.get_unchecked(color.idx()) as i32
-        }
+        Self::KS_KING_END[color.idx()] as i32
     }
 
     pub fn ks_rook_end(color: Color) -> i32 {
-        unsafe {
-            *Self::KS_ROOK_END.get_unchecked(color.idx()) as i32
-        }
+        Self::KS_ROOK_END[color.idx()] as i32
     }
 
     pub fn qs_king_end(color: Color) -> i32 {
-        unsafe {
-            *Self::QS_KING_END.get_unchecked(color.idx()) as i32
-        }
+        Self::QS_KING_END[color.idx()] as i32
     }
 
     pub fn qs_rook_end(color: Color) -> i32 {
-        unsafe {
-            *Self::QS_ROOK_END.get_unchecked(color.idx()) as i32
-        }
+        Self::QS_ROOK_END[color.idx()] as i32
     }
 
     pub fn is_ks_castling_valid(&self, color: Color, board: &Board, empty_bb: u64) -> bool {
         let idx = color.idx();
-        unsafe {
-            let king_start = *self.king_start.get_unchecked(idx);
-            let king_end = *Self::KS_KING_END.get_unchecked(idx) as i8;
-            let rook_start = *self.king_side_rook.get_unchecked(idx);
-            let rook_end = *Self::KS_ROOK_END.get_unchecked(idx) as i8;
-            Self::is_castling_valid(board, color.flip(), empty_bb, king_start, king_end, rook_start, rook_end)
-        }
+        let king_start = self.king_start[idx];
+        let king_end = Self::KS_KING_END[idx] as i8;
+        let rook_start = self.king_side_rook[idx];
+        let rook_end = Self::KS_ROOK_END[idx] as i8;
+        Self::is_castling_valid(board, color.flip(), empty_bb, king_start, king_end, rook_start, rook_end)
     }
 
     pub fn is_qs_castling_valid(&self, color: Color, board: &Board, empty_bb: u64) -> bool {
         let idx = color.idx();
-        unsafe {
-            let king_start = *self.king_start.get_unchecked(idx);
-            let king_end = *Self::QS_KING_END.get_unchecked(idx) as i8;
-            let rook_start = *self.queen_side_rook.get_unchecked(idx);
-            let rook_end = *Self::QS_ROOK_END.get_unchecked(idx) as i8;
-            Self::is_castling_valid(board, color.flip(), empty_bb, king_start, king_end, rook_start, rook_end)
-        }
+        let king_start = self.king_start[idx];
+        let king_end = Self::QS_KING_END[idx] as i8;
+        let rook_start = self.queen_side_rook[idx];
+        let rook_end = Self::QS_ROOK_END[idx] as i8;
+        Self::is_castling_valid(board, color.flip(), empty_bb, king_start, king_end, rook_start, rook_end)
     }
 
     fn is_castling_valid(board: &Board, opp_color: Color, mut empty_bb: u64, king_start: i8, king_end: i8, rook_start: i8, rook_end: i8) -> bool {

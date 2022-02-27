@@ -17,7 +17,7 @@
  */
 
 use crate::bitboard::Direction::{Horizontal, AntiDiagonal, Vertical, Diagonal};
-use crate::colors::{Color, WHITE};
+use crate::colors::{Color};
 
 pub struct BitBoard(pub u64);
 
@@ -267,7 +267,7 @@ const fn is_border(pos: i32) -> bool {
 // Pawn attack move patterns
 
 pub fn get_pawn_attacks(pawns: u64, color: Color) -> u64 {
-    if color == WHITE {
+    if color.is_white() {
         white_left_pawn_attacks(pawns) | white_right_pawn_attacks(pawns)
     } else {
         black_left_pawn_attacks(pawns) | black_right_pawn_attacks(pawns)
@@ -292,8 +292,8 @@ pub fn black_right_pawn_attacks(pawns: u64) -> u64 {
 
 // Positions where pawns may move two squares
 pub const PAWN_DOUBLE_MOVE_LINES: [u64; 2] = [
-    0b0000000000000000000000000000000000000000111111110000000000000000,
     0b0000000000000000111111110000000000000000000000000000000000000000,
+    0b0000000000000000000000000000000000000000111111110000000000000000,
 ];
 
 // Patterns to check, whether a piece is on a light or dark field

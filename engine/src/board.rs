@@ -22,7 +22,7 @@ use std::cmp::max;
 
 use crate::bitboard::{BitBoard, black_left_pawn_attacks, black_right_pawn_attacks, DARK_COLORED_FIELD_PATTERN, get_black_pawn_freepath,  get_king_attacks, get_knight_attacks, get_pawn_attacks, get_white_pawn_freepath, LIGHT_COLORED_FIELD_PATTERN, white_left_pawn_attacks, white_right_pawn_attacks};
 use crate::board::castling::{Castling, CastlingRules, CastlingState};
-use crate::colors::{ToIndex, BLACK, Color, WHITE};
+use crate::colors::{BLACK, Color, WHITE};
 use crate::moves::{Move, MoveType};
 use crate::nn::eval::NeuralNetEval;
 use crate::pieces::{B, EMPTY, get_piece_value, K, N, P, Q, R};
@@ -105,20 +105,23 @@ impl Board {
         self.castling_rules = castling_rules;
         self.pos_history = pos_history;
         self.bitboards = bitboards;
-        self.bitboards_all_pieces = [black_bb, white_bb];
+        self.bitboards_all_pieces = [white_bb, black_bb];
         self.state = state;
         self.halfmove_count = halfmove_count;
-        self.king_pos = [black_king, white_king];
+        self.king_pos = [white_king, black_king];
         self.history.clear();
 
         self.items.fill(0);
 
-        for color in (BLACK..=WHITE).step_by(2) {
-            for piece_id in 1i8..=6i8 {
-                let piece = piece_id * color;
-                for pos in BitBoard(bitboards[(piece + 6) as usize]) {
-                    self.items[pos as usize] = piece;
-                }
+        for piece_id in 1i8..=6i8 {
+            let piece = piece_id;
+            for pos in BitBoard(bitboards[(piece + 6) as usize]) {
+                self.items[pos as usize] = piece;
+            }
+
+            let piece = -piece_id;
+            for pos in BitBoard(bitboards[(piece + 6) as usize]) {
+                self.items[pos as usize] = piece;
             }
         }
 
@@ -132,7 +135,7 @@ impl Board {
         self.pos_history.clear();
         assert_eq!(items.len(), 64, "Expected a vector with 64 elements, but got {}", items.len());
 
-        self.halfmove_count = (max(1, fullmove_num) - 1) * 2 + if active_player == WHITE { 0 } else { 1 };
+        self.halfmove_count = (max(1, fullmove_num) - 1) * 2 + if active_player.is_white() { 0 } else { 1 };
         self.state.halfmove_clock = halfmove_clock;
         self.state.history_start = halfmove_clock;
         self.state.hash = 0;
@@ -152,7 +155,7 @@ impl Board {
             let item = items[i];
 
             if item != EMPTY {
-                self.add_piece(item.signum(), item.abs(), i);
+                self.add_piece(Color::from_piece(item), item.abs(), i);
             } else {
                 self.items[i] = item;
             }
@@ -177,7 +180,7 @@ impl Board {
             }
         }
 
-        if self.active_player() == BLACK {
+        if self.active_player().is_black() {
             self.state.hash ^= player_zobrist_key()
         }
 
@@ -250,14 +253,14 @@ impl Board {
     }
 
     pub fn can_enpassant(&self, color: Color, location: u8) -> bool {
-        if color == WHITE
+        if color.is_white()
             && location >= WhiteBoardPos::EnPassantLineStart as u8
             && location <= WhiteBoardPos::EnPassantLineEnd as u8
         {
             return self.state.en_passant
                 & (1 << (location - WhiteBoardPos::EnPassantLineStart as u8))
                 != 0;
-        } else if color == BLACK
+        } else if color.is_black()
             && location >= BlackBoardPos::EnPassantLineStart as u8
             && location <= BlackBoardPos::EnPassantLineEnd as u8
         {
@@ -296,7 +299,7 @@ impl Board {
         let target_piece_id = m.piece_id();
 
         let own_piece = self.remove_piece(move_start);
-        let color = own_piece.signum();
+        let color = Color::from_piece(own_piece);
 
         self.clear_en_passant();
 
@@ -363,19 +366,19 @@ impl Board {
                 if own_piece == P {
                     // Special en passant handling
                     if move_start - move_end == 7 {
-                        self.remove_piece(move_start + WHITE as i32);
+                        self.remove_piece(move_start + 1);
                         return (own_piece, P);
                     } else if move_start - move_end == 9 {
-                        self.remove_piece(move_start - WHITE as i32);
+                        self.remove_piece(move_start - 1);
                         return (own_piece, P);
                     }
                 } else if own_piece == -P {
                     // Special en passant handling
                     if move_start - move_end == -7 {
-                        self.remove_piece(move_start + BLACK as i32);
+                        self.remove_piece(move_start - 1);
                         return (own_piece, P);
                     } else if move_start - move_end == -9 {
-                        self.remove_piece(move_start - BLACK as i32);
+                        self.remove_piece(move_start + 1);
                         return (own_piece, P);
                     }
                 }
@@ -442,7 +445,7 @@ impl Board {
         let move_start = m.start();
         let move_end = m.end();
 
-        let color = piece.signum();
+        let color = Color::from_piece(piece);
 
         self.halfmove_count -= 1;
         self.restore_state();
@@ -456,7 +459,7 @@ impl Board {
             MoveType::Capture => {
                 self.remove_piece_without_inc_update(move_end);
                 self.add_piece_without_inc_update(color, piece, move_start);
-                self.add_piece_without_inc_update(-color, removed_piece_id * -color, move_end);
+                self.add_piece_without_inc_update(color.flip(), color.flip().piece(removed_piece_id), move_end);
 
                 if removed_piece_id >= R {
                     self.nn_eval.check_refresh();
@@ -466,7 +469,7 @@ impl Board {
             MoveType::KingCapture => {
                 self.remove_piece_without_inc_update(move_end);
                 self.add_piece_without_inc_update(color, piece, move_start);
-                self.add_piece_without_inc_update(-color, removed_piece_id * -color, move_end);
+                self.add_piece_without_inc_update(color.flip(), color.flip().piece(removed_piece_id), move_end);
 
                 if piece == K {
                     // White King
@@ -486,13 +489,14 @@ impl Board {
                 self.add_piece_without_inc_update(color, piece, move_start);
 
                 if m.is_en_passant() {
+                    let offset = if color.is_white() { 1 } else { -1 };
                     if (move_start - move_end).abs() == 7 {
-                        self.add_piece_without_inc_update(-color, P * -color, move_start + color as i32);
+                        self.add_piece_without_inc_update(color.flip(), color.flip().piece(P), move_start + offset);
                     } else if (move_start - move_end).abs() == 9 {
-                        self.add_piece_without_inc_update(-color, P * -color, move_start - color as i32);
+                        self.add_piece_without_inc_update(color.flip(), color.flip().piece(P), move_start - offset);
                     }
                 } else if removed_piece_id != EMPTY {
-                    self.add_piece_without_inc_update(-color, removed_piece_id * -color, move_end);
+                    self.add_piece_without_inc_update(color.flip(), color.flip().piece(removed_piece_id), move_end);
                     self.nn_eval.check_refresh();
 
                 } else if m.is_promotion() {
@@ -520,7 +524,7 @@ impl Board {
                     self.remove_piece_without_inc_update(CastlingRules::qs_rook_end(color) as i32);
                 }
 
-                self.add_piece_without_inc_update(color, R * color, move_end);
+                self.add_piece_without_inc_update(color, color.piece(R), move_end);
                 self.set_king_pos(color, move_start);
                 self.add_piece_without_inc_update(color, piece, move_start);
             }
@@ -543,7 +547,7 @@ impl Board {
     }
 
     pub fn add_piece(&mut self, color: Color, piece_id: i8, pos: usize) {
-        let piece = piece_id * color;
+        let piece = color.piece(piece_id);
 
         unsafe {
             *self.items.get_unchecked_mut(pos as usize) = piece;
@@ -586,13 +590,13 @@ impl Board {
             }
         }
 
-        let color = piece.signum();
+        let color = Color::from_piece(piece);
         self.remove(piece, color, pos)
     }
 
     fn remove_piece_without_inc_update(&mut self, pos: i32) {
         let piece = self.get_item(pos);
-        let color = piece.signum();
+        let color = Color::from_piece(piece);
         self.remove(piece, color, pos);
     }
 
@@ -627,7 +631,7 @@ impl Board {
 
     #[inline]
     pub fn is_in_check(&self, color: Color) -> bool {
-        if color == WHITE {
+        if color.is_white() {
             self.is_attacked(BLACK, self.king_pos(WHITE))
         } else {
             self.is_attacked(WHITE, self.king_pos(BLACK))
@@ -647,23 +651,23 @@ impl Board {
         let target_bb = 1 << pos as u64;
 
         // Check knights
-        if self.get_bitboard(N * opponent_color) & get_knight_attacks(pos) != 0 {
+        if self.get_bitboard(opponent_color.piece(N)) & get_knight_attacks(pos) != 0 {
             return true;
         }
 
         // Check diagonal
-        let queens = self.get_bitboard(Q * opponent_color);
-        if (self.get_bitboard(B * opponent_color) | queens) & self.magics.get_bishop_attacks(empty_bb, pos) != 0 {
+        let queens = self.get_bitboard(opponent_color.piece(Q));
+        if (self.get_bitboard(opponent_color.piece(B)) | queens) & self.magics.get_bishop_attacks(empty_bb, pos) != 0 {
             return true;
         }
 
         // Check orthogonal
-        if (self.get_bitboard(R * opponent_color) | queens) & self.magics.get_rook_attacks(empty_bb, pos) != 0 {
+        if (self.get_bitboard(opponent_color.piece(R)) | queens) & self.magics.get_rook_attacks(empty_bb, pos) != 0 {
             return true;
         }
 
         // Check pawns
-        let pawns = self.get_bitboard(P * opponent_color);
+        let pawns = self.get_bitboard(opponent_color.piece(P));
         if get_pawn_attacks(pawns, opponent_color) & target_bb != 0 {
             return true;
         }
@@ -698,7 +702,7 @@ impl Board {
     // Returns the position of the smallest attacker or -1 if there is no attacker
     fn find_smallest_attacker(&self, empty_bb: u64, occupied_bb: u64, opp_color: Color, pos: i32) -> i32 {
         let target_bb = 1 << pos as u64;
-        if opp_color == WHITE {
+        if opp_color.is_white() {
             // Check pawns
             let white_pawns = self.get_bitboard(P) & occupied_bb;
             if white_left_pawn_attacks(white_pawns) & target_bb != 0 {
@@ -891,7 +895,7 @@ impl Board {
             occupied_bb &= !(1 << attacker_pos);
 
             // Own attack
-            let own_attacker_pos = self.find_smallest_attacker(empty_bb, occupied_bb, -opp_color, target);
+            let own_attacker_pos = self.find_smallest_attacker(empty_bb, occupied_bb, opp_color.flip(), target);
             if own_attacker_pos < 0 {
                 return score < threshold;
             }

@@ -16,7 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::colors::{Color, WHITE, BLACK};
+use crate::colors::{Color};
 use crate::engine::{LogLevel, Message};
 use crate::pieces::{EMPTY, R, P};
 use crate::scores::{MATE_SCORE, MIN_SCORE, MATED_SCORE, MAX_SCORE, sanitize_score};
@@ -334,7 +334,7 @@ impl Search {
 
             let capture_pos = if removed_piece_id != EMPTY { m.end() } else { -1 };
 
-            let gives_check = self.board.is_in_check(-active_player);
+            let gives_check = self.board.is_in_check(active_player.flip());
 
             let mut local_pv = PrincipalVariation::default();
 
@@ -528,7 +528,7 @@ impl Search {
             if !is_pv && !flags.in_check() {
                 if depth <= 3 {
                     // Jump directly to QS, if position is already so good, that it is unlikely for the opponent to counter it within the remaining search depth
-                    pos_score = pos_score.or_else(|| Some(self.board.eval() * active_player as i32));
+                    pos_score = pos_score.or_else(|| Some(active_player.score(self.board.eval())));
                     let score = pos_score.unwrap();
 
                     if score.abs() < MATE_SCORE - (2 * MAX_DEPTH as i32) && score - (100 * depth) >= beta {
@@ -536,7 +536,7 @@ impl Search {
                     }
                 } else if !self.board.is_pawn_endgame() {
                     // Null move pruning
-                    pos_score = pos_score.or_else(|| Some(self.board.eval() * active_player as i32));
+                    pos_score = pos_score.or_else(|| Some(active_player.score(self.board.eval())));
                     if pos_score.unwrap() >= beta {
                         self.tt.prefetch(self.board.get_hash());
                         let r = log2((depth * 3 - 3) as u32);
@@ -571,7 +571,7 @@ impl Search {
         let mut allow_futile_move_pruning = false;
         if !is_pv && depth <= 6 && !flags.in_check() {
             let margin = (6 << depth) * 4 + 16;
-            let prune_low_score = pos_score.unwrap_or_else(|| self.board.eval() * active_player as i32);
+            let prune_low_score = pos_score.unwrap_or_else(|| active_player.score(self.board.eval()));
             allow_futile_move_pruning = prune_low_score.abs() < MATE_SCORE - 2 * MAX_DEPTH as i32 && prune_low_score + margin <= alpha;
         }
 
@@ -579,7 +579,7 @@ impl Search {
         let counter_move = self.hh.get_counter_move(opponent_move);
         self.movegen.enter_ply(active_player, hash_move, primary_killer, secondary_killer, counter_move);
 
-        let opponent_pieces = self.board.get_all_piece_bitboard(-active_player);
+        let opponent_pieces = self.board.get_all_piece_bitboard(active_player.flip());
         let occupied_bb = self.board.get_occupancy_bitboard();
 
         let previous_move_was_capture = capture_pos != -1;
@@ -593,7 +593,7 @@ impl Search {
             }
 
             let (previous_piece, removed_piece_id) = self.board.perform_move(curr_move);
-            let gives_check = self.board.is_in_check(-active_player);
+            let gives_check = self.board.is_in_check(active_player.flip());
 
             // Check, if the hash move is singular and should be extended
             let mut se_extension = 0;
@@ -643,7 +643,7 @@ impl Search {
                         } else if allow_futile_move_pruning && !gives_check && !curr_move.is_queen_promotion() {
                             // Reduce futile move
                             reductions += FUTILE_MOVE_REDUCTIONS;
-                        } else if !is_pv && (curr_move.score() == NEGATIVE_HISTORY_SCORE || self.board.has_negative_see(-active_player, start, end, target_piece_id, EMPTY, 0, occupied_bb)) {
+                        } else if !is_pv && (curr_move.score() == NEGATIVE_HISTORY_SCORE || self.board.has_negative_see(active_player.flip(), start, end, target_piece_id, EMPTY, 0, occupied_bb)) {
                             // Reduce search depth for moves with negative history or negative SEE score
                             reductions += LOSING_MOVE_REDUCTIONS;
                             if evaluated_move_count > 0 && depth <= 3 {
@@ -786,7 +786,7 @@ impl Search {
             return 0;
         }
 
-        let position_score = pos_score.unwrap_or_else(|| self.board.eval() * active_player as i32);
+        let position_score = pos_score.unwrap_or_else(|| active_player.score(self.board.eval()));
         if ply >= MAX_DEPTH as i32 {
             return position_score;
         }
@@ -827,7 +827,7 @@ impl Search {
             let start = m.start();
 
             // skip capture moves with a SEE score below the given threshold
-            if self.board.has_negative_see(-active_player, start, end, previous_piece_id, captured_piece_id, threshold, occupied_bb) {
+            if self.board.has_negative_see(active_player.flip(), start, end, previous_piece_id, captured_piece_id, threshold, occupied_bb) {
                 continue;
             }
 
@@ -842,7 +842,7 @@ impl Search {
             let mut local_pv = PrincipalVariation::default();
 
             self.inc_node_count();
-            let score = -self.quiescence_search(rx, -active_player, -beta, -alpha, ply + 1, None, &mut local_pv);
+            let score = -self.quiescence_search(rx, active_player.flip(), -beta, -alpha, ply + 1, None, &mut local_pv);
             self.board.undo_move(m, previous_piece, move_state);
 
             if score <= best_score {
@@ -1050,10 +1050,10 @@ impl SearchLimits {
     }
 
     pub fn update(&mut self, active_player: Color) {
-        let (time_left, inc) = match active_player {
-            WHITE => (self.wtime, self.winc),
-            BLACK => (self.btime, self.binc),
-            _ => panic!("invalid player color: {}", active_player)
+        let (time_left, inc) = if active_player.is_white() {
+            (self.wtime, self.winc)
+        } else {
+            (self.btime, self.binc)
         };
 
         self.time_limit_ms = calc_time_limit(self.move_time, time_left, inc, self.moves_to_go);

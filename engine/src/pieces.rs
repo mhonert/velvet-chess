@@ -41,7 +41,6 @@ const PIECE_VALUES: [i16; 7] = [
     KING_VALUE,
 ];
 
-#[inline]
-pub const fn get_piece_value(piece_id: usize) -> i16 {
-    PIECE_VALUES[piece_id]
+pub fn get_piece_value(piece_id: usize) -> i16 {
+    unsafe { *PIECE_VALUES.get_unchecked(piece_id) }
 }

@@ -17,7 +17,7 @@
  */
 
 use std::cmp::min;
-use crate::colors::{Color, WHITE};
+use crate::colors::{Color};
 use crate::transposition_table::MAX_DEPTH;
 use crate::moves::{Move, NO_MOVE};
 
@@ -74,7 +74,7 @@ impl HistoryHeuristics {
 
     #[inline]
     fn update_cut_off_history(&mut self, active_player: Color, m: Move, counter_scale: i32) {
-        let color_offset = if active_player == WHITE { 0 } else { HISTORY_SIZE / 2 };
+        let color_offset = if active_player.is_white() { 0 } else { HISTORY_SIZE / 2 };
         let entry = unsafe { self.cut_off_history.get_unchecked_mut(color_offset + m.calc_piece_end_index()) };
         *entry = entry.saturating_add((counter_scale * 32 - *entry as i32 * counter_scale.abs() / 512) as i16);
     }
@@ -108,7 +108,7 @@ impl HistoryHeuristics {
 
     #[inline]
     pub fn get_history_score(&self, color: Color, m: Move) -> i32 {
-        let color_offset = if color == WHITE { 0 } else { HISTORY_SIZE / 2 };
+        let color_offset = if color.is_white() { 0 } else { HISTORY_SIZE / 2 };
         let index = color_offset + m.calc_piece_end_index();
 
         unsafe { (*self.cut_off_history.get_unchecked(index) / 32) as i32 }
@@ -117,6 +117,7 @@ impl HistoryHeuristics {
 
 #[cfg(test)]
 mod tests {
+    use crate::colors::WHITE;
     use super::*;
     use crate::pieces::{Q, R};
     use crate::moves::MoveType;
