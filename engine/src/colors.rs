@@ -32,6 +32,11 @@ impl Color {
         }
     }
 
+    /// Determines the active color from the halfmove count
+    pub fn from_halfmove_count(halfmove_count: u16) -> Self {
+        Color((halfmove_count & 1) as u8)
+    }
+
     /// Returns 0 for white and 1 for black
     pub fn idx(self) -> usize {
         self.0 as usize & 1

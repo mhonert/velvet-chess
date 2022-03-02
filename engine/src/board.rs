@@ -229,11 +229,7 @@ impl Board {
     }
 
     pub fn active_player(&self) -> Color {
-        if (self.halfmove_count & 1) == 0 {
-            WHITE
-        } else {
-            BLACK
-        }
+        Color::from_halfmove_count(self.halfmove_count)
     }
 
     pub fn can_castle(&self, castling: Castling) -> bool {
@@ -470,14 +466,7 @@ impl Board {
                 self.remove_piece_without_inc_update(move_end);
                 self.add_piece_without_inc_update(color, piece, move_start);
                 self.add_piece_without_inc_update(color.flip(), color.flip().piece(removed_piece_id), move_end);
-
-                if piece == K {
-                    // White King
-                    self.set_king_pos(WHITE, move_start);
-                } else {
-                    // Black King
-                    self.set_king_pos(BLACK, move_start);
-                }
+                self.set_king_pos(color, move_start);
 
                 if removed_piece_id >= R {
                     self.nn_eval.check_refresh();
@@ -507,12 +496,7 @@ impl Board {
             MoveType::KingQuiet => {
                 self.remove_piece_without_inc_update(move_end);
                 self.add_piece_without_inc_update(color, piece, move_start);
-
-                if piece == K {
-                    self.set_king_pos(WHITE, move_start);
-                } else if piece == -K {
-                    self.set_king_pos(BLACK, move_start);
-                }
+                self.set_king_pos(color, move_start);
             }
 
             MoveType::Castling => {
@@ -576,21 +560,16 @@ impl Board {
         let piece = self.get_item(pos);
         self.state.hash ^= piece_zobrist_key(piece, pos as usize);
 
-        if piece == R {
-            if self.castling_rules.is_ks_castling(WHITE, pos) {
-                self.set_rook_moved(Castling::WhiteKingSide);
-            } else if self.castling_rules.is_qs_castling(WHITE, pos) {
-                self.set_rook_moved(Castling::WhiteQueenSide);
-            }
-        } else if piece == -R {
-            if self.castling_rules.is_ks_castling(BLACK, pos) {
-                self.set_rook_moved(Castling::BlackKingSide);
-            } else if self.castling_rules.is_qs_castling(BLACK, pos) {
-                self.set_rook_moved(Castling::BlackQueenSide);
+        let color = Color::from_piece(piece);
+
+        if piece.abs() == R {
+            if self.castling_rules.is_ks_castling(color, pos) {
+                self.set_rook_moved(CastlingState::KING_SIDE[color.idx()]);
+            } else if self.castling_rules.is_qs_castling(color, pos) {
+                self.set_rook_moved(CastlingState::QUEEN_SIDE[color.idx()]);
             }
         }
 
-        let color = Color::from_piece(piece);
         self.remove(piece, color, pos)
     }
 

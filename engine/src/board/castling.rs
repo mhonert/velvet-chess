@@ -40,12 +40,12 @@ impl CastlingState {
         !(BlackQueenSide as u8 | BlackKingSide as u8),
     ];
 
-    const KING_SIDE: [Castling; 2] = [
+    pub const KING_SIDE: [Castling; 2] = [
         Castling::WhiteKingSide,
         Castling::BlackKingSide,
     ];
 
-    const QUEEN_SIDE: [Castling; 2] = [
+    pub const QUEEN_SIDE: [Castling; 2] = [
         Castling::WhiteQueenSide,
         Castling::BlackQueenSide,
     ];
