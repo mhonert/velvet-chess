@@ -635,11 +635,16 @@ impl Search {
                         if allow_lmr
                             && evaluated_move_count > LMR_THRESHOLD
                             && !self.board.is_pawn_move_close_to_promotion(previous_piece, end, opponent_pieces) {
-                            reductions += if curr_move.score() == NEGATIVE_HISTORY_SCORE { 3 } else { 2 };
 
-                            if excluded_singular_move != NO_MOVE && evaluated_move_count >= 6 {
+                            reductions += if is_pv { 1 } else { 2 };
+                            if curr_move.score() == NEGATIVE_HISTORY_SCORE {
                                 reductions += 1;
                             }
+
+                            if evaluated_move_count >= 6 && excluded_singular_move != NO_MOVE {
+                                reductions += 1;
+                            }
+
                         } else if allow_futile_move_pruning && !gives_check && !curr_move.is_queen_promotion() {
                             // Reduce futile move
                             reductions += FUTILE_MOVE_REDUCTIONS;
