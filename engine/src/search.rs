@@ -477,11 +477,7 @@ impl Search {
                     let tt_depth = get_depth(tt_entry);
                     match get_score_type(tt_entry) {
                         ScoreType::Exact => {
-                            if tt_depth >= depth {
-                                if is_pv {
-                                    self.enhance_pv_from_tt(pv);
-                                }
-
+                            if !is_pv && tt_depth >= depth {
                                 return hash_score
                             }
                             pos_score = Some(hash_score);
@@ -490,18 +486,12 @@ impl Search {
 
                         ScoreType::UpperBound => {
                             if hash_score <= alpha && tt_depth >= depth {
-                                if is_pv {
-                                    self.enhance_pv_from_tt(pv);
-                                }
                                 return hash_score;
                             }
                         },
 
                         ScoreType::LowerBound => {
                             if tt_depth >= depth && max(alpha, hash_score) >= beta {
-                                if is_pv {
-                                    self.enhance_pv_from_tt(pv);
-                                }
                                 if hash_move.is_quiet() {
                                     self.hh.update_killer_moves(ply, hash_move);
                                     self.hh.update_counter_move(opponent_move, hash_move);
@@ -970,24 +960,6 @@ impl Search {
 
     pub fn set_node_limit(&mut self, node_limit: u64) {
         self.limits.node_limit = node_limit;
-    }
-
-    fn enhance_pv_from_tt(&mut self, pv: &mut PrincipalVariation) {
-        if self.board.is_draw() {
-            return;
-        }
-
-        let tt_entry = self.tt.get_entry(self.board.get_hash());
-        let hash_move = self.movegen.sanitize_move(&self.board, self.board.active_player(), get_untyped_move(tt_entry));
-
-        if hash_move != NO_MOVE {
-            pv.add(hash_move);
-            if hash_move.score().abs() < MATE_SCORE - 1 {
-                let (previous_piece, removed_piece_id) = self.board.perform_move(hash_move);
-                self.enhance_pv_from_tt(pv);
-                self.board.undo_move(hash_move, previous_piece, removed_piece_id);
-            }
-        }
     }
 }
 
