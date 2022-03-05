@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2020 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2022 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -16,10 +16,10 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::board::{Board};
-use crate::board::castling::{CastlingRules};
-use crate::pieces::{P, B, EMPTY, N, Q, R, K};
+use crate::board::castling::CastlingRules;
+use crate::board::Board;
 use crate::moves::{Move, MoveType};
+use crate::pieces::{B, EMPTY, K, N, P, Q, R};
 
 pub struct UCIMove {
     pub start: i8,
@@ -29,11 +29,7 @@ pub struct UCIMove {
 
 impl UCIMove {
     pub fn new(start: i8, end: i8, promotion: i8) -> Self {
-        UCIMove {
-            start,
-            end,
-            promotion,
-        }
+        UCIMove { start, end, promotion }
     }
 
     pub fn from_move(board: &Board, m: Move) -> String {
@@ -91,11 +87,7 @@ impl UCIMove {
             EMPTY
         };
 
-        Some(UCIMove {
-            start,
-            end,
-            promotion,
-        })
+        Some(UCIMove { start, end, promotion })
     }
 
     pub fn to_move(&self, board: &Board) -> Move {
@@ -116,7 +108,7 @@ impl UCIMove {
                 } else {
                     Move::new(MoveType::Capture, P, start, end)
                 }
-            },
+            }
 
             K => {
                 let color = board.active_player();
@@ -124,7 +116,9 @@ impl UCIMove {
                     if board.castling_rules.is_chess960() {
                         if board.can_castle_king_side(color) && board.castling_rules.is_ks_castling(color, end as i32) {
                             return Move::new(MoveType::Castling, K, start, board.castling_rules.ks_rook_start(color));
-                        } else if board.can_castle_queen_side(color) && board.castling_rules.is_qs_castling(color, end as i32) {
+                        } else if board.can_castle_queen_side(color)
+                            && board.castling_rules.is_qs_castling(color, end as i32)
+                        {
                             return Move::new(MoveType::Castling, K, start, board.castling_rules.qs_rook_start(color));
                         }
                     } else {
@@ -141,7 +135,7 @@ impl UCIMove {
                 } else {
                     Move::new(MoveType::KingCapture, K, start, end)
                 }
-            },
+            }
 
             _ => {
                 if board.get_item(end) == EMPTY {
@@ -194,11 +188,11 @@ fn uci_promotion(promotion: i8) -> char {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::board::castling::{CastlingRules, CastlingState};
     use crate::colors::WHITE;
     use crate::fen::{create_from_fen, START_POS};
     use crate::pieces::{K, P};
-    use super::*;
 
     #[test]
     fn write_standard_move() {
@@ -211,7 +205,7 @@ mod tests {
     #[test]
     fn write_promotion_move() {
         #[rustfmt::skip]
-            let items: [i8; 64] = [
+        let items: [i8; 64] = [
             0,  0,  0, -K,  0,  0,  0,  0,
             P,  0,  0, -P,  0,  0,  0,  0,
             0,  0,  0,  0,  0,  0,  0,  0,
@@ -231,7 +225,7 @@ mod tests {
     #[test]
     fn write_castling_move() {
         #[rustfmt::skip]
-            let items: [i8; 64] = [
+        let items: [i8; 64] = [
             0,  0,  0, -K,  0,  0,  0,  0,
             0,  0,  0, -P,  0,  0,  0,  0,
             0,  0,  0,  0,  0,  0,  0,  0,

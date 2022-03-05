@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2021 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2022 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -26,7 +26,6 @@ impl Default for PositionHistory {
 }
 
 impl PositionHistory {
-
     pub fn push(&mut self, hash: u64) {
         self.0.push(hash);
     }
@@ -50,7 +49,6 @@ mod tests {
 
     #[test]
     fn detects_single_repetition() {
-
         let mut history = PositionHistory::default();
         history.push(1000);
         history.push(1001);

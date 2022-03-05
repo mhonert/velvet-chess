@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2021 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2022 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -16,14 +16,14 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::bitboard::{BitBoard, v_mirror};
-use std::cmp::{max};
-use std::sync::{Arc, Once};
 use crate::align::A32;
-use crate::colors::{Color};
-use crate::nn::{FEATURES_PER_BUCKET, FP_PRECISION_BITS, HL_NODES, NeuralNetParams};
+use crate::bitboard::{v_mirror, BitBoard};
+use crate::colors::Color;
+use crate::nn::{NeuralNetParams, FEATURES_PER_BUCKET, FP_PRECISION_BITS, HL_NODES};
 use crate::pieces::{Q, R};
-use crate::scores::{sanitize_eval_score};
+use crate::scores::sanitize_eval_score;
+use std::cmp::max;
+use std::sync::{Arc, Once};
 
 static INIT_NN_PARAMS: Once = Once::new();
 static mut NN_PARAMS: Option<Arc<NeuralNetParams>> = None;
@@ -56,7 +56,6 @@ enum UpdateAction {
 }
 
 impl NeuralNetEval {
-
     pub fn new() -> Box<Self> {
         INIT_NN_PARAMS.call_once(|| unsafe { NN_PARAMS = Some(NeuralNetParams::new()) });
         Box::new(NeuralNetEval {
@@ -148,7 +147,9 @@ impl NeuralNetEval {
             idx += 64;
         }
 
-        for (nodes, weights) in self.hidden_nodes_wtm.0.iter_mut().zip(self.params.input_weights.0.chunks_exact(HL_NODES).nth(idx).unwrap()) {
+        for (nodes, weights) in
+            self.hidden_nodes_wtm.0.iter_mut().zip(self.params.input_weights.0.chunks_exact(HL_NODES).nth(idx).unwrap())
+        {
             *nodes += *weights;
         }
 
@@ -157,7 +158,9 @@ impl NeuralNetEval {
             idx += 64;
         }
 
-        for (nodes, weights) in self.hidden_nodes_btm.0.iter_mut().zip(self.params.input_weights.0.chunks_exact(HL_NODES).nth(idx).unwrap()) {
+        for (nodes, weights) in
+            self.hidden_nodes_btm.0.iter_mut().zip(self.params.input_weights.0.chunks_exact(HL_NODES).nth(idx).unwrap())
+        {
             *nodes += *weights;
         }
     }
@@ -176,7 +179,9 @@ impl NeuralNetEval {
             idx += 64;
         }
 
-        for (nodes, weights) in self.hidden_nodes_wtm.0.iter_mut().zip(self.params.input_weights.0.chunks_exact(HL_NODES).nth(idx).unwrap()) {
+        for (nodes, weights) in
+            self.hidden_nodes_wtm.0.iter_mut().zip(self.params.input_weights.0.chunks_exact(HL_NODES).nth(idx).unwrap())
+        {
             *nodes -= *weights;
         }
 
@@ -185,7 +190,9 @@ impl NeuralNetEval {
             idx += 64;
         }
 
-        for (nodes, weights) in self.hidden_nodes_btm.0.iter_mut().zip(self.params.input_weights.0.chunks_exact(HL_NODES).nth(idx).unwrap()) {
+        for (nodes, weights) in
+            self.hidden_nodes_btm.0.iter_mut().zip(self.params.input_weights.0.chunks_exact(HL_NODES).nth(idx).unwrap())
+        {
             *nodes -= *weights;
         }
     }
@@ -200,9 +207,11 @@ impl NeuralNetEval {
         self.apply_updates(bitboards);
 
         let output = if active_player.is_white() {
-            (forward_pass::<HL_NODES>(&self.hidden_nodes_wtm.0, &self.params.output_weights.0) + self.params.output_bias) as i32
+            (forward_pass::<HL_NODES>(&self.hidden_nodes_wtm.0, &self.params.output_weights.0)
+                + self.params.output_bias) as i32
         } else {
-            -(forward_pass::<HL_NODES>(&self.hidden_nodes_btm.0, &self.params.output_weights.0) + self.params.output_bias) as i32
+            -(forward_pass::<HL_NODES>(&self.hidden_nodes_btm.0, &self.params.output_weights.0)
+                + self.params.output_bias) as i32
         };
 
         let score = sanitize_eval_score(output * 2048 / (1 << FP_PRECISION_BITS));
@@ -260,7 +269,6 @@ fn calc_bucket(bitboards: &[u64; 13]) -> (u8, u8) {
                 wtm_bucket |= 0b01;
                 btm_bucket |= 0b10;
             }
-
         } else {
             wtm_bucket = 4;
             btm_bucket = 4;
@@ -273,26 +281,26 @@ fn calc_bucket(bitboards: &[u64; 13]) -> (u8, u8) {
 #[inline(always)]
 fn forward_pass<const N: usize>(nodes: &[i16], weights: &[i16]) -> i16 {
     #[cfg(target_feature = "avx2")]
-        {
-            avx2::forward_pass::<N>(nodes, weights)
-        }
+    {
+        avx2::forward_pass::<N>(nodes, weights)
+    }
 
     #[cfg(all(target_feature = "sse2", not(target_feature = "avx2")))]
-        {
-            sse2::forward_pass::<N>(nodes, weights)
-        }
+    {
+        sse2::forward_pass::<N>(nodes, weights)
+    }
 
     #[cfg(not(any(target_feature = "sse2", target_feature = "avx2")))]
-        {
-            fallback::forward_pass::<N>(nodes, weights)
-        }
+    {
+        fallback::forward_pass::<N>(nodes, weights)
+    }
 }
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 mod avx2 {
+    use crate::nn::eval::FP_PRECISION_BITS;
     use core::arch::x86_64::*;
     use std::intrinsics::transmute;
-    use crate::nn::eval::FP_PRECISION_BITS;
 
     #[inline(always)]
     pub fn forward_pass<const N: usize>(nodes: &[i16], weights: &[i16]) -> i16 {
@@ -321,9 +329,9 @@ mod avx2 {
 
 #[cfg(all(target_arch = "x86_64", target_feature = "sse2", not(target_feature = "avx2")))]
 mod sse2 {
+    use crate::nn::eval::FP_PRECISION_BITS;
     use core::arch::x86_64::*;
     use std::intrinsics::transmute;
-    use crate::nn::eval::FP_PRECISION_BITS;
 
     #[inline(always)]
     pub fn forward_pass<const N: usize>(nodes: &[i16], weights: &[i16]) -> i16 {

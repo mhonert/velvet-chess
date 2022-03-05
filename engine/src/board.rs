@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2020 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2022 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -20,16 +20,20 @@ pub mod castling;
 
 use std::cmp::max;
 
-use crate::bitboard::{BitBoard, black_left_pawn_attacks, black_right_pawn_attacks, DARK_COLORED_FIELD_PATTERN, get_black_pawn_freepath,  get_king_attacks, get_knight_attacks, get_pawn_attacks, get_white_pawn_freepath, LIGHT_COLORED_FIELD_PATTERN, white_left_pawn_attacks, white_right_pawn_attacks};
+use crate::bitboard::{
+    black_left_pawn_attacks, black_right_pawn_attacks, get_black_pawn_freepath, get_king_attacks, get_knight_attacks,
+    get_pawn_attacks, get_white_pawn_freepath, white_left_pawn_attacks, white_right_pawn_attacks, BitBoard,
+    DARK_COLORED_FIELD_PATTERN, LIGHT_COLORED_FIELD_PATTERN,
+};
 use crate::board::castling::{Castling, CastlingRules, CastlingState};
-use crate::colors::{BLACK, Color, WHITE};
+use crate::colors::{Color, BLACK, WHITE};
+use crate::magics::Magics;
 use crate::moves::{Move, MoveType};
 use crate::nn::eval::NeuralNetEval;
-use crate::pieces::{B, EMPTY, get_piece_value, K, N, P, Q, R};
+use crate::pieces::{get_piece_value, B, EMPTY, K, N, P, Q, R};
 use crate::pos_history::PositionHistory;
 use crate::transposition_table::MAX_DEPTH;
 use crate::zobrist::{enpassant_zobrist_key, piece_zobrist_key, player_zobrist_key};
-use crate::magics::Magics;
 
 #[repr(u8)]
 pub enum WhiteBoardPos {
@@ -72,8 +76,9 @@ pub struct StateEntry {
 }
 
 impl Board {
-    pub fn new(items: &[i8], active_player: Color, castling_state: CastlingState, enpassant_target: Option<i8>,
-               halfmove_clock: u8, fullmove_num: u16, castling_rules: CastlingRules
+    pub fn new(
+        items: &[i8], active_player: Color, castling_state: CastlingState, enpassant_target: Option<i8>,
+        halfmove_clock: u8, fullmove_num: u16, castling_rules: CastlingRules,
     ) -> Self {
         assert_eq!(items.len(), 64, "Expected a vector with 64 elements, but got {}", items.len());
 
@@ -85,17 +90,34 @@ impl Board {
             items: [0; 64],
             bitboards: [0; 13],
             bitboards_all_pieces: [0; 2],
-            state: StateEntry{en_passant: 0, castling: CastlingState::default(), halfmove_clock: 0, hash: 0, history_start: 0},
+            state: StateEntry {
+                en_passant: 0,
+                castling: CastlingState::default(),
+                halfmove_clock: 0,
+                hash: 0,
+                history_start: 0,
+            },
             king_pos: [0; 2],
             halfmove_count: 0,
             history: Vec::with_capacity(MAX_DEPTH),
         };
 
-        board.set_position(items, active_player, castling_state, enpassant_target, halfmove_clock, fullmove_num, castling_rules);
+        board.set_position(
+            items,
+            active_player,
+            castling_state,
+            enpassant_target,
+            halfmove_clock,
+            fullmove_num,
+            castling_rules,
+        );
         board
     }
 
-    pub fn reset(&mut self, pos_history: PositionHistory, bitboards: [u64; 13], halfmove_count: u16, state: StateEntry, castling_rules: CastlingRules) {
+    pub fn reset(
+        &mut self, pos_history: PositionHistory, bitboards: [u64; 13], halfmove_count: u16, state: StateEntry,
+        castling_rules: CastlingRules,
+    ) {
         let white_bb = bitboards[7..=12].iter().fold(0, |acc, i| acc | i);
         let black_bb = bitboards[0..=5].iter().fold(0, |acc, i| acc | i);
 
@@ -129,8 +151,9 @@ impl Board {
         self.nn_eval.init_pos(&self.bitboards);
     }
 
-    pub fn set_position(&mut self, items: &[i8], active_player: Color, castling_state: CastlingState, enpassant_target: Option<i8>,
-                        halfmove_clock: u8, fullmove_num: u16, castling_rules: CastlingRules
+    pub fn set_position(
+        &mut self, items: &[i8], active_player: Color, castling_state: CastlingState, enpassant_target: Option<i8>,
+        halfmove_clock: u8, fullmove_num: u16, castling_rules: CastlingRules,
     ) {
         self.pos_history.clear();
         assert_eq!(items.len(), 64, "Expected a vector with 64 elements, but got {}", items.len());
@@ -253,16 +276,12 @@ impl Board {
             && location >= WhiteBoardPos::EnPassantLineStart as u8
             && location <= WhiteBoardPos::EnPassantLineEnd as u8
         {
-            return self.state.en_passant
-                & (1 << (location - WhiteBoardPos::EnPassantLineStart as u8))
-                != 0;
+            return self.state.en_passant & (1 << (location - WhiteBoardPos::EnPassantLineStart as u8)) != 0;
         } else if color.is_black()
             && location >= BlackBoardPos::EnPassantLineStart as u8
             && location <= BlackBoardPos::EnPassantLineEnd as u8
         {
-            return self.state.en_passant
-                & (1 << (location - BlackBoardPos::EnPassantLineStart as u8 + 8))
-                != 0;
+            return self.state.en_passant & (1 << (location - BlackBoardPos::EnPassantLineStart as u8 + 8)) != 0;
         }
 
         false
@@ -379,7 +398,8 @@ impl Board {
                     }
                 }
 
-                if target_piece_id >= R { // Rook or Queen Promotion
+                if target_piece_id >= R {
+                    // Rook or Queen Promotion
                     self.nn_eval.check_refresh();
                 }
             }
@@ -404,7 +424,6 @@ impl Board {
                     self.add_piece(color, R, CastlingRules::qs_rook_end(color) as usize);
                 }
             }
-
         }
 
         (own_piece, EMPTY)
@@ -487,7 +506,6 @@ impl Board {
                 } else if removed_piece_id != EMPTY {
                     self.add_piece_without_inc_update(color.flip(), color.flip().piece(removed_piece_id), move_end);
                     self.nn_eval.check_refresh();
-
                 } else if m.is_promotion() {
                     self.nn_eval.check_refresh();
                 }
@@ -521,7 +539,7 @@ impl Board {
     }
 
     fn add_piece_without_inc_update(&mut self, color: Color, piece: i8, pos: i32) {
-         unsafe {
+        unsafe {
             *self.items.get_unchecked_mut(pos as usize) = piece;
             *self.bitboards_all_pieces.get_unchecked_mut(color.idx()) |= 1u64 << pos as u64;
             *self.bitboards.get_unchecked_mut((piece + 6) as usize) |= 1u64 << pos as u64;
@@ -795,7 +813,6 @@ impl Board {
             || self.is_insufficient_material_draw()
     }
 
-
     pub fn is_repetition_draw(&self) -> bool {
         self.pos_history.is_repetition_draw(self.state.hash, self.state.history_start)
     }
@@ -805,16 +822,13 @@ impl Board {
     }
 
     pub fn is_insufficient_material_draw(&self) -> bool {
-        match (self.get_all_piece_bitboard(WHITE) | self.get_all_piece_bitboard(BLACK)).count_ones()
-        {
+        match (self.get_all_piece_bitboard(WHITE) | self.get_all_piece_bitboard(BLACK)).count_ones() {
             2 => true, // K vs K
 
             3 => {
                 // K vs K+N or K vs K+B
-                let knights_or_bishops = self.get_bitboard(N)
-                    | self.get_bitboard(-N)
-                    | self.get_bitboard(B)
-                    | self.get_bitboard(-B);
+                let knights_or_bishops =
+                    self.get_bitboard(N) | self.get_bitboard(-N) | self.get_bitboard(B) | self.get_bitboard(-B);
                 knights_or_bishops != 0
             }
 
@@ -837,7 +851,6 @@ impl Board {
     pub fn is_pawn_move_close_to_promotion(&self, piece: i8, pos: i32, blockers: u64) -> bool {
         if piece == P {
             return (get_white_pawn_freepath(pos as i32) & blockers) == 0;
-
         } else if piece == -P {
             return (get_black_pawn_freepath(pos as i32) & blockers) == 0;
         }
@@ -853,7 +866,10 @@ impl Board {
     /* Perform a Static Exchange Evaluation (SEE) to check, whether the net gain of the capture is still positive,
        after applying all immediate and discovered re-capture attacks.
     */
-    pub fn has_negative_see(&mut self, opp_color: Color, from: i32, target: i32, own_piece_id: i8, captured_piece_id: i8, threshold: i16, mut occupied_bb: u64) -> bool {
+    pub fn has_negative_see(
+        &mut self, opp_color: Color, from: i32, target: i32, own_piece_id: i8, captured_piece_id: i8, threshold: i16,
+        mut occupied_bb: u64,
+    ) -> bool {
         let mut score = get_piece_value(captured_piece_id as usize);
         occupied_bb &= !(1 << from as u64);
         let mut trophy_piece_score = get_piece_value(own_piece_id as usize);
@@ -906,7 +922,6 @@ impl Board {
     pub fn eval(&mut self) -> i32 {
         self.nn_eval.eval(self.active_player(), self.halfmove_clock(), &self.bitboards)
     }
-
 }
 
 #[cfg(test)]
@@ -917,10 +932,16 @@ mod tests {
 
     #[test]
     fn update_hash_when_piece_moves() {
-        let items: [i8; 64] = [
-            0, 0, 0, -K, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, K, 0, 0, 0, 0,
+        #[rustfmt::skip]
+            let items: [i8; 64] = [
+            0,  0,  0, -K,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  K,  0,  0,  0,  0,
         ];
 
         let mut board = Board::new(&items, WHITE, CastlingState::default(), None, 0, 1, CastlingRules::default());
@@ -940,10 +961,16 @@ mod tests {
 
     #[test]
     fn incrementally_updates_hash() {
+        #[rustfmt::skip]
         let items: [i8; 64] = [
-            0, 0, 0, -K, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, K, 0, 0, 0, 0,
+            0,  0,  0, -K,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  K,  0,  0,  0,  0,
         ];
 
         let mut board = Board::new(&items, WHITE, CastlingState::default(), None, 0, 1, CastlingRules::default());
@@ -963,10 +990,16 @@ mod tests {
 
     #[test]
     fn performs_and_undos_white_castling_moves() {
+        #[rustfmt::skip]
         let items: [i8; 64] = [
-            -R, 0, 0, 0, -K, 0, 0, -R, -P, -P, -P, -P, -P, -P, -P, -P, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, P, P, P, P, P, P,
-            P, P, R, 0, 0, 0, K, 0, 0, R,
+            -R,  0,  0,  0, -K,  0,  0, -R,
+            -P, -P, -P, -P, -P, -P, -P, -P,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            P,  P,  P,  P,  P,  P,  P,  P,
+            R,  0,  0,  0,  K,  0,  0,  R,
         ];
 
         let mut board = Board::new(&items, WHITE, CastlingState::ALL, None, 0, 1, CastlingRules::default());
@@ -975,7 +1008,12 @@ mod tests {
         let initial_hash = board.get_hash();
         let initial_castling_state = board.state.castling;
 
-        let m = Move::new(MoveType::Castling, K, board.castling_rules.king_start(WHITE) as i32, board.castling_rules.ks_rook_start(WHITE));
+        let m = Move::new(
+            MoveType::Castling,
+            K,
+            board.castling_rules.king_start(WHITE) as i32,
+            board.castling_rules.ks_rook_start(WHITE),
+        );
         let (previous, state) = board.perform_move(m);
 
         assert_ne!(&initial_items[..], &board.items[..]);
@@ -991,10 +1029,16 @@ mod tests {
 
     #[test]
     fn performs_and_undos_black_castling_moves() {
+        #[rustfmt::skip]
         let items: [i8; 64] = [
-            -R, 0, 0, 0, -K, 0, 0, -R, -P, -P, -P, -P, -P, -P, -P, -P, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, P, P, P, P, P, P,
-            P, P, R, N, B, Q, K, B, N, R,
+            -R,  0,  0,  0, -K,  0,  0, -R,
+            -P, -P, -P, -P, -P, -P, -P, -P,
+             0,  0,  0,  0,  0,  0,  0,  0,
+             0,  0,  0,  0,  0,  0,  0,  0,
+             0,  0,  0,  0,  0,  0,  0,  0,
+             0,  0,  0,  0,  0,  0,  0,  0,
+             P,  P,  P,  P,  P,  P,  P,  P,
+             R,  N,  B,  Q,  K,  B,  N,  R,
         ];
 
         let mut board = Board::new(&items, BLACK, CastlingState::ALL, None, 0, 1, CastlingRules::default());
@@ -1003,7 +1047,12 @@ mod tests {
         let initial_hash = board.get_hash();
         let initial_castling_state = board.state.castling;
 
-        let m = Move::new(MoveType::Castling, K, board.castling_rules.king_start(BLACK), board.castling_rules.ks_rook_start(BLACK));
+        let m = Move::new(
+            MoveType::Castling,
+            K,
+            board.castling_rules.king_start(BLACK),
+            board.castling_rules.ks_rook_start(BLACK),
+        );
 
         let (previous, state) = board.perform_move(m);
 
@@ -1326,17 +1375,9 @@ mod tests {
 
         board.set_enpassant(51);
 
-        assert_ne!(
-            initial_hash,
-            board.get_hash(),
-            "hash must be different if en passant flag is set"
-        );
+        assert_ne!(initial_hash, board.get_hash(), "hash must be different if en passant flag is set");
 
         board.clear_en_passant();
-        assert_eq!(
-            initial_hash,
-            board.get_hash(),
-            "hash must be eq to initial hash if en passant flag is cleared"
-        );
+        assert_eq!(initial_hash, board.get_hash(), "hash must be eq to initial hash if en passant flag is cleared");
     }
 }

@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2020 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2022 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -9,17 +9,19 @@
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the * GNU General Public License for more details. *
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::moves::{Move};
-use std::intrinsics::transmute;
-use std::sync::Arc;
-use crate::scores::{MATED_SCORE, MATE_SCORE};
-use std::sync::atomic::{AtomicU64, Ordering};
 use crate::align::A64;
+use crate::moves::Move;
+use crate::scores::{MATED_SCORE, MATE_SCORE};
+use std::intrinsics::transmute;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 pub const MAX_HASH_SIZE_MB: i32 = 256 * 1024;
 
@@ -38,15 +40,13 @@ const DEPTH_MASK: u64 = 0b1111111;
 pub enum ScoreType {
     Exact = 0,
     UpperBound = 1,
-    LowerBound = 2
+    LowerBound = 2,
 }
 
 impl ScoreType {
     #[inline]
     pub fn from(code: u8) -> Self {
-        unsafe {
-            transmute(code)
-        }
+        unsafe { transmute(code) }
     }
 }
 
@@ -65,10 +65,7 @@ pub struct TranspositionTable {
 
 impl TranspositionTable {
     pub fn new(size_mb: u64) -> Arc<Self> {
-        let mut tt = Arc::new(TranspositionTable {
-            index_mask: 0,
-            segments: A64(Vec::with_capacity(0)),
-        });
+        let mut tt = Arc::new(TranspositionTable { index_mask: 0, segments: A64(Vec::with_capacity(0)) });
 
         Arc::get_mut(&mut tt).unwrap().resize(size_mb);
         TranspositionTable::clear(&tt, 0, 1);
@@ -160,10 +157,15 @@ impl TranspositionTable {
 
     // hash_full returns an approximation of the fill level in per mill
     pub fn hash_full(&self) -> usize {
-        self.segments.0.iter().take(1024 / SLOTS_PER_SEGMENT)
+        self.segments
+            .0
+            .iter()
+            .take(1024 / SLOTS_PER_SEGMENT)
             .flat_map(|entries| entries.iter())
             .filter(|entry| entry.load(Ordering::Relaxed) != 0)
-            .count() * 1000 / 1024
+            .count()
+            * 1000
+            / 1024
     }
 }
 
@@ -203,12 +205,11 @@ pub fn get_score_type(entry: u64) -> ScoreType {
     ScoreType::from(((entry >> SCORE_TYPE_BITSHIFT) & SCORE_TYPE_MASK) as u8)
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scores::{MIN_SCORE, MAX_SCORE};
     use crate::moves::{MoveType, NO_MOVE};
+    use crate::scores::{MAX_SCORE, MIN_SCORE};
 
     #[test]
     fn writes_entry() {

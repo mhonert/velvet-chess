@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2021 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2022 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -48,7 +48,11 @@ impl NeuralNetParams {
         let mut reader = BufReader::new(&include_bytes!("../nets/velvet.qnn")[..]);
 
         let precision_bits = reader.read_i8().unwrap() as i16;
-        assert_eq!(precision_bits, FP_PRECISION_BITS, "NN has been quantized with a different fixed point precision, expected: {}, got: {}", FP_PRECISION_BITS, precision_bits);
+        assert_eq!(
+            precision_bits, FP_PRECISION_BITS,
+            "NN has been quantized with a different fixed point precision, expected: {}, got: {}",
+            FP_PRECISION_BITS, precision_bits
+        );
 
         let mut params = Box::new(NeuralNetParams::default());
 
@@ -64,7 +68,7 @@ impl NeuralNetParams {
 
 impl Default for NeuralNetParams {
     fn default() -> Self {
-        NeuralNetParams{
+        NeuralNetParams {
             input_weights: A32([0; INPUTS * HL_NODES]),
             input_biases: A32([0; HL_NODES]),
 

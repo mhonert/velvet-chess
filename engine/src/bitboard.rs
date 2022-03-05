@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2020 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2022 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -16,8 +16,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::bitboard::Direction::{Horizontal, AntiDiagonal, Vertical, Diagonal};
-use crate::colors::{Color};
+use crate::bitboard::Direction::{AntiDiagonal, Diagonal, Horizontal, Vertical};
+use crate::colors::Color;
 
 pub struct BitBoard(pub u64);
 
@@ -57,13 +57,13 @@ pub fn get_king_attacks(pos: i32) -> u64 {
 #[inline]
 pub fn gen_bishop_attacks(occupied: u64, pos: i32) -> u64 {
     get_line_attacks(occupied, unsafe { LINE_MASKS.get_unchecked(pos as usize + (Diagonal as usize * 64)) })
-    | get_line_attacks(occupied, unsafe { LINE_MASKS.get_unchecked(pos as usize + (AntiDiagonal as usize * 64)) })
+        | get_line_attacks(occupied, unsafe { LINE_MASKS.get_unchecked(pos as usize + (AntiDiagonal as usize * 64)) })
 }
 
 #[inline]
 pub fn gen_rook_attacks(occupied: u64, pos: i32) -> u64 {
     get_line_attacks(occupied, unsafe { LINE_MASKS.get_unchecked(pos as usize + (Horizontal as usize * 64)) })
-    | get_line_attacks(occupied, unsafe { LINE_MASKS.get_unchecked(pos as usize + (Vertical as usize * 64)) })
+        | get_line_attacks(occupied, unsafe { LINE_MASKS.get_unchecked(pos as usize + (Vertical as usize * 64)) })
 }
 
 #[inline]
@@ -168,7 +168,6 @@ pub fn mask_without_outline(mut mask: u64, pos: u32) -> u64 {
     mask
 }
 
-
 // Patterns for line movers (Bishop, Rook, Queen)
 #[repr(usize)]
 enum Direction {
@@ -180,18 +179,13 @@ enum Direction {
 
 const MAX_FIELD_DISTANCE: i32 = 7; // maximum distance between two fields on the board
 
-const DIRECTIONS: [usize; 4] = [
-    Horizontal as usize,
-    Vertical as usize,
-    Diagonal as usize,
-    AntiDiagonal as usize,
-];
+const DIRECTIONS: [usize; 4] = [Horizontal as usize, Vertical as usize, Diagonal as usize, AntiDiagonal as usize];
 
 #[derive(Copy, Clone)]
 struct LinePatterns {
     lower: u64,
     upper: u64,
-    combined: u64
+    combined: u64,
 }
 
 #[inline]
@@ -206,12 +200,11 @@ fn get_line_attacks(occupied: u64, patterns: &LinePatterns) -> u64 {
     patterns.combined & odiff
 }
 
-
 const DIRECTION_COL_OFFSET: [i32; 4] = [-1, 0, 1, -1];
 const DIRECTION_ROW_OFFSET: [i32; 4] = [0, -1, -1, -1];
 
 const fn calc_line_patterns() -> [LinePatterns; 64 * 4] {
-    let mut patterns: [LinePatterns; 64 * 4] = [LinePatterns{lower: 0, upper: 0, combined: 0}; 64 * 4];
+    let mut patterns: [LinePatterns; 64 * 4] = [LinePatterns { lower: 0, upper: 0, combined: 0 }; 64 * 4];
 
     let mut index = 0;
     let mut dir_index = 0;
@@ -222,7 +215,7 @@ const fn calc_line_patterns() -> [LinePatterns; 64 * 4] {
             let lower = calc_pattern(pos, DIRECTION_COL_OFFSET[dir], DIRECTION_ROW_OFFSET[dir]);
             let upper = calc_pattern(pos, -DIRECTION_COL_OFFSET[dir], -DIRECTION_ROW_OFFSET[dir]);
             let combined = upper | lower;
-            patterns[index] = LinePatterns{lower, upper, combined};
+            patterns[index] = LinePatterns { lower, upper, combined };
             index += 1;
             pos += 1;
         }
@@ -308,21 +301,45 @@ mod tests {
     #[test]
     fn gets_column_mask() {
         for offset in (0..63).step_by(8) {
-            assert_eq!(get_column_mask(0 + offset), 0b00000001_00000001_00000001_00000001_00000001_00000001_00000001_00000001);
-            assert_eq!(get_column_mask(1 + offset), 0b00000010_00000010_00000010_00000010_00000010_00000010_00000010_00000010);
-            assert_eq!(get_column_mask(2 + offset), 0b00000100_00000100_00000100_00000100_00000100_00000100_00000100_00000100);
-            assert_eq!(get_column_mask(3 + offset), 0b00001000_00001000_00001000_00001000_00001000_00001000_00001000_00001000);
-            assert_eq!(get_column_mask(4 + offset), 0b00010000_00010000_00010000_00010000_00010000_00010000_00010000_00010000);
-            assert_eq!(get_column_mask(5 + offset), 0b00100000_00100000_00100000_00100000_00100000_00100000_00100000_00100000);
-            assert_eq!(get_column_mask(6 + offset), 0b01000000_01000000_01000000_01000000_01000000_01000000_01000000_01000000);
-            assert_eq!(get_column_mask(7 + offset), 0b10000000_10000000_10000000_10000000_10000000_10000000_10000000_10000000);
+            assert_eq!(
+                get_column_mask(0 + offset),
+                0b00000001_00000001_00000001_00000001_00000001_00000001_00000001_00000001
+            );
+            assert_eq!(
+                get_column_mask(1 + offset),
+                0b00000010_00000010_00000010_00000010_00000010_00000010_00000010_00000010
+            );
+            assert_eq!(
+                get_column_mask(2 + offset),
+                0b00000100_00000100_00000100_00000100_00000100_00000100_00000100_00000100
+            );
+            assert_eq!(
+                get_column_mask(3 + offset),
+                0b00001000_00001000_00001000_00001000_00001000_00001000_00001000_00001000
+            );
+            assert_eq!(
+                get_column_mask(4 + offset),
+                0b00010000_00010000_00010000_00010000_00010000_00010000_00010000_00010000
+            );
+            assert_eq!(
+                get_column_mask(5 + offset),
+                0b00100000_00100000_00100000_00100000_00100000_00100000_00100000_00100000
+            );
+            assert_eq!(
+                get_column_mask(6 + offset),
+                0b01000000_01000000_01000000_01000000_01000000_01000000_01000000_01000000
+            );
+            assert_eq!(
+                get_column_mask(7 + offset),
+                0b10000000_10000000_10000000_10000000_10000000_10000000_10000000_10000000
+            );
         }
     }
 
     #[test]
     fn gets_lower_block_mask() {
-        assert_eq!(get_lower_block_mask(0),  0b00000000_00000000_00000000_00000000_00000000_00000000_00000000_00000000);
-        assert_eq!(get_lower_block_mask(8),  0b00000000_00000000_00000000_00000000_00000000_00000000_00000000_11111111);
+        assert_eq!(get_lower_block_mask(0), 0b00000000_00000000_00000000_00000000_00000000_00000000_00000000_00000000);
+        assert_eq!(get_lower_block_mask(8), 0b00000000_00000000_00000000_00000000_00000000_00000000_00000000_11111111);
         assert_eq!(get_lower_block_mask(16), 0b00000000_00000000_00000000_00000000_00000000_00000000_11111111_11111111);
         assert_eq!(get_lower_block_mask(24), 0b00000000_00000000_00000000_00000000_00000000_11111111_11111111_11111111);
         assert_eq!(get_lower_block_mask(32), 0b00000000_00000000_00000000_00000000_11111111_11111111_11111111_11111111);
@@ -333,8 +350,8 @@ mod tests {
 
     #[test]
     fn gets_upper_block_mask() {
-        assert_eq!(get_upper_block_mask(0),  0b11111111_11111111_11111111_11111111_11111111_11111111_11111111_00000000);
-        assert_eq!(get_upper_block_mask(8),  0b11111111_11111111_11111111_11111111_11111111_11111111_00000000_00000000);
+        assert_eq!(get_upper_block_mask(0), 0b11111111_11111111_11111111_11111111_11111111_11111111_11111111_00000000);
+        assert_eq!(get_upper_block_mask(8), 0b11111111_11111111_11111111_11111111_11111111_11111111_00000000_00000000);
         assert_eq!(get_upper_block_mask(16), 0b11111111_11111111_11111111_11111111_11111111_00000000_00000000_00000000);
         assert_eq!(get_upper_block_mask(24), 0b11111111_11111111_11111111_11111111_00000000_00000000_00000000_00000000);
         assert_eq!(get_upper_block_mask(32), 0b11111111_11111111_11111111_00000000_00000000_00000000_00000000_00000000);
@@ -345,16 +362,16 @@ mod tests {
 
     #[test]
     fn valid_from_to_masks() {
-        assert_eq!(get_from_to_mask(0, 7),   0b00000000_00000000_00000000_00000000_00000000_00000000_00000000_11111111);
-        assert_eq!(get_from_to_mask(7, 0),   0b00000000_00000000_00000000_00000000_00000000_00000000_00000000_11111111);
+        assert_eq!(get_from_to_mask(0, 7), 0b00000000_00000000_00000000_00000000_00000000_00000000_00000000_11111111);
+        assert_eq!(get_from_to_mask(7, 0), 0b00000000_00000000_00000000_00000000_00000000_00000000_00000000_11111111);
 
-        assert_eq!(get_from_to_mask(1, 6),   0b00000000_00000000_00000000_00000000_00000000_00000000_00000000_01111110);
-        assert_eq!(get_from_to_mask(6, 1),   0b00000000_00000000_00000000_00000000_00000000_00000000_00000000_01111110);
+        assert_eq!(get_from_to_mask(1, 6), 0b00000000_00000000_00000000_00000000_00000000_00000000_00000000_01111110);
+        assert_eq!(get_from_to_mask(6, 1), 0b00000000_00000000_00000000_00000000_00000000_00000000_00000000_01111110);
 
-        assert_eq!(get_from_to_mask(3, 4),   0b00000000_00000000_00000000_00000000_00000000_00000000_00000000_00011000);
-        assert_eq!(get_from_to_mask(4, 3),   0b00000000_00000000_00000000_00000000_00000000_00000000_00000000_00011000);
+        assert_eq!(get_from_to_mask(3, 4), 0b00000000_00000000_00000000_00000000_00000000_00000000_00000000_00011000);
+        assert_eq!(get_from_to_mask(4, 3), 0b00000000_00000000_00000000_00000000_00000000_00000000_00000000_00011000);
 
-        assert_eq!(get_from_to_mask(4, 6),   0b00000000_00000000_00000000_00000000_00000000_00000000_00000000_01110000);
-        assert_eq!(get_from_to_mask(6, 4),   0b00000000_00000000_00000000_00000000_00000000_00000000_00000000_01110000);
+        assert_eq!(get_from_to_mask(4, 6), 0b00000000_00000000_00000000_00000000_00000000_00000000_00000000_01110000);
+        assert_eq!(get_from_to_mask(6, 4), 0b00000000_00000000_00000000_00000000_00000000_00000000_00000000_01110000);
     }
 }

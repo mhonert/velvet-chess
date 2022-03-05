@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2020 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2022 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -18,18 +18,18 @@
 
 use crate::board::Board;
 use crate::fen::{create_from_fen, read_fen, write_fen, START_POS};
+use crate::history_heuristics::HistoryHeuristics;
+use crate::move_gen::MoveGenerator;
+use crate::moves::{Move, NO_MOVE};
 use crate::perft::perft;
-use crate::search::{SearchLimits, Search, DEFAULT_SEARCH_THREADS};
+use crate::search::{Search, SearchLimits, DEFAULT_SEARCH_THREADS};
 use crate::transposition_table::{TranspositionTable, DEFAULT_SIZE_MB};
 use crate::uci_move::UCIMove;
-use std::sync::{mpsc, Arc};
-use std::sync::mpsc::{Receiver, Sender};
-use std::thread;
-use std::time::{SystemTime};
-use crate::moves::{NO_MOVE, Move};
-use crate::move_gen::MoveGenerator;
 use std::sync::atomic::{AtomicBool, AtomicU64};
-use crate::history_heuristics::HistoryHeuristics;
+use std::sync::mpsc::{Receiver, Sender};
+use std::sync::{mpsc, Arc};
+use std::thread;
+use std::time::SystemTime;
 
 pub enum Message {
     Fen,
@@ -51,7 +51,7 @@ pub enum Message {
 pub enum LogLevel {
     Debug,
     Info,
-    Error
+    Error,
 }
 
 pub struct Engine {
@@ -81,10 +81,15 @@ impl Engine {
         let mut board = create_from_fen(fen);
         board.reset_nn_eval();
 
-        let search = Search::new(Arc::new(AtomicBool::new(true)), Arc::new(AtomicU64::new(0)),
-                                 LogLevel::Info, SearchLimits::default(),
-                                 TranspositionTable::new(tt_size_mb),
-                                 board.clone(), false);
+        let search = Search::new(
+            Arc::new(AtomicBool::new(true)),
+            Arc::new(AtomicU64::new(0)),
+            LogLevel::Info,
+            SearchLimits::default(),
+            TranspositionTable::new(tt_size_mb),
+            board.clone(),
+            false,
+        );
 
         Engine {
             rx,
@@ -94,7 +99,7 @@ impl Engine {
             new_thread_count: None,
             current_tt_size: DEFAULT_SIZE_MB as i32,
             current_thread_count: DEFAULT_SEARCH_THREADS as i32,
-            search
+            search,
         }
     }
 
@@ -132,13 +137,13 @@ impl Engine {
                 if size_mb != self.current_tt_size {
                     self.new_tt_size = Some(size_mb);
                 }
-            },
+            }
 
             Message::SetThreadCount(count) => {
                 if count != self.current_thread_count {
                     self.new_thread_count = Some(count);
                 }
-            },
+            }
 
             Message::Perft(depth) => self.perft(depth),
 
@@ -151,11 +156,11 @@ impl Engine {
             Message::Profile => {
                 self.profile();
                 return false;
-            },
+            }
 
             Message::Quit => {
                 return false;
-            },
+            }
 
             Message::Stop => (),
 

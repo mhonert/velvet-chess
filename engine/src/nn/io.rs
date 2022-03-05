@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2021 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2022 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -16,16 +16,19 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::cmp::{max};
-use std::collections::HashMap;
-use std::io::{Error, ErrorKind, Read, Write};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use itertools::Itertools;
+use std::cmp::max;
+use std::collections::HashMap;
+use std::io::{Error, ErrorKind, Read, Write};
 
 pub fn read_quantized(reader: &mut dyn Read, target: &mut [i16]) -> Result<(), Error> {
     let size = reader.read_u32::<LittleEndian>()? as usize;
     if size != target.len() {
-        return Result::Err(Error::new(ErrorKind::InvalidData, format!("Size mismatch: expected {}, but got {}", target.len(), size)));
+        return Result::Err(Error::new(
+            ErrorKind::InvalidData,
+            format!("Size mismatch: expected {}, but got {}", target.len(), size),
+        ));
     }
 
     let zero_rep_marker = reader.read_i16::<LittleEndian>()?;
@@ -79,8 +82,8 @@ pub struct CodeBook {
 }
 
 enum Tree {
-    Leaf{count: usize, value: i16},
-    Node{count: usize, left: Box<Tree>, right: Box<Tree>}
+    Leaf { count: usize, value: i16 },
+    Node { count: usize, left: Box<Tree>, right: Box<Tree> },
 }
 
 type CodeByValue = HashMap<i16, (BitCount, BitPattern)>;
@@ -90,8 +93,12 @@ impl CodeBook {
     const END: u8 = 0;
 
     pub fn from_values(input: &[i16]) -> Self {
-        let mut entries: Vec<Tree> = input.iter().sorted().group_by(|v| *v).into_iter()
-            .map(|group| Tree::Leaf{value: *group.0, count: group.1.count()})
+        let mut entries: Vec<Tree> = input
+            .iter()
+            .sorted()
+            .group_by(|v| *v)
+            .into_iter()
+            .map(|group| Tree::Leaf { value: *group.0, count: group.1.count() })
             .collect_vec();
 
         while entries.len() > 1 {
@@ -135,10 +142,14 @@ impl CodeBook {
     }
 
     pub fn write(&self, writer: &mut dyn Write) -> Result<(), Error> {
-        for (bitcount, group) in self.code_by_value.iter().map(|(value, entry)| (entry.0, value))
+        for (bitcount, group) in self
+            .code_by_value
+            .iter()
+            .map(|(value, entry)| (entry.0, value))
             .sorted_unstable()
-            .group_by(|entry| entry.0).into_iter() {
-
+            .group_by(|entry| entry.0)
+            .into_iter()
+        {
             writer.write_u8(bitcount)?;
 
             let values = group.map(|e| *e.1).collect_vec();
@@ -183,11 +194,11 @@ impl CodeBook {
 
     fn gen_value_bitcounts(node: Tree, value_bitcounts: &mut Vec<(i16, BitCount)>, bit_count: BitCount) {
         match node {
-            Tree::Leaf {value, .. } => {
+            Tree::Leaf { value, .. } => {
                 value_bitcounts.push((value, max(1, bit_count)));
             }
 
-            Tree::Node {left, right, .. } => {
+            Tree::Node { left, right, .. } => {
                 Self::gen_value_bitcounts(*left, value_bitcounts, bit_count + 1);
                 Self::gen_value_bitcounts(*right, value_bitcounts, bit_count + 1);
             }
@@ -196,17 +207,13 @@ impl CodeBook {
 
     fn count(node: &Tree) -> usize {
         match *node {
-            Tree::Leaf {count, .. } => count,
-            Tree::Node {count, .. } => count
+            Tree::Leaf { count, .. } => count,
+            Tree::Node { count, .. } => count,
         }
     }
 
     fn node(left: Tree, right: Tree) -> Tree {
-        Tree::Node {
-            count: Self::count(&left) + Self::count(&right),
-            left: Box::new(left),
-            right: Box::new(right),
-        }
+        Tree::Node { count: Self::count(&left) + Self::count(&right), left: Box::new(left), right: Box::new(right) }
     }
 }
 
@@ -219,10 +226,7 @@ struct BitReader {
 
 impl BitReader {
     pub fn new() -> Self {
-        BitReader{
-            bit_index: 0,
-            buffer: None,
-        }
+        BitReader { bit_index: 0, buffer: None }
     }
 
     pub fn read(&mut self, reader: &mut dyn Read) -> Result<Option<Bit>, Error> {
@@ -247,7 +251,7 @@ pub struct BitWriter {
 
 impl BitWriter {
     pub fn new() -> Self {
-        Self{ bit_index: 0, value: 0 }
+        Self { bit_index: 0, value: 0 }
     }
 
     pub fn write(&mut self, writer: &mut dyn Write, value: (BitCount, BitPattern)) -> Result<(), Error> {
@@ -293,8 +297,8 @@ fn reverse(bit_count: u8, bits: u32) -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Cursor;
     use super::*;
+    use std::io::Cursor;
 
     #[test]
     fn code_book_from_values() {
@@ -331,8 +335,8 @@ mod tests {
 
     #[test]
     fn tree_node() {
-        let entry1 = Tree::Leaf{value: 1, count: 10};
-        let entry2 = Tree::Leaf{value: 2, count: 5};
+        let entry1 = Tree::Leaf { value: 1, count: 10 };
+        let entry2 = Tree::Leaf { value: 2, count: 5 };
 
         let entry = CodeBook::node(entry1, entry2);
 
@@ -461,5 +465,4 @@ mod tests {
 
         writer.into_inner()
     }
-
 }

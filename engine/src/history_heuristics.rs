@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2020 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2022 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -16,10 +16,10 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::cmp::min;
-use crate::colors::{Color};
-use crate::transposition_table::MAX_DEPTH;
+use crate::colors::Color;
 use crate::moves::{Move, NO_MOVE};
+use crate::transposition_table::MAX_DEPTH;
+use std::cmp::min;
 
 const HISTORY_SIZE: usize = 2 * 8 * 64;
 
@@ -117,10 +117,10 @@ impl HistoryHeuristics {
 
 #[cfg(test)]
 mod tests {
-    use crate::colors::WHITE;
     use super::*;
-    use crate::pieces::{Q, R};
+    use crate::colors::WHITE;
     use crate::moves::MoveType;
+    use crate::pieces::{Q, R};
 
     #[test]
     fn updates_killer_moves() {
@@ -133,13 +133,7 @@ mod tests {
 
         let (primary_killer, secondary_killer) = hh.get_killer_moves(1);
 
-        assert_eq!(
-            primary_killer, move_b,
-            "move_b should be the primary killer move"
-        );
-        assert_eq!(
-            secondary_killer, move_a,
-            "move_a should be the secondary killer move"
-        );
+        assert_eq!(primary_killer, move_b, "move_b should be the primary killer move");
+        assert_eq!(secondary_killer, move_a, "move_a should be the secondary killer move");
     }
 }

@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2020 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2022 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -87,7 +87,7 @@ impl Color {
 
 #[cfg(test)]
 mod tests {
-    use crate::colors::{BLACK, Color, WHITE};
+    use crate::colors::{Color, BLACK, WHITE};
 
     #[test]
     fn test_from_piece() {

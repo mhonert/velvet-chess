@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2020 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2022 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -17,9 +17,9 @@
  */
 
 use crate::moves::{Move, NO_MOVE};
-use std::time::{Instant, Duration};
-use std::cmp::{max, min};
 use crate::transposition_table::MAX_DEPTH;
+use std::cmp::{max, min};
+use std::time::{Duration, Instant};
 
 pub const TIMEEXT_MULTIPLIER: i32 = 5;
 pub const MAX_TIMELIMIT_MS: i32 = i32::MAX;
@@ -41,7 +41,7 @@ pub struct TimeManager {
 
 impl TimeManager {
     pub fn new() -> Self {
-        TimeManager{
+        TimeManager {
             starttime: Instant::now(),
             timelimit_ms: 0,
             allow_time_extension: true,
@@ -95,18 +95,21 @@ impl TimeManager {
             return false;
         }
 
-        let highest_score_drop = self.history.iter()
+        let highest_score_drop = self
+            .history
+            .iter()
             .take(self.next_index)
             .rev()
             .take(min(self.next_index, TIMEEXT_HISTORY_SIZE))
             .map(Move::score)
-            .rfold((0, 0, 0), |(highest_drop, count, prev_score), score|
+            .rfold((0, 0, 0), |(highest_drop, count, prev_score), score| {
                 if count == 0 {
                     (0, 1, score)
                 } else {
                     (max(highest_drop, max(0, prev_score - score)), count + 1, score)
                 }
-            ).0;
+            })
+            .0;
 
         highest_score_drop >= TIMEEXT_SCORE_DROP_THRESHOLD
     }

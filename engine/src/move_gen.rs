@@ -1,5 +1,6 @@
 /*
- * Copyright (C) 2020 mhonert (https://github.com/mhonert)
+ * Velvet Chess Engine
+ * Copyright (C) 2022 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -15,14 +16,14 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::cmp::Reverse;
-use crate::bitboard::{PAWN_DOUBLE_MOVE_LINES, BitBoard, get_knight_attacks, get_king_attacks};
-use crate::board::{Board};
+use crate::bitboard::{get_king_attacks, get_knight_attacks, BitBoard, PAWN_DOUBLE_MOVE_LINES};
+use crate::board::Board;
 use crate::colors::{Color, BLACK, WHITE};
-use crate::pieces::{B, K, N, P, Q, R, EMPTY};
-use crate::moves::{Move, MoveType, NO_MOVE};
 use crate::history_heuristics::{HistoryHeuristics, MIN_HISTORY_SCORE};
+use crate::moves::{Move, MoveType, NO_MOVE};
+use crate::pieces::{B, EMPTY, K, N, P, Q, R};
 use crate::transposition_table::MAX_DEPTH;
+use std::cmp::Reverse;
 
 const CAPTURE_ORDER_SIZE: usize = 6 + 6 * 7 + 1;
 
@@ -47,13 +48,13 @@ impl MoveGenerator {
             entries.push(MoveList::new());
         }
 
-        MoveGenerator {
-            entries,
-            ply: 0
-        }
+        MoveGenerator { entries, ply: 0 }
     }
 
-    pub fn enter_ply(&mut self, active_player: Color, scored_hash_move: Move, primary_killer: Move, secondary_killer: Move, counter_move: Move) {
+    pub fn enter_ply(
+        &mut self, active_player: Color, scored_hash_move: Move, primary_killer: Move, secondary_killer: Move,
+        counter_move: Move,
+    ) {
         self.ply += 1;
         self.entries[self.ply].init(active_player, scored_hash_move, primary_killer, secondary_killer, counter_move);
     }
@@ -112,7 +113,7 @@ enum Stage {
     CounterMove,
     PostponedBadCaptureMoves,
     SortQuietMoves,
-    QuietMoves
+    QuietMoves,
 }
 
 #[derive(Clone)]
@@ -132,7 +133,7 @@ pub struct MoveList {
 
 impl MoveList {
     pub fn new() -> Self {
-        MoveList{
+        MoveList {
             scored_hash_move: NO_MOVE,
             primary_killer: NO_MOVE,
             secondary_killer: NO_MOVE,
@@ -147,7 +148,10 @@ impl MoveList {
         }
     }
 
-    pub fn init(&mut self, active_player: Color, scored_hash_move: Move, primary_killer: Move, secondary_killer: Move, counter_move: Move) {
+    pub fn init(
+        &mut self, active_player: Color, scored_hash_move: Move, primary_killer: Move, secondary_killer: Move,
+        counter_move: Move,
+    ) {
         self.scored_hash_move = scored_hash_move;
         self.primary_killer = primary_killer;
         self.secondary_killer = secondary_killer;
@@ -217,7 +221,7 @@ impl MoveList {
                     if self.scored_hash_move != NO_MOVE {
                         return Some(self.scored_hash_move);
                     }
-                },
+                }
 
                 Stage::GenerateMoves => {
                     self.stage = Stage::CaptureMoves;
@@ -229,12 +233,10 @@ impl MoveList {
                     self.moves_generated = true;
                 }
 
-                Stage::CaptureMoves => {
-                    match self.capture_moves.pop() {
-                        Some(m) => return Some(m),
-                        None => self.stage = Stage::PrimaryKillerMove
-                    }
-                }
+                Stage::CaptureMoves => match self.capture_moves.pop() {
+                    Some(m) => return Some(m),
+                    None => self.stage = Stage::PrimaryKillerMove,
+                },
 
                 Stage::PrimaryKillerMove => {
                     self.stage = Stage::SecondaryKillerMove;
@@ -242,15 +244,17 @@ impl MoveList {
                     if self.primary_killer != NO_MOVE && remove_move(&mut self.moves, self.primary_killer) != NO_MOVE {
                         return Some(self.primary_killer.with_score(PRIMARY_KILLER_SCORE));
                     }
-                },
+                }
 
                 Stage::SecondaryKillerMove => {
                     self.stage = Stage::CounterMove;
 
-                    if self.secondary_killer != NO_MOVE && remove_move(&mut self.moves, self.secondary_killer) != NO_MOVE {
+                    if self.secondary_killer != NO_MOVE
+                        && remove_move(&mut self.moves, self.secondary_killer) != NO_MOVE
+                    {
                         return Some(self.secondary_killer.with_score(SECONDARY_KILLER_SCORE));
                     }
-                },
+                }
 
                 Stage::CounterMove => {
                     self.stage = Stage::PostponedBadCaptureMoves;
@@ -258,7 +262,7 @@ impl MoveList {
                     if self.counter_move != NO_MOVE && remove_move(&mut self.moves, self.counter_move) != NO_MOVE {
                         return Some(self.counter_move.with_score(COUNTER_MOVE_SCORE));
                     }
-                },
+                }
 
                 Stage::PostponedBadCaptureMoves => {
                     if self.bad_capture_moves.is_empty() {
@@ -333,7 +337,6 @@ impl MoveList {
             self.gen_white_attack_pawn_moves(board, pawns, opponent_bb);
             self.gen_white_straight_pawn_moves(pawns, empty_bb);
             self.gen_white_en_passant_moves(board, pawns);
-
         } else {
             let pawns = board.get_bitboard(-P);
             self.gen_black_straight_pawn_moves(pawns, empty_bb);
@@ -373,10 +376,8 @@ impl MoveList {
 
         if active_player.is_white() {
             self.gen_white_attack_pawn_moves(board, board.get_bitboard(P), opponent_bb);
-
         } else {
             self.gen_black_attack_pawn_moves(board, board.get_bitboard(-P), opponent_bb);
-
         }
 
         for pos in BitBoard(board.get_bitboard(active_player.piece(N))) {
@@ -410,7 +411,7 @@ impl MoveList {
         self.add_pawn_quiet_moves(MoveType::PawnQuiet, target_bb, 8);
 
         // Double move
-        target_bb &= unsafe{ *PAWN_DOUBLE_MOVE_LINES.get_unchecked(WHITE.idx()) };
+        target_bb &= unsafe { *PAWN_DOUBLE_MOVE_LINES.get_unchecked(WHITE.idx()) };
         target_bb >>= 8;
 
         target_bb &= empty_bb;
@@ -617,7 +618,7 @@ impl MoveList {
                         self.gen_black_attack_pawn_moves(board, start_bb, opponent_bb);
                     }
                 }
-            },
+            }
 
             N => {
                 if target_piece_id != N {
@@ -627,7 +628,11 @@ impl MoveList {
                     return NO_MOVE;
                 }
 
-                return untyped_move.with_typ(if captured_piece == EMPTY { MoveType::Quiet } else { MoveType::Capture });
+                return untyped_move.with_typ(if captured_piece == EMPTY {
+                    MoveType::Quiet
+                } else {
+                    MoveType::Capture
+                });
             }
 
             B => {
@@ -638,7 +643,11 @@ impl MoveList {
                     return NO_MOVE;
                 }
 
-                return untyped_move.with_typ(if captured_piece == EMPTY { MoveType::Quiet } else { MoveType::Capture });
+                return untyped_move.with_typ(if captured_piece == EMPTY {
+                    MoveType::Quiet
+                } else {
+                    MoveType::Capture
+                });
             }
 
             R => {
@@ -649,7 +658,11 @@ impl MoveList {
                     return NO_MOVE;
                 }
 
-                return untyped_move.with_typ(if captured_piece == EMPTY { MoveType::Quiet } else { MoveType::Capture });
+                return untyped_move.with_typ(if captured_piece == EMPTY {
+                    MoveType::Quiet
+                } else {
+                    MoveType::Capture
+                });
             }
 
             Q => {
@@ -660,7 +673,11 @@ impl MoveList {
                     return NO_MOVE;
                 }
 
-                return untyped_move.with_typ(if captured_piece == EMPTY { MoveType::Quiet } else { MoveType::Capture });
+                return untyped_move.with_typ(if captured_piece == EMPTY {
+                    MoveType::Quiet
+                } else {
+                    MoveType::Capture
+                });
             }
 
             K => {
@@ -676,7 +693,7 @@ impl MoveList {
                     }
                     return untyped_move.with_typ(MoveType::KingCapture);
                 }
-            },
+            }
 
             _ => {
                 return NO_MOVE;
@@ -704,7 +721,15 @@ impl MoveList {
             return false;
         }
 
-        if !board.has_negative_see(board.active_player(), m.start(), m.end(), m.piece_id(), captured_piece_id, 0, occupied_bb) {
+        if !board.has_negative_see(
+            board.active_player(),
+            m.start(),
+            m.end(),
+            m.piece_id(),
+            captured_piece_id,
+            0,
+            occupied_bb,
+        ) {
             return false;
         }
 
@@ -733,7 +758,6 @@ pub fn evaluate_move_order(hh: &HistoryHeuristics, active_player: Color, m: Move
     let history_score = hh.get_history_score(active_player, m);
     if history_score == MIN_HISTORY_SCORE {
         NEGATIVE_HISTORY_SCORE
-
     } else if active_player.is_white() {
         -3600 + history_score + (7 - (m.end() / 8 - 4)).signum()
     } else {
@@ -772,7 +796,6 @@ const fn calc_capture_order_scores() -> [i32; CAPTURE_ORDER_SIZE] {
 
     let mut victim = 1;
     while victim <= 6 {
-
         let mut attacker = 6;
         while attacker >= 0 {
             scores[(attacker * 7 + victim) as usize] = score * 16;
@@ -789,8 +812,8 @@ const fn calc_capture_order_scores() -> [i32; CAPTURE_ORDER_SIZE] {
 
 #[cfg(test)]
 mod tests {
-    use crate::board::castling::{CastlingRules, CastlingState};
     use super::*;
+    use crate::board::castling::{CastlingRules, CastlingState};
 
     #[rustfmt::skip]
     const ONLY_KINGS: [i8; 64] = [
@@ -852,15 +875,11 @@ mod tests {
 
             if let Some(m) = m {
                 moves.push(m);
-
             } else {
                 break;
             }
-        };
+        }
 
-        moves.into_iter()
-            .filter(|&m| m.start() == pos)
-            .filter(|&m| board.is_legal_move(color, m))
-            .collect()
+        moves.into_iter().filter(|&m| m.start() == pos).filter(|&m| board.is_legal_move(color, m)).collect()
     }
 }

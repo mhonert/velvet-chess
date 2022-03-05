@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2021 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2022 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -25,7 +25,7 @@ pub struct LrScheduler {
 
 impl LrScheduler {
     pub fn new(max_epochs: usize, init_lr: f64, mid_lr: f64, final_lr: f64) -> Self {
-        LrScheduler{max_epochs, init_lr, mid_lr, final_lr}
+        LrScheduler { max_epochs, init_lr, mid_lr, final_lr }
     }
 
     pub fn calc_lr(&self, epoch: usize) -> f64 {

@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2021 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2022 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -16,37 +16,37 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-mod lr_scheduler;
 #[cfg(feature = "lr_finder")]
 mod lr_finder;
+mod lr_scheduler;
 
-use tch::{nn, nn::OptimizerConfig, Device, Tensor, Reduction, Kind};
-use std::fs::File;
-use std::io::{BufReader, BufRead, BufWriter, Error, Write, ErrorKind, stdout};
-use std::str::FromStr;
-use itertools::{Itertools};
-use velvet::fen::{parse_fen, FenParseResult};
-use std::time::{Duration, Instant, SystemTime};
-use tch::nn::{ModuleT, Optimizer, VarStore, SequentialT};
-use byteorder::{WriteBytesExt, LittleEndian, ReadBytesExt};
-use std::env;
-use std::sync::mpsc::{SyncSender};
-use std::thread;
-use std::sync::{Arc, mpsc};
-use rand::prelude::SliceRandom;
-use lz4_flex::frame::FrameEncoder;
-use velvet::bitboard::{BitBoard, v_mirror};
-use rand::SeedableRng;
-pub use velvet::nn::{INPUTS};
-use std::cmp::{min, max};
-use std::collections::{HashSet};
-use std::collections::hash_map::DefaultHasher;
-use std::hash::Hasher;
-use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
-use velvet::nn::HL_NODES;
-use velvet::nn::io::{BitWriter, CodeBook};
 use crate::lr_scheduler::LrScheduler;
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use itertools::Itertools;
+use lz4_flex::frame::FrameEncoder;
+use rand::prelude::SliceRandom;
+use rand::SeedableRng;
+use std::cmp::{max, min};
+use std::collections::hash_map::DefaultHasher;
+use std::collections::HashSet;
+use std::env;
+use std::fs::File;
+use std::hash::Hasher;
+use std::io::{stdout, BufRead, BufReader, BufWriter, Error, ErrorKind, Write};
+use std::path::Path;
+use std::str::FromStr;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::SyncSender;
+use std::sync::{mpsc, Arc};
+use std::thread;
+use std::time::{Duration, Instant, SystemTime};
+use tch::nn::{ModuleT, Optimizer, SequentialT, VarStore};
+use tch::{nn, nn::OptimizerConfig, Device, Kind, Reduction, Tensor};
+use velvet::bitboard::{v_mirror, BitBoard};
+use velvet::fen::{parse_fen, FenParseResult};
+use velvet::nn::io::{BitWriter, CodeBook};
+use velvet::nn::HL_NODES;
+pub use velvet::nn::INPUTS;
 
 const FEATURES_PER_BUCKET: i64 = 64 * 6 * 2;
 
@@ -61,7 +61,7 @@ const BATCH_SIZE: i64 = 50000;
 const K: f64 = 1.603;
 const K_DIV: f64 = K / 400.0;
 
-const MIN_TRAINING_SET_ID: usize = 6;
+const MIN_TRAINING_SET_ID: usize = 4;
 const FEN_TRAINING_SET_PATH: &str = "./data/train_fen/";
 const LZ4_TRAINING_SET_PATH: &str = "./data/train_lz4";
 const FEN_TEST_SET_PATH: &str = "./data/test_fen";
@@ -100,15 +100,21 @@ impl Mode for EvalNet {
         let hidden_layers = 0;
         writer.write_i8(hidden_layers).unwrap(); // Number of hidden layers
 
-        write_layer(&mut writer, vars.get("input.weight").unwrap(), vars.get("input.bias").unwrap(), 1.0).expect("Could not write layer");
+        write_layer(&mut writer, vars.get("input.weight").unwrap(), vars.get("input.bias").unwrap(), 1.0)
+            .expect("Could not write layer");
 
         for i in 1..=hidden_layers {
-            write_layer(&mut writer,
-                        vars.get(format!("hidden{}.weight", i).as_str()).unwrap(),
-                        vars.get(format!("hidden{}.bias", i).as_str()).unwrap(), 1.0).expect("Could not write layer");
+            write_layer(
+                &mut writer,
+                vars.get(format!("hidden{}.weight", i).as_str()).unwrap(),
+                vars.get(format!("hidden{}.bias", i).as_str()).unwrap(),
+                1.0,
+            )
+            .expect("Could not write layer");
         }
 
-        write_layer(&mut writer, vars.get("output.weight").unwrap(), vars.get("output.bias").unwrap(), 1.0).expect("Could not write layer");
+        write_layer(&mut writer, vars.get("output.weight").unwrap(), vars.get("output.bias").unwrap(), 1.0)
+            .expect("Could not write layer");
     }
 
     fn save_quantized(&self, net_id: String) {
@@ -181,7 +187,9 @@ impl Mode for EvalNet {
         print!("Output weights: ");
         write_quantized(&mut writer, fp_one, output.weights).expect("Could not write quantized output layer weights");
 
-        writer.write_i16::<LittleEndian>((output.biases[0] * fp_one as f32) as i16).expect("Could not write quantized output bias");
+        writer
+            .write_i16::<LittleEndian>((output.biases[0] * fp_one as f32) as i16)
+            .expect("Could not write quantized output bias");
     }
 }
 
@@ -193,8 +201,7 @@ impl Mode for PieceSquareTables {
     }
 
     fn net(&self, vs: &nn::Path) -> SequentialT {
-        nn::seq_t()
-            .add(nn::linear(vs / "input", INPUT_FEATURES, 1, Default::default()))
+        nn::seq_t().add(nn::linear(vs / "input", INPUT_FEATURES, 1, Default::default()))
     }
 
     fn save_raw(&self, id: &str, vs: &nn::VarStore) {
@@ -208,7 +215,8 @@ impl Mode for PieceSquareTables {
         let hidden_layers = 0;
         writer.write_i8(hidden_layers).unwrap(); // Number of hidden layers
 
-        write_layer(&mut writer, vars.get("input.weight").unwrap(), vars.get("input.bias").unwrap(), 2048.0).expect("Could not write layer");
+        write_layer(&mut writer, vars.get("input.weight").unwrap(), vars.get("input.bias").unwrap(), 2048.0)
+            .expect("Could not write layer");
     }
 
     fn save_quantized(&self, net_id: String) {
@@ -247,8 +255,8 @@ pub fn main() {
     }
 
     let mode: Box<dyn Mode> = match env::args().nth(1).unwrap().to_lowercase().as_str() {
-        "psq" => Box::new(PieceSquareTables{}),
-        "eval" => Box::new(EvalNet{}),
+        "psq" => Box::new(PieceSquareTables {}),
+        "eval" => Box::new(EvalNet {}),
         _ => {
             println!("Usage: trainer [psq|eval] [reader thread count]");
             return;
@@ -266,9 +274,14 @@ pub fn main() {
     mode.print_info();
 
     println!("Scanning available training sets ...");
-    let max_training_set_id = convert_sets("training", FEN_TRAINING_SET_PATH, LZ4_TRAINING_SET_PATH, MIN_TRAINING_SET_ID, true);
+    let max_training_set_id =
+        convert_sets("training", FEN_TRAINING_SET_PATH, LZ4_TRAINING_SET_PATH, MIN_TRAINING_SET_ID, false);
     let training_set_count = (max_training_set_id - MIN_TRAINING_SET_ID) + 1;
-    println!("Using {} training sets with a total of {} positions", training_set_count, training_set_count * POS_PER_SET);
+    println!(
+        "Using {} training sets with a total of {} positions",
+        training_set_count,
+        training_set_count * POS_PER_SET
+    );
 
     println!("Scanning available test sets ...");
     let max_test_set_id = convert_sets("test", FEN_TEST_SET_PATH, LZ4_TEST_SET_PATH, 1, false);
@@ -293,7 +306,6 @@ pub fn main() {
     spawn_data_reader_threads(data_reader_threads, max_training_set_id, device, &tx, &stop_readers);
 
     let net = mode.net(&vs.root());
-
 
     let mut best_loss = f64::MAX;
 
@@ -346,16 +358,16 @@ pub fn main() {
             batch_count += 1;
         }
 
-        let test_loss = tch::no_grad(||
-            f64::from(&net
-                .forward_t(&test_xs, false)
-                .multiply_scalar(2048.0 * K_DIV)
-                .sigmoid()
-                .mse_loss(&test_ys, Reduction::Mean))
-        );
+        let test_loss = tch::no_grad(|| {
+            f64::from(
+                &net.forward_t(&test_xs, false)
+                    .multiply_scalar(2048.0 * K_DIV)
+                    .sigmoid()
+                    .mse_loss(&test_ys, Reduction::Mean),
+            )
+        });
 
         epoch_sample_count += train_count;
-
 
         train_loss /= batch_count as f64;
 
@@ -365,7 +377,8 @@ pub fn main() {
             mode.save_raw(&net_id, &vs);
         }
 
-        let samples_per_sec = (train_count as f64 * 1000.0) / Instant::now().duration_since(train_start).as_millis() as f64;
+        let samples_per_sec =
+            (train_count as f64 * 1000.0) / Instant::now().duration_since(train_start).as_millis() as f64;
 
         println!(
             "epoch: {:3} lr: {:.8} batch size: {:5} train loss: {:8.8} test loss: {:8.8}, best loss: {:8.8} ({:.2} samples/s)",
@@ -404,7 +417,7 @@ pub fn main() {
     thread::sleep(Duration::from_millis(50));
     while !matches!(rx.try_recv(), Err(_)) {
         thread::sleep(Duration::from_millis(10));
-    };
+    }
 
     println!("- Training finished in {:.1} minutes", Instant::now().duration_since(start_time).as_secs() as f64 / 60.0);
     mode.save_quantized(net_id);
@@ -429,7 +442,13 @@ fn to_sparse_tensors(samples: &[DataSample], device: Device) -> (Tensor, Tensor)
     let indices = Tensor::of_slice(&indices).to(device).view((2, value_count));
     let values = Tensor::ones(&[value_count], (Kind::Float, device));
 
-    let xs = Tensor::sparse_coo_tensor_indices_size(&indices, &values, &[samples.len() as i64, INPUT_FEATURES], (Kind::Float, device)).coalesce();
+    let xs = Tensor::sparse_coo_tensor_indices_size(
+        &indices,
+        &values,
+        &[samples.len() as i64, INPUT_FEATURES],
+        (Kind::Float, device),
+    )
+    .coalesce();
 
     (xs, Tensor::of_slice(&ys).to(device).view((samples.len() as i64, 1)))
 }
@@ -477,13 +496,16 @@ fn convert_sets(caption: &str, in_path: &str, out_path: &str, min_id: usize, use
 
     if min_unconverted_id < max_set_id {
         println!("Converting {} added {} sets ...", (max_set_id - min_unconverted_id + 1), caption);
-        convert_test_pos(in_path.to_string(), out_path.to_string(), min_unconverted_id, max_set_id, use_game_result).expect("Could not convert test positions!");
+        convert_test_pos(in_path.to_string(), out_path.to_string(), min_unconverted_id, max_set_id, use_game_result)
+            .expect("Could not convert test positions!");
     }
 
     max_set_id
 }
 
-fn convert_test_pos(in_path: String, out_path: String, min_unconverted_id: usize, max_training_set_id: usize, use_game_result: bool) -> Result<(), Error> {
+fn convert_test_pos(
+    in_path: String, out_path: String, min_unconverted_id: usize, max_training_set_id: usize, use_game_result: bool,
+) -> Result<(), Error> {
     let mut threads = Vec::new();
     for c in 1..=DATA_WRITER_THREADS {
         let in_path2 = in_path.clone();
@@ -497,7 +519,11 @@ fn convert_test_pos(in_path: String, out_path: String, min_unconverted_id: usize
                 let encoder = lz4_flex::frame::FrameEncoder::new(file);
                 let mut writer = BufWriter::with_capacity(1024 * 1024, encoder);
 
-                let ys = read_from_fen_file(format!("{}/test_pos_{}.fen", in_path2, i).as_str(), &mut writer, use_game_result);
+                let ys = read_from_fen_file(
+                    format!("{}/test_pos_{}.fen", in_path2, i).as_str(),
+                    &mut writer,
+                    use_game_result,
+                );
                 writer.write_u16::<LittleEndian>(u16::MAX).unwrap();
 
                 for y in ys {
@@ -602,7 +628,10 @@ fn write_layer(writer: &mut BufWriter<File>, weights: &Tensor, biases: &Tensor, 
     Ok(())
 }
 
-fn spawn_data_reader_threads(threads: usize, max_training_set_id: usize, device: Device, tx: &SyncSender<(usize, Tensor, Tensor)>, is_stopped: &Arc<AtomicBool>) {
+fn spawn_data_reader_threads(
+    threads: usize, max_training_set_id: usize, device: Device, tx: &SyncSender<(usize, Tensor, Tensor)>,
+    is_stopped: &Arc<AtomicBool>,
+) {
     for start in MIN_TRAINING_SET_ID..(threads + MIN_TRAINING_SET_ID) {
         let tx2 = tx.clone();
         let is_stopped = is_stopped.clone();
@@ -630,7 +659,8 @@ fn spawn_data_reader_threads(threads: usize, max_training_set_id: usize, device:
                     let mut remaining_samples: &mut [DataSample] = &mut samples;
 
                     while remaining_samples.len() >= BATCH_SIZE as usize {
-                        let (batch, remaining_samples2) = remaining_samples.partial_shuffle(&mut r, BATCH_SIZE as usize);
+                        let (batch, remaining_samples2) =
+                            remaining_samples.partial_shuffle(&mut r, BATCH_SIZE as usize);
                         remaining_samples = remaining_samples2;
 
                         let (xs, ys) = to_sparse_tensors(batch, device);
@@ -646,9 +676,7 @@ fn spawn_data_reader_threads(threads: usize, max_training_set_id: usize, device:
     }
 }
 
-
 fn read_from_fen_file(file_name: &str, writer: &mut BufWriter<FrameEncoder<File>>, use_game_result: bool) -> Vec<f32> {
-
     let file = File::open(file_name).expect("Could not open test position file");
     let mut reader = BufReader::new(file);
 
@@ -658,11 +686,13 @@ fn read_from_fen_file(file_name: &str, writer: &mut BufWriter<FrameEncoder<File>
         let mut line = String::new();
 
         match reader.read_line(&mut line) {
-            Ok(read) => if read == 0 {
-                return ys;
-            },
+            Ok(read) => {
+                if read == 0 {
+                    return ys;
+                }
+            }
 
-            Err(e) => panic!("Reading test position file failed: {}", e)
+            Err(e) => panic!("Reading test position file failed: {}", e),
         };
 
         let parts = line.trim_end().split(' ').collect_vec();
@@ -694,12 +724,10 @@ fn read_from_fen_file(file_name: &str, writer: &mut BufWriter<FrameEncoder<File>
                     (p1 + p2) as f32 / (2048.0 * 2.0)
                 }
             }
-
         } else if parts.len() == 8 {
             const SCORE_IDX: usize = 7;
             let score = i32::from_str(parts[SCORE_IDX]).expect("Could not parse score");
             score as f32 / 2048.0
-
         } else {
             panic!("Invalid test position entry: {}", line);
         };
@@ -707,8 +735,8 @@ fn read_from_fen_file(file_name: &str, writer: &mut BufWriter<FrameEncoder<File>
         let fen: String = (parts[0..=5].join(" ") as String).replace("~", "");
 
         let (mut pieces, active_player) = match parse_fen(fen.as_str()) {
-            Ok(FenParseResult{pieces, active_player, ..}) => (pieces, active_player),
-            Err(e) => panic!("could not parse FEN: {}",  e),
+            Ok(FenParseResult { pieces, active_player, .. }) => (pieces, active_player),
+            Err(e) => panic!("could not parse FEN: {}", e),
         };
 
         if active_player.is_black() {
@@ -753,7 +781,7 @@ fn read_from_fen_file(file_name: &str, writer: &mut BufWriter<FrameEncoder<File>
 
         for i in 1i8..=5i8 {
             let bb_white = bb[(i + 6) as usize];
-            if  bb_white != 0 {
+            if bb_white != 0 {
                 writer.write_u64::<LittleEndian>(bb_white).unwrap();
             }
 
@@ -786,8 +814,10 @@ fn read_header(reader: &mut BufReader<File>, expected_hl_count: usize) -> Result
 
     let hidden_layer_count = reader.read_i8()? as usize;
     if hidden_layer_count != expected_hl_count {
-        return Err(Error::new(ErrorKind::InvalidData,
-                              format!("hidden layer count mismatch: expected {}, got {}", expected_hl_count, hidden_layer_count)));
+        return Err(Error::new(
+            ErrorKind::InvalidData,
+            format!("hidden layer count mismatch: expected {}, got {}", expected_hl_count, hidden_layer_count),
+        ));
     }
 
     Ok(())
@@ -811,7 +841,7 @@ fn read_layer(reader: &mut BufReader<File>) -> Result<Layer, Error> {
         biases.push(v);
     }
 
-    Ok(Layer{weights, biases})
+    Ok(Layer { weights, biases })
 }
 
 fn write_quantized(writer: &mut dyn Write, fp_one: i16, values: Vec<f32>) -> Result<(), Error> {
@@ -848,7 +878,6 @@ fn write_quantized(writer: &mut dyn Write, fp_one: i16, values: Vec<f32>) -> Res
         index += 1;
     }
     println!("Total repetitions: {}", total_repetitions);
-
 
     let codes = CodeBook::from_values(&outputs);
     codes.write(writer)?;

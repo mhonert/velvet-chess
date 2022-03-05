@@ -1,5 +1,0 @@
-config_base.yml
-tuning_result*.yml
-genetic_evals*.yml
-pgn
-*.bin

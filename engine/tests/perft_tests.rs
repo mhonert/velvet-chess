@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2020 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2022 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -20,8 +20,8 @@ extern crate velvet;
 
 use velvet::fen::create_from_fen;
 use velvet::history_heuristics::HistoryHeuristics;
-use velvet::perft::perft;
 use velvet::move_gen::MoveGenerator;
+use velvet::perft::perft;
 
 #[test]
 fn test_perft_startpos() {
@@ -90,7 +90,6 @@ fn test_perft_chess960() {
     assert_eq!(6718715, perft_for_fen("b1qnrrkb/ppp1pp1p/n2p1Pp1/8/8/P7/1PPPP1PP/BNQNRKRB w GE - 0 9", 5));
     assert_eq!(7697880, perft_for_fen("nq1bbrkr/pp2nppp/2pp4/4p3/1PP1P3/1B6/P2P1PPP/NQN1BRKR w HFhf - 2 9", 5));
     assert_eq!(22760, perft_for_fen("rk2r1bn/pqbppppp/1pp2n2/8/5P2/3P1N2/PPPQPRPP/RK1B2BN b a - 8 11", 3));
-
 }
 
 fn perft_for_fen(fen: &str, depth: i32) -> u64 {

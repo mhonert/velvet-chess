@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2020 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2022 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -31,15 +31,7 @@ const BISHOP_VALUE: i16 = 350;
 const KNIGHT_VALUE: i16 = 350;
 const PAWN_VALUE: i16 = 100;
 
-const PIECE_VALUES: [i16; 7] = [
-    0,
-    PAWN_VALUE,
-    KNIGHT_VALUE,
-    BISHOP_VALUE,
-    ROOK_VALUE,
-    QUEEN_VALUE,
-    KING_VALUE,
-];
+const PIECE_VALUES: [i16; 7] = [0, PAWN_VALUE, KNIGHT_VALUE, BISHOP_VALUE, ROOK_VALUE, QUEEN_VALUE, KING_VALUE];
 
 pub fn get_piece_value(piece_id: usize) -> i16 {
     unsafe { *PIECE_VALUES.get_unchecked(piece_id) }

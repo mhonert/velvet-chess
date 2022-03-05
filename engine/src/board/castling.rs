@@ -16,10 +16,10 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::bitboard::{BitBoard, get_from_to_mask};
-use crate::board::Board;
+use crate::bitboard::{get_from_to_mask, BitBoard};
 use crate::board::castling::Castling::{BlackKingSide, BlackQueenSide, WhiteKingSide, WhiteQueenSide};
-use crate::colors::{Color};
+use crate::board::Board;
+use crate::colors::Color;
 use crate::zobrist::castling_zobrist_key;
 
 #[repr(u8)]
@@ -35,20 +35,12 @@ pub enum Castling {
 pub struct CastlingState(u8);
 
 impl CastlingState {
-    const CLEAR_BY_COLOR: [u8; 2] = [
-        !(WhiteQueenSide as u8 | WhiteKingSide as u8),
-        !(BlackQueenSide as u8 | BlackKingSide as u8),
-    ];
+    const CLEAR_BY_COLOR: [u8; 2] =
+        [!(WhiteQueenSide as u8 | WhiteKingSide as u8), !(BlackQueenSide as u8 | BlackKingSide as u8)];
 
-    pub const KING_SIDE: [Castling; 2] = [
-        Castling::WhiteKingSide,
-        Castling::BlackKingSide,
-    ];
+    pub const KING_SIDE: [Castling; 2] = [Castling::WhiteKingSide, Castling::BlackKingSide];
 
-    pub const QUEEN_SIDE: [Castling; 2] = [
-        Castling::WhiteQueenSide,
-        Castling::BlackQueenSide,
-    ];
+    pub const QUEEN_SIDE: [Castling; 2] = [Castling::WhiteQueenSide, Castling::BlackQueenSide];
 
     const ALL_CASTLING: u8 = Castling::WhiteKingSide as u8
         | Castling::WhiteQueenSide as u8
@@ -123,18 +115,13 @@ impl Default for CastlingRules {
 }
 
 impl CastlingRules {
-    const KS_KING_END: [u8; 2] = [ 63 - 1, 7 - 1 ];
-    const KS_ROOK_END: [u8; 2] = [ 63 - 2, 7 - 2 ];
+    const KS_KING_END: [u8; 2] = [63 - 1, 7 - 1];
+    const KS_ROOK_END: [u8; 2] = [63 - 2, 7 - 2];
 
-    const QS_KING_END: [u8; 2] = [ 56 + 2, 2 ];
-    const QS_ROOK_END: [u8; 2] = [ 56 + 3, 3 ];
+    const QS_KING_END: [u8; 2] = [56 + 2, 2];
+    const QS_ROOK_END: [u8; 2] = [56 + 3, 3];
 
-    pub fn new(
-        chess960: bool,
-        king_start_col: i8,
-        king_side_rook_col: i8,
-        queen_side_rook_col: i8,
-    ) -> Self {
+    pub fn new(chess960: bool, king_start_col: i8, king_side_rook_col: i8, queen_side_rook_col: i8) -> Self {
         let w_king_start = 56 + king_start_col;
         let w_king_side_rook = 56 + king_side_rook_col;
         let w_queen_side_rook = 56 + queen_side_rook_col;
@@ -143,7 +130,7 @@ impl CastlingRules {
         let b_king_side_rook = king_side_rook_col;
         let b_queen_side_rook = queen_side_rook_col;
 
-        CastlingRules{
+        CastlingRules {
             chess960,
             king_start: [w_king_start, b_king_start],
             king_side_rook: [w_king_side_rook, b_king_side_rook],
@@ -213,7 +200,9 @@ impl CastlingRules {
         Self::is_castling_valid(board, color.flip(), empty_bb, king_start, king_end, rook_start, rook_end)
     }
 
-    fn is_castling_valid(board: &Board, opp_color: Color, mut empty_bb: u64, king_start: i8, king_end: i8, rook_start: i8, rook_end: i8) -> bool {
+    fn is_castling_valid(
+        board: &Board, opp_color: Color, mut empty_bb: u64, king_start: i8, king_end: i8, rook_start: i8, rook_end: i8,
+    ) -> bool {
         empty_bb |= (1u64 << king_start) | (1u64 << rook_start);
 
         let king_route_bb = get_from_to_mask(king_start, king_end);
@@ -235,4 +224,3 @@ impl CastlingRules {
         true
     }
 }
-

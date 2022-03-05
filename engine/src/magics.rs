@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2020 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2022 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -16,8 +16,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+use crate::bitboard::{create_blocker_permutations, gen_bishop_attacks, gen_rook_attacks, mask_without_outline};
 use std::sync::Once;
-use crate::bitboard::{gen_rook_attacks, gen_bishop_attacks, create_blocker_permutations, mask_without_outline};
 
 static INIT: Once = Once::new();
 
@@ -27,7 +27,7 @@ pub struct Magics {}
 impl Default for Magics {
     fn default() -> Self {
         INIT.call_once(initialize_magics);
-        Magics{}
+        Magics {}
     }
 }
 
@@ -35,13 +35,20 @@ impl Magics {
     #[inline]
     pub fn get_bishop_attacks(&self, empty_bb: u64, pos: i32) -> u64 {
         let magic = unsafe { BISHOP_MAGICS.get_unchecked(pos as usize) };
-        unsafe { *ATTACKS.get_unchecked(magic.offset + ((empty_bb | magic.mask).wrapping_mul(magic.number) >> (64 - 9)) as usize) }
+        unsafe {
+            *ATTACKS
+                .get_unchecked(magic.offset + ((empty_bb | magic.mask).wrapping_mul(magic.number) >> (64 - 9)) as usize)
+        }
     }
 
     #[inline]
     pub fn get_rook_attacks(&self, empty_bb: u64, pos: i32) -> u64 {
         let magic = unsafe { ROOK_MAGICS.get_unchecked(pos as usize) };
-        unsafe { *ATTACKS.get_unchecked(magic.offset + ((empty_bb | magic.mask).wrapping_mul(magic.number) >> (64 - 12)) as usize) }
+        unsafe {
+            *ATTACKS.get_unchecked(
+                magic.offset + ((empty_bb | magic.mask).wrapping_mul(magic.number) >> (64 - 12)) as usize,
+            )
+        }
     }
 
     #[inline]
@@ -53,11 +60,12 @@ impl Magics {
 struct Magic {
     mask: u64,
     number: u64,
-    offset: usize
+    offset: usize,
 }
 
-const EMPTY_MAGIC: Magic = Magic{mask: 0, number: 0, offset: 0};
+const EMPTY_MAGIC: Magic = Magic { mask: 0, number: 0, offset: 0 };
 
+#[rustfmt::skip]
 const ROOK_MAGIC_NUMS: [u64; 64] = [
     0x0380051082e14004, 0x0018000c00060018, 0x020004200a008010, 0x0040080004004002,
     0x0040020040040001, 0x0020008020010202, 0x0018007900002040, 0x0600040253002582,
@@ -77,6 +85,7 @@ const ROOK_MAGIC_NUMS: [u64; 64] = [
     0x000500080001c401, 0x0002000084011002, 0x0001000082000041, 0x020e0007684824e2
 ];
 
+#[rustfmt::skip]
 const ROOK_MAGIC_OFFSETS: [u32; 64] = [
     0, 27478, 23381, 13144, 65447, 11094, 2022, 63395, 38375, 44182, 49063, 25430, 28501,
     4939, 78782, 73777, 40019, 77746, 19285, 15188, 3045, 87095, 17236, 46231, 86077, 5963,
@@ -85,6 +94,7 @@ const ROOK_MAGIC_OFFSETS: [u32; 64] = [
     91061, 16212, 4011, 30199, 59289, 38391, 34279, 59308, 34295, 73761, 23365, 90158
 ];
 
+#[rustfmt::skip]
 const BISHOP_MAGIC_NUMS: [u64; 64] = [
     0x407f40a0106003d2, 0x087fdfdfdfdc0001, 0x107f400818002000, 0x02007ff810000000,
     0x14603bfe54000000, 0x10401efeff700000, 0x0800101f3fff8000, 0x100020101e3fff80,
@@ -104,6 +114,7 @@ const BISHOP_MAGIC_NUMS: [u64; 64] = [
     0x0830000001001fe2, 0x104000003e80300c, 0xfc01fffee0200812, 0x207f8000304013d9
 ];
 
+#[rustfmt::skip]
 const BISHOP_MAGIC_OFFSETS: [u32; 64] = [
     98493, 85776, 79931, 5024, 98308, 98894, 4349, 85759, 82124, 99300, 4890, 81457, 99198,
     4483, 5260, 99231, 3986, 5988, 79905, 98842, 98518, 98684, 4767, 4222, 4613, 3616, 46742,
@@ -117,15 +128,29 @@ static mut ATTACKS: [u64; 99947] = [0; 99947];
 static mut ROOK_MAGICS: [Magic; 64] = [EMPTY_MAGIC; 64];
 static mut BISHOP_MAGICS: [Magic; 64] = [EMPTY_MAGIC; 64];
 
-
 fn initialize_magics() {
-    initialize_attacks(gen_rook_attacks, &ROOK_MAGIC_NUMS, &ROOK_MAGIC_OFFSETS[..], unsafe {&mut ATTACKS}, unsafe { &mut ROOK_MAGICS }, 12);
-    initialize_attacks(gen_bishop_attacks, &BISHOP_MAGIC_NUMS, &BISHOP_MAGIC_OFFSETS[..], unsafe {&mut ATTACKS}, unsafe { &mut BISHOP_MAGICS }, 9);
+    initialize_attacks(
+        gen_rook_attacks,
+        &ROOK_MAGIC_NUMS,
+        &ROOK_MAGIC_OFFSETS[..],
+        unsafe { &mut ATTACKS },
+        unsafe { &mut ROOK_MAGICS },
+        12,
+    );
+    initialize_attacks(
+        gen_bishop_attacks,
+        &BISHOP_MAGIC_NUMS,
+        &BISHOP_MAGIC_OFFSETS[..],
+        unsafe { &mut ATTACKS },
+        unsafe { &mut BISHOP_MAGICS },
+        9,
+    );
 }
 
-fn initialize_attacks(gen_attacks: fn(u64, i32) -> u64, magic_nums: &[u64], magic_offsets: &[u32],
-                      target: &mut[u64], magics: &mut[Magic; 64], shift: u32) {
-
+fn initialize_attacks(
+    gen_attacks: fn(u64, i32) -> u64, magic_nums: &[u64], magic_offsets: &[u32], target: &mut [u64],
+    magics: &mut [Magic; 64], shift: u32,
+) {
     for pos in 0..64 {
         let move_mask = gen_attacks(0, pos);
         let block_mask = mask_without_outline(move_mask, pos as u32);
@@ -146,13 +171,7 @@ fn initialize_attacks(gen_attacks: fn(u64, i32) -> u64, magic_nums: &[u64], magi
             target[index as usize + magic_offset as usize] = move_targets;
         }
 
-
         let inv_block_mask = !block_mask;
-        magics[pos as usize] = Magic{
-            mask: inv_block_mask,
-            number: magic_num,
-            offset: magic_offset as usize
-        };
+        magics[pos as usize] = Magic { mask: inv_block_mask, number: magic_num, offset: magic_offset as usize };
     }
 }
-

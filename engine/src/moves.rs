@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2020 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2022 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -16,10 +16,10 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::intrinsics::transmute;
-use crate::moves::MoveType::{PawnSpecial};
+use crate::moves::MoveType::PawnSpecial;
 use crate::pieces::{P, Q};
 use std::fmt;
+use std::intrinsics::transmute;
 
 #[repr(u8)]
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -57,7 +57,12 @@ const SCORE_SHIFT: u32 = 15;
 impl Move {
     #[inline]
     pub fn new(typ: MoveType, piece_id: i8, start: i32, end: i32) -> Self {
-        Move((piece_id as u32) | ((end as u32) << END_SHIFT) | ((start as u32) << START_SHIFT) | ((typ as u32) << TYPE_SHIFT))
+        Move(
+            (piece_id as u32)
+                | ((end as u32) << END_SHIFT)
+                | ((start as u32) << START_SHIFT)
+                | ((typ as u32) << TYPE_SHIFT),
+        )
     }
 
     #[inline]
@@ -109,9 +114,7 @@ impl Move {
 
     #[inline]
     pub fn typ(&self) -> MoveType {
-        unsafe {
-            transmute((self.0 >> TYPE_SHIFT) as u8)
-        }
+        unsafe { transmute((self.0 >> TYPE_SHIFT) as u8) }
     }
 
     #[inline]
@@ -155,9 +158,15 @@ impl Move {
 
     #[inline]
     pub fn is_quiet(&self) -> bool {
-        matches!(self.typ(), MoveType::PawnQuiet | MoveType::Quiet | MoveType::PawnDoubleQuiet | MoveType::KingQuiet | MoveType::Castling)
+        matches!(
+            self.typ(),
+            MoveType::PawnQuiet
+                | MoveType::Quiet
+                | MoveType::PawnDoubleQuiet
+                | MoveType::KingQuiet
+                | MoveType::Castling
+        )
     }
-
 }
 
 impl fmt::Debug for Move {
@@ -177,8 +186,8 @@ pub const NO_MOVE: Move = Move(0);
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::pieces::{K, Q};
     use crate::scores::{MAX_SCORE, MIN_SCORE};
-    use crate::pieces::{Q, K};
 
     #[test]
     fn scored_move() {
@@ -213,9 +222,18 @@ mod tests {
 
     #[test]
     fn move_type() {
-        for &typ in [MoveType::Quiet, MoveType::PawnQuiet, MoveType::PawnDoubleQuiet, MoveType::KingQuiet,
-            MoveType::Capture, MoveType::KingCapture, MoveType::PawnSpecial, MoveType::Castling].iter() {
-
+        for &typ in [
+            MoveType::Quiet,
+            MoveType::PawnQuiet,
+            MoveType::PawnDoubleQuiet,
+            MoveType::KingQuiet,
+            MoveType::Capture,
+            MoveType::KingCapture,
+            MoveType::PawnSpecial,
+            MoveType::Castling,
+        ]
+        .iter()
+        {
             let m = Move::new(typ, K, 63, 63).with_score(MIN_SCORE);
 
             assert_eq!(typ as u8, m.typ() as u8);
@@ -225,5 +243,4 @@ mod tests {
             assert_eq!(m.score(), MIN_SCORE);
         }
     }
-
 }

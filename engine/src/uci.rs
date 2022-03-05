@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2020 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2022 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -18,14 +18,14 @@
 
 use crate::engine::Message;
 use crate::fen::START_POS;
+use crate::search::{SearchLimits, DEFAULT_SEARCH_THREADS, MAX_SEARCH_THREADS};
 use crate::transposition_table::{DEFAULT_SIZE_MB, MAX_HASH_SIZE_MB};
 use crate::uci_move::UCIMove;
 use std::io;
 use std::str::FromStr;
 use std::sync::mpsc::Sender;
-use std::thread::{sleep};
+use std::thread::sleep;
 use std::time::Duration;
-use crate::search::{SearchLimits, DEFAULT_SEARCH_THREADS, MAX_SEARCH_THREADS};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const AUTHOR: &str = "Martin Honert";
@@ -35,9 +35,7 @@ pub fn start_uci_loop(tx: &Sender<Message>) {
 
     loop {
         let mut line = String::new();
-        io::stdin()
-            .read_line(&mut line)
-            .expect("Failed to read line");
+        io::stdin().read_line(&mut line).expect("Failed to read line");
 
         let parts: Vec<&str> = line.split_whitespace().collect();
         for (i, part) in parts.iter().enumerate() {
@@ -87,7 +85,7 @@ pub fn start_uci_loop(tx: &Sender<Message>) {
 // Sends a message to the engine
 fn send_message(tx: &Sender<Message>, msg: Message) {
     match tx.send(msg) {
-        Ok(_) => {},
+        Ok(_) => {}
         Err(err) => {
             eprintln!("could not send message to engine thread: {}", err);
         }
@@ -101,7 +99,9 @@ fn uci() {
     println!("option name Ponder type check default false");
     println!("option name Threads type spin default {} min 1 max {}", DEFAULT_SEARCH_THREADS, MAX_SEARCH_THREADS);
     println!("option name UCI_Chess960 type check default false");
-    println!("option name UCI_EngineAbout type string default Velvet Chess Engine (https://github.com/mhonert/velvet-chess)");
+    println!(
+        "option name UCI_EngineAbout type string default Velvet Chess Engine (https://github.com/mhonert/velvet-chess)"
+    );
 
     println!("uciok");
 }
@@ -165,7 +165,7 @@ fn set_option(tx: &Sender<Message>, parts: &[&str]) {
 
         "uci_chess960" => {}
 
-        _ => println!("Unknown option: {}", name)
+        _ => println!("Unknown option: {}", name),
     }
 }
 
@@ -271,10 +271,7 @@ fn parse_position_cmd(parts: &[&str]) -> String {
         return String::from(START_POS);
     }
 
-    let pos_end = parts
-        .iter()
-        .position(|&part| part.to_lowercase().as_str() == "moves")
-        .unwrap_or_else(|| parts.len());
+    let pos_end = parts.iter().position(|&part| part.to_lowercase().as_str() == "moves").unwrap_or_else(|| parts.len());
 
     let pos_option = parts[1..pos_end].join(" ");
 

@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2020 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2022 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -25,24 +25,17 @@ pub struct Random {
 
 impl Random {
     pub fn new() -> Self {
-        Random {
-            state: 0x4d595df4d0f33173,
-        }
+        Random { state: 0x4d595df4d0f33173 }
     }
 
     pub fn new_with_seed(seed: u64) -> Self {
-        Random {
-            state: seed.wrapping_mul(0x4d595df4d0f33173)
-        }
+        Random { state: seed.wrapping_mul(0x4d595df4d0f33173) }
     }
 
     pub fn rand32(&mut self) -> u32 {
-        let mut x = self.state;
-        let count = (x >> 59) as u32;
-        self.state = x.wrapping_mul(MULTIPLIER).wrapping_add(INCREMENT);
-        x ^= x >> 18;
-
-        ((x >> 27) as u32).rotate_right(count)
+        let (new_state, random_value) = rand(self.state);
+        self.state = new_state;
+        random_value
     }
 
     #[inline]
@@ -54,6 +47,21 @@ impl Random {
     pub fn rand128(&mut self) -> u128 {
         ((self.rand64() as u128) << 64) | (self.rand64() as u128)
     }
+}
+
+pub const fn rand(mut state: u64) -> (u64, u32) {
+    let mut x = state;
+    let count = (x >> 59) as u32;
+    state = x.wrapping_mul(MULTIPLIER).wrapping_add(INCREMENT);
+    x ^= x >> 18;
+
+    (state, ((x >> 27) as u32).rotate_right(count))
+}
+
+pub const fn rand64(state: u64) -> (u64, u64) {
+    let (state, low) = rand(state);
+    let (state, high) = rand(state);
+    (state, low as u64 | ((high as u64) << 32))
 }
 
 #[cfg(test)]

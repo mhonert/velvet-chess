@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2020 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2022 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -16,14 +16,14 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::board::{Board, WhiteBoardPos, BlackBoardPos};
+use crate::board::castling::{Castling, CastlingRules, CastlingState};
+use crate::board::{BlackBoardPos, Board, WhiteBoardPos};
 use crate::colors::{Color, BLACK, WHITE};
 use crate::pieces;
+use crate::pieces::K;
 use std::error::Error;
 use std::fmt;
 use std::process::exit;
-use crate::board::castling::{Castling, CastlingRules, CastlingState};
-use crate::pieces::K;
 
 pub const START_POS: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
@@ -53,7 +53,15 @@ impl fmt::Display for FenError {
 pub fn read_fen(board: &mut Board, fen: &str) -> Result<(), FenError> {
     match parse_fen(fen) {
         Err(e) => Err(e),
-        Ok(FenParseResult{pieces, active_player, castling_rules, castling_state, enpassant_target, halfmove_clock, fullmove_num}) => {
+        Ok(FenParseResult {
+            pieces,
+            active_player,
+            castling_rules,
+            castling_state,
+            enpassant_target,
+            halfmove_clock,
+            fullmove_num,
+        }) => {
             board.set_position(
                 &pieces,
                 active_player,
@@ -73,30 +81,19 @@ pub fn parse_fen(fen: &str) -> Result<FenParseResult, FenError> {
 
     let (pieces, white_king, black_king) = match fen_parts.next().and_then(read_pieces) {
         Some((pieces, white_king, black_king)) => (pieces, white_king, black_king),
-        None => {
-            return Result::Err(FenError {
-                msg: format!("Error in piece part: {}", fen),
-            })
-        }
+        None => return Result::Err(FenError { msg: format!("Error in piece part: {}", fen) }),
     };
 
     let active_player = match fen_parts.next().and_then(read_color) {
         Some(color) => color,
-        None => {
-            return Result::Err(FenError {
-                msg: format!("Error in active player part: {}", fen),
-            })
-        }
+        None => return Result::Err(FenError { msg: format!("Error in active player part: {}", fen) }),
     };
 
-    let (castling_rules, castling_state) = match fen_parts.next().and_then(|castling| read_castling(castling, white_king & 7, black_king & 7)) {
-        Some((castling_rules, castling_state)) => (castling_rules, castling_state),
-        None => {
-            return Result::Err(FenError {
-                msg: format!("Error in castling part: {}", fen),
-            })
-        }
-    };
+    let (castling_rules, castling_state) =
+        match fen_parts.next().and_then(|castling| read_castling(castling, white_king & 7, black_king & 7)) {
+            Some((castling_rules, castling_state)) => (castling_rules, castling_state),
+            None => return Result::Err(FenError { msg: format!("Error in castling part: {}", fen) }),
+        };
 
     let enpassant_target = fen_parts.next().and_then(read_enpassant);
 
@@ -110,7 +107,7 @@ pub fn parse_fen(fen: &str) -> Result<FenParseResult, FenError> {
         None => 0,
     };
 
-    Result::Ok(FenParseResult{
+    Result::Ok(FenParseResult {
         pieces,
         active_player,
         castling_rules,
@@ -341,7 +338,6 @@ fn write_castling(board: &Board) -> String {
         if board.can_castle(Castling::BlackQueenSide) {
             result.push(char::from(b'a' + (board.castling_rules.qs_rook_start(BLACK) & 7) as u8));
         }
-
     } else {
         if board.can_castle(Castling::WhiteKingSide) {
             result.push('K');
@@ -372,8 +368,7 @@ fn write_enpassant(board: &Board) -> String {
         if board.can_enpassant(WHITE, pos) {
             let col = pos % 8;
             let col_letter = b'a' + col;
-            let col_str =
-                String::from_utf8(vec![col_letter]).expect("Could not convert columm letter");
+            let col_str = String::from_utf8(vec![col_letter]).expect("Could not convert columm letter");
             return col_str + "6";
         }
     }
@@ -382,8 +377,7 @@ fn write_enpassant(board: &Board) -> String {
         if board.can_enpassant(BLACK, pos) {
             let col = pos % 8;
             let col_letter = b'a' + col;
-            let col_str =
-                String::from_utf8(vec![col_letter]).expect("Could not convert columm letter");
+            let col_str = String::from_utf8(vec![col_letter]).expect("Could not convert columm letter");
             return col_str + "3";
         }
     }
