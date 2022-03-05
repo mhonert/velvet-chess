@@ -627,7 +627,6 @@ impl Search {
         let counter_move = self.hh.get_counter_move(opponent_move);
         self.movegen.enter_ply(active_player, hash_move, primary_killer, secondary_killer, counter_move);
 
-        let opponent_pieces = self.board.get_all_piece_bitboard(active_player.flip());
         let occupied_bb = self.board.get_occupancy_bitboard();
 
         let previous_move_was_capture = capture_pos != -1;
@@ -691,10 +690,7 @@ impl Search {
 
                 if se_extension == 0 {
                     if removed_piece_id == EMPTY {
-                        if allow_lmr
-                            && evaluated_move_count > LMR_THRESHOLD
-                            && !self.board.is_pawn_move_close_to_promotion(previous_piece, end, opponent_pieces)
-                        {
+                        if allow_lmr && evaluated_move_count > LMR_THRESHOLD {
                             reductions += if is_pv { 1 } else { 2 };
                             if curr_move.score() == NEGATIVE_HISTORY_SCORE {
                                 reductions += 1;

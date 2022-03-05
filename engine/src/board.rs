@@ -21,8 +21,8 @@ pub mod castling;
 use std::cmp::max;
 
 use crate::bitboard::{
-    black_left_pawn_attacks, black_right_pawn_attacks, get_black_pawn_freepath, get_king_attacks, get_knight_attacks,
-    get_pawn_attacks, get_white_pawn_freepath, white_left_pawn_attacks, white_right_pawn_attacks, BitBoard,
+    black_left_pawn_attacks, black_right_pawn_attacks, get_king_attacks, get_knight_attacks,
+    get_pawn_attacks, white_left_pawn_attacks, white_right_pawn_attacks, BitBoard,
     DARK_COLORED_FIELD_PATTERN, LIGHT_COLORED_FIELD_PATTERN,
 };
 use crate::board::castling::{Castling, CastlingRules, CastlingState};
@@ -845,17 +845,6 @@ impl Board {
 
             _ => false,
         }
-    }
-
-    #[inline]
-    pub fn is_pawn_move_close_to_promotion(&self, piece: i8, pos: i32, blockers: u64) -> bool {
-        if piece == P {
-            return (get_white_pawn_freepath(pos as i32) & blockers) == 0;
-        } else if piece == -P {
-            return (get_black_pawn_freepath(pos as i32) & blockers) == 0;
-        }
-
-        false
     }
 
     #[inline]
