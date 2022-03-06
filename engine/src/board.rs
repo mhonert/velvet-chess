@@ -20,11 +20,7 @@ pub mod castling;
 
 use std::cmp::max;
 
-use crate::bitboard::{
-    black_left_pawn_attacks, black_right_pawn_attacks, get_king_attacks, get_knight_attacks,
-    get_pawn_attacks, white_left_pawn_attacks, white_right_pawn_attacks, BitBoard,
-    DARK_COLORED_FIELD_PATTERN, LIGHT_COLORED_FIELD_PATTERN,
-};
+use crate::bitboard::{black_left_pawn_attacks, black_right_pawn_attacks, get_king_attacks, get_knight_attacks, get_pawn_attacks, white_left_pawn_attacks, white_right_pawn_attacks, BitBoard, DARK_COLORED_FIELD_PATTERN, LIGHT_COLORED_FIELD_PATTERN, BitBoards};
 use crate::board::castling::{Castling, CastlingRules, CastlingState};
 use crate::colors::{Color, BLACK, WHITE};
 use crate::magics::Magics;
@@ -52,7 +48,7 @@ pub enum BlackBoardPos {
 #[derive(Clone)]
 pub struct Board {
     pub pos_history: PositionHistory,
-    pub bitboards: [u64; 13],
+    pub bitboards: BitBoards,
     pub state: StateEntry,
     pub halfmove_count: u16,
     pub castling_rules: CastlingRules,
@@ -60,7 +56,6 @@ pub struct Board {
     magics: Magics,
     nn_eval: Box<NeuralNetEval>,
     items: [i8; 64],
-    bitboards_all_pieces: [u64; 2],
     king_pos: [i32; 2],
 
     history: Vec<StateEntry>,
@@ -88,8 +83,7 @@ impl Board {
             nn_eval: NeuralNetEval::new(),
             castling_rules,
             items: [0; 64],
-            bitboards: [0; 13],
-            bitboards_all_pieces: [0; 2],
+            bitboards: BitBoards::default(),
             state: StateEntry {
                 en_passant: 0,
                 castling: CastlingState::default(),
@@ -115,19 +109,15 @@ impl Board {
     }
 
     pub fn reset(
-        &mut self, pos_history: PositionHistory, bitboards: [u64; 13], halfmove_count: u16, state: StateEntry,
+        &mut self, pos_history: PositionHistory, bitboards: BitBoards, halfmove_count: u16, state: StateEntry,
         castling_rules: CastlingRules,
     ) {
-        let white_bb = bitboards[7..=12].iter().fold(0, |acc, i| acc | i);
-        let black_bb = bitboards[0..=5].iter().fold(0, |acc, i| acc | i);
-
-        let white_king = bitboards[12].trailing_zeros() as i32;
-        let black_king = bitboards[0].trailing_zeros() as i32;
+        let white_king = bitboards.by_piece(K).trailing_zeros() as i32;
+        let black_king = bitboards.by_piece(-K).trailing_zeros() as i32;
 
         self.castling_rules = castling_rules;
         self.pos_history = pos_history;
         self.bitboards = bitboards;
-        self.bitboards_all_pieces = [white_bb, black_bb];
         self.state = state;
         self.halfmove_count = halfmove_count;
         self.king_pos = [white_king, black_king];
@@ -137,12 +127,12 @@ impl Board {
 
         for piece_id in 1i8..=6i8 {
             let piece = piece_id;
-            for pos in BitBoard(bitboards[(piece + 6) as usize]) {
+            for pos in BitBoard(bitboards.by_piece(piece)) {
                 self.items[pos as usize] = piece;
             }
 
             let piece = -piece_id;
-            for pos in BitBoard(bitboards[(piece + 6) as usize]) {
+            for pos in BitBoard(bitboards.by_piece(piece)) {
                 self.items[pos as usize] = piece;
             }
         }
@@ -170,8 +160,7 @@ impl Board {
             self.set_enpassant(target)
         }
 
-        self.bitboards = [0; 13];
-        self.bitboards_all_pieces = [0; 2];
+        self.bitboards = BitBoards::default();
         self.items = [EMPTY; 64];
 
         for i in 0..64 {
@@ -541,9 +530,9 @@ impl Board {
     fn add_piece_without_inc_update(&mut self, color: Color, piece: i8, pos: i32) {
         unsafe {
             *self.items.get_unchecked_mut(pos as usize) = piece;
-            *self.bitboards_all_pieces.get_unchecked_mut(color.idx()) |= 1u64 << pos as u64;
-            *self.bitboards.get_unchecked_mut((piece + 6) as usize) |= 1u64 << pos as u64;
         }
+
+        self.bitboards.flip(color, piece, pos as u32);
 
         self.nn_eval.add_piece(pos as usize, piece);
     }
@@ -557,10 +546,7 @@ impl Board {
 
         self.state.hash ^= piece_zobrist_key(piece, pos);
 
-        unsafe {
-            *self.bitboards_all_pieces.get_unchecked_mut(color.idx()) |= 1u64 << pos as u64;
-            *self.bitboards.get_unchecked_mut((piece + 6) as usize) |= 1u64 << pos as u64;
-        }
+        self.bitboards.flip(color, piece, pos as u32);
 
         self.nn_eval.add_piece(pos, piece);
     }
@@ -602,8 +588,7 @@ impl Board {
         self.nn_eval.remove_piece(pos as usize, piece);
 
         unsafe {
-            *self.bitboards.get_unchecked_mut((piece + 6) as usize) &= !(1u64 << pos as u64);
-            *self.bitboards_all_pieces.get_unchecked_mut(color.idx()) &= !(1u64 << pos as u64);
+            self.bitboards.flip(color, piece, pos as u32);
             *self.items.get_unchecked_mut(pos as usize) = EMPTY;
         }
 
@@ -636,11 +621,11 @@ impl Board {
     }
 
     pub fn get_all_piece_bitboard(&self, color: Color) -> u64 {
-        unsafe { *self.bitboards_all_pieces.get_unchecked(color.idx()) }
+        self.bitboards.by_color(color)
     }
 
     pub fn get_occupancy_bitboard(&self) -> u64 {
-        self.get_all_piece_bitboard(WHITE) | self.get_all_piece_bitboard(BLACK)
+        self.bitboards.occupancy()
     }
 
     pub fn is_attacked(&self, opponent_color: Color, pos: i32) -> bool {
@@ -678,7 +663,7 @@ impl Board {
     }
 
     pub fn get_bitboard(&self, piece: i8) -> u64 {
-        unsafe { *self.bitboards.get_unchecked((piece + 6) as usize) }
+        self.bitboards.by_piece(piece)
     }
 
     #[inline]

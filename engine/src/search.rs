@@ -40,6 +40,7 @@ use std::thread;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 use LogLevel::Info;
+use crate::bitboard::BitBoards;
 
 pub const DEFAULT_SEARCH_THREADS: usize = 1;
 pub const MAX_SEARCH_THREADS: usize = 256;
@@ -1219,7 +1220,7 @@ impl PrincipalVariation {
 enum ToThreadMessage {
     Search {
         pos_history: PositionHistory,
-        bitboards: [u64; 13],
+        bitboards: BitBoards,
         halfmove_count: u16,
         state: StateEntry,
         castling_rules: CastlingRules,

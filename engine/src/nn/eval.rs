@@ -17,7 +17,7 @@
  */
 
 use crate::align::A32;
-use crate::bitboard::{v_mirror, BitBoard};
+use crate::bitboard::{v_mirror, BitBoard, BitBoards};
 use crate::colors::Color;
 use crate::nn::{NeuralNetParams, FEATURES_PER_BUCKET, FP_PRECISION_BITS, HL_NODES};
 use crate::pieces::{Q, R};
@@ -78,7 +78,7 @@ impl NeuralNetEval {
         })
     }
 
-    pub fn init_pos(&mut self, bitboards: &[u64; 13]) {
+    pub fn init_pos(&mut self, bitboards: &BitBoards) {
         self.updates.clear();
         self.fast_undo = false;
         self.move_id = 0;
@@ -93,11 +93,11 @@ impl NeuralNetEval {
         self.btm_offset = btm_bucket as usize * FEATURES_PER_BUCKET;
 
         for piece in 1..=6 {
-            for pos in BitBoard(bitboards[(piece + 6) as usize]) {
+            for pos in BitBoard(bitboards.by_piece(piece)) {
                 self.add_piece_now(pos as usize, piece);
             }
 
-            for pos in BitBoard(bitboards[(-piece + 6) as usize]) {
+            for pos in BitBoard(bitboards.by_piece(-piece)) {
                 self.add_piece_now(pos as usize, -piece);
             }
         }
@@ -203,7 +203,7 @@ impl NeuralNetEval {
         }
     }
 
-    pub fn eval(&mut self, active_player: Color, half_move_clock: u8, bitboards: &[u64; 13]) -> i32 {
+    pub fn eval(&mut self, active_player: Color, half_move_clock: u8, bitboards: &BitBoards) -> i32 {
         self.apply_updates(bitboards);
 
         let output = if active_player.is_white() {
@@ -218,7 +218,7 @@ impl NeuralNetEval {
         adjust_eval(score, half_move_clock)
     }
 
-    fn apply_updates(&mut self, bitboards: &[u64; 13]) {
+    fn apply_updates(&mut self, bitboards: &BitBoards) {
         for i in 0..self.updates.len() {
             let (_, _, update) = unsafe { self.updates.get_unchecked(i) };
             match *update {
@@ -254,28 +254,26 @@ fn adjust_eval(score: i32, half_move_clock: u8) -> i32 {
     }
 }
 
-fn calc_bucket(bitboards: &[u64; 13]) -> (u8, u8) {
+fn calc_bucket(bitboards: &BitBoards) -> (u8, u8) {
     let mut wtm_bucket = 0;
     let mut btm_bucket = 0;
 
-    unsafe {
-        if *bitboards.get_unchecked((Q + 6) as usize) == 0 && *bitboards.get_unchecked((-Q + 6) as usize) == 0 {
-            if *bitboards.get_unchecked((R + 6) as usize) != 0 {
-                wtm_bucket |= 0b10;
-                btm_bucket |= 0b01;
-            }
-
-            if *bitboards.get_unchecked((-R + 6) as usize) != 0 {
-                wtm_bucket |= 0b01;
-                btm_bucket |= 0b10;
-            }
-        } else {
-            wtm_bucket = 4;
-            btm_bucket = 4;
+    if bitboards.by_piece(Q) == 0 && bitboards.by_piece(-Q) == 0 {
+        if bitboards.by_piece(R) != 0 {
+            wtm_bucket |= 0b10;
+            btm_bucket |= 0b01;
         }
 
-        (wtm_bucket, btm_bucket)
+        if bitboards.by_piece(-R) != 0 {
+            wtm_bucket |= 0b01;
+            btm_bucket |= 0b10;
+        }
+    } else {
+        wtm_bucket = 4;
+        btm_bucket = 4;
     }
+
+    (wtm_bucket, btm_bucket)
 }
 
 #[inline(always)]

@@ -17,7 +17,7 @@
  */
 
 use crate::bitboard::Direction::{AntiDiagonal, Diagonal, Horizontal, Vertical};
-use crate::colors::Color;
+use crate::colors::{Color};
 
 pub struct BitBoard(pub u64);
 
@@ -31,6 +31,40 @@ impl Iterator for BitBoard {
         let pos = self.0.trailing_zeros();
         self.0 ^= 1 << pos as u64;
         Some(pos)
+    }
+}
+
+#[derive(Copy, Clone, Default)]
+pub struct BitBoards([u64; 15]);
+
+const ALL: usize = 6;
+const BY_COLOR: usize = 13;
+
+impl BitBoards {
+
+    #[inline(always)]
+    pub fn by_piece(&self, piece: i8) -> u64 {
+        unsafe { *self.0.get_unchecked((piece + 6) as usize) }
+    }
+
+    #[inline(always)]
+    pub fn by_color(&self, color: Color) -> u64 {
+        unsafe { *self.0.get_unchecked(BY_COLOR + color.idx()) }
+    }
+
+    #[inline(always)]
+    pub fn occupancy(&self) -> u64 {
+        unsafe { *self.0.get_unchecked(ALL) }
+    }
+
+    #[inline(always)]
+    pub fn flip(&mut self, color: Color, piece: i8, pos: u32) {
+        let mask = 1u64 << pos;
+        unsafe {
+            *self.0.get_unchecked_mut((piece + 6) as usize) ^= mask;
+            *self.0.get_unchecked_mut(ALL) ^= mask;
+            *self.0.get_unchecked_mut(BY_COLOR + color.idx()) ^= mask;
+        }
     }
 }
 
