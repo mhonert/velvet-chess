@@ -294,7 +294,7 @@ fn collect_quiet_pos(
 
         num += 1;
 
-        if search.board.get_occupancy_bitboard().count_ones() <= 5 {
+        if search.board.occupancy_bb().piece_count() <= 5 {
             if let Some(tb_hit) = tablebase_result(tb, &write_fen(&search.board)) {
                 tb_result = Some(tb_hit.0);
                 tb_result_distance = Some(tb_hit.1);

@@ -51,15 +51,15 @@ impl GenQuietPos for Search {
     }
 
     fn material_score(&self) -> i32 {
-        (self.board.get_bitboard(P).count_ones() as i32 - self.board.get_bitboard(-P).count_ones() as i32) * 100
-            + (self.board.get_bitboard(N).count_ones() as i32 - self.board.get_bitboard(-N).count_ones() as i32) * 300
-            + (self.board.get_bitboard(B).count_ones() as i32 - self.board.get_bitboard(-B).count_ones() as i32) * 330
-            + (self.board.get_bitboard(R).count_ones() as i32 - self.board.get_bitboard(-R).count_ones() as i32) * 550
-            + (self.board.get_bitboard(Q).count_ones() as i32 - self.board.get_bitboard(-Q).count_ones() as i32) * 990
+        (self.board.get_bitboard(P).piece_count() as i32 - self.board.get_bitboard(-P).piece_count() as i32) * 100
+            + (self.board.get_bitboard(N).piece_count() as i32 - self.board.get_bitboard(-N).piece_count() as i32) * 300
+            + (self.board.get_bitboard(B).piece_count() as i32 - self.board.get_bitboard(-B).piece_count() as i32) * 330
+            + (self.board.get_bitboard(R).piece_count() as i32 - self.board.get_bitboard(-R).piece_count() as i32) * 550
+            + (self.board.get_bitboard(Q).piece_count() as i32 - self.board.get_bitboard(-Q).piece_count() as i32) * 990
     }
 
     fn piece_count(&self) -> i32 {
-        self.board.get_occupancy_bitboard().count_ones() as i32
+        self.board.occupancy_bb().piece_count() as i32
     }
 
     fn eval_pv_end_pos(

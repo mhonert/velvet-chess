@@ -16,9 +16,11 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+use std::ops::Not;
 use crate::bitboard::Direction::{AntiDiagonal, Diagonal, Horizontal, Vertical};
 use crate::colors::{Color};
 
+#[derive(Copy, Clone)]
 pub struct BitBoard(pub u64);
 
 impl Iterator for BitBoard {
@@ -34,6 +36,78 @@ impl Iterator for BitBoard {
     }
 }
 
+impl BitBoard {
+    pub fn piece_count(&self) -> u32 {
+        self.0.count_ones()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0 == 0
+    }
+
+    pub fn is_occupied(&self) -> bool {
+        self.0 != 0
+    }
+
+    pub fn piece_pos(&self) -> u32 {
+        self.0.trailing_zeros()
+    }
+
+    pub fn contains(&self, other: BitBoard) -> bool {
+        (self.0 & other.0) == other.0
+    }
+}
+
+macro_rules! impl_binary_op {
+    ($OT:ident, $OP:ident) => {
+        impl std::ops::$OT<BitBoard> for BitBoard {
+            type Output = BitBoard;
+
+            fn $OP(self, rhs: BitBoard) -> Self::Output { BitBoard(self.0.$OP(rhs.0)) }
+        }
+
+        impl std::ops::$OT<u64> for BitBoard {
+            type Output = BitBoard;
+
+            fn $OP(self, rhs: u64) -> Self::Output { BitBoard(self.0.$OP(rhs)) }
+        }
+    }
+}
+
+macro_rules! impl_binary_assign_op {
+    ($OT:ident, $OP:ident) => {
+        impl std::ops::$OT<BitBoard> for BitBoard {
+            fn $OP(&mut self, rhs: BitBoard) { self.0.$OP(rhs.0); }
+        }
+    }
+}
+
+impl_binary_op!(BitOr, bitor);
+impl_binary_op!(BitXor, bitxor);
+impl_binary_op!(BitAnd, bitand);
+impl_binary_op!(Shr, shr);
+impl_binary_op!(Shl, shl);
+
+impl_binary_assign_op!(BitOrAssign, bitor_assign);
+impl_binary_assign_op!(BitXorAssign, bitxor_assign);
+impl_binary_assign_op!(BitAndAssign, bitand_assign);
+impl_binary_assign_op!(ShrAssign, shr_assign);
+impl_binary_assign_op!(ShlAssign, shl_assign);
+
+impl Not for BitBoard {
+    type Output = BitBoard;
+
+    fn not(self) -> Self::Output {
+        BitBoard(!self.0)
+    }
+}
+
+impl From<BitBoard> for u64 {
+    fn from(bb: BitBoard) -> Self {
+        bb.0
+    }
+}
+
 #[derive(Copy, Clone, Default)]
 pub struct BitBoards([u64; 15]);
 
@@ -41,20 +115,19 @@ const ALL: usize = 6;
 const BY_COLOR: usize = 13;
 
 impl BitBoards {
-
     #[inline(always)]
-    pub fn by_piece(&self, piece: i8) -> u64 {
-        unsafe { *self.0.get_unchecked((piece + 6) as usize) }
+    pub fn by_piece(&self, piece: i8) -> BitBoard {
+        BitBoard(unsafe { *self.0.get_unchecked((piece + 6) as usize) })
     }
 
     #[inline(always)]
-    pub fn by_color(&self, color: Color) -> u64 {
-        unsafe { *self.0.get_unchecked(BY_COLOR + color.idx()) }
+    pub fn by_color(&self, color: Color) -> BitBoard {
+        BitBoard(unsafe { *self.0.get_unchecked(BY_COLOR + color.idx()) })
     }
 
     #[inline(always)]
-    pub fn occupancy(&self) -> u64 {
-        unsafe { *self.0.get_unchecked(ALL) }
+    pub fn occupancy(&self) -> BitBoard {
+        BitBoard(unsafe { *self.0.get_unchecked(ALL) })
     }
 
     #[inline(always)]
@@ -79,13 +152,13 @@ const KING_ATTACKS: [u64; 64] = calculate_single_move_patterns([1, 10, -1, -10, 
 const LINE_MASKS: [LinePatterns; 64 * 4] = calc_line_patterns();
 
 #[inline]
-pub fn get_knight_attacks(pos: i32) -> u64 {
-    unsafe { *KNIGHT_ATTACKS.get_unchecked(pos as usize) }
+pub fn get_knight_attacks(pos: i32) -> BitBoard {
+    BitBoard(unsafe { *KNIGHT_ATTACKS.get_unchecked(pos as usize) })
 }
 
 #[inline]
-pub fn get_king_attacks(pos: i32) -> u64 {
-    unsafe { *KING_ATTACKS.get_unchecked(pos as usize) }
+pub fn get_king_attacks(pos: i32) -> BitBoard {
+    BitBoard(unsafe { *KING_ATTACKS.get_unchecked(pos as usize) })
 }
 
 #[inline]
@@ -271,7 +344,7 @@ const fn is_border(pos: i32) -> bool {
 
 // Pawn attack move patterns
 
-pub fn get_pawn_attacks(pawns: u64, color: Color) -> u64 {
+pub fn get_pawn_attacks(pawns: BitBoard, color: Color) -> BitBoard {
     if color.is_white() {
         white_left_pawn_attacks(pawns) | white_right_pawn_attacks(pawns)
     } else {
@@ -279,20 +352,20 @@ pub fn get_pawn_attacks(pawns: u64, color: Color) -> u64 {
     }
 }
 
-pub fn white_left_pawn_attacks(pawns: u64) -> u64 {
-    (pawns & 0xfefefefefefefefe) >> 9 // mask right column
+pub fn white_left_pawn_attacks(pawns: BitBoard) -> BitBoard {
+    (pawns & BitBoard(0xfefefefefefefefe)) >> 9 // mask right column
 }
 
-pub fn white_right_pawn_attacks(pawns: u64) -> u64 {
-    (pawns & 0x7f7f7f7f7f7f7f7f) >> 7 // mask right column
+pub fn white_right_pawn_attacks(pawns: BitBoard) -> BitBoard {
+    (pawns & BitBoard(0x7f7f7f7f7f7f7f7f)) >> 7 // mask right column
 }
 
-pub fn black_left_pawn_attacks(pawns: u64) -> u64 {
-    (pawns & 0xfefefefefefefefe) << 7 // mask right column
+pub fn black_left_pawn_attacks(pawns: BitBoard) -> BitBoard {
+    (pawns & BitBoard(0xfefefefefefefefe)) << 7 // mask right column
 }
 
-pub fn black_right_pawn_attacks(pawns: u64) -> u64 {
-    (pawns & 0x7f7f7f7f7f7f7f7f) << 9 // mask right column
+pub fn black_right_pawn_attacks(pawns: BitBoard) -> BitBoard {
+    (pawns & BitBoard(0x7f7f7f7f7f7f7f7f)) << 9 // mask right column
 }
 
 // Positions where pawns may move two squares

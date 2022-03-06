@@ -17,7 +17,7 @@
  */
 
 use crate::align::A32;
-use crate::bitboard::{v_mirror, BitBoard, BitBoards};
+use crate::bitboard::{v_mirror, BitBoards};
 use crate::colors::Color;
 use crate::nn::{NeuralNetParams, FEATURES_PER_BUCKET, FP_PRECISION_BITS, HL_NODES};
 use crate::pieces::{Q, R};
@@ -93,11 +93,11 @@ impl NeuralNetEval {
         self.btm_offset = btm_bucket as usize * FEATURES_PER_BUCKET;
 
         for piece in 1..=6 {
-            for pos in BitBoard(bitboards.by_piece(piece)) {
+            for pos in bitboards.by_piece(piece) {
                 self.add_piece_now(pos as usize, piece);
             }
 
-            for pos in BitBoard(bitboards.by_piece(-piece)) {
+            for pos in bitboards.by_piece(-piece) {
                 self.add_piece_now(pos as usize, -piece);
             }
         }
@@ -258,13 +258,13 @@ fn calc_bucket(bitboards: &BitBoards) -> (u8, u8) {
     let mut wtm_bucket = 0;
     let mut btm_bucket = 0;
 
-    if bitboards.by_piece(Q) == 0 && bitboards.by_piece(-Q) == 0 {
-        if bitboards.by_piece(R) != 0 {
+    if bitboards.by_piece(Q).is_empty() && bitboards.by_piece(-Q).is_empty() {
+        if bitboards.by_piece(R).is_occupied() {
             wtm_bucket |= 0b10;
             btm_bucket |= 0b01;
         }
 
-        if bitboards.by_piece(-R) != 0 {
+        if bitboards.by_piece(-R).is_occupied() {
             wtm_bucket |= 0b01;
             btm_bucket |= 0b10;
         }

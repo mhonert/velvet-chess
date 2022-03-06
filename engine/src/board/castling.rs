@@ -182,7 +182,7 @@ impl CastlingRules {
         Self::QS_ROOK_END[color.idx()] as i32
     }
 
-    pub fn is_ks_castling_valid(&self, color: Color, board: &Board, empty_bb: u64) -> bool {
+    pub fn is_ks_castling_valid(&self, color: Color, board: &Board, empty_bb: BitBoard) -> bool {
         let idx = color.idx();
         let king_start = self.king_start[idx];
         let king_end = Self::KS_KING_END[idx] as i8;
@@ -191,7 +191,7 @@ impl CastlingRules {
         Self::is_castling_valid(board, color.flip(), empty_bb, king_start, king_end, rook_start, rook_end)
     }
 
-    pub fn is_qs_castling_valid(&self, color: Color, board: &Board, empty_bb: u64) -> bool {
+    pub fn is_qs_castling_valid(&self, color: Color, board: &Board, empty_bb: BitBoard) -> bool {
         let idx = color.idx();
         let king_start = self.king_start[idx];
         let king_end = Self::QS_KING_END[idx] as i8;
@@ -201,21 +201,21 @@ impl CastlingRules {
     }
 
     fn is_castling_valid(
-        board: &Board, opp_color: Color, mut empty_bb: u64, king_start: i8, king_end: i8, rook_start: i8, rook_end: i8,
+        board: &Board, opp_color: Color, mut empty_bb: BitBoard, king_start: i8, king_end: i8, rook_start: i8, rook_end: i8,
     ) -> bool {
-        empty_bb |= (1u64 << king_start) | (1u64 << rook_start);
+        empty_bb |= BitBoard((1u64 << king_start) | (1u64 << rook_start));
 
-        let king_route_bb = get_from_to_mask(king_start, king_end);
-        if empty_bb & king_route_bb != king_route_bb {
+        let king_route_bb = BitBoard(get_from_to_mask(king_start, king_end));
+        if !empty_bb.contains(king_route_bb) {
             return false;
         }
 
-        let rook_route_bb = get_from_to_mask(rook_start, rook_end);
-        if empty_bb & rook_route_bb != rook_route_bb {
+        let rook_route_bb = BitBoard(get_from_to_mask(rook_start, rook_end));
+        if !empty_bb.contains(rook_route_bb) {
             return false;
         }
 
-        for pos in BitBoard(king_route_bb) {
+        for pos in king_route_bb {
             if board.is_attacked(opp_color, pos as i32) {
                 return false;
             }

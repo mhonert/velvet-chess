@@ -112,8 +112,8 @@ impl Board {
         &mut self, pos_history: PositionHistory, bitboards: BitBoards, halfmove_count: u16, state: StateEntry,
         castling_rules: CastlingRules,
     ) {
-        let white_king = bitboards.by_piece(K).trailing_zeros() as i32;
-        let black_king = bitboards.by_piece(-K).trailing_zeros() as i32;
+        let white_king = bitboards.by_piece(K).piece_pos() as i32;
+        let black_king = bitboards.by_piece(-K).piece_pos() as i32;
 
         self.castling_rules = castling_rules;
         self.pos_history = pos_history;
@@ -127,12 +127,12 @@ impl Board {
 
         for piece_id in 1i8..=6i8 {
             let piece = piece_id;
-            for pos in BitBoard(bitboards.by_piece(piece)) {
+            for pos in bitboards.by_piece(piece) {
                 self.items[pos as usize] = piece;
             }
 
             let piece = -piece_id;
-            for pos in BitBoard(bitboards.by_piece(piece)) {
+            for pos in bitboards.by_piece(piece) {
                 self.items[pos as usize] = piece;
             }
         }
@@ -620,163 +620,163 @@ impl Board {
         }
     }
 
-    pub fn get_all_piece_bitboard(&self, color: Color) -> u64 {
+    pub fn get_all_piece_bitboard(&self, color: Color) -> BitBoard {
         self.bitboards.by_color(color)
     }
 
-    pub fn get_occupancy_bitboard(&self) -> u64 {
+    pub fn occupancy_bb(&self) -> BitBoard {
         self.bitboards.occupancy()
     }
 
     pub fn is_attacked(&self, opponent_color: Color, pos: i32) -> bool {
-        let empty_bb = !self.get_occupancy_bitboard();
-        let target_bb = 1 << pos as u64;
+        let empty_bb = !self.occupancy_bb();
+        let target_bb = BitBoard(1 << pos as u64);
 
         // Check knights
-        if self.get_bitboard(opponent_color.piece(N)) & get_knight_attacks(pos) != 0 {
+        if (self.get_bitboard(opponent_color.piece(N)) & get_knight_attacks(pos)).is_occupied() {
             return true;
         }
 
         // Check diagonal
         let queens = self.get_bitboard(opponent_color.piece(Q));
-        if (self.get_bitboard(opponent_color.piece(B)) | queens) & self.magics.get_bishop_attacks(empty_bb, pos) != 0 {
+        if ((self.get_bitboard(opponent_color.piece(B)) | queens) & self.magics.get_bishop_attacks(empty_bb.into(), pos)).is_occupied() {
             return true;
         }
 
         // Check orthogonal
-        if (self.get_bitboard(opponent_color.piece(R)) | queens) & self.magics.get_rook_attacks(empty_bb, pos) != 0 {
+        if ((self.get_bitboard(opponent_color.piece(R)) | queens) & self.magics.get_rook_attacks(empty_bb.into(), pos)).is_occupied() {
             return true;
         }
 
         // Check pawns
         let pawns = self.get_bitboard(opponent_color.piece(P));
-        if get_pawn_attacks(pawns, opponent_color) & target_bb != 0 {
+        if (target_bb & get_pawn_attacks(pawns, opponent_color)).is_occupied() {
             return true;
         }
 
         // Check king
-        if get_king_attacks(self.king_pos(opponent_color)) & target_bb != 0 {
+        if (target_bb & get_king_attacks(self.king_pos(opponent_color))).is_occupied() {
             return true;
         }
 
         false
     }
 
-    pub fn get_bitboard(&self, piece: i8) -> u64 {
+    pub fn get_bitboard(&self, piece: i8) -> BitBoard {
         self.bitboards.by_piece(piece)
     }
 
     #[inline]
-    pub fn get_bishop_attacks(&self, empty_bb: u64, pos: i32) -> u64 {
-        self.magics.get_bishop_attacks(empty_bb, pos)
+    pub fn get_bishop_attacks(&self, empty_bb: BitBoard, pos: i32) -> BitBoard {
+        BitBoard(self.magics.get_bishop_attacks(empty_bb.into(), pos))
     }
 
     #[inline]
-    pub fn get_rook_attacks(&self, empty_bb: u64, pos: i32) -> u64 {
-        self.magics.get_rook_attacks(empty_bb, pos)
+    pub fn get_rook_attacks(&self, empty_bb: BitBoard, pos: i32) -> BitBoard {
+        BitBoard(self.magics.get_rook_attacks(empty_bb.into(), pos))
     }
 
     #[inline]
-    pub fn get_queen_attacks(&self, empty_bb: u64, pos: i32) -> u64 {
-        self.magics.get_queen_attacks(empty_bb, pos)
+    pub fn get_queen_attacks(&self, empty_bb: BitBoard, pos: i32) -> BitBoard {
+        BitBoard(self.magics.get_queen_attacks(empty_bb.into(), pos))
     }
 
     // Returns the position of the smallest attacker or -1 if there is no attacker
-    fn find_smallest_attacker(&self, empty_bb: u64, occupied_bb: u64, opp_color: Color, pos: i32) -> i32 {
-        let target_bb = 1 << pos as u64;
+    fn find_smallest_attacker(&self, empty_bb: BitBoard, occupied_bb: BitBoard, opp_color: Color, pos: i32) -> i32 {
+        let target_bb = BitBoard(1 << pos as u64);
         if opp_color.is_white() {
             // Check pawns
             let white_pawns = self.get_bitboard(P) & occupied_bb;
-            if white_left_pawn_attacks(white_pawns) & target_bb != 0 {
+            if (white_left_pawn_attacks(white_pawns) & target_bb).is_occupied() {
                 return pos + 9;
-            } else if white_right_pawn_attacks(white_pawns) & target_bb != 0 {
+            } else if (white_right_pawn_attacks(white_pawns) & target_bb).is_occupied() {
                 return pos + 7;
             }
 
             // Check knights
             let knights = self.get_bitboard(N) & occupied_bb;
             let attacking_knights = knights & get_knight_attacks(pos);
-            if attacking_knights != 0 {
-                return attacking_knights.trailing_zeros() as i32;
+            if attacking_knights.is_occupied() {
+                return attacking_knights.piece_pos() as i32;
             }
 
             // Check bishops
             let bishops = self.get_bitboard(B) & occupied_bb;
-            let bishop_attacks = self.magics.get_bishop_attacks(empty_bb, pos);
+            let bishop_attacks = self.magics.get_bishop_attacks(empty_bb.into(), pos);
             let attacking_bishops = bishops & bishop_attacks;
-            if attacking_bishops != 0 {
-                return attacking_bishops.trailing_zeros() as i32;
+            if attacking_bishops.is_occupied() {
+                return attacking_bishops.piece_pos() as i32;
             }
 
             // Check rooks
             let rooks = self.get_bitboard(R) & occupied_bb;
-            let rook_attacks = self.magics.get_rook_attacks(empty_bb, pos);
+            let rook_attacks = self.magics.get_rook_attacks(empty_bb.into(), pos);
             let attacking_rooks = rooks & rook_attacks;
-            if attacking_rooks != 0 {
-                return attacking_rooks.trailing_zeros() as i32;
+            if attacking_rooks.is_occupied() {
+                return attacking_rooks.piece_pos() as i32;
             }
 
             // Check queens
             let queens = self.get_bitboard(Q) & occupied_bb;
             let attacking_queens = queens & (rook_attacks | bishop_attacks);
-            if attacking_queens != 0 {
-                return attacking_queens.trailing_zeros() as i32;
+            if attacking_queens.is_occupied() {
+                return attacking_queens.piece_pos() as i32;
             }
 
             // Check king
             let king_pos = self.king_pos(WHITE);
-            let attacking_king = get_king_attacks(king_pos) & target_bb;
-            if attacking_king != 0 {
-                let king_bb = 1u64 << (king_pos as u64);
-                if (king_bb & occupied_bb) != 0 {
+            let attacking_king = target_bb & get_king_attacks(king_pos);
+            if attacking_king.is_occupied() {
+                let king_bb = BitBoard(1u64 << (king_pos as u64));
+                if (king_bb & occupied_bb).is_occupied() {
                     return king_pos;
                 }
             }
         } else {
             // Check pawns
             let black_pawns = self.get_bitboard(-P) & occupied_bb;
-            if black_left_pawn_attacks(black_pawns) & target_bb != 0 {
+            if (black_left_pawn_attacks(black_pawns) & target_bb).is_occupied() {
                 return pos - 7;
-            } else if black_right_pawn_attacks(black_pawns) & target_bb != 0 {
+            } else if (black_right_pawn_attacks(black_pawns) & target_bb).is_occupied() {
                 return pos - 9;
             }
 
             // Check knights
             let knights = self.get_bitboard(-N) & occupied_bb;
             let attacking_knights = knights & get_knight_attacks(pos);
-            if attacking_knights != 0 {
-                return attacking_knights.trailing_zeros() as i32;
+            if attacking_knights.is_occupied() {
+                return attacking_knights.piece_pos() as i32;
             }
 
             // Check bishops
             let bishops = self.get_bitboard(-B) & occupied_bb;
-            let bishop_attacks = self.magics.get_bishop_attacks(empty_bb, pos);
+            let bishop_attacks = self.magics.get_bishop_attacks(empty_bb.into(), pos);
             let attacking_bishops = bishops & bishop_attacks;
-            if attacking_bishops != 0 {
-                return attacking_bishops.trailing_zeros() as i32;
+            if attacking_bishops.is_occupied() {
+                return attacking_bishops.piece_pos() as i32;
             }
 
             // Check rooks
             let rooks = self.get_bitboard(-R) & occupied_bb;
-            let rook_attacks = self.magics.get_rook_attacks(empty_bb, pos);
+            let rook_attacks = self.magics.get_rook_attacks(empty_bb.into(), pos);
             let attacking_rooks = rooks & rook_attacks;
-            if attacking_rooks != 0 {
-                return attacking_rooks.trailing_zeros() as i32;
+            if attacking_rooks.is_occupied() {
+                return attacking_rooks.piece_pos() as i32;
             }
 
             // Check queens
             let queens = self.get_bitboard(-Q) & occupied_bb;
             let attacking_queens = queens & (rook_attacks | bishop_attacks);
-            if attacking_queens != 0 {
-                return attacking_queens.trailing_zeros() as i32;
+            if attacking_queens.is_occupied() {
+                return attacking_queens.piece_pos() as i32;
             }
 
             // Check king
             let king_pos = self.king_pos(BLACK);
-            let attacking_king = get_king_attacks(king_pos) & target_bb;
-            if attacking_king != 0 {
-                let king_bb = 1u64 << (king_pos as u64);
-                if (king_bb & occupied_bb) != 0 {
+            let attacking_king = target_bb & get_king_attacks(king_pos);
+            if attacking_king.is_occupied() {
+                let king_bb = BitBoard(1u64 << (king_pos as u64));
+                if (king_bb & occupied_bb).is_occupied() {
                     return king_pos;
                 }
             }
@@ -807,14 +807,14 @@ impl Board {
     }
 
     pub fn is_insufficient_material_draw(&self) -> bool {
-        match (self.get_all_piece_bitboard(WHITE) | self.get_all_piece_bitboard(BLACK)).count_ones() {
+        match self.occupancy_bb().piece_count() {
             2 => true, // K vs K
 
             3 => {
                 // K vs K+N or K vs K+B
                 let knights_or_bishops =
                     self.get_bitboard(N) | self.get_bitboard(-N) | self.get_bitboard(B) | self.get_bitboard(-B);
-                knights_or_bishops != 0
+                knights_or_bishops.is_occupied()
             }
 
             4 => {
@@ -822,10 +822,10 @@ impl Board {
                 let white_bishops = self.get_bitboard(B);
                 let black_bishops = self.get_bitboard(-B);
 
-                ((white_bishops & LIGHT_COLORED_FIELD_PATTERN) != 0
-                    && (black_bishops & LIGHT_COLORED_FIELD_PATTERN) != 0)
-                    || ((white_bishops & DARK_COLORED_FIELD_PATTERN) != 0
-                        && (black_bishops & DARK_COLORED_FIELD_PATTERN) != 0)
+                ((white_bishops & LIGHT_COLORED_FIELD_PATTERN).is_occupied()
+                    && (black_bishops & LIGHT_COLORED_FIELD_PATTERN).is_occupied())
+                    || ((white_bishops & DARK_COLORED_FIELD_PATTERN).is_occupied()
+                    && (black_bishops & DARK_COLORED_FIELD_PATTERN).is_occupied())
             }
 
             _ => false,
@@ -834,7 +834,7 @@ impl Board {
 
     #[inline]
     pub fn is_pawn_endgame(&self) -> bool {
-        (self.get_occupancy_bitboard() & !(self.get_bitboard(P) | self.get_bitboard(-P))).count_ones() == 2
+        (self.occupancy_bb() & !(self.get_bitboard(P) | self.get_bitboard(-P))).piece_count() == 2
     }
 
     /* Perform a Static Exchange Evaluation (SEE) to check, whether the net gain of the capture is still positive,
@@ -842,16 +842,16 @@ impl Board {
     */
     pub fn has_negative_see(
         &mut self, opp_color: Color, from: i32, target: i32, own_piece_id: i8, captured_piece_id: i8, threshold: i16,
-        mut occupied_bb: u64,
+        mut occupied: BitBoard,
     ) -> bool {
         let mut score = get_piece_value(captured_piece_id as usize);
-        occupied_bb &= !(1 << from as u64);
+        occupied = occupied & !(1 << from as u64);
         let mut trophy_piece_score = get_piece_value(own_piece_id as usize);
 
         loop {
-            let empty_bb = !occupied_bb;
+            let empty = !occupied;
             // Opponent attack
-            let attacker_pos = self.find_smallest_attacker(empty_bb, occupied_bb, opp_color, target);
+            let attacker_pos = self.find_smallest_attacker(empty, occupied, opp_color, target);
             if attacker_pos < 0 {
                 return score < threshold;
             }
@@ -861,10 +861,10 @@ impl Board {
                 return score < threshold;
             }
 
-            occupied_bb &= !(1 << attacker_pos);
+            occupied = occupied & !(1 << attacker_pos);
 
             // Own attack
-            let own_attacker_pos = self.find_smallest_attacker(empty_bb, occupied_bb, opp_color.flip(), target);
+            let own_attacker_pos = self.find_smallest_attacker(empty, occupied, opp_color.flip(), target);
             if own_attacker_pos < 0 {
                 return score < threshold;
             }
@@ -875,7 +875,7 @@ impl Board {
                 return score < threshold;
             }
 
-            occupied_bb &= !(1 << own_attacker_pos);
+            occupied = occupied ^ (1 << own_attacker_pos);
         }
     }
 
@@ -1058,7 +1058,7 @@ mod tests {
         let board = Board::new(&items, WHITE, CastlingState::default(), None, 0, 1, CastlingRules::default());
         assert_eq!(
             34,
-            board.find_smallest_attacker(!board.get_occupancy_bitboard(), board.get_occupancy_bitboard(), WHITE, 27)
+            board.find_smallest_attacker(!board.occupancy_bb(), board.occupancy_bb(), WHITE, 27)
         );
     }
 
@@ -1079,7 +1079,7 @@ mod tests {
         let board = Board::new(&items, WHITE, CastlingState::default(), None, 0, 1, CastlingRules::default());
         assert_eq!(
             36,
-            board.find_smallest_attacker(!board.get_occupancy_bitboard(), board.get_occupancy_bitboard(), WHITE, 27)
+            board.find_smallest_attacker(!board.occupancy_bb(), board.occupancy_bb(), WHITE, 27)
         );
     }
 
@@ -1100,7 +1100,7 @@ mod tests {
         let board = Board::new(&items, BLACK, CastlingState::default(), None, 0, 1, CastlingRules::default());
         assert_eq!(
             20,
-            board.find_smallest_attacker(!board.get_occupancy_bitboard(), board.get_occupancy_bitboard(), BLACK, 27)
+            board.find_smallest_attacker(!board.occupancy_bb(), board.occupancy_bb(), BLACK, 27)
         );
     }
 
@@ -1121,7 +1121,7 @@ mod tests {
         let board = Board::new(&items, BLACK, CastlingState::default(), None, 0, 1, CastlingRules::default());
         assert_eq!(
             18,
-            board.find_smallest_attacker(!board.get_occupancy_bitboard(), board.get_occupancy_bitboard(), BLACK, 27)
+            board.find_smallest_attacker(!board.occupancy_bb(), board.occupancy_bb(), BLACK, 27)
         );
     }
 
@@ -1142,7 +1142,7 @@ mod tests {
         let board = Board::new(&items, WHITE, CastlingState::default(), None, 0, 1, CastlingRules::default());
         assert_eq!(
             37,
-            board.find_smallest_attacker(!board.get_occupancy_bitboard(), board.get_occupancy_bitboard(), WHITE, 27)
+            board.find_smallest_attacker(!board.occupancy_bb(), board.occupancy_bb(), WHITE, 27)
         );
     }
 
@@ -1163,7 +1163,7 @@ mod tests {
         let board = Board::new(&items, WHITE, CastlingState::default(), None, 0, 1, CastlingRules::default());
         assert_eq!(
             45,
-            board.find_smallest_attacker(!board.get_occupancy_bitboard(), board.get_occupancy_bitboard(), WHITE, 27)
+            board.find_smallest_attacker(!board.occupancy_bb(), board.occupancy_bb(), WHITE, 27)
         );
     }
 
@@ -1184,7 +1184,7 @@ mod tests {
         let board = Board::new(&items, WHITE, CastlingState::default(), None, 0, 1, CastlingRules::default());
         assert_eq!(
             24,
-            board.find_smallest_attacker(!board.get_occupancy_bitboard(), board.get_occupancy_bitboard(), WHITE, 27)
+            board.find_smallest_attacker(!board.occupancy_bb(), board.occupancy_bb(), WHITE, 27)
         );
     }
 
@@ -1205,7 +1205,7 @@ mod tests {
         let board = Board::new(&items, WHITE, CastlingState::default(), None, 0, 1, CastlingRules::default());
         assert_eq!(
             29,
-            board.find_smallest_attacker(!board.get_occupancy_bitboard(), board.get_occupancy_bitboard(), WHITE, 27)
+            board.find_smallest_attacker(!board.occupancy_bb(), board.occupancy_bb(), WHITE, 27)
         );
     }
 
@@ -1226,7 +1226,7 @@ mod tests {
         let board = Board::new(&items, WHITE, CastlingState::default(), None, 0, 1, CastlingRules::default());
         assert_eq!(
             35,
-            board.find_smallest_attacker(!board.get_occupancy_bitboard(), board.get_occupancy_bitboard(), WHITE, 27)
+            board.find_smallest_attacker(!board.occupancy_bb(), board.occupancy_bb(), WHITE, 27)
         );
     }
 
@@ -1283,7 +1283,7 @@ mod tests {
         ];
 
         let mut board = Board::new(&items, WHITE, CastlingState::default(), None, 0, 1, CastlingRules::default());
-        assert!(!board.has_negative_see(BLACK, 52, 44, R, P, 0, board.get_occupancy_bitboard()));
+        assert!(!board.has_negative_see(BLACK, 52, 44, R, P, 0, board.occupancy_bb()));
     }
 
     #[test]
@@ -1301,7 +1301,7 @@ mod tests {
         ];
 
         let mut board = Board::new(&items, BLACK, CastlingState::default(), None, 0, 1, CastlingRules::default());
-        assert!(!board.has_negative_see(WHITE, 52, 44, R, P, 0, board.get_occupancy_bitboard()));
+        assert!(!board.has_negative_see(WHITE, 52, 44, R, P, 0, board.occupancy_bb()));
     }
 
     #[test]

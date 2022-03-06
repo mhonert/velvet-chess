@@ -628,7 +628,7 @@ impl Search {
         let counter_move = self.hh.get_counter_move(opponent_move);
         self.movegen.enter_ply(active_player, hash_move, primary_killer, secondary_killer, counter_move);
 
-        let occupied_bb = self.board.get_occupancy_bitboard();
+        let occupied_bb = self.board.occupancy_bb();
 
         let previous_move_was_capture = capture_pos != -1;
 
@@ -924,7 +924,7 @@ impl Search {
 
         let mut threshold = (alpha - position_score - QS_SEE_THRESHOLD) as i16;
 
-        let occupied_bb = self.board.get_occupancy_bitboard();
+        let occupied_bb = self.board.occupancy_bb();
 
         while let Some(m) = self.movegen.next_capture_move(&mut self.board) {
             let end = m.end();

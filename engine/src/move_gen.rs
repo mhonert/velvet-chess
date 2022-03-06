@@ -90,7 +90,7 @@ impl MoveGenerator {
     }
 
     #[inline(always)]
-    pub fn skip_bad_capture(&mut self, m: Move, captured_piece_id: i8, occupied_bb: u64, board: &mut Board) -> bool {
+    pub fn skip_bad_capture(&mut self, m: Move, captured_piece_id: i8, occupied_bb: BitBoard, board: &mut Board) -> bool {
         self.entries[self.ply].skip_bad_capture(m, captured_piece_id, occupied_bb, board)
     }
 
@@ -182,8 +182,8 @@ impl MoveList {
     }
 
     #[inline]
-    pub fn add_moves(&mut self, typ: MoveType, piece: i8, pos: i32, target_bb: u64) {
-        for end in BitBoard(target_bb) {
+    pub fn add_moves(&mut self, typ: MoveType, piece: i8, pos: i32, target_bb: BitBoard) {
+        for end in target_bb {
             self.add_move(typ, piece, pos, end as i32);
         }
     }
@@ -198,8 +198,8 @@ impl MoveList {
     }
 
     #[inline]
-    pub fn add_capture_moves(&mut self, board: &Board, typ: MoveType, piece: i8, pos: i32, target_bb: u64) {
-        for end in BitBoard(target_bb) {
+    pub fn add_capture_moves(&mut self, board: &Board, typ: MoveType, piece: i8, pos: i32, target_bb: BitBoard) {
+        for end in target_bb {
             self.add_capture_move(board, typ, piece, pos, end as i32);
         }
     }
@@ -344,22 +344,22 @@ impl MoveList {
             self.gen_black_en_passant_moves(board, pawns);
         }
 
-        for pos in BitBoard(board.get_bitboard(active_player.piece(B))) {
+        for pos in board.get_bitboard(active_player.piece(B)) {
             let attacks = board.get_bishop_attacks(empty_bb, pos as i32);
             self.gen_piece_moves(board, B, pos as i32, attacks, opponent_bb, empty_bb);
         }
 
-        for pos in BitBoard(board.get_bitboard(active_player.piece(N))) {
+        for pos in board.get_bitboard(active_player.piece(N)) {
             let attacks = get_knight_attacks(pos as i32);
             self.gen_piece_moves(board, N, pos as i32, attacks, opponent_bb, empty_bb);
         }
 
-        for pos in BitBoard(board.get_bitboard(active_player.piece(R))) {
+        for pos in board.get_bitboard(active_player.piece(R)) {
             let attacks = board.get_rook_attacks(empty_bb, pos as i32);
             self.gen_piece_moves(board, R, pos as i32, attacks, opponent_bb, empty_bb);
         }
 
-        for pos in BitBoard(board.get_bitboard(active_player.piece(Q))) {
+        for pos in board.get_bitboard(active_player.piece(Q)) {
             let attacks = board.get_queen_attacks(empty_bb, pos as i32);
             self.gen_piece_moves(board, Q, pos as i32, attacks, opponent_bb, empty_bb);
         }
@@ -380,22 +380,22 @@ impl MoveList {
             self.gen_black_attack_pawn_moves(board, board.get_bitboard(-P), opponent_bb);
         }
 
-        for pos in BitBoard(board.get_bitboard(active_player.piece(N))) {
+        for pos in board.get_bitboard(active_player.piece(N)) {
             let attacks = get_knight_attacks(pos as i32);
             self.add_capture_moves(board, MoveType::Capture, N, pos as i32, attacks & opponent_bb);
         }
 
-        for pos in BitBoard(board.get_bitboard(active_player.piece(B))) {
+        for pos in board.get_bitboard(active_player.piece(B)) {
             let attacks = board.get_bishop_attacks(empty_bb, pos as i32);
             self.add_capture_moves(board, MoveType::Capture, B, pos as i32, attacks & opponent_bb);
         }
 
-        for pos in BitBoard(board.get_bitboard(active_player.piece(R))) {
+        for pos in board.get_bitboard(active_player.piece(R)) {
             let attacks = board.get_rook_attacks(empty_bb, pos as i32);
             self.add_capture_moves(board, MoveType::Capture, R, pos as i32, attacks & opponent_bb);
         }
 
-        for pos in BitBoard(board.get_bitboard(active_player.piece(Q))) {
+        for pos in board.get_bitboard(active_player.piece(Q)) {
             let attacks = board.get_queen_attacks(empty_bb, pos as i32);
             self.add_capture_moves(board, MoveType::Capture, Q, pos as i32, attacks & opponent_bb);
         }
@@ -405,34 +405,34 @@ impl MoveList {
         self.add_capture_moves(board, MoveType::KingCapture, K, king_pos, king_targets & opponent_bb);
     }
 
-    fn gen_white_straight_pawn_moves(&mut self, pawns: u64, empty_bb: u64) {
+    fn gen_white_straight_pawn_moves(&mut self, pawns: BitBoard, empty_bb: BitBoard) {
         // Single move
         let mut target_bb = (pawns >> 8) & empty_bb;
         self.add_pawn_quiet_moves(MoveType::PawnQuiet, target_bb, 8);
 
         // Double move
-        target_bb &= unsafe { *PAWN_DOUBLE_MOVE_LINES.get_unchecked(WHITE.idx()) };
-        target_bb >>= 8;
+        target_bb &= BitBoard(unsafe { *PAWN_DOUBLE_MOVE_LINES.get_unchecked(WHITE.idx()) });
+        target_bb >>= BitBoard(8);
 
         target_bb &= empty_bb;
         self.add_pawn_quiet_moves(MoveType::PawnDoubleQuiet, target_bb, 16);
     }
 
-    fn gen_white_attack_pawn_moves(&mut self, board: &Board, pawns: u64, opponent_bb: u64) {
+    fn gen_white_attack_pawn_moves(&mut self, board: &Board, pawns: BitBoard, opponent_bb: BitBoard) {
         let mut left_attacks = pawns & 0xfefefefefefefefe; // mask right column
-        left_attacks >>= 9;
+        left_attacks >>= BitBoard(9);
 
         left_attacks &= opponent_bb;
         self.add_pawn_capture_moves(board, MoveType::Capture, left_attacks, 9);
 
         let mut right_attacks = pawns & 0x7f7f7f7f7f7f7f7f; // mask left column
-        right_attacks >>= 7;
+        right_attacks >>= BitBoard(7);
 
         right_attacks &= opponent_bb;
         self.add_pawn_capture_moves(board, MoveType::Capture, right_attacks, 7);
     }
 
-    fn gen_white_en_passant_moves(&mut self, board: &Board, pawns: u64) {
+    fn gen_white_en_passant_moves(&mut self, board: &Board, pawns: BitBoard) {
         let en_passant = board.get_enpassant_state();
         if en_passant == 0 {
             return;
@@ -441,47 +441,47 @@ impl MoveList {
         let end = 16 + en_passant.trailing_zeros();
         if en_passant != 0b10000000 {
             let start = end + 9;
-            if (pawns & (1 << start)) != 0 {
+            if (pawns & (1 << start)).is_occupied() {
                 self.add_capture_move(board, MoveType::PawnSpecial, P, start as i32, end as i32);
             }
         }
 
         if en_passant != 0b00000001 {
             let start = end + 7;
-            if (pawns & (1 << start)) != 0 {
+            if (pawns & (1 << start)).is_occupied() {
                 self.add_capture_move(board, MoveType::PawnSpecial, P, start as i32, end as i32);
             }
         }
     }
 
-    fn gen_black_straight_pawn_moves(&mut self, pawns: u64, empty_bb: u64) {
+    fn gen_black_straight_pawn_moves(&mut self, pawns: BitBoard, empty_bb: BitBoard) {
         // Single move
         let mut target_bb = (pawns << 8) & empty_bb;
         self.add_pawn_quiet_moves(MoveType::PawnQuiet, target_bb, -8);
 
         // Double move
-        target_bb &= unsafe { *PAWN_DOUBLE_MOVE_LINES.get_unchecked(BLACK.idx()) };
-        target_bb <<= 8;
+        target_bb &= BitBoard(unsafe { *PAWN_DOUBLE_MOVE_LINES.get_unchecked(BLACK.idx()) });
+        target_bb <<= BitBoard(8);
 
         target_bb &= empty_bb;
         self.add_pawn_quiet_moves(MoveType::PawnDoubleQuiet, target_bb, -16);
     }
 
-    fn gen_black_attack_pawn_moves(&mut self, board: &Board, pawns: u64, opponent_bb: u64) {
+    fn gen_black_attack_pawn_moves(&mut self, board: &Board, pawns: BitBoard, opponent_bb: BitBoard) {
         let mut left_attacks = pawns & 0xfefefefefefefefe; // mask right column
-        left_attacks <<= 7;
+        left_attacks <<= BitBoard(7);
 
         left_attacks &= opponent_bb;
         self.add_pawn_capture_moves(board, MoveType::Capture, left_attacks, -7);
 
         let mut right_attacks = pawns & 0x7f7f7f7f7f7f7f7f; // mask left column
-        right_attacks <<= 9;
+        right_attacks <<= BitBoard(9);
 
         right_attacks &= opponent_bb;
         self.add_pawn_capture_moves(board, MoveType::Capture, right_attacks, -9);
     }
 
-    fn gen_black_en_passant_moves(&mut self, board: &Board, pawns: u64) {
+    fn gen_black_en_passant_moves(&mut self, board: &Board, pawns: BitBoard) {
         let en_passant = board.get_enpassant_state() >> 8;
         if en_passant == 0 {
             return;
@@ -490,21 +490,21 @@ impl MoveList {
         let end = 40 + en_passant.trailing_zeros();
         if en_passant != 0b00000001 {
             let start = end - 9;
-            if (pawns & (1 << start)) != 0 {
+            if (pawns & (1 << start)).is_occupied() {
                 self.add_capture_move(board, MoveType::PawnSpecial, P, start as i32, end as i32);
             }
         }
 
         if en_passant != 0b10000000 {
             let start = end - 7;
-            if (pawns & (1 << start)) != 0 {
+            if (pawns & (1 << start)).is_occupied() {
                 self.add_capture_move(board, MoveType::PawnSpecial, P, start as i32, end as i32);
             }
         }
     }
 
-    fn add_pawn_quiet_moves(&mut self, typ: MoveType, target_bb: u64, direction: i32) {
-        for end in BitBoard(target_bb) {
+    fn add_pawn_quiet_moves(&mut self, typ: MoveType, target_bb: BitBoard, direction: i32) {
+        for end in target_bb {
             let start = end as i32 + direction;
 
             if end <= 7 || end >= 56 {
@@ -520,8 +520,8 @@ impl MoveList {
         }
     }
 
-    fn add_pawn_capture_moves(&mut self, board: &Board, typ: MoveType, target_bb: u64, direction: i32) {
-        for end in BitBoard(target_bb) {
+    fn add_pawn_capture_moves(&mut self, board: &Board, typ: MoveType, target_bb: BitBoard, direction: i32) {
+        for end in target_bb {
             let start = end as i32 + direction;
 
             if end <= 7 || end >= 56 {
@@ -537,7 +537,7 @@ impl MoveList {
         }
     }
 
-    fn gen_king_moves(&mut self, color: Color, board: &Board, opponent_bb: u64, empty_bb: u64) {
+    fn gen_king_moves(&mut self, color: Color, board: &Board, opponent_bb: BitBoard, empty_bb: BitBoard) {
         let pos = board.king_pos(color);
         let king_targets = get_king_attacks(pos);
 
@@ -547,7 +547,7 @@ impl MoveList {
         self.gen_quiet_king_moves(color, board, pos, empty_bb, king_targets);
     }
 
-    fn gen_quiet_king_moves(&mut self, color: Color, board: &Board, pos: i32, empty_bb: u64, king_targets: u64) {
+    fn gen_quiet_king_moves(&mut self, color: Color, board: &Board, pos: i32, empty_bb: BitBoard, king_targets: BitBoard) {
         // Normal moves
         self.add_moves(MoveType::KingQuiet, K, pos, king_targets & empty_bb);
 
@@ -565,7 +565,7 @@ impl MoveList {
         }
     }
 
-    fn gen_piece_moves(&mut self, board: &Board, piece: i8, pos: i32, targets: u64, opponent_bb: u64, empty_bb: u64) {
+    fn gen_piece_moves(&mut self, board: &Board, piece: i8, pos: i32, targets: BitBoard, opponent_bb: BitBoard, empty_bb: BitBoard) {
         self.add_capture_moves(board, MoveType::Capture, piece, pos, targets & opponent_bb);
         self.add_moves(MoveType::Quiet, piece, pos, targets & empty_bb);
     }
@@ -598,8 +598,8 @@ impl MoveList {
         let occupied = opponent_bb | board.get_all_piece_bitboard(active_player);
         let empty_bb = !occupied;
 
-        let start_bb = 1u64 << start;
-        let end_bb = 1u64 << end;
+        let start_bb = BitBoard(1u64 << start);
+        let end_bb = BitBoard(1u64 << end);
 
         match piece_id {
             P => {
@@ -624,7 +624,7 @@ impl MoveList {
                 if target_piece_id != N {
                     return NO_MOVE;
                 }
-                if (get_knight_attacks(start) & end_bb) == 0 {
+                if (get_knight_attacks(start) & end_bb).is_empty() {
                     return NO_MOVE;
                 }
 
@@ -639,7 +639,7 @@ impl MoveList {
                 if target_piece_id != B {
                     return NO_MOVE;
                 }
-                if (board.get_bishop_attacks(empty_bb, start) & end_bb) == 0 {
+                if (board.get_bishop_attacks(empty_bb, start) & end_bb).is_empty() {
                     return NO_MOVE;
                 }
 
@@ -654,7 +654,7 @@ impl MoveList {
                 if target_piece_id != R {
                     return NO_MOVE;
                 }
-                if (board.get_rook_attacks(empty_bb, start) & end_bb) == 0 {
+                if (board.get_rook_attacks(empty_bb, start) & end_bb).is_empty() {
                     return NO_MOVE;
                 }
 
@@ -669,7 +669,7 @@ impl MoveList {
                 if target_piece_id != Q {
                     return NO_MOVE;
                 }
-                if (board.get_queen_attacks(empty_bb, start) & end_bb) == 0 {
+                if (board.get_queen_attacks(empty_bb, start) & end_bb).is_empty() {
                     return NO_MOVE;
                 }
 
@@ -688,7 +688,7 @@ impl MoveList {
                     if target_piece_id != K {
                         return NO_MOVE;
                     }
-                    if king_targets & opponent_bb == 0 {
+                    if (king_targets & opponent_bb).is_empty() {
                         return NO_MOVE;
                     }
                     return untyped_move.with_typ(MoveType::KingCapture);
@@ -716,7 +716,7 @@ impl MoveList {
     }
 
     // If the given move is a bad capture (i.e. has a negative SEE value), the search can be skipped for now and the move will be stored in a separate "bad capture" list
-    pub fn skip_bad_capture(&mut self, m: Move, captured_piece_id: i8, occupied_bb: u64, board: &mut Board) -> bool {
+    pub fn skip_bad_capture(&mut self, m: Move, captured_piece_id: i8, occupied_bb: BitBoard, board: &mut Board) -> bool {
         if !matches!(self.stage, Stage::CaptureMoves) {
             return false;
         }
