@@ -90,7 +90,9 @@ impl MoveGenerator {
     }
 
     #[inline(always)]
-    pub fn skip_bad_capture(&mut self, m: Move, captured_piece_id: i8, occupied_bb: BitBoard, board: &mut Board) -> bool {
+    pub fn skip_bad_capture(
+        &mut self, m: Move, captured_piece_id: i8, occupied_bb: BitBoard, board: &mut Board,
+    ) -> bool {
         self.entries[self.ply].skip_bad_capture(m, captured_piece_id, occupied_bb, board)
     }
 
@@ -547,7 +549,9 @@ impl MoveList {
         self.gen_quiet_king_moves(color, board, pos, empty_bb, king_targets);
     }
 
-    fn gen_quiet_king_moves(&mut self, color: Color, board: &Board, pos: i32, empty_bb: BitBoard, king_targets: BitBoard) {
+    fn gen_quiet_king_moves(
+        &mut self, color: Color, board: &Board, pos: i32, empty_bb: BitBoard, king_targets: BitBoard,
+    ) {
         // Normal moves
         self.add_moves(MoveType::KingQuiet, K, pos, king_targets & empty_bb);
 
@@ -565,7 +569,9 @@ impl MoveList {
         }
     }
 
-    fn gen_piece_moves(&mut self, board: &Board, piece: i8, pos: i32, targets: BitBoard, opponent_bb: BitBoard, empty_bb: BitBoard) {
+    fn gen_piece_moves(
+        &mut self, board: &Board, piece: i8, pos: i32, targets: BitBoard, opponent_bb: BitBoard, empty_bb: BitBoard,
+    ) {
         self.add_capture_moves(board, MoveType::Capture, piece, pos, targets & opponent_bb);
         self.add_moves(MoveType::Quiet, piece, pos, targets & empty_bb);
     }
@@ -716,7 +722,9 @@ impl MoveList {
     }
 
     // If the given move is a bad capture (i.e. has a negative SEE value), the search can be skipped for now and the move will be stored in a separate "bad capture" list
-    pub fn skip_bad_capture(&mut self, m: Move, captured_piece_id: i8, occupied_bb: BitBoard, board: &mut Board) -> bool {
+    pub fn skip_bad_capture(
+        &mut self, m: Move, captured_piece_id: i8, occupied_bb: BitBoard, board: &mut Board,
+    ) -> bool {
         if !matches!(self.stage, Stage::CaptureMoves) {
             return false;
         }

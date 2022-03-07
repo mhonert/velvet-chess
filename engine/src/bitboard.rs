@@ -16,9 +16,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::ops::Not;
 use crate::bitboard::Direction::{AntiDiagonal, Diagonal, Horizontal, Vertical};
-use crate::colors::{Color};
+use crate::colors::Color;
+use std::ops::Not;
 
 #[derive(Copy, Clone)]
 pub struct BitBoard(pub u64);
@@ -63,23 +63,29 @@ macro_rules! impl_binary_op {
         impl std::ops::$OT<BitBoard> for BitBoard {
             type Output = BitBoard;
 
-            fn $OP(self, rhs: BitBoard) -> Self::Output { BitBoard(self.0.$OP(rhs.0)) }
+            fn $OP(self, rhs: BitBoard) -> Self::Output {
+                BitBoard(self.0.$OP(rhs.0))
+            }
         }
 
         impl std::ops::$OT<u64> for BitBoard {
             type Output = BitBoard;
 
-            fn $OP(self, rhs: u64) -> Self::Output { BitBoard(self.0.$OP(rhs)) }
+            fn $OP(self, rhs: u64) -> Self::Output {
+                BitBoard(self.0.$OP(rhs))
+            }
         }
-    }
+    };
 }
 
 macro_rules! impl_binary_assign_op {
     ($OT:ident, $OP:ident) => {
         impl std::ops::$OT<BitBoard> for BitBoard {
-            fn $OP(&mut self, rhs: BitBoard) { self.0.$OP(rhs.0); }
+            fn $OP(&mut self, rhs: BitBoard) {
+                self.0.$OP(rhs.0);
+            }
         }
-    }
+    };
 }
 
 impl_binary_op!(BitOr, bitor);

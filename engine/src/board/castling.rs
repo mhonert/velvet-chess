@@ -201,7 +201,8 @@ impl CastlingRules {
     }
 
     fn is_castling_valid(
-        board: &Board, opp_color: Color, mut empty_bb: BitBoard, king_start: i8, king_end: i8, rook_start: i8, rook_end: i8,
+        board: &Board, opp_color: Color, mut empty_bb: BitBoard, king_start: i8, king_end: i8, rook_start: i8,
+        rook_end: i8,
     ) -> bool {
         empty_bb |= BitBoard((1u64 << king_start) | (1u64 << rook_start));
 

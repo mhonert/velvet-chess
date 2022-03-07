@@ -16,6 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+use crate::bitboard::BitBoards;
 use crate::board::castling::CastlingRules;
 use crate::board::{Board, StateEntry};
 use crate::colors::Color;
@@ -40,7 +41,6 @@ use std::thread;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 use LogLevel::Info;
-use crate::bitboard::BitBoards;
 
 pub const DEFAULT_SEARCH_THREADS: usize = 1;
 pub const MAX_SEARCH_THREADS: usize = 256;

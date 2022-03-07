@@ -20,7 +20,11 @@ pub mod castling;
 
 use std::cmp::max;
 
-use crate::bitboard::{black_left_pawn_attacks, black_right_pawn_attacks, get_king_attacks, get_knight_attacks, get_pawn_attacks, white_left_pawn_attacks, white_right_pawn_attacks, BitBoard, DARK_COLORED_FIELD_PATTERN, LIGHT_COLORED_FIELD_PATTERN, BitBoards};
+use crate::bitboard::{
+    black_left_pawn_attacks, black_right_pawn_attacks, get_king_attacks, get_knight_attacks, get_pawn_attacks,
+    white_left_pawn_attacks, white_right_pawn_attacks, BitBoard, BitBoards, DARK_COLORED_FIELD_PATTERN,
+    LIGHT_COLORED_FIELD_PATTERN,
+};
 use crate::board::castling::{Castling, CastlingRules, CastlingState};
 use crate::colors::{Color, BLACK, WHITE};
 use crate::magics::Magics;
@@ -628,34 +632,34 @@ impl Board {
         self.bitboards.occupancy()
     }
 
-    pub fn is_attacked(&self, opponent_color: Color, pos: i32) -> bool {
+    pub fn is_attacked(&self, opp: Color, pos: i32) -> bool {
         let empty_bb = !self.occupancy_bb();
         let target_bb = BitBoard(1 << pos as u64);
 
         // Check knights
-        if (self.get_bitboard(opponent_color.piece(N)) & get_knight_attacks(pos)).is_occupied() {
+        if (self.get_bitboard(opp.piece(N)) & get_knight_attacks(pos)).is_occupied() {
             return true;
         }
 
         // Check diagonal
-        let queens = self.get_bitboard(opponent_color.piece(Q));
-        if ((self.get_bitboard(opponent_color.piece(B)) | queens) & self.magics.get_bishop_attacks(empty_bb.into(), pos)).is_occupied() {
+        let queens = self.get_bitboard(opp.piece(Q));
+        if ((self.get_bitboard(opp.piece(B)) | queens) & self.get_bishop_attacks(empty_bb, pos)).is_occupied() {
             return true;
         }
 
         // Check orthogonal
-        if ((self.get_bitboard(opponent_color.piece(R)) | queens) & self.magics.get_rook_attacks(empty_bb.into(), pos)).is_occupied() {
+        if ((self.get_bitboard(opp.piece(R)) | queens) & self.get_rook_attacks(empty_bb, pos)).is_occupied() {
             return true;
         }
 
         // Check pawns
-        let pawns = self.get_bitboard(opponent_color.piece(P));
-        if (target_bb & get_pawn_attacks(pawns, opponent_color)).is_occupied() {
+        let pawns = self.get_bitboard(opp.piece(P));
+        if (target_bb & get_pawn_attacks(pawns, opp)).is_occupied() {
             return true;
         }
 
         // Check king
-        if (target_bb & get_king_attacks(self.king_pos(opponent_color))).is_occupied() {
+        if (target_bb & get_king_attacks(self.king_pos(opp))).is_occupied() {
             return true;
         }
 
@@ -702,7 +706,7 @@ impl Board {
 
             // Check bishops
             let bishops = self.get_bitboard(B) & occupied_bb;
-            let bishop_attacks = self.magics.get_bishop_attacks(empty_bb.into(), pos);
+            let bishop_attacks = self.get_bishop_attacks(empty_bb, pos);
             let attacking_bishops = bishops & bishop_attacks;
             if attacking_bishops.is_occupied() {
                 return attacking_bishops.piece_pos() as i32;
@@ -710,7 +714,7 @@ impl Board {
 
             // Check rooks
             let rooks = self.get_bitboard(R) & occupied_bb;
-            let rook_attacks = self.magics.get_rook_attacks(empty_bb.into(), pos);
+            let rook_attacks = self.get_rook_attacks(empty_bb, pos);
             let attacking_rooks = rooks & rook_attacks;
             if attacking_rooks.is_occupied() {
                 return attacking_rooks.piece_pos() as i32;
@@ -750,7 +754,7 @@ impl Board {
 
             // Check bishops
             let bishops = self.get_bitboard(-B) & occupied_bb;
-            let bishop_attacks = self.magics.get_bishop_attacks(empty_bb.into(), pos);
+            let bishop_attacks = self.get_bishop_attacks(empty_bb, pos);
             let attacking_bishops = bishops & bishop_attacks;
             if attacking_bishops.is_occupied() {
                 return attacking_bishops.piece_pos() as i32;
@@ -758,7 +762,7 @@ impl Board {
 
             // Check rooks
             let rooks = self.get_bitboard(-R) & occupied_bb;
-            let rook_attacks = self.magics.get_rook_attacks(empty_bb.into(), pos);
+            let rook_attacks = self.get_rook_attacks(empty_bb, pos);
             let attacking_rooks = rooks & rook_attacks;
             if attacking_rooks.is_occupied() {
                 return attacking_rooks.piece_pos() as i32;
@@ -825,7 +829,7 @@ impl Board {
                 ((white_bishops & LIGHT_COLORED_FIELD_PATTERN).is_occupied()
                     && (black_bishops & LIGHT_COLORED_FIELD_PATTERN).is_occupied())
                     || ((white_bishops & DARK_COLORED_FIELD_PATTERN).is_occupied()
-                    && (black_bishops & DARK_COLORED_FIELD_PATTERN).is_occupied())
+                        && (black_bishops & DARK_COLORED_FIELD_PATTERN).is_occupied())
             }
 
             _ => false,
@@ -1056,10 +1060,7 @@ mod tests {
         ];
 
         let board = Board::new(&items, WHITE, CastlingState::default(), None, 0, 1, CastlingRules::default());
-        assert_eq!(
-            34,
-            board.find_smallest_attacker(!board.occupancy_bb(), board.occupancy_bb(), WHITE, 27)
-        );
+        assert_eq!(34, board.find_smallest_attacker(!board.occupancy_bb(), board.occupancy_bb(), WHITE, 27));
     }
 
     #[test]
@@ -1077,10 +1078,7 @@ mod tests {
         ];
 
         let board = Board::new(&items, WHITE, CastlingState::default(), None, 0, 1, CastlingRules::default());
-        assert_eq!(
-            36,
-            board.find_smallest_attacker(!board.occupancy_bb(), board.occupancy_bb(), WHITE, 27)
-        );
+        assert_eq!(36, board.find_smallest_attacker(!board.occupancy_bb(), board.occupancy_bb(), WHITE, 27));
     }
 
     #[test]
@@ -1098,10 +1096,7 @@ mod tests {
         ];
 
         let board = Board::new(&items, BLACK, CastlingState::default(), None, 0, 1, CastlingRules::default());
-        assert_eq!(
-            20,
-            board.find_smallest_attacker(!board.occupancy_bb(), board.occupancy_bb(), BLACK, 27)
-        );
+        assert_eq!(20, board.find_smallest_attacker(!board.occupancy_bb(), board.occupancy_bb(), BLACK, 27));
     }
 
     #[test]
@@ -1119,10 +1114,7 @@ mod tests {
         ];
 
         let board = Board::new(&items, BLACK, CastlingState::default(), None, 0, 1, CastlingRules::default());
-        assert_eq!(
-            18,
-            board.find_smallest_attacker(!board.occupancy_bb(), board.occupancy_bb(), BLACK, 27)
-        );
+        assert_eq!(18, board.find_smallest_attacker(!board.occupancy_bb(), board.occupancy_bb(), BLACK, 27));
     }
 
     #[test]
@@ -1140,10 +1132,7 @@ mod tests {
         ];
 
         let board = Board::new(&items, WHITE, CastlingState::default(), None, 0, 1, CastlingRules::default());
-        assert_eq!(
-            37,
-            board.find_smallest_attacker(!board.occupancy_bb(), board.occupancy_bb(), WHITE, 27)
-        );
+        assert_eq!(37, board.find_smallest_attacker(!board.occupancy_bb(), board.occupancy_bb(), WHITE, 27));
     }
 
     #[test]
@@ -1161,10 +1150,7 @@ mod tests {
         ];
 
         let board = Board::new(&items, WHITE, CastlingState::default(), None, 0, 1, CastlingRules::default());
-        assert_eq!(
-            45,
-            board.find_smallest_attacker(!board.occupancy_bb(), board.occupancy_bb(), WHITE, 27)
-        );
+        assert_eq!(45, board.find_smallest_attacker(!board.occupancy_bb(), board.occupancy_bb(), WHITE, 27));
     }
 
     #[test]
@@ -1182,10 +1168,7 @@ mod tests {
         ];
 
         let board = Board::new(&items, WHITE, CastlingState::default(), None, 0, 1, CastlingRules::default());
-        assert_eq!(
-            24,
-            board.find_smallest_attacker(!board.occupancy_bb(), board.occupancy_bb(), WHITE, 27)
-        );
+        assert_eq!(24, board.find_smallest_attacker(!board.occupancy_bb(), board.occupancy_bb(), WHITE, 27));
     }
 
     #[test]
@@ -1203,10 +1186,7 @@ mod tests {
         ];
 
         let board = Board::new(&items, WHITE, CastlingState::default(), None, 0, 1, CastlingRules::default());
-        assert_eq!(
-            29,
-            board.find_smallest_attacker(!board.occupancy_bb(), board.occupancy_bb(), WHITE, 27)
-        );
+        assert_eq!(29, board.find_smallest_attacker(!board.occupancy_bb(), board.occupancy_bb(), WHITE, 27));
     }
 
     #[test]
@@ -1224,10 +1204,7 @@ mod tests {
         ];
 
         let board = Board::new(&items, WHITE, CastlingState::default(), None, 0, 1, CastlingRules::default());
-        assert_eq!(
-            35,
-            board.find_smallest_attacker(!board.occupancy_bb(), board.occupancy_bb(), WHITE, 27)
-        );
+        assert_eq!(35, board.find_smallest_attacker(!board.occupancy_bb(), board.occupancy_bb(), WHITE, 27));
     }
 
     #[test]
