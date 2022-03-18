@@ -54,14 +54,14 @@ const INPUT_FEATURES: i64 = FEATURES_PER_BUCKET * 5;
 
 const DATA_WRITER_THREADS: usize = 4;
 
-const TEST_SETS: usize = 3;
+const TEST_SETS: usize = 4;
 
 const BATCH_SIZE: i64 = 50000;
 
 const K: f64 = 1.603;
 const K_DIV: f64 = K / 400.0;
 
-const MIN_TRAINING_SET_ID: usize = 4;
+const MIN_TRAINING_SET_ID: usize = 1;
 const FEN_TRAINING_SET_PATH: &str = "./data/train_fen/";
 const LZ4_TRAINING_SET_PATH: &str = "./data/train_lz4";
 const FEN_TEST_SET_PATH: &str = "./data/test_fen";
@@ -275,7 +275,7 @@ pub fn main() {
 
     println!("Scanning available training sets ...");
     let max_training_set_id =
-        convert_sets("training", FEN_TRAINING_SET_PATH, LZ4_TRAINING_SET_PATH, MIN_TRAINING_SET_ID, false);
+        convert_sets("training", FEN_TRAINING_SET_PATH, LZ4_TRAINING_SET_PATH, MIN_TRAINING_SET_ID, 0.5);
     let training_set_count = (max_training_set_id - MIN_TRAINING_SET_ID) + 1;
     println!(
         "Using {} training sets with a total of {} positions",
@@ -284,7 +284,7 @@ pub fn main() {
     );
 
     println!("Scanning available test sets ...");
-    let max_test_set_id = convert_sets("test", FEN_TEST_SET_PATH, LZ4_TEST_SET_PATH, 1, false);
+    let max_test_set_id = convert_sets("test", FEN_TEST_SET_PATH, LZ4_TEST_SET_PATH, 1, 0.0);
 
     let device = Device::cuda_if_available();
     let vs = nn::VarStore::new(device);
@@ -319,7 +319,7 @@ pub fn main() {
     let mut epoch_sample_count = 0;
     let mut last_improved_epoch = 0;
 
-    let max_epochs = 30;
+    let max_epochs = 40;
     let lr_scheduler = LrScheduler::new(max_epochs, 0.005, 0.0005, 0.000005);
     let mut lr = lr_scheduler.calc_lr(1);
     let mut opt = config_optimizer(&vs, lr);
@@ -371,7 +371,7 @@ pub fn main() {
 
         train_loss /= batch_count as f64;
 
-        if test_loss < best_loss {
+        if test_loss <= best_loss {
             last_improved_epoch = epoch;
             best_loss = test_loss;
             mode.save_raw(&net_id, &vs);
@@ -394,7 +394,11 @@ pub fn main() {
         if epoch_changed {
             let epoch_duration = Instant::now().duration_since(epoch_start);
             let samples_per_sec = (epoch_sample_count as f64 * 1000.0) / epoch_duration.as_millis() as f64;
-            println!("- Epoch finished: {:.2} samples/s", samples_per_sec);
+            println!(
+                "- Epoch finished: {:.2} samples/s (epoch duration: {} seconds)",
+                samples_per_sec,
+                epoch_duration.as_secs()
+            );
 
             if epoch > max_epochs {
                 if (epoch - last_improved_epoch) > 2 {
@@ -479,7 +483,7 @@ fn to_dense_tensors(samples: &[DataSample], device: Device) -> (Tensor, Tensor) 
     (xs, Tensor::of_slice(&ys).view((samples.len() as i64, 1)).to_device_(device, Kind::Float, false, true))
 }
 
-fn convert_sets(caption: &str, in_path: &str, out_path: &str, min_id: usize, use_game_result: bool) -> usize {
+fn convert_sets(caption: &str, in_path: &str, out_path: &str, min_id: usize, game_result_pct: f32) -> usize {
     let mut max_set_id = 0;
     let mut min_unconverted_id = 25000;
     for id in min_id..25000 {
@@ -496,7 +500,7 @@ fn convert_sets(caption: &str, in_path: &str, out_path: &str, min_id: usize, use
 
     if min_unconverted_id < max_set_id {
         println!("Converting {} added {} sets ...", (max_set_id - min_unconverted_id + 1), caption);
-        convert_test_pos(in_path.to_string(), out_path.to_string(), min_unconverted_id, max_set_id, use_game_result)
+        convert_test_pos(in_path.to_string(), out_path.to_string(), min_unconverted_id, max_set_id, game_result_pct)
             .expect("Could not convert test positions!");
     }
 
@@ -504,7 +508,7 @@ fn convert_sets(caption: &str, in_path: &str, out_path: &str, min_id: usize, use
 }
 
 fn convert_test_pos(
-    in_path: String, out_path: String, min_unconverted_id: usize, max_training_set_id: usize, use_game_result: bool,
+    in_path: String, out_path: String, min_unconverted_id: usize, max_training_set_id: usize, game_result_pct: f32,
 ) -> Result<(), Error> {
     let mut threads = Vec::new();
     for c in 1..=DATA_WRITER_THREADS {
@@ -522,7 +526,7 @@ fn convert_test_pos(
                 let ys = read_from_fen_file(
                     format!("{}/test_pos_{}.fen", in_path2, i).as_str(),
                     &mut writer,
-                    use_game_result,
+                    game_result_pct,
                 );
                 writer.write_u16::<LittleEndian>(u16::MAX).unwrap();
 
@@ -676,7 +680,7 @@ fn spawn_data_reader_threads(
     }
 }
 
-fn read_from_fen_file(file_name: &str, writer: &mut BufWriter<FrameEncoder<File>>, use_game_result: bool) -> Vec<f32> {
+fn read_from_fen_file(file_name: &str, writer: &mut BufWriter<FrameEncoder<File>>, game_result_pct: f32) -> Vec<f32> {
     let file = File::open(file_name).expect("Could not open test position file");
     let mut reader = BufReader::new(file);
 
@@ -701,28 +705,22 @@ fn read_from_fen_file(file_name: &str, writer: &mut BufWriter<FrameEncoder<File>
             const SCORE_IDX: usize = 6;
             let score = i32::from_str(parts[SCORE_IDX]).expect("Could not parse score");
 
-            if !use_game_result {
-                score as f32 / 2048.0
+            const SCORE_PLY_IDX: usize = 7;
+            let score_ply = i32::from_str(parts[SCORE_PLY_IDX]).expect("Could not parse score ply");
+
+            const RESULT_IDX: usize = 8;
+            let game_result = i32::from_str(parts[RESULT_IDX]).expect("Could not parse game result");
+            const RESULT_PLY_IDX: usize = 9;
+            let game_result_ply = i32::from_str(parts[RESULT_PLY_IDX]).expect("Could not parse game result ply");
+
+            if game_result_pct > 0.0 {
+                let result = game_result as f32 * 4000.0;
+                let result_pct = 2.0 / (max(1, game_result_ply - score_ply) * 2) as f32;
+                let score_pct = 1.0 - result_pct;
+
+                ((score as f32) * score_pct + result * result_pct) / 2048.0
             } else {
-                const SCORE_PLY_IDX: usize = 7;
-                let score_ply = i32::from_str(parts[SCORE_PLY_IDX]).expect("Could not parse score ply");
-
-                const RESULT_IDX: usize = 8;
-                let game_result = i32::from_str(parts[RESULT_IDX]).expect("Could not parse game result");
-                const RESULT_PLY_IDX: usize = 9;
-                let game_result_ply = i32::from_str(parts[RESULT_PLY_IDX]).expect("Could not parse game result ply");
-
-                let p1 = (score * (game_result_ply - score_ply)) / game_result_ply;
-
-                if game_result != 0 {
-                    let p2 = (game_result * 4000 * score_ply) / game_result_ply + game_result * 60;
-
-                    p2 as f32 / 2048.0
-                } else {
-                    let p2 = (-100 * (game_result_ply - score_ply)) / game_result_ply;
-
-                    (p1 + p2) as f32 / (2048.0 * 2.0)
-                }
+                score as f32 / 2048.0
             }
         } else if parts.len() == 8 {
             const SCORE_IDX: usize = 7;

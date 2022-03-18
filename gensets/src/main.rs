@@ -34,6 +34,7 @@ use shakmaty::fen::Fen;
 use shakmaty::{CastlingMode, Chess, Outcome, Position};
 use shakmaty_syzygy::Tablebase;
 
+use crate::chess960::CHESS960_FENS;
 use gen_quiet_pos::GenQuietPos;
 use velvet::board::Board;
 use velvet::colors::{BLACK, WHITE};
@@ -47,6 +48,7 @@ use velvet::scores::{MATE_SCORE, MAX_SCORE, MIN_SCORE};
 use velvet::search::{PrincipalVariation, Search, SearchLimits};
 use velvet::transposition_table::{TranspositionTable, MAX_DEPTH};
 
+mod chess960;
 pub mod gen_quiet_pos;
 
 #[derive(Clone, Debug)]
@@ -65,6 +67,7 @@ fn main() {
         .args_from_usage(
             "-i, --start-index=<START>              'Sets the start index for the generated training sets'
              -c, --concurrency=<CONCURRENCY>        'Sets the number of threads'
+             -f, --frc=<BOOL>                       'Generates training sets for Chess960'
              -t  --table-base-path=<FILE>           'Sets the Syzygy tablebase path'",
         )
         .get_matches();
@@ -81,13 +84,18 @@ fn main() {
         }
     };
 
+    let chess960 = match matches.value_of("frc") {
+        Some(v) => bool::from_str(v).expect("frc must be a boolean"),
+        None => false,
+    };
+
     if concurrency == 0 {
         eprintln!("-c Concurrency must be >= 1");
         exit(1);
     }
     println!("Running with {} concurrent threads", concurrency);
 
-    let openings = gen_openings();
+    let openings = gen_openings(chess960);
 
     let (tx, rx) = mpsc::channel::<TestPos>();
 
@@ -144,13 +152,18 @@ fn main() {
     println!("End");
 }
 
-fn gen_openings() -> Vec<String> {
+fn gen_openings(chess960: bool) -> Vec<String> {
     let mut openings = Vec::with_capacity(120000);
     let hh = HistoryHeuristics::new();
-    let mut board = create_from_fen(START_POS);
     let mut move_gen = MoveGenerator::new();
 
-    play_opening(4, &hh, &mut move_gen, &mut board, &mut openings);
+    let chess_start_pos = [START_POS];
+    let (moves, start_pos_fens) = if chess960 { (1, &CHESS960_FENS[..]) } else { (2, &chess_start_pos[..]) };
+
+    for fen in start_pos_fens.iter() {
+        let mut board = create_from_fen(fen);
+        play_opening(moves * 2, &hh, &mut move_gen, &mut board, &mut openings);
+    }
 
     openings.sort_unstable();
     openings.dedup();

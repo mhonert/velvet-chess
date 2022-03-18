@@ -30,7 +30,7 @@ pub mod io;
 // NN layer size
 pub const FEATURES_PER_BUCKET: usize = 64 * 6 * 2;
 pub const INPUTS: usize = FEATURES_PER_BUCKET * 5;
-pub const HL_NODES: usize = 256;
+pub const HL_NODES: usize = 512;
 
 // Fixed point number precision
 pub const FP_PRECISION_BITS: i16 = 11;
