@@ -403,8 +403,8 @@ impl MoveList {
         }
 
         let king_pos = board.king_pos(active_player);
-        let king_targets = get_king_attacks(king_pos);
-        self.add_capture_moves(board, MoveType::KingCapture, K, king_pos, king_targets & opponent_bb);
+        let king_targets = get_king_attacks(king_pos as i32);
+        self.add_capture_moves(board, MoveType::KingCapture, K, king_pos as i32, king_targets & opponent_bb);
     }
 
     fn gen_white_straight_pawn_moves(&mut self, pawns: BitBoard, empty_bb: BitBoard) {
@@ -541,12 +541,12 @@ impl MoveList {
 
     fn gen_king_moves(&mut self, color: Color, board: &Board, opponent_bb: BitBoard, empty_bb: BitBoard) {
         let pos = board.king_pos(color);
-        let king_targets = get_king_attacks(pos);
+        let king_targets = get_king_attacks(pos as i32);
 
         // Captures
-        self.add_capture_moves(board, MoveType::KingCapture, K, pos, king_targets & opponent_bb);
+        self.add_capture_moves(board, MoveType::KingCapture, K, pos as i32, king_targets & opponent_bb);
 
-        self.gen_quiet_king_moves(color, board, pos, empty_bb, king_targets);
+        self.gen_quiet_king_moves(color, board, pos as i32, empty_bb, king_targets);
     }
 
     fn gen_quiet_king_moves(
@@ -856,7 +856,7 @@ mod tests {
     #[test]
     pub fn exclude_illegal_moves() {
         let mut board = board_with_one_piece(WHITE, Q, 52);
-        board.perform_move(Move::new(MoveType::KingQuiet, K, board.king_pos(WHITE), 53));
+        board.perform_move(Move::new(MoveType::KingQuiet, K, board.king_pos(WHITE) as i32, 53));
         board.add_piece(BLACK, R, 51);
 
         board.perform_null_move(); // so WHITE is the active player

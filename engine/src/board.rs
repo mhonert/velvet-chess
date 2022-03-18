@@ -60,7 +60,7 @@ pub struct Board {
     magics: Magics,
     nn_eval: Box<NeuralNetEval>,
     items: [i8; 64],
-    king_pos: [i32; 2],
+    king_pos: [i8; 2],
 
     history: Vec<StateEntry>,
 }
@@ -116,8 +116,8 @@ impl Board {
         &mut self, pos_history: PositionHistory, bitboards: BitBoards, halfmove_count: u16, state: StateEntry,
         castling_rules: CastlingRules,
     ) {
-        let white_king = bitboards.by_piece(K).piece_pos() as i32;
-        let black_king = bitboards.by_piece(-K).piece_pos() as i32;
+        let white_king = bitboards.by_piece(K).piece_pos() as i8;
+        let black_king = bitboards.by_piece(-K).piece_pos() as i8;
 
         self.castling_rules = castling_rules;
         self.pos_history = pos_history;
@@ -177,9 +177,9 @@ impl Board {
             }
 
             if item == K {
-                self.set_king_pos(WHITE, i as i32);
+                self.set_king_pos(WHITE, i as i8);
             } else if item == -K {
-                self.set_king_pos(BLACK, i as i32);
+                self.set_king_pos(BLACK, i as i8);
             }
         }
 
@@ -347,7 +347,7 @@ impl Board {
 
                 self.reset_half_move_clock();
 
-                self.set_king_pos(color, move_end);
+                self.set_king_pos(color, move_end as i8);
                 self.set_king_moved(color);
 
                 if removed_piece.abs() >= R {
@@ -399,7 +399,7 @@ impl Board {
 
             MoveType::KingQuiet => {
                 self.add_piece(color, target_piece_id, move_end as usize);
-                self.set_king_pos(color, move_end);
+                self.set_king_pos(color, move_end as i8);
                 self.set_king_moved(color);
             }
 
@@ -408,11 +408,11 @@ impl Board {
                 self.set_has_castled(color);
 
                 if self.castling_rules.is_ks_castling(color, move_end) {
-                    self.set_king_pos(color, CastlingRules::ks_king_end(color));
+                    self.set_king_pos(color, CastlingRules::ks_king_end(color) as i8);
                     self.add_piece(color, K, CastlingRules::ks_king_end(color) as usize);
                     self.add_piece(color, R, CastlingRules::ks_rook_end(color) as usize);
                 } else {
-                    self.set_king_pos(color, CastlingRules::qs_king_end(color));
+                    self.set_king_pos(color, CastlingRules::qs_king_end(color) as i8);
                     self.add_piece(color, K, CastlingRules::qs_king_end(color) as usize);
                     self.add_piece(color, R, CastlingRules::qs_rook_end(color) as usize);
                 }
@@ -478,7 +478,7 @@ impl Board {
                 self.remove_piece_without_inc_update(move_end);
                 self.add_piece_without_inc_update(color, piece, move_start);
                 self.add_piece_without_inc_update(color.flip(), color.flip().piece(removed_piece_id), move_end);
-                self.set_king_pos(color, move_start);
+                self.set_king_pos(color, move_start as i8);
 
                 if removed_piece_id >= R {
                     self.nn_eval.check_refresh();
@@ -507,7 +507,7 @@ impl Board {
             MoveType::KingQuiet => {
                 self.remove_piece_without_inc_update(move_end);
                 self.add_piece_without_inc_update(color, piece, move_start);
-                self.set_king_pos(color, move_start);
+                self.set_king_pos(color, move_start as i8);
             }
 
             MoveType::Castling => {
@@ -520,7 +520,7 @@ impl Board {
                 }
 
                 self.add_piece_without_inc_update(color, color.piece(R), move_end);
-                self.set_king_pos(color, move_start);
+                self.set_king_pos(color, move_start as i8);
                 self.add_piece_without_inc_update(color, piece, move_start);
             }
         }
@@ -618,9 +618,9 @@ impl Board {
     #[inline]
     pub fn is_in_check(&self, color: Color) -> bool {
         if color.is_white() {
-            self.is_attacked(BLACK, self.king_pos(WHITE))
+            self.is_attacked(BLACK, self.king_pos(WHITE) as i32)
         } else {
-            self.is_attacked(WHITE, self.king_pos(BLACK))
+            self.is_attacked(WHITE, self.king_pos(BLACK) as i32)
         }
     }
 
@@ -659,7 +659,7 @@ impl Board {
         }
 
         // Check king
-        if (target_bb & get_king_attacks(self.king_pos(opp))).is_occupied() {
+        if (target_bb & get_king_attacks(self.king_pos(opp) as i32)).is_occupied() {
             return true;
         }
 
@@ -729,11 +729,11 @@ impl Board {
 
             // Check king
             let king_pos = self.king_pos(WHITE);
-            let attacking_king = target_bb & get_king_attacks(king_pos);
+            let attacking_king = target_bb & get_king_attacks(king_pos as i32);
             if attacking_king.is_occupied() {
                 let king_bb = BitBoard(1u64 << (king_pos as u64));
                 if (king_bb & occupied_bb).is_occupied() {
-                    return king_pos;
+                    return king_pos as i32;
                 }
             }
         } else {
@@ -777,11 +777,11 @@ impl Board {
 
             // Check king
             let king_pos = self.king_pos(BLACK);
-            let attacking_king = target_bb & get_king_attacks(king_pos);
+            let attacking_king = target_bb & get_king_attacks(king_pos as i32);
             if attacking_king.is_occupied() {
                 let king_bb = BitBoard(1u64 << (king_pos as u64));
                 if (king_bb & occupied_bb).is_occupied() {
-                    return king_pos;
+                    return king_pos as i32;
                 }
             }
         }
@@ -884,12 +884,12 @@ impl Board {
     }
 
     #[inline]
-    fn set_king_pos(&mut self, color: Color, pos: i32) {
+    fn set_king_pos(&mut self, color: Color, pos: i8) {
         unsafe { *self.king_pos.get_unchecked_mut(color.idx()) = pos };
     }
 
     #[inline]
-    pub fn king_pos(&self, color: Color) -> i32 {
+    pub fn king_pos(&self, color: Color) -> i8 {
         unsafe { *self.king_pos.get_unchecked(color.idx()) }
     }
 
