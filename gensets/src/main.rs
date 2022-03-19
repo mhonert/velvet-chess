@@ -222,7 +222,7 @@ fn find_test_positions(tx: &Sender<TestPos>, openings: &[String], tb_path: Strin
     let tt = TranspositionTable::new(128);
     let stop = Arc::new(AtomicBool::new(false));
 
-    let limits = SearchLimits::new(None, Some(30000), None, None, None, None, None, None).unwrap();
+    let limits = SearchLimits::new(None, Some(40000), None, None, None, None, None, None).unwrap();
     let mut search = Search::new(
         stop,
         Arc::new(AtomicU64::new(0)),
