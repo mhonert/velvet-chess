@@ -16,16 +16,19 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+use crate::colors::Color;
 use crate::moves::{Move, NO_MOVE};
 use crate::transposition_table::MAX_DEPTH;
 use std::cmp::{max, min};
 use std::time::{Duration, Instant};
 
-pub const TIMEEXT_MULTIPLIER: i32 = 5;
+pub const TIMEEXT_MULTIPLIER: i32 = 3;
 pub const MAX_TIMELIMIT_MS: i32 = i32::MAX;
 
 const TIMEEXT_SCORE_DROP_THRESHOLD: i32 = 20;
 const TIMEEXT_HISTORY_SIZE: usize = 6;
+
+const TIME_SAFETY_MARGIN_MS: i32 = 16;
 
 #[derive(Clone)]
 pub struct TimeManager {
@@ -51,11 +54,11 @@ impl TimeManager {
         }
     }
 
-    pub fn reset(&mut self, timelimit_ms: i32, is_strict_timelimit: bool) {
+    pub fn reset(&mut self, limit: SearchLimits) {
         self.starttime = Instant::now();
-        self.timelimit_ms = timelimit_ms;
+        self.timelimit_ms = limit.time_limit_ms;
 
-        self.allow_time_extension = !is_strict_timelimit;
+        self.allow_time_extension = !limit.strict_time_limit;
         self.history.fill(NO_MOVE);
         self.next_index = 0;
         self.current_depth = 0;
@@ -90,7 +93,7 @@ impl TimeManager {
         self.remaining_time_ms(now) <= 0
     }
 
-    pub fn should_extend_timelimit(&self) -> bool {
+    pub fn try_extend_timelimit(&mut self) -> bool {
         if !self.allow_time_extension {
             return false;
         }
@@ -111,16 +114,133 @@ impl TimeManager {
             })
             .0;
 
-        highest_score_drop >= TIMEEXT_SCORE_DROP_THRESHOLD
-    }
+        if highest_score_drop >= TIMEEXT_SCORE_DROP_THRESHOLD {
+            self.allow_time_extension = false;
+            self.timelimit_ms *= TIMEEXT_MULTIPLIER;
+            return true;
+        }
 
-    pub fn extend_timelimit(&mut self) {
-        self.allow_time_extension = false;
-        self.timelimit_ms *= TIMEEXT_MULTIPLIER;
+        false
     }
 
     pub fn reduce_timelimit(&mut self) {
         self.allow_time_extension = false;
         self.timelimit_ms /= 4;
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct SearchLimits {
+    node_limit: u64,
+    depth_limit: i32,
+    time_limit_ms: i32,
+    strict_time_limit: bool,
+
+    wtime: i32,
+    btime: i32,
+    winc: i32,
+    binc: i32,
+    move_time: i32,
+    moves_to_go: i32,
+}
+
+impl SearchLimits {
+    pub fn default() -> Self {
+        SearchLimits {
+            node_limit: u64::MAX,
+            depth_limit: MAX_DEPTH as i32,
+            time_limit_ms: i32::MAX,
+            strict_time_limit: true,
+
+            wtime: -1,
+            btime: -1,
+            winc: 0,
+            binc: 0,
+            move_time: i32::MAX,
+            moves_to_go: 1,
+        }
+    }
+
+    pub fn nodes(node_limit: u64) -> SearchLimits {
+        let mut limits = SearchLimits::default();
+        limits.node_limit = node_limit;
+
+        limits
+    }
+
+    pub fn new(
+        depth_limit: Option<i32>, node_limit: Option<u64>, wtime: Option<i32>, btime: Option<i32>, winc: Option<i32>,
+        binc: Option<i32>, move_time: Option<i32>, moves_to_go: Option<i32>,
+    ) -> Result<Self, &'static str> {
+        let depth_limit = depth_limit.unwrap_or(MAX_DEPTH as i32);
+        if depth_limit <= 0 {
+            return Err("depth limit must be > 0");
+        }
+
+        let node_limit = node_limit.unwrap_or(u64::MAX);
+
+        Ok(SearchLimits {
+            depth_limit,
+            node_limit,
+            time_limit_ms: i32::MAX,
+            strict_time_limit: true,
+
+            wtime: wtime.unwrap_or(-1),
+            btime: btime.unwrap_or(-1),
+            winc: winc.unwrap_or(0),
+            binc: binc.unwrap_or(0),
+            move_time: move_time.unwrap_or(-1),
+            moves_to_go: moves_to_go.unwrap_or(40),
+        })
+    }
+
+    pub fn update(&mut self, active_player: Color) {
+        let (time_left, inc) = if active_player.is_white() { (self.wtime, self.winc) } else { (self.btime, self.binc) };
+
+        self.time_limit_ms = calc_time_limit(self.move_time, time_left, inc, self.moves_to_go);
+
+        self.strict_time_limit = self.move_time > 0
+            || self.time_limit_ms == MAX_TIMELIMIT_MS
+            || self.moves_to_go == 1
+            || (time_left - (TIMEEXT_MULTIPLIER * self.time_limit_ms) <= TIME_SAFETY_MARGIN_MS);
+    }
+
+    pub fn node_limit(&self) -> u64 {
+        self.node_limit
+    }
+
+    pub fn set_node_limit(&mut self, limit: u64) {
+        self.node_limit = limit;
+    }
+
+    pub fn depth_limit(&self) -> i32 {
+        self.depth_limit
+    }
+}
+
+fn calc_time_limit(movetime: i32, mut time_left: i32, time_increment: i32, moves_to_go: i32) -> i32 {
+    if movetime == -1 && time_left == -1 {
+        return MAX_TIMELIMIT_MS;
+    }
+
+    if movetime > 0 {
+        return max(0, movetime - TIME_SAFETY_MARGIN_MS);
+    }
+
+    time_left -= TIME_SAFETY_MARGIN_MS;
+    if time_left <= 0 {
+        return 0;
+    }
+
+    let time_for_move = time_left / max(1, moves_to_go);
+
+    if time_for_move > time_left {
+        return time_left;
+    }
+
+    if time_for_move + time_increment <= time_left {
+        time_for_move + time_increment
+    } else {
+        time_for_move
     }
 }

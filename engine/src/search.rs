@@ -27,7 +27,7 @@ use crate::moves::{Move, NO_MOVE};
 use crate::pieces::{EMPTY, P, R};
 use crate::pos_history::PositionHistory;
 use crate::scores::{sanitize_score, MATED_SCORE, MATE_SCORE, MAX_SCORE, MIN_SCORE};
-use crate::time_management::{TimeManager, MAX_TIMELIMIT_MS, TIMEEXT_MULTIPLIER};
+use crate::time_management::{SearchLimits, TimeManager};
 use crate::transposition_table::{
     from_root_relative_score, get_depth, get_score_type, get_untyped_move, to_root_relative_score, ScoreType,
     TranspositionTable, MAX_DEPTH,
@@ -54,8 +54,6 @@ const LOSING_MOVE_REDUCTIONS: i32 = 2;
 
 const QS_SEE_THRESHOLD: i32 = 104;
 const QS_PRUNE_MARGIN: i32 = 650;
-
-const TIME_SAFETY_MARGIN_MS: i32 = 20;
 
 const INITIAL_ASPIRATION_WINDOW_SIZE: i32 = 16;
 const INITIAL_ASPIRATION_WINDOW_STEP: i32 = 16;
@@ -174,14 +172,14 @@ impl Search {
         &mut self, rx: Option<&Receiver<Message>>, min_depth: i32, skipped_moves: &[Move],
     ) -> (Move, PrincipalVariation) {
         self.reset();
-        self.time_mgr.reset(self.limits.time_limit_ms, self.limits.strict_time_limit);
+        self.time_mgr.reset(self.limits);
 
         self.last_log_time = Instant::now();
 
         self.cancel_possible = false;
         self.node_count.store(0, Ordering::Relaxed);
 
-        self.next_check_node_count = min(self.limits.node_limit, 1000);
+        self.next_check_node_count = min(self.limits.node_limit(), 1000);
 
         let mut last_best_move: Move = NO_MOVE;
 
@@ -201,7 +199,7 @@ impl Search {
         let mut score = 0;
 
         // Use iterative deepening, i.e. increase the search depth after each iteration
-        for depth in 1..=self.limits.depth_limit {
+        for depth in 1..=self.limits.depth_limit() {
             let iteration_start_time = Instant::now();
             self.current_depth = depth;
             self.max_reached_depth = 0;
@@ -232,12 +230,9 @@ impl Search {
                 if !self.pondering
                     && self.cancel_possible
                     && !self.time_mgr.is_time_for_another_iteration(now, iteration_duration)
+                    && !self.time_mgr.try_extend_timelimit()
                 {
-                    if self.time_mgr.should_extend_timelimit() {
-                        self.time_mgr.extend_timelimit();
-                    } else {
-                        iteration_cancelled = true;
-                    }
+                    iteration_cancelled = true;
                 }
             }
 
@@ -859,8 +854,8 @@ impl Search {
 
     fn check_search_limits(&mut self, rx: &Receiver<Message>) {
         if self.local_total_node_count >= self.next_check_node_count {
-            self.next_check_node_count = if self.limits.node_limit != u64::MAX {
-                self.limits.node_limit
+            self.next_check_node_count = if self.limits.node_limit() != u64::MAX {
+                self.limits.node_limit()
             } else {
                 self.local_total_node_count + 1000
             };
@@ -870,13 +865,11 @@ impl Search {
             let now = Instant::now();
             if !self.pondering
                 && self.cancel_possible
-                && (self.node_count() >= self.limits.node_limit || self.time_mgr.is_timelimit_exceeded(now))
+                && (self.node_count() >= self.limits.node_limit() || self.time_mgr.is_timelimit_exceeded(now))
             {
                 // Cancel search if the node or time limit has been reached, but first check
                 // whether the search time should be extended
-                if !self.is_stopped() && self.time_mgr.should_extend_timelimit() {
-                    self.time_mgr.extend_timelimit();
-                } else {
+                if !self.is_stopped() && !self.time_mgr.try_extend_timelimit() {
                     self.set_stopped(true);
                 }
             }
@@ -1085,107 +1078,7 @@ impl Search {
     }
 
     pub fn set_node_limit(&mut self, node_limit: u64) {
-        self.limits.node_limit = node_limit;
-    }
-}
-
-#[derive(Copy, Clone, Debug)]
-pub struct SearchLimits {
-    node_limit: u64,
-    depth_limit: i32,
-    time_limit_ms: i32,
-    strict_time_limit: bool,
-
-    wtime: i32,
-    btime: i32,
-    winc: i32,
-    binc: i32,
-    move_time: i32,
-    moves_to_go: i32,
-}
-
-impl SearchLimits {
-    pub fn default() -> Self {
-        SearchLimits {
-            node_limit: u64::MAX,
-            depth_limit: MAX_DEPTH as i32,
-            time_limit_ms: i32::MAX,
-            strict_time_limit: true,
-
-            wtime: -1,
-            btime: -1,
-            winc: 0,
-            binc: 0,
-            move_time: i32::MAX,
-            moves_to_go: 1,
-        }
-    }
-
-    pub fn nodes(node_limit: u64) -> SearchLimits {
-        let mut limits = SearchLimits::default();
-        limits.node_limit = node_limit;
-
-        limits
-    }
-
-    pub fn new(
-        depth_limit: Option<i32>, node_limit: Option<u64>, wtime: Option<i32>, btime: Option<i32>, winc: Option<i32>,
-        binc: Option<i32>, move_time: Option<i32>, moves_to_go: Option<i32>,
-    ) -> Result<Self, &'static str> {
-        let depth_limit = depth_limit.unwrap_or(MAX_DEPTH as i32);
-        if depth_limit <= 0 {
-            return Err("depth limit must be > 0");
-        }
-
-        let node_limit = node_limit.unwrap_or(u64::MAX);
-
-        Ok(SearchLimits {
-            depth_limit,
-            node_limit,
-            time_limit_ms: i32::MAX,
-            strict_time_limit: true,
-
-            wtime: wtime.unwrap_or(-1),
-            btime: btime.unwrap_or(-1),
-            winc: winc.unwrap_or(0),
-            binc: binc.unwrap_or(0),
-            move_time: move_time.unwrap_or(-1),
-            moves_to_go: moves_to_go.unwrap_or(40),
-        })
-    }
-
-    pub fn update(&mut self, active_player: Color) {
-        let (time_left, inc) = if active_player.is_white() { (self.wtime, self.winc) } else { (self.btime, self.binc) };
-
-        self.time_limit_ms = calc_time_limit(self.move_time, time_left, inc, self.moves_to_go);
-
-        self.strict_time_limit = self.move_time > 0
-            || self.time_limit_ms == MAX_TIMELIMIT_MS
-            || self.moves_to_go == 1
-            || (time_left - (TIMEEXT_MULTIPLIER * self.time_limit_ms) <= 20);
-    }
-}
-
-fn calc_time_limit(movetime: i32, time_left: i32, time_increment: i32, moves_to_go: i32) -> i32 {
-    if movetime == -1 && time_left == -1 {
-        return MAX_TIMELIMIT_MS;
-    }
-
-    if movetime > 0 {
-        return max(0, movetime - TIME_SAFETY_MARGIN_MS);
-    }
-
-    let time_for_move = time_left / max(1, moves_to_go);
-
-    if time_for_move > time_left - TIME_SAFETY_MARGIN_MS {
-        return max(0, time_left - TIME_SAFETY_MARGIN_MS);
-    }
-
-    let time_bonus = if moves_to_go > 1 { time_increment } else { 0 };
-    if time_for_move + time_bonus > time_left - TIME_SAFETY_MARGIN_MS {
-        time_for_move
-    } else {
-        time_for_move + time_bonus
+        self.limits.set_node_limit(node_limit);
     }
 }
 

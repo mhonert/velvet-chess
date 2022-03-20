@@ -18,7 +18,8 @@
 
 use crate::engine::Message;
 use crate::fen::START_POS;
-use crate::search::{SearchLimits, DEFAULT_SEARCH_THREADS, MAX_SEARCH_THREADS};
+use crate::search::{DEFAULT_SEARCH_THREADS, MAX_SEARCH_THREADS};
+use crate::time_management::SearchLimits;
 use crate::transposition_table::{DEFAULT_SIZE_MB, MAX_HASH_SIZE_MB};
 use crate::uci_move::UCIMove;
 use std::io;
