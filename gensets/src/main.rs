@@ -45,7 +45,8 @@ use velvet::move_gen::MoveGenerator;
 use velvet::moves::{Move, NO_MOVE};
 use velvet::random::Random;
 use velvet::scores::{MATE_SCORE, MAX_SCORE, MIN_SCORE};
-use velvet::search::{PrincipalVariation, Search, SearchLimits};
+use velvet::search::{PrincipalVariation, Search};
+use velvet::time_management::SearchLimits;
 use velvet::transposition_table::{TranspositionTable, MAX_DEPTH};
 
 mod chess960;

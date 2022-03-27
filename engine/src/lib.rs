@@ -31,11 +31,11 @@ pub mod pieces;
 pub mod random;
 pub mod scores;
 pub mod search;
+pub mod time_management;
 pub mod transposition_table;
 pub mod uci;
 pub mod uci_move;
 
 mod align;
 mod pos_history;
-mod time_management;
 mod zobrist;

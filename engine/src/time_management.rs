@@ -74,7 +74,7 @@ impl TimeManager {
 
     pub fn is_time_for_another_iteration(&self, now: Instant, previous_iteration_time: Duration) -> bool {
         let duration_ms = previous_iteration_time.as_millis() as i32;
-        self.remaining_time_ms(now) >= duration_ms * 2
+        self.remaining_time_ms(now) >= duration_ms * 7 / 4
     }
 
     pub fn search_duration_ms(&self, now: Instant) -> i32 {
