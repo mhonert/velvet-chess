@@ -54,14 +54,14 @@ const INPUT_FEATURES: i64 = FEATURES_PER_BUCKET * 5;
 
 const DATA_WRITER_THREADS: usize = 4;
 
-const TEST_SETS: usize = 4;
+const TEST_SETS: usize = 2;
 
 const BATCH_SIZE: i64 = 50000;
 
 const K: f64 = 1.603;
 const K_DIV: f64 = K / 400.0;
 
-const MIN_TRAINING_SET_ID: usize = 1;
+const MIN_TRAINING_SET_ID: usize = 4;
 const FEN_TRAINING_SET_PATH: &str = "./data/train_fen/";
 const LZ4_TRAINING_SET_PATH: &str = "./data/train_lz4";
 const FEN_TEST_SET_PATH: &str = "./data/test_fen";
