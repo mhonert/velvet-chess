@@ -9,7 +9,7 @@
 
 **Velvet Chess Engine** is a UCI chess engine written in [Rust](https://www.rust-lang.org).
 
-Version 3.2.0 is currently ranked around 3300 Elo (Blitz) and 3230 Elo (40/15) in the Computer Chess Rating Lists (CCRL):
+Version 3.3.0 is currently ranked around 3300 Elo (Blitz) and 3230 Elo (40/15) in the Computer Chess Rating Lists (CCRL):
 - [CCRL Blitz](https://www.computerchess.org.uk/ccrl/404/cgi/compare_engines.cgi?family=Velvet&print=Rating+list)
 - [CCRL 40/15](https://www.computerchess.org.uk/ccrl/4040/cgi/compare_engines.cgi?family=Velvet&print=Rating+list)
 
