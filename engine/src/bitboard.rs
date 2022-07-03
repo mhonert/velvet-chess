@@ -152,6 +152,26 @@ pub fn v_mirror(pos: usize) -> usize {
     pos ^ 56
 }
 
+/// Mirrors the given bitboard position index vertically
+pub fn v_mirror_i8(pos: i8) -> i8 {
+    pos ^ 56
+}
+
+/// Mirrors the given bitboard position index vertically
+pub fn v_mirror_u16(pos: u16) -> u16 {
+    pos ^ 56
+}
+
+/// Mirrors the given bitboard position index horizontally
+pub fn h_mirror_i8(pos: i8) -> i8 {
+    pos ^ 7
+}
+
+/// Mirrors the given bitboard position index horizontally
+pub fn h_mirror(pos: usize) -> usize {
+    pos ^ 7
+}
+
 const KNIGHT_ATTACKS: [u64; 64] = calculate_single_move_patterns([21, 19, 12, 8, -12, -21, -19, -8]);
 const KING_ATTACKS: [u64; 64] = calculate_single_move_patterns([1, 10, -1, -10, 9, 11, -9, -11]);
 

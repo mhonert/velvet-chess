@@ -28,39 +28,50 @@ pub mod eval;
 pub mod io;
 
 // NN layer size
-pub const FEATURES_PER_BUCKET: usize = 64 * 6 * 2;
-pub const INPUTS: usize = FEATURES_PER_BUCKET * 5;
-pub const HL_NODES: usize = 512;
+pub const FULL_BUCKETS: usize = 8 + 8 + 8;
+pub const INPUTS: usize = FULL_BUCKETS * FULL_BUCKET_SIZE;
+pub const HL_NODES: usize = 2 * HL_HALF_NODES;
+pub const HL_HALF_NODES: usize = 288;
+
+pub const INPUT_WEIGHT_COUNT: usize = INPUTS * HL_HALF_NODES;
+
+pub const FULL_BUCKET_SIZE: usize = (64 * 6) * 2;
 
 // Fixed point number precision
-pub const FP_PRECISION_BITS: i16 = 11;
+pub const FP_HIDDEN_MULTIPLIER: i16 = 3379;
+pub const FP_INPUT_MULTIPLIER: i16 = 683;
 
 pub struct NeuralNetParams {
-    pub input_weights: A32<[i16; INPUTS * HL_NODES]>,
+    pub input_weights: A32<[i16; INPUT_WEIGHT_COUNT]>,
     pub input_biases: A32<[i16; HL_NODES]>,
 
     pub output_weights: A32<[i16; HL_NODES]>,
-    pub output_bias: i16,
 }
 
 impl NeuralNetParams {
     pub fn new() -> Arc<Self> {
         let mut reader = BufReader::new(&include_bytes!("../nets/velvet.qnn")[..]);
 
-        let precision_bits = reader.read_i8().unwrap() as i16;
+        let input_multiplier = reader.read_i16::<LittleEndian>().expect("Could not read input multiplier");
         assert_eq!(
-            precision_bits, FP_PRECISION_BITS,
-            "NN has been quantized with a different fixed point precision, expected: {}, got: {}",
-            FP_PRECISION_BITS, precision_bits
+            input_multiplier, FP_INPUT_MULTIPLIER,
+            "NN hidden layer has been quantized with a different (input) fixed point multiplier, expected: {}, got: {}",
+            FP_INPUT_MULTIPLIER, input_multiplier
+        );
+
+        let hidden_multiplier = reader.read_i16::<LittleEndian>().expect("Could not read hidden multiplier");
+        assert_eq!(
+            hidden_multiplier, FP_HIDDEN_MULTIPLIER,
+            "NN hidden layer has been quantized with a different (hidden) fixed point multiplier, expected: {}, got: {}",
+            FP_HIDDEN_MULTIPLIER, hidden_multiplier
         );
 
         let mut params = Box::new(NeuralNetParams::default());
 
         read_quantized(&mut reader, &mut params.input_weights.0).expect("Could not read input weights");
         read_quantized(&mut reader, &mut params.input_biases.0).expect("Could not read input biases");
-        read_quantized(&mut reader, &mut params.output_weights.0).expect("Could not read output weights biases");
 
-        params.output_bias = reader.read_i16::<LittleEndian>().expect("Could not read output bias");
+        read_quantized(&mut reader, &mut params.output_weights.0).expect("Could not read output weights biases");
 
         Arc::new(*params)
     }
@@ -69,11 +80,10 @@ impl NeuralNetParams {
 impl Default for NeuralNetParams {
     fn default() -> Self {
         NeuralNetParams {
-            input_weights: A32([0; INPUTS * HL_NODES]),
+            input_weights: A32([0; INPUT_WEIGHT_COUNT]),
             input_biases: A32([0; HL_NODES]),
 
             output_weights: A32([0; HL_NODES]),
-            output_bias: 0,
         }
     }
 }

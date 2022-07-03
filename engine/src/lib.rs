@@ -16,6 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+pub mod align;
 pub mod bitboard;
 pub mod board;
 pub mod colors;
@@ -36,6 +37,5 @@ pub mod transposition_table;
 pub mod uci;
 pub mod uci_move;
 
-mod align;
 mod pos_history;
 mod zobrist;

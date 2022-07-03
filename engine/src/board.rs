@@ -142,7 +142,7 @@ impl Board {
         }
 
         self.recalculate_hash();
-        self.nn_eval.init_pos(&self.bitboards);
+        self.nn_eval.init_pos(&self.bitboards, self.king_pos(WHITE), self.king_pos(BLACK));
     }
 
     pub fn set_position(
@@ -350,9 +350,9 @@ impl Board {
                 self.set_king_pos(color, move_end as i8);
                 self.set_king_moved(color);
 
-                if removed_piece.abs() >= R {
-                    self.nn_eval.check_refresh();
-                }
+                // if removed_piece.abs() >= R {
+                self.nn_eval.check_refresh();
+                // }
 
                 return (own_piece, removed_piece.abs());
             }
@@ -401,6 +401,7 @@ impl Board {
                 self.add_piece(color, target_piece_id, move_end as usize);
                 self.set_king_pos(color, move_end as i8);
                 self.set_king_moved(color);
+                self.nn_eval.check_refresh();
             }
 
             MoveType::Castling => {
@@ -416,6 +417,7 @@ impl Board {
                     self.add_piece(color, K, CastlingRules::qs_king_end(color) as usize);
                     self.add_piece(color, R, CastlingRules::qs_rook_end(color) as usize);
                 }
+                self.nn_eval.check_refresh();
             }
         }
 
@@ -480,9 +482,9 @@ impl Board {
                 self.add_piece_without_inc_update(color.flip(), color.flip().piece(removed_piece_id), move_end);
                 self.set_king_pos(color, move_start as i8);
 
-                if removed_piece_id >= R {
-                    self.nn_eval.check_refresh();
-                }
+                // if removed_piece_id >= R {
+                self.nn_eval.check_refresh();
+                // }
             }
 
             MoveType::PawnSpecial => {
@@ -508,6 +510,7 @@ impl Board {
                 self.remove_piece_without_inc_update(move_end);
                 self.add_piece_without_inc_update(color, piece, move_start);
                 self.set_king_pos(color, move_start as i8);
+                self.nn_eval.check_refresh();
             }
 
             MoveType::Castling => {
@@ -522,6 +525,7 @@ impl Board {
                 self.add_piece_without_inc_update(color, color.piece(R), move_end);
                 self.set_king_pos(color, move_start as i8);
                 self.add_piece_without_inc_update(color, piece, move_start);
+                self.nn_eval.check_refresh();
             }
         }
     }
@@ -898,7 +902,13 @@ impl Board {
     }
 
     pub fn eval(&mut self) -> i32 {
-        self.nn_eval.eval(self.active_player(), self.halfmove_clock(), &self.bitboards)
+        self.nn_eval.eval(
+            self.active_player(),
+            self.halfmove_clock(),
+            &self.bitboards,
+            self.king_pos(WHITE),
+            self.king_pos(BLACK),
+        )
     }
 }
 

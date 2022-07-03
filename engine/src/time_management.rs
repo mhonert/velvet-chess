@@ -190,7 +190,7 @@ impl SearchLimits {
             winc: winc.unwrap_or(0),
             binc: binc.unwrap_or(0),
             move_time: move_time.unwrap_or(-1),
-            moves_to_go: moves_to_go.unwrap_or(40),
+            moves_to_go: moves_to_go.unwrap_or(25),
         })
     }
 

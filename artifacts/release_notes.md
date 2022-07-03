@@ -1,16 +1,21 @@
 
-This release provides support for Fischer Random Chess (Chess960) and a small strength increase
+The main focus of this release was to experiment with a new neural network architecture
 
-Estimated strength increase: ~ 30 Elo
+In order to allow the training of bigger neural networks, I implemented a new trainer which uses multiple CPU cores
+instead of a GPU. There is still room for optimizations, but the iteration time was sufficiently low to experiment
+with different neural network architectures and sizes.
+
+Self-play strength increase: ~ 40 Elo / FRC: 100 Elo
+(Note: strength increase is probably lower against a range of different opponents)
 
 ## Changes
-- Support Fischer random chess (Chess960)
+- New trainer to train bigger networks in a reasonable amount of time
   
-- Neural network evaluation
-  - increased hidden layer size from 256 to 512
-  - trained new network (including Chess960 positions)
+- New neural network architecture
+  - Input nodes: 768x24 instead of 768x5
+  - Hidden nodes: 2x288 instead of 512
   
-- Some refactorings and minor search improvements
+- Some time management adjustments
 
 ## Installation
 The chess engine is available for Windows and Linux and requires a 64 Bit CPU.

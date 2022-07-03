@@ -17,7 +17,7 @@
  */
 
 #[derive(Copy, Clone, Debug)]
-pub struct Color(u8);
+pub struct Color(pub u8);
 
 pub const WHITE: Color = Color(0);
 pub const BLACK: Color = Color(1);
