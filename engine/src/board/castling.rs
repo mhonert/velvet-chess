@@ -110,7 +110,7 @@ pub struct CastlingRules {
 impl Default for CastlingRules {
     /// Returns the Castling Rules for standard chess
     fn default() -> Self {
-        CastlingRules::new(false, 4, 7, 0)
+        CastlingRules::new(false, 4, 7, 0, 4, 7, 0)
     }
 }
 
@@ -121,14 +121,17 @@ impl CastlingRules {
     const QS_KING_END: [u8; 2] = [56 + 2, 2];
     const QS_ROOK_END: [u8; 2] = [56 + 3, 3];
 
-    pub fn new(chess960: bool, king_start_col: i8, king_side_rook_col: i8, queen_side_rook_col: i8) -> Self {
-        let w_king_start = 56 + king_start_col;
-        let w_king_side_rook = 56 + king_side_rook_col;
-        let w_queen_side_rook = 56 + queen_side_rook_col;
+    pub fn new(
+        chess960: bool, w_king_start_col: i8, w_king_side_rook_col: i8, w_queen_side_rook_col: i8,
+        b_king_start_col: i8, b_king_side_rook_col: i8, b_queen_side_rook_col: i8,
+    ) -> Self {
+        let w_king_start = 56 + w_king_start_col;
+        let w_king_side_rook = 56 + w_king_side_rook_col;
+        let w_queen_side_rook = 56 + w_queen_side_rook_col;
 
-        let b_king_start = king_start_col;
-        let b_king_side_rook = king_side_rook_col;
-        let b_queen_side_rook = queen_side_rook_col;
+        let b_king_start = b_king_start_col;
+        let b_king_side_rook = b_king_side_rook_col;
+        let b_queen_side_rook = b_queen_side_rook_col;
 
         CastlingRules {
             chess960,

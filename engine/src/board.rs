@@ -350,9 +350,7 @@ impl Board {
                 self.set_king_pos(color, move_end as i8);
                 self.set_king_moved(color);
 
-                // if removed_piece.abs() >= R {
                 self.nn_eval.check_refresh();
-                // }
 
                 return (own_piece, removed_piece.abs());
             }
@@ -482,9 +480,7 @@ impl Board {
                 self.add_piece_without_inc_update(color.flip(), color.flip().piece(removed_piece_id), move_end);
                 self.set_king_pos(color, move_start as i8);
 
-                // if removed_piece_id >= R {
                 self.nn_eval.check_refresh();
-                // }
             }
 
             MoveType::PawnSpecial => {

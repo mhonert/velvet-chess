@@ -256,7 +256,8 @@ mod tests {
             0,  0,  0,  0,  K,  0,  0,  R,
         ];
 
-        let board = Board::new(&items, WHITE, CastlingState::ALL, None, 0, 1, CastlingRules::new(true, 4, 7, 0));
+        let board =
+            Board::new(&items, WHITE, CastlingState::ALL, None, 0, 1, CastlingRules::new(true, 4, 7, 0, 4, 7, 0));
 
         let uci_move = UCIMove::from_move(&board, Move::new(MoveType::Castling, K, 60, 63));
         assert_eq!("e1h1", uci_move);
@@ -276,7 +277,8 @@ mod tests {
             0,  0,  0,  0,  K,  0,  0,  R,
         ];
 
-        let board = Board::new(&items, WHITE, CastlingState::ALL, None, 0, 1, CastlingRules::new(true, 4, 7, 0));
+        let board =
+            Board::new(&items, WHITE, CastlingState::ALL, None, 0, 1, CastlingRules::new(true, 4, 7, 0, 4, 7, 0));
 
         let m = UCIMove::from_uci("e1h1").unwrap().to_move(&board);
         assert_eq!(m.end(), board.castling_rules.ks_rook_start(WHITE));

@@ -181,9 +181,13 @@ fn read_color(color: &str) -> Option<Color> {
 fn read_castling(castling: &str, w_king_col: i8, b_king_col: i8) -> Option<(CastlingRules, CastlingState)> {
     let mut state = CastlingState::default();
     let mut is_chess960 = false;
-    let mut king_side_rook_col = 7;
-    let mut queen_side_rook_col = 0;
-    let mut start_king_col = 0;
+    let mut w_king_side_rook_col = 7;
+    let mut w_queen_side_rook_col = 0;
+    let mut w_start_king_col = 0;
+
+    let mut b_king_side_rook_col = 7;
+    let mut b_queen_side_rook_col = 0;
+    let mut b_start_king_col = 0;
 
     for ch in castling.bytes() {
         match ch {
@@ -193,26 +197,26 @@ fn read_castling(castling: &str, w_king_col: i8, b_king_col: i8) -> Option<(Cast
             b'q' => state.set_can_castle(Castling::BlackQueenSide),
             b'A'..=b'H' => {
                 is_chess960 = true;
-                start_king_col = w_king_col;
+                w_start_king_col = w_king_col;
                 let rook_col = (ch - b'A') as i8;
-                if rook_col < start_king_col {
+                if rook_col < w_start_king_col {
                     state.set_can_castle(Castling::WhiteQueenSide);
-                    queen_side_rook_col = rook_col;
+                    w_queen_side_rook_col = rook_col;
                 } else {
                     state.set_can_castle(Castling::WhiteKingSide);
-                    king_side_rook_col = rook_col;
+                    w_king_side_rook_col = rook_col;
                 }
             }
             b'a'..=b'h' => {
                 is_chess960 = true;
-                start_king_col = b_king_col;
+                b_start_king_col = b_king_col;
                 let rook_col = (ch - b'a') as i8;
-                if rook_col < start_king_col {
+                if rook_col < b_start_king_col {
                     state.set_can_castle(Castling::BlackQueenSide);
-                    queen_side_rook_col = rook_col;
+                    b_queen_side_rook_col = rook_col;
                 } else {
                     state.set_can_castle(Castling::BlackKingSide);
-                    king_side_rook_col = rook_col;
+                    b_king_side_rook_col = rook_col;
                 }
             }
             b'-' => (),
@@ -221,7 +225,15 @@ fn read_castling(castling: &str, w_king_col: i8, b_king_col: i8) -> Option<(Cast
     }
 
     let rules = if is_chess960 {
-        CastlingRules::new(true, start_king_col, king_side_rook_col as i8, queen_side_rook_col as i8)
+        CastlingRules::new(
+            true,
+            w_start_king_col,
+            w_king_side_rook_col as i8,
+            w_queen_side_rook_col as i8,
+            b_start_king_col,
+            b_king_side_rook_col as i8,
+            b_queen_side_rook_col as i8,
+        )
     } else {
         CastlingRules::default()
     };
@@ -453,6 +465,13 @@ mod tests {
         test_fen("qrbnnkrb/pppppppp/8/8/8/8/PPPPPPPP/QRBNNKRB w GBgb - 0 1");
         test_fen("b1q1rrkb/pppppppp/3nn3/8/P7/1PPP4/4PPPP/BQNNRKRB w GE - 1 9");
         test_fen("rkqbr1bn/p2ppppp/1pp2n2/8/5P2/3P1N2/PPP1PRPP/RKQB2BN w Aa - 3 9");
+    }
+
+    #[test]
+    fn read_write_dfrc_fen() {
+        test_fen("qrkbbrnn/pppppppp/8/8/8/8/PPPPPPPP/BQNNRKRB w GEfb - 0 1");
+        test_fen("nbnrkqbr/pppppppp/8/8/8/8/PPPPPPPP/RKRNNQBB w CAhd - 0 1");
+        test_fen("rnknrqbb/pppppppp/8/8/8/8/PPPPPPPP/BBNRQNKR w HDea - 0 1");
     }
 
     fn test_fen(fen: &str) {

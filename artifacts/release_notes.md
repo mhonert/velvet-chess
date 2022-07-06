@@ -1,21 +1,11 @@
 
-The main focus of this release was to experiment with a new neural network architecture
+This release adds support for parsing DFRC ("Double Fischer Random Chess") positions
 
-In order to allow the training of bigger neural networks, I implemented a new trainer which uses multiple CPU cores
-instead of a GPU. There is still room for optimizations, but the iteration time was sufficiently low to experiment
-with different neural network architectures and sizes.
-
-Self-play strength increase: ~ 40 Elo / FRC: 100 Elo
-(Note: strength increase is probably lower against a range of different opponents)
+Besides this small enhancement to the FEN parser, this fix release does not contain any other changes.
+So there are no changes to the playing strength or style compared to v4.0.0.
 
 ## Changes
-- New trainer to train bigger networks in a reasonable amount of time
-  
-- New neural network architecture
-  - Input nodes: 768x24 instead of 768x5
-  - Hidden nodes: 2x288 instead of 512
-  
-- Some time management adjustments
+- Support parsing DFRC positions
 
 ## Installation
 The chess engine is available for Windows and Linux and requires a 64 Bit CPU.

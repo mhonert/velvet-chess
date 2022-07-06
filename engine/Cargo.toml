@@ -1,7 +1,7 @@
 [package]
 name = "velvet"
 license = "GPL-3.0-or-later"
-version = "4.0.0"
+version = "4.0.1"
 authors = ["mhonert"]
 description = "Velvet is a UCI chess engine"
 readme = "README.md"
