@@ -165,7 +165,6 @@ impl Search {
         self.local_total_node_count = 0;
         self.local_node_count = 0;
         self.next_hh_age_node_count = 1000000;
-        self.hh.clear();
     }
 
     pub fn find_best_move(
@@ -473,7 +472,6 @@ impl Search {
         }
 
         if self.local_total_node_count >= self.next_hh_age_node_count {
-            self.hh.age_entries();
             self.next_hh_age_node_count = self.local_total_node_count + 2000000;
         }
 
@@ -809,6 +807,9 @@ impl Search {
 
                         if removed_piece_id == EMPTY {
                             self.hh.update(ply, active_player, opponent_move, best_move, hh_counter_scale);
+                            while let Some(qm) = self.movegen.next_quiet_move() {
+                                self.hh.update_played_moves(active_player, qm, hh_counter_scale);
+                            }
                         }
 
                         self.movegen.leave_ply();

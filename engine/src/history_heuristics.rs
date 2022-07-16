@@ -100,12 +100,6 @@ impl HistoryHeuristics {
         self.update_cut_off_history(active_player, m, -counter_scale);
     }
 
-    pub fn age_entries(&mut self) {
-        for entry in self.cut_off_history.iter_mut() {
-            *entry >>= 1;
-        }
-    }
-
     #[inline]
     pub fn get_history_score(&self, color: Color, m: Move) -> i32 {
         let color_offset = if color.is_white() { 0 } else { HISTORY_SIZE / 2 };

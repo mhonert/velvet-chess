@@ -81,6 +81,11 @@ impl MoveGenerator {
     }
 
     #[inline(always)]
+    pub fn next_quiet_move(&mut self) -> Option<Move> {
+        self.entries[self.ply].next_quiet_move()
+    }
+
+    #[inline(always)]
     pub fn next_capture_move(&mut self, board: &mut Board) -> Option<Move> {
         self.entries[self.ply].next_capture_move(board)
     }
@@ -288,6 +293,14 @@ impl MoveList {
                 }
             }
         }
+    }
+
+    #[inline(always)]
+    pub fn next_quiet_move(&mut self) -> Option<Move> {
+        if !matches!(self.stage, Stage::QuietMoves) {
+            return None;
+        }
+        self.moves.pop()
     }
 
     fn score_quiets(&mut self, hh: &HistoryHeuristics) {

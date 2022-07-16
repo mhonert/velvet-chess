@@ -236,6 +236,7 @@ impl Engine {
 
     pub fn reset(&mut self) {
         self.search.clear_tt();
+        self.search.hh.clear();
     }
 
     fn perft(&mut self, depth: i32) {
