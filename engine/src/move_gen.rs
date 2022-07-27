@@ -31,7 +31,8 @@ const PRIMARY_KILLER_SCORE: i32 = -2200;
 const SECONDARY_KILLER_SCORE: i32 = -2250;
 const COUNTER_MOVE_SCORE: i32 = -2275;
 
-pub const NEGATIVE_HISTORY_SCORE: i32 = -5000;
+pub const QUIET_BASE_SCORE: i32 = -3600;
+pub const NEGATIVE_HISTORY_SCORE: i32 = QUIET_BASE_SCORE + MIN_HISTORY_SCORE;
 
 const CAPTURE_ORDER_SCORES: [i32; CAPTURE_ORDER_SIZE] = calc_capture_order_scores();
 
@@ -53,10 +54,18 @@ impl MoveGenerator {
 
     pub fn enter_ply(
         &mut self, active_player: Color, scored_hash_move: Move, primary_killer: Move, secondary_killer: Move,
-        counter_move: Move,
+        counter_move: Move, prev_own_move: Move, opp_move: Move,
     ) {
         self.ply += 1;
-        self.entries[self.ply].init(active_player, scored_hash_move, primary_killer, secondary_killer, counter_move);
+        self.entries[self.ply].init(
+            active_player,
+            scored_hash_move,
+            primary_killer,
+            secondary_killer,
+            counter_move,
+            prev_own_move,
+            opp_move,
+        );
     }
 
     pub fn leave_ply(&mut self) {
@@ -81,11 +90,6 @@ impl MoveGenerator {
     }
 
     #[inline(always)]
-    pub fn next_quiet_move(&mut self) -> Option<Move> {
-        self.entries[self.ply].next_quiet_move()
-    }
-
-    #[inline(always)]
     pub fn next_capture_move(&mut self, board: &mut Board) -> Option<Move> {
         self.entries[self.ply].next_capture_move(board)
     }
@@ -102,7 +106,7 @@ impl MoveGenerator {
     }
 
     pub fn sanitize_move(&mut self, board: &Board, active_player: Color, untyped_move: Move) -> Move {
-        self.enter_ply(active_player, NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE);
+        self.enter_ply(active_player, NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE);
         let m = self.entries[self.ply].sanitize_move(board, active_player, untyped_move);
         self.leave_ply();
 
@@ -129,6 +133,8 @@ pub struct MoveList {
     primary_killer: Move,
     secondary_killer: Move,
     counter_move: Move,
+    prev_own_move: Move,
+    opp_move: Move,
     moves: Vec<Move>, // contains all moves on root level, but only quiet moves in all other cases
     capture_moves: Vec<Move>, // not used on root level
     bad_capture_moves: Vec<Move>, // not used on root level
@@ -145,6 +151,8 @@ impl MoveList {
             primary_killer: NO_MOVE,
             secondary_killer: NO_MOVE,
             counter_move: NO_MOVE,
+            prev_own_move: NO_MOVE,
+            opp_move: NO_MOVE,
             moves: Vec::with_capacity(64),
             capture_moves: Vec::with_capacity(16),
             bad_capture_moves: Vec::with_capacity(16),
@@ -157,12 +165,14 @@ impl MoveList {
 
     pub fn init(
         &mut self, active_player: Color, scored_hash_move: Move, primary_killer: Move, secondary_killer: Move,
-        counter_move: Move,
+        counter_move: Move, prev_own_move: Move, opp_move: Move,
     ) {
         self.scored_hash_move = scored_hash_move;
         self.primary_killer = primary_killer;
         self.secondary_killer = secondary_killer;
         self.counter_move = counter_move;
+        self.prev_own_move = prev_own_move;
+        self.opp_move = opp_move;
 
         self.moves.clear();
         self.capture_moves.clear();
@@ -295,17 +305,9 @@ impl MoveList {
         }
     }
 
-    #[inline(always)]
-    pub fn next_quiet_move(&mut self) -> Option<Move> {
-        if !matches!(self.stage, Stage::QuietMoves) {
-            return None;
-        }
-        self.moves.pop()
-    }
-
     fn score_quiets(&mut self, hh: &HistoryHeuristics) {
         for m in self.moves.iter_mut() {
-            *m = m.with_score(evaluate_move_order(hh, self.active_player, *m));
+            *m = m.with_score(evaluate_move_order(hh, self.active_player, self.prev_own_move, self.opp_move, *m));
         }
     }
 
@@ -771,19 +773,11 @@ fn remove_move(moves: &mut Vec<Move>, to_be_removed: Move) -> Move {
 
 // Move evaluation heuristic for initial move ordering (high values are better for the active player)
 #[inline(always)]
-pub fn evaluate_move_order(hh: &HistoryHeuristics, active_player: Color, m: Move) -> i32 {
-    if m.is_queen_promotion() {
-        return 400;
-    }
-
-    let history_score = hh.get_history_score(active_player, m);
-    if history_score == MIN_HISTORY_SCORE {
-        NEGATIVE_HISTORY_SCORE
-    } else if active_player.is_white() {
-        -3600 + history_score + (7 - (m.end() / 8 - 4)).signum()
-    } else {
-        -3600 + history_score + (m.end() / 8 - 4).signum()
-    }
+pub fn evaluate_move_order(
+    hh: &HistoryHeuristics, active_player: Color, prev_own_m: Move, opp_m: Move, m: Move,
+) -> i32 {
+    let history_score = hh.get_history_score(active_player, prev_own_m, opp_m, m);
+    QUIET_BASE_SCORE + history_score
 }
 
 // Evaluate score for capture move ordering
@@ -887,7 +881,7 @@ mod tests {
     fn generate_moves_for_pos(board: &mut Board, color: Color, pos: i32) -> Vec<Move> {
         let hh = HistoryHeuristics::new();
         let mut ml = MoveList::new();
-        ml.init(color, NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE);
+        ml.init(color, NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE);
 
         let mut moves = Vec::new();
 

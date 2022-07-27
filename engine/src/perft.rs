@@ -34,7 +34,7 @@ pub fn perft(movegen: &mut MoveGenerator, hh: &HistoryHeuristics, board: &mut Bo
     let mut nodes: u64 = 0;
 
     let active_player = board.active_player();
-    movegen.enter_ply(active_player, NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE);
+    movegen.enter_ply(active_player, NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE);
 
     while let Some(m) = movegen.next_move(hh, board) {
         let (previous_piece, removed_piece_id) = board.perform_move(m);

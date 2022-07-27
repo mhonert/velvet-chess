@@ -183,7 +183,7 @@ fn play_opening(
         return;
     }
 
-    move_gen.enter_ply(board.active_player(), NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE);
+    move_gen.enter_ply(board.active_player(), NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE);
 
     while let Some(m) = move_gen.next_root_move(hh, board) {
         let (previous_piece, move_state) = board.perform_move(m);

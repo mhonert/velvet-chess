@@ -21,8 +21,8 @@ use crate::board::castling::CastlingRules;
 use crate::board::{Board, StateEntry};
 use crate::colors::Color;
 use crate::engine::{LogLevel, Message};
-use crate::history_heuristics::HistoryHeuristics;
-use crate::move_gen::{is_killer, MoveGenerator, NEGATIVE_HISTORY_SCORE};
+use crate::history_heuristics::{HistoryHeuristics, MIN_HISTORY_SCORE};
+use crate::move_gen::{is_killer, MoveGenerator, NEGATIVE_HISTORY_SCORE, QUIET_BASE_SCORE};
 use crate::moves::{Move, NO_MOVE};
 use crate::pieces::{EMPTY, P, R};
 use crate::pos_history::PositionHistory;
@@ -47,7 +47,7 @@ pub const MAX_SEARCH_THREADS: usize = 256;
 
 const CANCEL_SEARCH: i32 = i32::MAX - 1;
 
-const LMR_THRESHOLD: i32 = 3;
+const LMR_THRESHOLD: i32 = 1;
 
 const FUTILE_MOVE_REDUCTIONS: i32 = 2;
 const LOSING_MOVE_REDUCTIONS: i32 = 2;
@@ -184,7 +184,7 @@ impl Search {
 
         let active_player = self.board.active_player();
 
-        self.movegen.enter_ply(active_player, NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE);
+        self.movegen.enter_ply(active_player, NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE);
 
         self.set_stopped(false);
 
@@ -369,6 +369,7 @@ impl Search {
                 SearchFlags::new().check(gives_check),
                 capture_pos,
                 &mut local_pv,
+                NO_MOVE,
                 m,
                 NO_MOVE,
             );
@@ -385,6 +386,7 @@ impl Search {
                     SearchFlags::new().check(gives_check),
                     capture_pos,
                     &mut local_pv,
+                    NO_MOVE,
                     m,
                     NO_MOVE,
                 );
@@ -448,7 +450,7 @@ impl Search {
     // find the best possible move in response to the current board position.
     fn rec_find_best_move(
         &mut self, rx: Option<&Receiver<Message>>, mut alpha: i32, beta: i32, mut depth: i32, ply: i32,
-        flags: SearchFlags, capture_pos: i32, pv: &mut PrincipalVariation, opponent_move: Move,
+        flags: SearchFlags, capture_pos: i32, pv: &mut PrincipalVariation, prev_own_move: Move, opponent_move: Move,
         excluded_singular_move: Move,
     ) -> i32 {
         self.max_reached_depth = max(ply, self.max_reached_depth);
@@ -496,8 +498,6 @@ impl Search {
             // Extend search when in check
             depth = max(1, depth + 1);
         }
-
-        let hh_counter_scale = self.hh.calc_counter_scale(depth);
 
         let hash = self.board.get_hash();
 
@@ -586,6 +586,7 @@ impl Search {
                             &mut PrincipalVariation::default(),
                             NO_MOVE,
                             NO_MOVE,
+                            NO_MOVE,
                         );
                         self.board.undo_null_move();
                         if result == CANCEL_SEARCH {
@@ -619,7 +620,15 @@ impl Search {
 
         let (primary_killer, secondary_killer) = self.hh.get_killer_moves(ply);
         let counter_move = self.hh.get_counter_move(opponent_move);
-        self.movegen.enter_ply(active_player, hash_move, primary_killer, secondary_killer, counter_move);
+        self.movegen.enter_ply(
+            active_player,
+            hash_move,
+            primary_killer,
+            secondary_killer,
+            counter_move,
+            prev_own_move,
+            opponent_move,
+        );
 
         let occupied_bb = self.board.occupancy_bb();
 
@@ -650,6 +659,7 @@ impl Search {
                     flags.singular_search(),
                     capture_pos,
                     &mut PrincipalVariation::default(),
+                    prev_own_move,
                     opponent_move,
                     hash_move,
                 );
@@ -686,18 +696,19 @@ impl Search {
                     if removed_piece_id == EMPTY {
                         if allow_lmr && evaluated_move_count > LMR_THRESHOLD {
                             reductions += if is_pv { 1 } else { 2 };
-                            if curr_move.score() == NEGATIVE_HISTORY_SCORE {
+
+                            if excluded_singular_move != NO_MOVE && evaluated_move_count >= 6 {
                                 reductions += 1;
                             }
 
-                            if evaluated_move_count >= 6 && excluded_singular_move != NO_MOVE {
-                                reductions += 1;
-                            }
+                            reductions += -((curr_move.score() - QUIET_BASE_SCORE) / MIN_HISTORY_SCORE.abs())
+                                .min(reductions)
+                                .max(-2);
                         } else if allow_futile_move_pruning && !gives_check && !curr_move.is_queen_promotion() {
                             // Reduce futile move
                             reductions += FUTILE_MOVE_REDUCTIONS;
                         } else if !is_pv
-                            && (curr_move.score() == NEGATIVE_HISTORY_SCORE
+                            && (curr_move.score() <= NEGATIVE_HISTORY_SCORE
                                 || self.board.has_negative_see(
                                     active_player.flip(),
                                     start,
@@ -757,6 +768,7 @@ impl Search {
                     flags.check(gives_check),
                     new_capture_pos,
                     &mut local_pv,
+                    opponent_move,
                     curr_move,
                     NO_MOVE,
                 );
@@ -777,6 +789,7 @@ impl Search {
                         flags.check(gives_check),
                         new_capture_pos,
                         &mut local_pv,
+                        opponent_move,
                         curr_move,
                         NO_MOVE,
                     );
@@ -806,10 +819,7 @@ impl Search {
                         }
 
                         if removed_piece_id == EMPTY {
-                            self.hh.update(ply, active_player, opponent_move, best_move, hh_counter_scale);
-                            while let Some(qm) = self.movegen.next_quiet_move() {
-                                self.hh.update_played_moves(active_player, qm, hh_counter_scale);
-                            }
+                            self.hh.update(ply, active_player, prev_own_move, opponent_move, best_move);
                         }
 
                         self.movegen.leave_ply();
@@ -822,7 +832,7 @@ impl Search {
                         pv.update(best_move, &mut local_pv);
                     }
                 } else if removed_piece_id == EMPTY {
-                    self.hh.update_played_moves(active_player, curr_move, hh_counter_scale);
+                    self.hh.update_played_moves(active_player, prev_own_move, opponent_move, curr_move);
                 }
 
                 a = -(alpha + 1);
@@ -914,7 +924,7 @@ impl Search {
             alpha = position_score;
         }
 
-        self.movegen.enter_ply(active_player, NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE);
+        self.movegen.enter_ply(active_player, NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE);
 
         let mut threshold = (alpha - position_score - QS_SEE_THRESHOLD) as i16;
 
@@ -1279,7 +1289,15 @@ impl HelperThread {
                     sub_search.reset();
                     sub_search.board.reset(pos_history, bitboards, halfmove_count, state, castling_rules);
 
-                    sub_search.movegen.enter_ply(sub_search.board.active_player(), NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE);
+                    sub_search.movegen.enter_ply(
+                        sub_search.board.active_player(),
+                        NO_MOVE,
+                        NO_MOVE,
+                        NO_MOVE,
+                        NO_MOVE,
+                        NO_MOVE,
+                        NO_MOVE,
+                    );
 
                     for depth in 1..MAX_DEPTH {
                         let (move_count, best_move, _, new_window_step) = sub_search.root_search(
