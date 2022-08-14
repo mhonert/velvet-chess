@@ -71,7 +71,6 @@ pub struct Search {
     cancel_possible: bool,
     last_log_time: Instant,
     next_check_node_count: u64,
-    next_hh_age_node_count: u64,
     current_depth: i32,
     max_reached_depth: i32,
 
@@ -110,7 +109,6 @@ impl Search {
             node_count,
             last_log_time: Instant::now(),
             next_check_node_count: 0,
-            next_hh_age_node_count: 0,
             current_depth: 0,
             max_reached_depth: 0,
             is_stopped,
@@ -164,7 +162,6 @@ impl Search {
     pub fn reset(&mut self) {
         self.local_total_node_count = 0;
         self.local_node_count = 0;
-        self.next_hh_age_node_count = 1000000;
     }
 
     pub fn find_best_move(
@@ -473,10 +470,6 @@ impl Search {
             return 0;
         }
 
-        if self.local_total_node_count >= self.next_hh_age_node_count {
-            self.next_hh_age_node_count = self.local_total_node_count + 2000000;
-        }
-
         let is_pv = (alpha + 1) < beta; // in a principal variation search, non-PV nodes are searched with a zero-window
 
         // Prune, if even the best possible score cannot improve alpha (because a shorter mate has already been found)
@@ -572,9 +565,9 @@ impl Search {
                     // Null move pruning
                     pos_score = pos_score.or_else(|| Some(active_player.score(self.board.eval())));
                     if pos_score.unwrap() >= beta {
-                        self.tt.prefetch(self.board.get_hash());
                         let r = log2((depth * 3 - 3) as u32);
                         self.board.perform_null_move();
+                        self.tt.prefetch(self.board.get_hash());
                         let result = self.rec_find_best_move(
                             rx,
                             -beta,
