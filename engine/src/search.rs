@@ -553,7 +553,7 @@ impl Search {
             }
 
             if !is_pv && !flags.in_check() {
-                if depth <= 3 {
+                if depth <= 2 {
                     // Jump directly to QS, if position is already so good, that it is unlikely for the opponent to counter it within the remaining search depth
                     pos_score = pos_score.or_else(|| Some(active_player.score(self.board.eval())));
                     let score = pos_score.unwrap();
@@ -609,6 +609,13 @@ impl Search {
             let prune_low_score = pos_score.unwrap_or_else(|| active_player.score(self.board.eval()));
             allow_futile_move_pruning =
                 prune_low_score.abs() < MATE_SCORE - 2 * MAX_DEPTH as i32 && prune_low_score + margin <= alpha;
+
+            if depth <= 2 && prune_low_score + 200 * depth <= alpha {
+                let score = self.quiescence_search(rx, active_player, alpha, beta, ply, pos_score, pv);
+                if score <= alpha {
+                    return score;
+                }
+            }
         }
 
         let (primary_killer, secondary_killer) = self.hh.get_killer_moves(ply);
