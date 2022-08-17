@@ -669,12 +669,16 @@ impl Search {
                     return CANCEL_SEARCH;
                 }
 
-                self.board.perform_move(curr_move);
-
                 if result < se_beta {
                     se_extension = 1;
                     is_singular = true;
+                } else if se_beta >= beta {
+                    // Multi-Cut Pruning
+                    self.movegen.leave_ply();
+                    return beta;
                 }
+
+                self.board.perform_move(curr_move);
             };
 
             let start = curr_move.start();
@@ -709,15 +713,16 @@ impl Search {
                             reductions += FUTILE_MOVE_REDUCTIONS;
                         } else if !is_pv
                             && (curr_move.score() <= NEGATIVE_HISTORY_SCORE
-                                || self.board.has_negative_see(
-                                    active_player.flip(),
-                                    start,
-                                    end,
-                                    target_piece_id,
-                                    EMPTY,
-                                    0,
-                                    occupied_bb,
-                                ))
+                                || (curr_move.score() <= QUIET_BASE_SCORE
+                                    && self.board.has_negative_see(
+                                        active_player.flip(),
+                                        start,
+                                        end,
+                                        target_piece_id,
+                                        EMPTY,
+                                        0,
+                                        occupied_bb,
+                                    )))
                         {
                             // Reduce search depth for moves with negative history or negative SEE score
                             reductions += LOSING_MOVE_REDUCTIONS;
