@@ -80,7 +80,7 @@ jobs:
           - exec_postfix: "nopopcnt"
             toolchain: x86_64-apple-darwin
             add_rustflags: "-Ctarget-feature=+crt-static"
-          - exec_postfix: "arm"
+          - exec_postfix: "apple-silicon"
             toolchain: aarch64-apple-darwin
             add_rustflags: "-Ctarget-feature=+crt-static"
 
@@ -142,7 +142,7 @@ jobs:
           mv velvet-macOS-avx2 velvet-${tag_name}-macOS-x86_64-avx2
           mv velvet-macOS-sse4-popcnt velvet-${tag_name}-macOS-x86_64-sse4-popcnt
           mv velvet-macOS-nopopcnt velvet-${tag_name}-macOS-x86_64-nopopcnt
-          mv velvet-macOS-arm velvet-${tag_name}-macOS-apple-silicon
+          mv velvet-macOS-apple-silicon velvet-${tag_name}-macOS-apple-silicon
           sha256sum velvet-* > checksums.txt
           echo "$tag_name" > release_description.txt
           cat artifacts/release_notes.md >> release_description.txt

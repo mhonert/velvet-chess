@@ -9,7 +9,7 @@
 
 **Velvet Chess Engine** is a UCI chess engine written in [Rust](https://www.rust-lang.org).
 
-Version 3.3.0 is currently ranked around 3300 Elo (Blitz) and 3230 Elo (40/15) in the Computer Chess Rating Lists (CCRL):
+Version 4.0.0 is currently ranked around 3330 Elo (Blitz) and 3250 Elo (40/15) in the Computer Chess Rating Lists (CCRL):
 - [CCRL Blitz](https://www.computerchess.org.uk/ccrl/404/cgi/compare_engines.cgi?family=Velvet&print=Rating+list)
 - [CCRL 40/15](https://www.computerchess.org.uk/ccrl/4040/cgi/compare_engines.cgi?family=Velvet&print=Rating+list)
 
@@ -17,6 +17,8 @@ In order to play against Velvet, you need a Chess GUI with support for the UCI p
 
 Starting with v3.3.0 Velvet also supports the Fischer Random Chess (Chess960) variant.
 This requires a Chess GUI/UCI client which supports the Chess960 extension as described in the UCI specification.
+
+v4.0.1 also added support for DFRC ("Double Fischer Random Chess").
 
 ### :inbox_tray: Download
 

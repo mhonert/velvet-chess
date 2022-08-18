@@ -467,11 +467,9 @@ fn write_quantized(writer: &mut dyn Write, multiplier: i16, values: Vec<f32>) ->
     let mut outputs = Vec::with_capacity(values.len());
     let mut index = 0;
 
-    let mut total_repetitions = 0;
     while index < values.len() {
         let value = values[index];
         if let Some(repetitions) = find_zero_repetitions(value, &values[index..]) {
-            total_repetitions += repetitions as usize;
             index += repetitions as usize;
             outputs.push(rep_zero_marker);
             outputs.push((repetitions as i32 - 32768) as i16);
