@@ -13,4 +13,5 @@ jobs:
 
       - name: Run tests
         run: |
+          rustup override set 1.58.1
           cargo test --release
