@@ -9,5 +9,7 @@ edition = "2021"
 velvet = { path = "../engine"}
 
 clap = "2.33.3"
+itertools = "0.10.0"
+rand = "0.8.4"
 shakmaty = "0.20.3"
 shakmaty-syzygy = "0.18.0"

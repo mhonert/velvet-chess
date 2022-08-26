@@ -16,6 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+use itertools::Itertools;
 use std::cmp::{max, min};
 use std::collections::HashSet;
 use std::fs::File;
@@ -30,6 +31,7 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use clap::App;
+use rand::prelude::{SliceRandom, ThreadRng};
 use shakmaty::fen::Fen;
 use shakmaty::{CastlingMode, Chess, Outcome, Position};
 use shakmaty_syzygy::Tablebase;
@@ -154,24 +156,48 @@ fn main() {
 }
 
 fn gen_openings(chess960: bool) -> Vec<String> {
-    let mut openings = Vec::with_capacity(120000);
+    let mut openings = Vec::with_capacity(2300000);
     let hh = HistoryHeuristics::new();
     let mut move_gen = MoveGenerator::new();
 
     let chess_start_pos = [START_POS];
-    let (moves, start_pos_fens) = if chess960 { (1, &CHESS960_FENS[..]) } else { (2, &chess_start_pos[..]) };
 
-    for fen in start_pos_fens.iter() {
-        let mut board = create_from_fen(fen);
-        play_opening(moves * 2, &hh, &mut move_gen, &mut board, &mut openings);
+    for fen in chess_start_pos.iter() {
+        for i in 2..=4 {
+            for _ in 0..=((4 - i) * 8) {
+                let mut board = create_from_fen(fen);
+                play_opening(i, &hh, &mut move_gen, &mut board, &mut openings);
+            }
+        }
     }
 
-    openings.sort_unstable();
-    openings.dedup();
+    let mut skip = 0;
+    for w_fen in CHESS960_FENS.iter() {
+        for b_fen in CHESS960_FENS.iter().skip(skip) {
+            let fen = mix(w_fen, b_fen);
+            openings.push(fen);
+        }
+        skip += 1;
+    }
+
+    let mut rng = ThreadRng::default();
+    openings.shuffle(&mut rng);
 
     println!("Generated {} openings", openings.len());
 
     openings
+}
+
+fn mix(white: &str, black: &str) -> String {
+    // "bbqnnrkr/pppppppp/8/8/8/8/PPPPPPPP/BBQNNRKR w HFhf - 0 1",
+    let w_pieces = white.split_terminator(' ').take(1).collect::<String>();
+    let white_pieces: String = w_pieces.split('/').skip(4).take(4).join("/");
+    let black_pieces: String = black.split('/').take(4).join("/");
+
+    let white_castling: String = white.split(' ').skip(2).take(1).join("").chars().take(2).collect();
+    let black_castling: String = black.split(' ').skip(2).take(1).join("").chars().skip(2).take(2).collect();
+
+    format!("{}/{} w {}{} - 0 1", black_pieces, white_pieces, white_castling, black_castling)
 }
 
 fn play_opening(
@@ -220,19 +246,12 @@ fn find_test_positions(tx: &Sender<TestPos>, openings: &[String], tb_path: Strin
     println!("Setting tablebase path to: {}", tb_path);
     tb.add_directory(tb_path).expect("Could not add tablebase path");
 
-    let tt = TranspositionTable::new(128);
+    let tt = TranspositionTable::new(64);
     let stop = Arc::new(AtomicBool::new(false));
 
-    let limits = SearchLimits::new(None, Some(40000), None, None, None, None, None, None).unwrap();
-    let mut search = Search::new(
-        stop,
-        Arc::new(AtomicU64::new(0)),
-        LogLevel::Error,
-        limits,
-        tt.clone(),
-        create_from_fen(START_POS),
-        false,
-    );
+    let limits = SearchLimits::new(None, Some(20000), None, None, None, None, None, None).unwrap();
+    let mut search =
+        Search::new(stop, Arc::new(AtomicU64::new(0)), LogLevel::Error, limits, tt, create_from_fen(START_POS), false);
 
     let (_tx, rx) = mpsc::channel::<Message>();
 
@@ -244,7 +263,7 @@ fn find_test_positions(tx: &Sender<TestPos>, openings: &[String], tb_path: Strin
 
         positions.clear();
         duplicate_check.clear();
-        TranspositionTable::clear(&tt, 0, 1);
+        // TranspositionTable::clear(&tt, 0, 1);
         collect_quiet_pos(
             Some(&rx),
             &mut rnd,
@@ -262,7 +281,7 @@ fn find_test_positions(tx: &Sender<TestPos>, openings: &[String], tb_path: Strin
 }
 
 fn select_move(
-    rx: Option<&Receiver<Message>>, rnd: &mut Random, search: &mut Search, min_depth: i32, ply: i32,
+    rx: Option<&Receiver<Message>>, rnd: &mut Random, search: &mut Search, mut min_depth: i32, ply: i32,
 ) -> Move {
     let mut move_candidates = Vec::with_capacity(4);
     let mut min_score = i32::MIN;
@@ -279,16 +298,17 @@ fn select_move(
         }
 
         if move_candidates.is_empty() {
-            min_score = m.score() - 5;
+            min_score = m.score() - 10;
         }
 
         latest_move = m;
 
-        if search.material_score() != 0 || ply > 10 || rnd.rand32() & 1 == 1 || move_candidates.len() == 4 {
+        if ply > 10 || rnd.rand32() & 1 == 1 || move_candidates.len() == 4 || search.material_score() != 0 {
             break;
         }
 
         move_candidates.push(m.without_score());
+        min_depth -= 1;
     }
 
     latest_move
@@ -322,7 +342,7 @@ fn collect_quiet_pos(
             return;
         }
 
-        let selected_move = select_move(rx, rnd, search, 9, num);
+        let selected_move = select_move(rx, rnd, search, 8, num);
         if selected_move == NO_MOVE {
             let result = if search.board.is_in_check(WHITE) {
                 -1
