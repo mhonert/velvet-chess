@@ -31,6 +31,8 @@ use std::time::Duration;
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const AUTHOR: &str = "Martin Honert";
 
+const MAX_MULTI_PV_MOVES: usize = 218;
+
 pub fn start_uci_loop(tx: &Sender<Message>) {
     println!("Velvet Chess Engine v{}", VERSION);
 
@@ -100,6 +102,7 @@ fn uci() {
     println!("option name Ponder type check default false");
     println!("option name Threads type spin default {} min 1 max {}", DEFAULT_SEARCH_THREADS, MAX_SEARCH_THREADS);
     println!("option name UCI_Chess960 type check default false");
+    println!("option name MultiPV type spin default 1 min 1 max {}", MAX_MULTI_PV_MOVES);
     println!(
         "option name UCI_EngineAbout type string default Velvet Chess Engine (https://github.com/mhonert/velvet-chess)"
     );
@@ -165,6 +168,14 @@ fn set_option(tx: &Sender<Message>, parts: &[&str]) {
         "ponder" => {}
 
         "uci_chess960" => {}
+
+        "multipv" => {
+            if let Some(multipv_moves) = parse_int_option(value, 1, MAX_MULTI_PV_MOVES as i32) {
+                send_message(tx, Message::SetMultiPV(multipv_moves));
+            } else {
+                println!("Invalid number of MultiPV moves: {}", value);
+            };
+        }
 
         _ => println!("Unknown option: {}", name),
     }

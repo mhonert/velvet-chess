@@ -42,6 +42,7 @@ pub enum Message {
     Quit,
     SetPosition(String, Vec<UCIMove>),
     SetThreadCount(i32),
+    SetMultiPV(i32),
     SetTranspositionTableSize(i32),
     Stop,
     PonderHit,
@@ -144,6 +145,10 @@ impl Engine {
                 if count != self.current_thread_count {
                     self.new_thread_count = Some(count);
                 }
+            }
+
+            Message::SetMultiPV(count) => {
+                self.search.set_multi_pv(count);
             }
 
             Message::Perft(depth) => self.perft(depth),

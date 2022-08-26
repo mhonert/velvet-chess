@@ -33,7 +33,7 @@ use crate::transposition_table::{
     TranspositionTable, MAX_DEPTH,
 };
 use crate::uci_move::UCIMove;
-use std::cmp::{max, min};
+use std::cmp::{max, min, Reverse};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::sync::Arc;
@@ -76,6 +76,7 @@ pub struct Search {
 
     local_total_node_count: u64,
     local_node_count: u64,
+    multi_pv: usize,
 
     node_count: Arc<AtomicU64>,
     is_stopped: Arc<AtomicBool>,
@@ -112,6 +113,7 @@ impl Search {
             current_depth: 0,
             max_reached_depth: 0,
             is_stopped,
+            multi_pv: 1,
 
             threads: HelperThreads::new(),
             is_helper_thread,
@@ -141,6 +143,10 @@ impl Search {
     pub fn clear_tt(&mut self) {
         self.threads.clear_tt();
         TranspositionTable::clear(&self.tt, 0, self.threads.count() + 1);
+    }
+
+    pub fn set_multi_pv(&mut self, max_moves: i32) {
+        self.multi_pv = max_moves as usize;
     }
 
     pub fn update(&mut self, board: &Board, limits: SearchLimits, ponder: bool) {
@@ -187,76 +193,93 @@ impl Search {
 
         let mut pv = PrincipalVariation::default();
 
+        let mut analysis_result = AnalysisResult::new();
+
         self.threads.start_search(&self.board, skipped_moves);
 
         let mut window_size = INITIAL_ASPIRATION_WINDOW_SIZE;
         let mut window_step = INITIAL_ASPIRATION_WINDOW_STEP;
 
-        let mut score = 0;
+        let mut scores = vec![0; self.multi_pv];
 
         // Use iterative deepening, i.e. increase the search depth after each iteration
         for depth in 1..=self.limits.depth_limit() {
-            let iteration_start_time = Instant::now();
-            self.current_depth = depth;
             self.max_reached_depth = 0;
+            self.current_depth = depth;
+            let iteration_start_time = Instant::now();
 
             let mut iteration_cancelled = false;
 
-            let mut local_pv = PrincipalVariation::default();
-            let (move_num, mut best_move, current_pv, new_window_step) =
-                self.root_search(rx, skipped_moves, window_step, window_size, score, depth, &mut local_pv);
-            if new_window_step > window_step {
-                window_step = new_window_step;
-                window_size = new_window_step;
-            } else if window_step > 16 {
-                window_step /= 2;
-                window_size /= 2;
-            }
+            let mut local_skipped_moves = Vec::from(skipped_moves);
+            for multi_pv_move in 1..=self.multi_pv {
+                let mut local_pv = PrincipalVariation::default();
+                let (cancelled, move_num, best_move, current_pv, new_window_step) = self.root_search(
+                    rx,
+                    &local_skipped_moves,
+                    window_step,
+                    window_size,
+                    scores[multi_pv_move - 1],
+                    depth,
+                    &mut local_pv,
+                );
+                if new_window_step > window_step {
+                    window_step = new_window_step;
+                    window_size = new_window_step;
+                } else if window_step > 16 {
+                    window_step /= 2;
+                    window_size /= 2;
+                }
 
-            let now = Instant::now();
-
-            if best_move == NO_MOVE {
-                iteration_cancelled = true;
-            }
-
-            if !iteration_cancelled {
-                pv = local_pv.clone();
-                self.cancel_possible = depth >= min_depth;
-                let iteration_duration = now.duration_since(iteration_start_time);
-                if !self.pondering
-                    && self.cancel_possible
-                    && !self.time_mgr.is_time_for_another_iteration(now, iteration_duration)
-                    && !self.time_mgr.try_extend_timelimit()
-                {
+                if cancelled {
                     iteration_cancelled = true;
+                }
+
+                if best_move == NO_MOVE {
+                    break;
+                }
+
+                if !iteration_cancelled {
+                    analysis_result.update_result(depth, best_move, current_pv, local_pv);
+
+                    let now = Instant::now();
+                    self.cancel_possible = depth >= min_depth;
+                    let iteration_duration = now.duration_since(iteration_start_time);
+                    if !self.pondering
+                        && self.cancel_possible
+                        && !self.time_mgr.is_time_for_another_iteration(now, iteration_duration)
+                        && !self.time_mgr.try_extend_timelimit()
+                    {
+                        iteration_cancelled = true;
+                    }
+                }
+
+                local_skipped_moves.push(best_move.without_score());
+                scores[multi_pv_move - 1] = best_move.score();
+
+                if iteration_cancelled {
+                    break;
+                }
+
+                if multi_pv_move == 1 && depth == 1 && move_num == 1 {
+                    self.time_mgr.reduce_timelimit();
                 }
             }
 
-            if best_move == NO_MOVE {
-                best_move = last_best_move;
-            } else if self.log(Info) {
-                let seldepth = self.max_reached_depth;
+            analysis_result.finish_iteration();
 
-                println!(
-                    "info depth {} seldepth {} score {}{}{}",
-                    depth,
-                    seldepth,
-                    get_score_info(best_move.score()),
-                    self.get_base_stats(self.time_mgr.search_duration(now)),
-                    current_pv.map(|pv| format!(" pv {}", pv)).unwrap_or_default()
-                );
+            if self.log(Info) {
+                analysis_result.print(
+                    self.multi_pv,
+                    self.max_reached_depth,
+                    self.get_base_stats(self.time_mgr.search_duration(Instant::now())),
+                )
             }
 
-            last_best_move = best_move;
-            score = best_move.score();
+            pv = analysis_result.get_best_pv();
+            last_best_move = analysis_result.get_best_move();
 
-            if iteration_cancelled || move_num == 0 {
-                // stop searching, if iteration has been cancelled or there is no valid move or only a single valid move
+            if iteration_cancelled {
                 break;
-            }
-
-            if depth == 1 && move_num == 1 {
-                self.time_mgr.reduce_timelimit();
             }
         }
 
@@ -278,7 +301,7 @@ impl Search {
     fn root_search(
         &mut self, rx: Option<&Receiver<Message>>, skipped_moves: &[Move], window_step: i32, window_size: i32,
         score: i32, depth: i32, pv: &mut PrincipalVariation,
-    ) -> (i32, Move, Option<String>, i32) {
+    ) -> (bool, i32, Move, Option<String>, i32) {
         let mut alpha = if depth > 7 { score - window_size } else { MIN_SCORE };
         let mut beta = if depth > 7 { score + window_size } else { MAX_SCORE };
 
@@ -286,7 +309,8 @@ impl Search {
         loop {
             pv.clear();
 
-            let (move_num, best_move, current_pv) = self.bounded_root_search(rx, skipped_moves, alpha, beta, depth, pv);
+            let (cancelled, move_num, best_move, current_pv) =
+                self.bounded_root_search(rx, skipped_moves, alpha, beta, depth, pv);
 
             // Bulk update of global node count
             if self.local_node_count > 0 {
@@ -294,8 +318,8 @@ impl Search {
                 self.local_node_count = 0;
             }
 
-            if best_move == NO_MOVE {
-                return (move_num, best_move, current_pv, step);
+            if best_move == NO_MOVE || cancelled {
+                return (cancelled, move_num, best_move, current_pv, step);
             }
 
             let best_score = best_move.score();
@@ -304,7 +328,7 @@ impl Search {
             } else if best_score >= beta {
                 beta = min(MAX_SCORE, beta.saturating_add(step));
             } else {
-                return (move_num, best_move, current_pv, step);
+                return (false, move_num, best_move, current_pv, step);
             }
 
             step = min(MATE_SCORE / 2, step.saturating_mul(2));
@@ -315,7 +339,7 @@ impl Search {
     fn bounded_root_search(
         &mut self, rx: Option<&Receiver<Message>>, skipped_moves: &[Move], mut alpha: i32, beta: i32, depth: i32,
         pv: &mut PrincipalVariation,
-    ) -> (i32, Move, Option<String>) {
+    ) -> (bool, i32, Move, Option<String>) {
         let mut move_num = 0;
         let mut a = -beta;
         let mut best_move: Move = NO_MOVE;
@@ -404,7 +428,7 @@ impl Search {
                 best_move = m.with_score(score);
 
                 if best_score <= alpha || best_score >= beta {
-                    return (move_num, best_move, current_pv);
+                    return (false, move_num, best_move, current_pv);
                 }
 
                 pv.update(best_move, &mut local_pv);
@@ -431,7 +455,7 @@ impl Search {
 
         self.movegen.reorder_root_moves(best_move, self.is_helper_thread);
 
-        (move_num, best_move, current_pv)
+        (iteration_cancelled, move_num, best_move, current_pv)
     }
 
     fn node_count(&self) -> u64 {
@@ -1221,6 +1245,74 @@ impl HelperThreads {
     }
 }
 
+#[derive(Clone)]
+struct AnalysisResult {
+    entries: Vec<AnalysisEntry>,
+}
+
+impl AnalysisResult {
+    fn new() -> Self {
+        AnalysisResult { entries: Vec::new() }
+    }
+
+    pub fn update_result(&mut self, depth: i32, best_move: Move, pv_info: Option<String>, pv: PrincipalVariation) {
+        for entry in self.entries.iter_mut() {
+            if entry.best_move.is_same_move(best_move) {
+                entry.best_move = best_move;
+                entry.depth = depth;
+                entry.pv_info = pv_info;
+                entry.pv = pv;
+                return;
+            }
+        }
+
+        self.entries.push(AnalysisEntry { best_move, depth, pv_info, pv })
+    }
+
+    pub fn finish_iteration(&mut self) {
+        self.entries.sort_by_key(|entry| Reverse((entry.depth, entry.best_move.score())));
+    }
+
+    pub fn get_best_move(&self) -> Move {
+        if self.entries.is_empty() {
+            NO_MOVE
+        } else {
+            self.entries[0].best_move
+        }
+    }
+
+    pub fn get_best_pv(&self) -> PrincipalVariation {
+        if self.entries.is_empty() {
+            PrincipalVariation::default()
+        } else {
+            self.entries[0].pv.clone()
+        }
+    }
+
+    pub fn print(&self, max_moves: usize, sel_depth: i32, base_stats: String) {
+        let max_depth = self.entries.iter().max_by_key(|entry| entry.depth).map(|entry| entry.depth).unwrap_or(0);
+        for (i, entry) in self.entries.iter().filter(|entry| entry.depth >= max_depth).take(max_moves).enumerate() {
+            println!(
+                "info depth {} seldepth {} multipv {} score {}{}{}",
+                entry.depth,
+                sel_depth,
+                i + 1,
+                get_score_info(entry.best_move.score()),
+                base_stats,
+                entry.pv_info.clone().map(|pv| format!(" pv {}", pv)).unwrap_or_default()
+            );
+        }
+    }
+}
+
+#[derive(Clone)]
+struct AnalysisEntry {
+    depth: i32,
+    best_move: Move,
+    pv_info: Option<String>,
+    pv: PrincipalVariation,
+}
+
 impl Drop for HelperThreads {
     fn drop(&mut self) {
         self.terminate();
@@ -1305,7 +1397,7 @@ impl HelperThread {
                     );
 
                     for depth in 1..MAX_DEPTH {
-                        let (move_count, best_move, _, new_window_step) = sub_search.root_search(
+                        let (_, move_count, best_move, _, new_window_step) = sub_search.root_search(
                             None,
                             &skipped_moves,
                             window_step,
