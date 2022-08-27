@@ -76,7 +76,7 @@ pub struct Search {
 
     local_total_node_count: u64,
     local_node_count: u64,
-    multi_pv: usize,
+    multi_pv_count: usize,
 
     node_count: Arc<AtomicU64>,
     is_stopped: Arc<AtomicBool>,
@@ -113,7 +113,7 @@ impl Search {
             current_depth: 0,
             max_reached_depth: 0,
             is_stopped,
-            multi_pv: 1,
+            multi_pv_count: 1,
 
             threads: HelperThreads::new(),
             is_helper_thread,
@@ -145,8 +145,8 @@ impl Search {
         TranspositionTable::clear(&self.tt, 0, self.threads.count() + 1);
     }
 
-    pub fn set_multi_pv(&mut self, max_moves: i32) {
-        self.multi_pv = max_moves as usize;
+    pub fn set_multi_pv_count(&mut self, count: i32) {
+        self.multi_pv_count = count as usize;
     }
 
     pub fn update(&mut self, board: &Board, limits: SearchLimits, ponder: bool) {
@@ -195,12 +195,16 @@ impl Search {
 
         let mut analysis_result = AnalysisResult::new();
 
-        self.threads.start_search(&self.board, skipped_moves);
+        self.threads.start_search(&self.board, skipped_moves, self.multi_pv_count);
 
-        let mut window_size = INITIAL_ASPIRATION_WINDOW_SIZE;
-        let mut window_step = INITIAL_ASPIRATION_WINDOW_STEP;
-
-        let mut scores = vec![0; self.multi_pv];
+        let mut multi_pv_state = vec![
+            (
+                self.board.active_player().score(self.board.eval()),
+                INITIAL_ASPIRATION_WINDOW_SIZE,
+                INITIAL_ASPIRATION_WINDOW_STEP
+            );
+            self.multi_pv_count
+        ];
 
         // Use iterative deepening, i.e. increase the search depth after each iteration
         for depth in 1..=self.limits.depth_limit() {
@@ -211,17 +215,12 @@ impl Search {
             let mut iteration_cancelled = false;
 
             let mut local_skipped_moves = Vec::from(skipped_moves);
-            for multi_pv_move in 1..=self.multi_pv {
+            for multi_pv_num in 1..=self.multi_pv_count {
                 let mut local_pv = PrincipalVariation::default();
-                let (cancelled, move_num, best_move, current_pv, new_window_step) = self.root_search(
-                    rx,
-                    &local_skipped_moves,
-                    window_step,
-                    window_size,
-                    scores[multi_pv_move - 1],
-                    depth,
-                    &mut local_pv,
-                );
+                let (score, mut window_step, mut window_size) = multi_pv_state[multi_pv_num - 1];
+
+                let (cancelled, move_num, best_move, current_pv, new_window_step) =
+                    self.root_search(rx, &local_skipped_moves, window_step, window_size, score, depth, &mut local_pv);
                 if new_window_step > window_step {
                     window_step = new_window_step;
                     window_size = new_window_step;
@@ -254,13 +253,13 @@ impl Search {
                 }
 
                 local_skipped_moves.push(best_move.without_score());
-                scores[multi_pv_move - 1] = best_move.score();
+                multi_pv_state[multi_pv_num - 1] = (best_move.score(), window_size, window_step);
 
                 if iteration_cancelled {
                     break;
                 }
 
-                if multi_pv_move == 1 && depth == 1 && move_num == 1 {
+                if depth == 1 && multi_pv_num == 1 && move_num == 1 {
                     self.time_mgr.reduce_timelimit();
                 }
             }
@@ -269,7 +268,7 @@ impl Search {
 
             if self.log(Info) {
                 analysis_result.print(
-                    self.multi_pv,
+                    self.multi_pv_count,
                     self.max_reached_depth,
                     self.get_base_stats(self.time_mgr.search_duration(Instant::now())),
                 )
@@ -1158,6 +1157,7 @@ enum ToThreadMessage {
         state: StateEntry,
         castling_rules: CastlingRules,
         skipped_moves: Vec<Move>,
+        multi_pv_count: usize,
     },
     ClearTT {
         thread_no: usize,
@@ -1213,9 +1213,9 @@ impl HelperThreads {
         self.threads.len()
     }
 
-    pub fn start_search(&self, board: &Board, skipped_moves: &[Move]) {
+    pub fn start_search(&self, board: &Board, skipped_moves: &[Move], multi_pv_count: usize) {
         for t in self.threads.iter() {
-            t.search(board, skipped_moves);
+            t.search(board, skipped_moves, multi_pv_count);
         }
     }
 
@@ -1326,7 +1326,7 @@ struct HelperThread {
 }
 
 impl HelperThread {
-    pub fn search(&self, board: &Board, skipped_moves: &[Move]) {
+    pub fn search(&self, board: &Board, skipped_moves: &[Move], multi_pv_count: usize) {
         match self.to_tx.send(ToThreadMessage::Search {
             pos_history: board.pos_history.clone(),
             bitboards: board.bitboards,
@@ -1334,6 +1334,7 @@ impl HelperThread {
             state: board.state,
             castling_rules: board.castling_rules,
             skipped_moves: Vec::from(skipped_moves),
+            multi_pv_count,
         }) {
             Ok(_) => {}
             Err(e) => {
@@ -1378,11 +1379,8 @@ impl HelperThread {
                     state,
                     castling_rules,
                     skipped_moves,
+                    multi_pv_count,
                 } => {
-                    let mut window_size = INITIAL_ASPIRATION_WINDOW_SIZE;
-                    let mut window_step = INITIAL_ASPIRATION_WINDOW_STEP;
-                    let mut score = 0;
-
                     sub_search.reset();
                     sub_search.board.reset(pos_history, bitboards, halfmove_count, state, castling_rules);
 
@@ -1396,32 +1394,54 @@ impl HelperThread {
                         NO_MOVE,
                     );
 
-                    for depth in 1..MAX_DEPTH {
-                        let (_, move_count, best_move, _, new_window_step) = sub_search.root_search(
-                            None,
-                            &skipped_moves,
-                            window_step,
-                            window_size,
-                            score,
-                            depth as i32,
-                            &mut PrincipalVariation::default(),
+                    let mut multi_pv_state = vec![
+                        (
+                            sub_search.board.active_player().score(sub_search.board.eval()),
+                            INITIAL_ASPIRATION_WINDOW_SIZE,
+                            INITIAL_ASPIRATION_WINDOW_STEP
                         );
-                        if new_window_step > window_step {
-                            window_step = new_window_step;
-                            window_size = new_window_step;
-                        } else if window_step > 16 {
-                            window_step /= 2;
-                            window_size /= 2;
+                        multi_pv_count
+                    ];
+
+                    let mut found_moves = false;
+                    for depth in 1..MAX_DEPTH {
+                        let mut local_skipped_moves = skipped_moves.clone();
+                        for multi_pv_num in 1..=multi_pv_count {
+                            let (score, mut window_size, mut window_step) = multi_pv_state[multi_pv_num - 1];
+                            let (_, move_count, best_move, _, new_window_step) = sub_search.root_search(
+                                None,
+                                &local_skipped_moves,
+                                window_step,
+                                window_size,
+                                score,
+                                depth as i32,
+                                &mut PrincipalVariation::default(),
+                            );
+                            if new_window_step > window_step {
+                                window_step = new_window_step;
+                                window_size = new_window_step;
+                            } else if window_step > 16 {
+                                window_step /= 2;
+                                window_size /= 2;
+                            }
+
+                            if move_count == 0 {
+                                break;
+                            } else {
+                                found_moves = true;
+                            }
+
+                            if sub_search.is_stopped() {
+                                break;
+                            }
+
+                            multi_pv_state[multi_pv_num - 1] = (best_move.score(), window_size, window_step);
+                            local_skipped_moves.push(best_move.without_score());
                         }
 
-                        if move_count <= 1 {
+                        if sub_search.is_stopped() || !found_moves {
                             break;
                         }
-                        if sub_search.is_stopped() {
-                            break;
-                        }
-
-                        score = best_move.score();
                     }
 
                     sub_search.movegen.leave_ply();

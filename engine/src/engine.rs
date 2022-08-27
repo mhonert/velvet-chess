@@ -148,7 +148,7 @@ impl Engine {
             }
 
             Message::SetMultiPV(count) => {
-                self.search.set_multi_pv(count);
+                self.search.set_multi_pv_count(count);
             }
 
             Message::Perft(depth) => self.perft(depth),
