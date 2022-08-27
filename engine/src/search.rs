@@ -208,6 +208,7 @@ impl Search {
 
         // Use iterative deepening, i.e. increase the search depth after each iteration
         for depth in 1..=self.limits.depth_limit() {
+            self.max_reached_depth = 0;
             self.current_depth = depth;
             let iteration_start_time = Instant::now();
 
@@ -215,7 +216,6 @@ impl Search {
 
             let mut local_skipped_moves = Vec::from(skipped_moves);
             for multi_pv_num in 1..=self.multi_pv_count {
-                self.max_reached_depth = 0;
                 let mut local_pv = PrincipalVariation::default();
                 let (score, mut window_step, mut window_size) = multi_pv_state[multi_pv_num - 1];
 
@@ -361,7 +361,7 @@ impl Search {
                 if self.time_mgr.search_duration_ms(now) >= 1000 {
                     self.last_log_time = now;
                     let uci_move = UCIMove::from_move(&self.board, m);
-                    println!("info depth {} currmove {} currmovenumber {}", depth, uci_move, move_num);
+                    println!("info currmove {} currmovenumber {}", uci_move, move_num);
                 }
             }
 
