@@ -208,7 +208,6 @@ impl Search {
 
         // Use iterative deepening, i.e. increase the search depth after each iteration
         for depth in 1..=self.limits.depth_limit() {
-            self.max_reached_depth = 0;
             self.current_depth = depth;
             let iteration_start_time = Instant::now();
 
@@ -216,6 +215,7 @@ impl Search {
 
             let mut local_skipped_moves = Vec::from(skipped_moves);
             for multi_pv_num in 1..=self.multi_pv_count {
+                self.max_reached_depth = 0;
                 let mut local_pv = PrincipalVariation::default();
                 let (score, mut window_step, mut window_size) = multi_pv_state[multi_pv_num - 1];
 
@@ -238,7 +238,7 @@ impl Search {
                 }
 
                 if !iteration_cancelled {
-                    analysis_result.update_result(depth, best_move, current_pv, local_pv);
+                    analysis_result.update_result(depth, self.max_reached_depth, best_move, current_pv, local_pv);
 
                     let now = Instant::now();
                     self.cancel_possible = depth >= min_depth;
@@ -267,11 +267,8 @@ impl Search {
             analysis_result.finish_iteration();
 
             if self.log(Info) {
-                analysis_result.print(
-                    self.multi_pv_count,
-                    self.max_reached_depth,
-                    self.get_base_stats(self.time_mgr.search_duration(Instant::now())),
-                )
+                analysis_result
+                    .print(self.multi_pv_count, self.get_base_stats(self.time_mgr.search_duration(Instant::now())))
             }
 
             pv = analysis_result.get_best_pv();
@@ -1255,18 +1252,21 @@ impl AnalysisResult {
         AnalysisResult { entries: Vec::new() }
     }
 
-    pub fn update_result(&mut self, depth: i32, best_move: Move, pv_info: Option<String>, pv: PrincipalVariation) {
+    pub fn update_result(
+        &mut self, depth: i32, sel_depth: i32, best_move: Move, pv_info: Option<String>, pv: PrincipalVariation,
+    ) {
         for entry in self.entries.iter_mut() {
             if entry.best_move.is_same_move(best_move) {
                 entry.best_move = best_move;
                 entry.depth = depth;
+                entry.sel_depth = sel_depth;
                 entry.pv_info = pv_info;
                 entry.pv = pv;
                 return;
             }
         }
 
-        self.entries.push(AnalysisEntry { best_move, depth, pv_info, pv })
+        self.entries.push(AnalysisEntry { best_move, depth, sel_depth, pv_info, pv })
     }
 
     pub fn finish_iteration(&mut self) {
@@ -1289,13 +1289,12 @@ impl AnalysisResult {
         }
     }
 
-    pub fn print(&self, max_moves: usize, sel_depth: i32, base_stats: String) {
-        let max_depth = self.entries.iter().max_by_key(|entry| entry.depth).map(|entry| entry.depth).unwrap_or(0);
-        for (i, entry) in self.entries.iter().filter(|entry| entry.depth >= max_depth).take(max_moves).enumerate() {
+    pub fn print(&self, max_moves: usize, base_stats: String) {
+        for (i, entry) in self.entries.iter().take(max_moves).enumerate() {
             println!(
                 "info depth {} seldepth {} multipv {} score {}{}{}",
                 entry.depth,
-                sel_depth,
+                entry.sel_depth,
                 i + 1,
                 get_score_info(entry.best_move.score()),
                 base_stats,
@@ -1308,6 +1307,7 @@ impl AnalysisResult {
 #[derive(Clone)]
 struct AnalysisEntry {
     depth: i32,
+    sel_depth: i32,
     best_move: Move,
     pv_info: Option<String>,
     pv: PrincipalVariation,
