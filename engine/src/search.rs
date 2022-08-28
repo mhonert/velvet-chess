@@ -255,11 +255,6 @@ impl Search {
 
                 if let Some(mate_distance) = mate_in(best_move.score()) {
                     if mate_distance <= self.limits.mate_limit() {
-                        println!(
-                            "debug search cancelled due to mate limit: {} / {}",
-                            mate_distance,
-                            self.limits.mate_limit()
-                        );
                         iteration_cancelled = true;
                     }
                 }

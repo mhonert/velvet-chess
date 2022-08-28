@@ -207,11 +207,15 @@ fn parse_int_option(value: &str, min_value: i32, max_value: i32) -> Option<i32> 
         }
     };
 
-    if !(min_value..=max_value).contains(&value) {
-        return None;
+    if value < min_value {
+        println!("Value too low! Will be set to allowed minimum: {}", min_value);
+        Some(min_value)
+    } else if value > max_value {
+        println!("Value too high! Will be set to allowed maximum: {}", max_value);
+        Some(max_value)
+    } else {
+        Some(value)
     }
-
-    Some(value)
 }
 
 fn parse_moves(idx: usize, parts: &[&str]) -> Vec<UCIMove> {
