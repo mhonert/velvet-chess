@@ -34,7 +34,7 @@ use std::time::SystemTime;
 
 pub enum Message {
     Fen,
-    Go(SearchLimits, bool),
+    Go(SearchLimits, bool, Option<Vec<String>>),
     IsReady,
     NewGame,
     Perft(i32),
@@ -155,7 +155,7 @@ impl Engine {
 
             Message::IsReady => self.check_readiness(),
 
-            Message::Go(limits, ponder) => self.go(limits, ponder),
+            Message::Go(limits, ponder, search_moves) => self.go(limits, ponder, search_moves),
 
             Message::Fen => println!("{}", write_fen(&self.board)),
 
@@ -176,8 +176,8 @@ impl Engine {
         true
     }
 
-    fn go(&mut self, limits: SearchLimits, ponder: bool) {
-        let (m, ponder_m) = self.search(limits, &[], ponder);
+    fn go(&mut self, limits: SearchLimits, ponder: bool, search_moves: Option<Vec<String>>) {
+        let (m, ponder_m) = self.search(limits, ponder, search_moves);
         if m == NO_MOVE {
             println!("bestmove 0000");
             return;
@@ -200,12 +200,18 @@ impl Engine {
         ponder_move_uci
     }
 
-    pub fn search(&mut self, mut limits: SearchLimits, skipped_moves: &[Move], ponder: bool) -> (Move, Move) {
+    fn search(&mut self, mut limits: SearchLimits, ponder: bool, search_moves: Option<Vec<String>>) -> (Move, Move) {
+        let skipped_moves = if let Some(search_moves) = search_moves {
+            self.search.determine_skipped_moves(search_moves)
+        } else {
+            vec![]
+        };
+
         limits.update(self.board.active_player());
 
         self.search.update(&self.board, limits, ponder);
 
-        let (m, pv) = self.search.find_best_move(Some(&self.rx), 3, skipped_moves);
+        let (m, pv) = self.search.find_best_move(Some(&self.rx), 3, &skipped_moves);
         let ponder_m = *pv.moves().get(1).unwrap_or(&NO_MOVE);
         (m, ponder_m)
     }
@@ -272,6 +278,6 @@ impl Engine {
 
     pub fn profile(&mut self) {
         println!("Profiling ...");
-        self.go(SearchLimits::nodes(100_000), false);
+        self.go(SearchLimits::nodes(100_000), false, None);
     }
 }

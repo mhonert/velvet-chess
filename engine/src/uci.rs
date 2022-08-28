@@ -22,6 +22,7 @@ use crate::search::{DEFAULT_SEARCH_THREADS, MAX_SEARCH_THREADS};
 use crate::time_management::SearchLimits;
 use crate::transposition_table::{DEFAULT_SIZE_MB, MAX_HASH_SIZE_MB};
 use crate::uci_move::UCIMove;
+use std::collections::HashSet;
 use std::io;
 use std::str::FromStr;
 use std::sync::mpsc::Sender;
@@ -33,8 +34,25 @@ const AUTHOR: &str = "Martin Honert";
 
 const MAX_MULTI_PV_MOVES: usize = 218;
 
+const GO_CMDS: [&str; 12] = [
+    "searchmoves",
+    "ponder",
+    "wtime",
+    "btime",
+    "winc",
+    "binc",
+    "movestogo",
+    "depth",
+    "nodes",
+    "mate",
+    "movetime",
+    "infinite",
+];
+
 pub fn start_uci_loop(tx: &Sender<Message>) {
     println!("Velvet Chess Engine v{}", VERSION);
+
+    let go_cmds = HashSet::from(GO_CMDS);
 
     loop {
         let mut line = String::new();
@@ -43,7 +61,7 @@ pub fn start_uci_loop(tx: &Sender<Message>) {
         let parts: Vec<&str> = line.split_whitespace().collect();
         for (i, part) in parts.iter().enumerate() {
             match part.to_lowercase().as_str() {
-                "go" => go(tx, parts[i + 1..].to_vec()),
+                "go" => go(tx, &go_cmds, parts[i + 1..].to_vec()),
 
                 "isready" => is_ready(tx),
 
@@ -224,32 +242,56 @@ fn perft(tx: &Sender<Message>, parts: Vec<&str>) {
     };
 }
 
-fn go(tx: &Sender<Message>, parts: Vec<&str>) {
-    let ponder = parts.contains(&"ponder");
+fn go(tx: &Sender<Message>, valid_cmds: &HashSet<&str>, parts: Vec<&str>) {
+    let mut depth_limit: Option<i32> = None;
+    let mut node_limit: Option<u64> = None;
+    let mut wtime: Option<i32> = None;
+    let mut btime: Option<i32> = None;
+    let mut winc: Option<i32> = None;
+    let mut binc: Option<i32> = None;
+    let mut move_time: Option<i32> = None;
+    let mut moves_to_go: Option<i32> = None;
+    let mut search_moves: Option<Vec<String>> = None;
+    let mut unlimited = false;
+    let mut ponder = false;
 
-    if parts.is_empty() || parts.contains(&"infinite") {
-        send_message(tx, Message::Go(SearchLimits::default(), ponder));
-        return;
+    let mut i = 0;
+    while i < parts.len() {
+        i = match parts[i] {
+            "ponder" => {
+                ponder = true;
+                i + 1
+            }
+            "infinite" => {
+                unlimited = true;
+                i + 1
+            }
+            "depth" => set_cmd_arg(&parts, &mut depth_limit, i + 1),
+            "wtime" => set_cmd_arg(&parts, &mut wtime, i + 1),
+            "btime" => set_cmd_arg(&parts, &mut btime, i + 1),
+            "winc" => set_cmd_arg(&parts, &mut winc, i + 1),
+            "binc" => set_cmd_arg(&parts, &mut binc, i + 1),
+            "nodes" => set_cmd_arg(&parts, &mut node_limit, i + 1),
+            "movetime" => set_cmd_arg(&parts, &mut move_time, i + 1),
+            "movestogo" => set_cmd_arg(&parts, &mut moves_to_go, i + 1),
+            "searchmoves" => parse_cmd_multi_arg(valid_cmds, &parts, &mut search_moves, i + 1),
+            _ => i + 1,
+        }
     }
 
-    let depth = extract_option(&parts, "depth");
-    let wtime = extract_option(&parts, "wtime");
-    let btime = extract_option(&parts, "btime");
-    let winc = extract_option(&parts, "winc");
-    let binc = extract_option(&parts, "binc");
-    let nodes = extract_option(&parts, "nodes");
-    let movetime = extract_option(&parts, "movetime");
-    let movestogo = extract_option(&parts, "movestogo");
-
-    let limits = match SearchLimits::new(depth, nodes, wtime, btime, winc, binc, movetime, movestogo) {
-        Ok(limits) => limits,
-        Err(e) => {
-            eprintln!("go: invalid search params: {}", e);
-            return;
+    let limits = if unlimited {
+        SearchLimits::default()
+    } else {
+        match SearchLimits::new(depth_limit, node_limit, wtime, btime, winc, binc, move_time, moves_to_go) {
+            Ok(limits) => limits,
+            Err(e) => {
+                eprintln!("go: invalid search params: {}", e);
+                return;
+            }
         }
     };
 
-    send_message(tx, Message::Go(limits, ponder));
+    send_message(tx, Message::Go(limits, ponder, search_moves));
 }
 
 fn profile(tx: &Sender<Message>) {
@@ -261,20 +303,36 @@ fn fen(tx: &Sender<Message>) {
     send_message(tx, Message::Fen);
 }
 
-fn extract_option<T: std::str::FromStr>(parts: &[&str], name: &str) -> Option<T> {
-    match parts.iter().position(|&item| item == name) {
-        Some(pos) => {
-            if pos + 1 >= parts.len() {
-                return None;
-            }
-
-            match T::from_str(parts[pos + 1]) {
-                Ok(value) => Some(value),
-                Err(_) => None,
-            }
-        }
-        None => None,
+fn set_cmd_arg<T: std::str::FromStr>(parts: &[&str], target: &mut Option<T>, pos: usize) -> usize {
+    if let Some(value) = parts.get(pos) {
+        *target = match T::from_str(value) {
+            Ok(value) => Some(value),
+            Err(_) => None,
+        };
     }
+
+    pos + 1
+}
+
+fn parse_cmd_multi_arg<T: std::str::FromStr>(
+    valid_cmds: &HashSet<&str>, parts: &[&str], target: &mut Option<Vec<T>>, mut pos: usize,
+) -> usize {
+    let mut values = Vec::new();
+    while let Some(&value) = parts.get(pos) {
+        if valid_cmds.contains(value.to_lowercase().as_str()) {
+            break;
+        }
+
+        if let Ok(value) = T::from_str(value) {
+            values.push(value);
+        } else {
+            break;
+        }
+
+        pos += 1;
+    }
+    *target = Some(values);
+    pos
 }
 
 fn parse_position_cmd(parts: &[&str]) -> String {
@@ -283,7 +341,7 @@ fn parse_position_cmd(parts: &[&str]) -> String {
         return String::from(START_POS);
     }
 
-    let pos_end = parts.iter().position(|&part| part.to_lowercase().as_str() == "moves").unwrap_or_else(|| parts.len());
+    let pos_end = parts.iter().position(|&part| part.to_lowercase().as_str() == "moves").unwrap_or(parts.len());
 
     let pos_option = parts[1..pos_end].join(" ");
 

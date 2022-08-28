@@ -34,6 +34,7 @@ use crate::transposition_table::{
 };
 use crate::uci_move::UCIMove;
 use std::cmp::{max, min, Reverse};
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::sync::Arc;
@@ -1018,6 +1019,25 @@ impl Search {
 
         self.movegen.leave_ply();
         best_score
+    }
+
+    pub fn determine_skipped_moves(&mut self, search_moves: Vec<String>) -> Vec<Move> {
+        let mut search_moves_set = HashSet::new();
+        for uci_move in search_moves.iter() {
+            if let Some(m) = UCIMove::from_uci(uci_move) {
+                search_moves_set.insert(m.to_move(&self.board).to_bit29());
+            }
+        }
+
+        self.movegen.reset_root_moves();
+        let mut skipped_moves = Vec::new();
+        while let Some(m) = self.movegen.next_root_move(&self.hh, &mut self.board) {
+            if !search_moves_set.contains(&m.without_score().to_bit29()) {
+                skipped_moves.push(m.without_score());
+            }
+        }
+
+        skipped_moves
     }
 
     fn get_base_stats(&self, duration: Duration) -> String {
