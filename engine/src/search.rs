@@ -26,7 +26,7 @@ use crate::move_gen::{is_killer, MoveGenerator, NEGATIVE_HISTORY_SCORE, QUIET_BA
 use crate::moves::{Move, NO_MOVE};
 use crate::pieces::{EMPTY, P, R};
 use crate::pos_history::PositionHistory;
-use crate::scores::{sanitize_score, MATED_SCORE, MATE_SCORE, MAX_SCORE, MIN_SCORE};
+use crate::scores::{mate_in, sanitize_score, MATED_SCORE, MATE_SCORE, MAX_SCORE, MIN_SCORE};
 use crate::time_management::{SearchLimits, TimeManager};
 use crate::transposition_table::{
     from_root_relative_score, get_depth, get_score_type, get_untyped_move, to_root_relative_score, ScoreType,
@@ -249,6 +249,17 @@ impl Search {
                         && !self.time_mgr.is_time_for_another_iteration(now, iteration_duration)
                         && !self.time_mgr.try_extend_timelimit()
                     {
+                        iteration_cancelled = true;
+                    }
+                }
+
+                if let Some(mate_distance) = mate_in(best_move.score()) {
+                    if mate_distance <= self.limits.mate_limit() {
+                        println!(
+                            "debug search cancelled due to mate limit: {} / {}",
+                            mate_distance,
+                            self.limits.mate_limit()
+                        );
                         iteration_cancelled = true;
                     }
                 }

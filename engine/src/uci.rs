@@ -254,10 +254,21 @@ fn go(tx: &Sender<Message>, valid_cmds: &HashSet<&str>, parts: Vec<&str>) {
     let mut search_moves: Option<Vec<String>> = None;
     let mut unlimited = false;
     let mut ponder = false;
+    let mut mate_limit: Option<i32> = None;
 
     let mut i = 0;
     while i < parts.len() {
         i = match parts[i] {
+            "wtime" => set_cmd_arg(&parts, &mut wtime, i + 1),
+            "btime" => set_cmd_arg(&parts, &mut btime, i + 1),
+            "winc" => set_cmd_arg(&parts, &mut winc, i + 1),
+            "binc" => set_cmd_arg(&parts, &mut binc, i + 1),
+            "movetime" => set_cmd_arg(&parts, &mut move_time, i + 1),
+            "movestogo" => set_cmd_arg(&parts, &mut moves_to_go, i + 1),
+            "depth" => set_cmd_arg(&parts, &mut depth_limit, i + 1),
+            "nodes" => set_cmd_arg(&parts, &mut node_limit, i + 1),
+            "mate" => set_cmd_arg(&parts, &mut mate_limit, i + 1),
+            "searchmoves" => parse_cmd_multi_arg(valid_cmds, &parts, &mut search_moves, i + 1),
             "ponder" => {
                 ponder = true;
                 i + 1
@@ -266,15 +277,6 @@ fn go(tx: &Sender<Message>, valid_cmds: &HashSet<&str>, parts: Vec<&str>) {
                 unlimited = true;
                 i + 1
             }
-            "depth" => set_cmd_arg(&parts, &mut depth_limit, i + 1),
-            "wtime" => set_cmd_arg(&parts, &mut wtime, i + 1),
-            "btime" => set_cmd_arg(&parts, &mut btime, i + 1),
-            "winc" => set_cmd_arg(&parts, &mut winc, i + 1),
-            "binc" => set_cmd_arg(&parts, &mut binc, i + 1),
-            "nodes" => set_cmd_arg(&parts, &mut node_limit, i + 1),
-            "movetime" => set_cmd_arg(&parts, &mut move_time, i + 1),
-            "movestogo" => set_cmd_arg(&parts, &mut moves_to_go, i + 1),
-            "searchmoves" => parse_cmd_multi_arg(valid_cmds, &parts, &mut search_moves, i + 1),
             _ => i + 1,
         }
     }
@@ -282,7 +284,7 @@ fn go(tx: &Sender<Message>, valid_cmds: &HashSet<&str>, parts: Vec<&str>) {
     let limits = if unlimited {
         SearchLimits::default()
     } else {
-        match SearchLimits::new(depth_limit, node_limit, wtime, btime, winc, binc, move_time, moves_to_go) {
+        match SearchLimits::new(depth_limit, node_limit, wtime, btime, winc, binc, move_time, moves_to_go, mate_limit) {
             Ok(limits) => limits,
             Err(e) => {
                 eprintln!("go: invalid search params: {}", e);

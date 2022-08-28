@@ -133,6 +133,7 @@ impl TimeManager {
 pub struct SearchLimits {
     node_limit: u64,
     depth_limit: i32,
+    mate_limit: i32,
     time_limit_ms: i32,
     strict_time_limit: bool,
 
@@ -149,6 +150,7 @@ impl SearchLimits {
         SearchLimits {
             node_limit: u64::MAX,
             depth_limit: MAX_DEPTH as i32,
+            mate_limit: 0,
             time_limit_ms: i32::MAX,
             strict_time_limit: true,
 
@@ -170,7 +172,7 @@ impl SearchLimits {
 
     pub fn new(
         depth_limit: Option<i32>, node_limit: Option<u64>, wtime: Option<i32>, btime: Option<i32>, winc: Option<i32>,
-        binc: Option<i32>, move_time: Option<i32>, moves_to_go: Option<i32>,
+        binc: Option<i32>, move_time: Option<i32>, moves_to_go: Option<i32>, mate_limit: Option<i32>,
     ) -> Result<Self, &'static str> {
         let depth_limit = depth_limit.unwrap_or(MAX_DEPTH as i32);
         if depth_limit <= 0 {
@@ -178,10 +180,12 @@ impl SearchLimits {
         }
 
         let node_limit = node_limit.unwrap_or(u64::MAX);
+        let mate_limit = mate_limit.unwrap_or(0);
 
         Ok(SearchLimits {
             depth_limit,
             node_limit,
+            mate_limit,
             time_limit_ms: i32::MAX,
             strict_time_limit: true,
 
@@ -215,6 +219,10 @@ impl SearchLimits {
 
     pub fn depth_limit(&self) -> i32 {
         self.depth_limit
+    }
+
+    pub fn mate_limit(&self) -> i32 {
+        self.mate_limit
     }
 }
 

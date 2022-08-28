@@ -28,6 +28,15 @@ pub fn is_mate_score(score: i32) -> bool {
     score.abs() > MATE_SCORE - MAX_DEPTH as i32 * 2
 }
 
+pub fn mate_in(score: i32) -> Option<i32> {
+    let mate_ply_distance = MATE_SCORE - score;
+    if mate_ply_distance >= 0 && mate_ply_distance <= MAX_DEPTH as i32 {
+        Some((mate_ply_distance + 1) / 2)
+    } else {
+        None
+    }
+}
+
 pub fn sanitize_eval_score(score: i32) -> i32 {
     score.min(MATE_SCORE - 1000).max(MATED_SCORE + 1000)
 }
