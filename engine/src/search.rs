@@ -177,6 +177,8 @@ impl Search {
         self.reset();
         self.time_mgr.reset(self.limits);
 
+        self.board.pos_history.mark_root();
+
         self.last_log_time = Instant::now();
 
         self.cancel_possible = false;

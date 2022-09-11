@@ -17,29 +17,54 @@
  */
 
 #[derive(Clone)]
-pub struct PositionHistory(Vec<u64>);
+pub struct PositionHistory {
+    positions: Vec<u64>,
+    root: usize,
+}
 
 impl Default for PositionHistory {
     fn default() -> Self {
-        PositionHistory(Vec::with_capacity(16))
+        PositionHistory { positions: Vec::with_capacity(16), root: 0 }
     }
 }
 
 impl PositionHistory {
     pub fn push(&mut self, hash: u64) {
-        self.0.push(hash);
+        self.positions.push(hash);
     }
 
     pub fn pop(&mut self) {
-        self.0.pop();
+        self.positions.pop();
     }
 
     pub fn is_repetition_draw(&self, hash: u64, halfmove_clock: u8) -> bool {
-        self.0.iter().rev().skip(1).step_by(2).take(halfmove_clock as usize / 2).any(|pos| *pos == hash)
+        if let Some((i, _)) = self
+            .positions
+            .iter()
+            .enumerate()
+            .rev()
+            .skip(1)
+            .step_by(2)
+            .take(halfmove_clock as usize / 2)
+            .find(|(_, &pos)| pos == hash)
+        {
+            return if i < self.root {
+                // If the repeated position was actually played, then check for a 3rd repetition
+                self.positions.iter().take(i).rev().skip(2).step_by(2).any(|pos| *pos == hash)
+            } else {
+                true
+            };
+        }
+        false
     }
 
     pub fn clear(&mut self) {
-        self.0.clear();
+        self.positions.clear();
+        self.root = 0;
+    }
+
+    pub fn mark_root(&mut self) {
+        self.root = self.positions.len();
     }
 }
 
