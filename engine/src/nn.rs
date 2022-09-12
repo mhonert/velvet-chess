@@ -42,10 +42,10 @@ pub const FP_HIDDEN_MULTIPLIER: i16 = 3379;
 pub const FP_INPUT_MULTIPLIER: i16 = 683;
 
 pub struct NeuralNetParams {
-    pub input_weights: A32<[i16; INPUT_WEIGHT_COUNT]>,
-    pub input_biases: A32<[i16; HL_NODES]>,
+    pub input_weights: Box<A32<[i16; INPUT_WEIGHT_COUNT]>>,
+    pub input_biases: Box<A32<[i16; HL_NODES]>>,
 
-    pub output_weights: A32<[i16; HL_NODES]>,
+    pub output_weights: Box<A32<[i16; HL_NODES]>>,
 }
 
 impl NeuralNetParams {
@@ -66,24 +66,25 @@ impl NeuralNetParams {
             FP_HIDDEN_MULTIPLIER, hidden_multiplier
         );
 
-        let mut params = Box::new(NeuralNetParams::default());
+        let mut params = NeuralNetParams::default();
 
-        read_quantized(&mut reader, &mut params.input_weights.0).expect("Could not read input weights");
-        read_quantized(&mut reader, &mut params.input_biases.0).expect("Could not read input biases");
+        read_quantized(&mut reader, &mut params.input_weights.as_mut().0).expect("Could not read input weights");
+        read_quantized(&mut reader, &mut params.input_biases.as_mut().0).expect("Could not read input biases");
 
-        read_quantized(&mut reader, &mut params.output_weights.0).expect("Could not read output weights biases");
+        read_quantized(&mut reader, &mut params.output_weights.as_mut().0)
+            .expect("Could not read output weights biases");
 
-        Arc::new(*params)
+        Arc::new(params)
     }
 }
 
 impl Default for NeuralNetParams {
     fn default() -> Self {
         NeuralNetParams {
-            input_weights: A32([0; INPUT_WEIGHT_COUNT]),
-            input_biases: A32([0; HL_NODES]),
+            input_weights: Box::new(A32([0; INPUT_WEIGHT_COUNT])),
+            input_biases: Box::new(A32([0; HL_NODES])),
 
-            output_weights: A32([0; HL_NODES]),
+            output_weights: Box::new(A32([0; HL_NODES])),
         }
     }
 }

@@ -185,6 +185,7 @@ impl CastlingRules {
         Self::QS_ROOK_END[color.idx()] as i32
     }
 
+    #[inline(always)]
     pub fn is_ks_castling_valid(&self, color: Color, board: &Board, empty_bb: BitBoard) -> bool {
         let idx = color.idx();
         let king_start = self.king_start[idx];
@@ -194,6 +195,7 @@ impl CastlingRules {
         Self::is_castling_valid(board, color.flip(), empty_bb, king_start, king_end, rook_start, rook_end)
     }
 
+    #[inline(always)]
     pub fn is_qs_castling_valid(&self, color: Color, board: &Board, empty_bb: BitBoard) -> bool {
         let idx = color.idx();
         let king_start = self.king_start[idx];

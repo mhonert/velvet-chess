@@ -564,6 +564,7 @@ impl Board {
         }
     }
 
+    #[inline(always)]
     pub fn remove_piece(&mut self, pos: i32) -> i8 {
         let piece = self.get_item(pos);
         self.state.hash ^= piece_zobrist_key(piece, pos as usize);
@@ -615,7 +616,7 @@ impl Board {
         self.state = self.history.pop().unwrap();
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn is_in_check(&self, color: Color) -> bool {
         if color.is_white() {
             self.is_attacked(BLACK, self.king_pos(WHITE) as i32)
@@ -632,6 +633,7 @@ impl Board {
         self.bitboards.occupancy()
     }
 
+    #[inline(always)]
     pub fn is_attacked(&self, opp: Color, pos: i32) -> bool {
         let empty_bb = !self.occupancy_bb();
         let target_bb = BitBoard(1 << pos as u64);
