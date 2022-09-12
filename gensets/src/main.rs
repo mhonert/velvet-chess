@@ -31,13 +31,11 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use clap::App;
-use rand::prelude::{SliceRandom, ThreadRng};
 use shakmaty::fen::Fen;
 use shakmaty::{CastlingMode, Chess, Outcome, Position};
 use shakmaty_syzygy::Tablebase;
 
 use crate::chess960::CHESS960_FENS;
-use gen_quiet_pos::GenQuietPos;
 use velvet::board::Board;
 use velvet::colors::{BLACK, WHITE};
 use velvet::engine::{LogLevel, Message};
@@ -156,32 +154,27 @@ fn main() {
 }
 
 fn gen_openings(chess960: bool) -> Vec<String> {
-    let mut openings = Vec::with_capacity(2300000);
+    let mut openings = Vec::with_capacity(500000);
     let hh = HistoryHeuristics::new();
     let mut move_gen = MoveGenerator::new();
 
-    let chess_start_pos = [START_POS];
-
-    for fen in chess_start_pos.iter() {
-        for i in 2..=4 {
-            for _ in 0..=((4 - i) * 8) {
-                let mut board = create_from_fen(fen);
-                play_opening(i, &hh, &mut move_gen, &mut board, &mut openings);
+    if chess960 {
+        for w_fen in CHESS960_FENS.iter() {
+            for b_fen in CHESS960_FENS.iter() {
+                let fen = mix(w_fen, b_fen);
+                openings.push(fen);
             }
         }
-    }
-
-    let mut skip = 0;
-    for w_fen in CHESS960_FENS.iter() {
-        for b_fen in CHESS960_FENS.iter().skip(skip) {
-            let fen = mix(w_fen, b_fen);
-            openings.push(fen);
+    } else {
+        let chess_start_pos = [START_POS];
+        for fen in chess_start_pos.iter() {
+            let mut board = create_from_fen(fen);
+            play_opening(4, &hh, &mut move_gen, &mut board, &mut openings);
         }
-        skip += 1;
     }
 
-    let mut rng = ThreadRng::default();
-    openings.shuffle(&mut rng);
+    openings.sort_unstable();
+    openings.dedup();
 
     println!("Generated {} openings", openings.len());
 
@@ -246,10 +239,11 @@ fn find_test_positions(tx: &Sender<TestPos>, openings: &[String], tb_path: Strin
     println!("Setting tablebase path to: {}", tb_path);
     tb.add_directory(tb_path).expect("Could not add tablebase path");
 
-    let tt = TranspositionTable::new(64);
+    let tt = TranspositionTable::new(16);
     let stop = Arc::new(AtomicBool::new(false));
 
-    let limits = SearchLimits::new(None, Some(20000), None, None, None, None, None, None, None).unwrap();
+    let limits =
+        SearchLimits::new(None, Some(10000 + (rnd.rand64() & 511)), None, None, None, None, None, None, None).unwrap();
     let mut search =
         Search::new(stop, Arc::new(AtomicU64::new(0)), LogLevel::Error, limits, tt, create_from_fen(START_POS), false);
 
@@ -263,7 +257,6 @@ fn find_test_positions(tx: &Sender<TestPos>, openings: &[String], tb_path: Strin
 
         positions.clear();
         duplicate_check.clear();
-        // TranspositionTable::clear(&tt, 0, 1);
         collect_quiet_pos(
             Some(&rx),
             &mut rnd,
@@ -280,9 +273,7 @@ fn find_test_positions(tx: &Sender<TestPos>, openings: &[String], tb_path: Strin
     }
 }
 
-fn select_move(
-    rx: Option<&Receiver<Message>>, rnd: &mut Random, search: &mut Search, mut min_depth: i32, ply: i32,
-) -> Move {
+fn select_move(rx: Option<&Receiver<Message>>, rnd: &mut Random, search: &mut Search, min_depth: i32) -> Move {
     let mut move_candidates = Vec::with_capacity(4);
     let mut min_score = i32::MIN;
     let mut latest_move = NO_MOVE;
@@ -298,17 +289,16 @@ fn select_move(
         }
 
         if move_candidates.is_empty() {
-            min_score = m.score() - 10;
+            min_score = m.score() - 2;
         }
 
         latest_move = m;
 
-        if ply > 10 || rnd.rand32() & 1 == 1 || move_candidates.len() == 4 || search.material_score() != 0 {
+        if !move_candidates.is_empty() || rnd.rand32() & 1 == 1 {
             break;
         }
 
         move_candidates.push(m.without_score());
-        min_depth -= 1;
     }
 
     latest_move
@@ -342,7 +332,7 @@ fn collect_quiet_pos(
             return;
         }
 
-        let selected_move = select_move(rx, rnd, search, 8, num);
+        let selected_move = select_move(rx, rnd, search, 9);
         if selected_move == NO_MOVE {
             let result = if search.board.is_in_check(WHITE) {
                 -1
