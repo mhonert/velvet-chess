@@ -783,10 +783,6 @@ pub fn evaluate_move_order(
 // Evaluate score for capture move ordering
 #[inline(always)]
 fn evaluate_capture_move_order(board: &Board, m: Move) -> i32 {
-    if m.is_queen_promotion() {
-        return 1000;
-    }
-
     let captured_piece = board.get_item(m.end());
     let original_piece_id = m.piece_id();
     let captured_piece_id = captured_piece.abs();
@@ -813,7 +809,7 @@ const fn calc_capture_order_scores() -> [i32; CAPTURE_ORDER_SIZE] {
     while victim <= 6 {
         let mut attacker = 6;
         while attacker >= 0 {
-            scores[(attacker * 7 + victim) as usize] = score * 16;
+            scores[(attacker * 7 + victim) as usize] = score;
             score += 1;
 
             attacker -= 1;
