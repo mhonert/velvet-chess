@@ -34,6 +34,7 @@ use std::thread;
 use std::time::SystemTime;
 
 pub enum Message {
+    ClearHash,
     Fen,
     Go(SearchLimits, bool, Option<Vec<String>>),
     IsReady,
@@ -172,6 +173,8 @@ impl Engine {
             Message::Stop => (),
 
             Message::PonderHit => println!("info Received 'ponderhit' outside ongoing search"),
+
+            Message::ClearHash => self.search.clear_tt(),
         }
 
         true

@@ -117,6 +117,7 @@ fn uci() {
     println!("id name Velvet v{}", VERSION);
     println!("id author {}", AUTHOR);
     println!("option name Hash type spin default {} min 1 max {}", DEFAULT_SIZE_MB, MAX_HASH_SIZE_MB);
+    println!("option name Clear Hash type button");
     println!("option name Ponder type check default false");
     println!("option name Threads type spin default {} min 1 max {}", DEFAULT_SEARCH_THREADS, MAX_SEARCH_THREADS);
     println!("option name UCI_Chess960 type check default false");
@@ -148,7 +149,7 @@ fn set_position(tx: &Sender<Message>, parts: &[&str]) {
 }
 
 fn set_option(tx: &Sender<Message>, parts: &[&str]) {
-    if parts.len() < 4 {
+    if parts.len() < 2 {
         println!("Missing parameters for setoption");
         return;
     }
@@ -159,12 +160,12 @@ fn set_option(tx: &Sender<Message>, parts: &[&str]) {
     }
 
     let name = parts[1].to_ascii_lowercase();
-    if parts[2] != "value" {
-        println!("Missing 'value' in setoption");
-        return;
-    }
 
-    let value = parts[3];
+    let value = if let Some(value_idx) = parts.iter().position(|p| p.eq_ignore_ascii_case("value")) {
+        parts.get(value_idx + 1).copied().unwrap_or("")
+    } else {
+        ""
+    };
 
     match name.as_str() {
         "hash" => {
@@ -173,6 +174,12 @@ fn set_option(tx: &Sender<Message>, parts: &[&str]) {
             } else {
                 println!("Invalid hash size: {}", value);
             };
+        }
+
+        "clear" => {
+            if parts.len() >= 2 && parts[2].eq_ignore_ascii_case("hash") {
+                send_message(tx, Message::ClearHash);
+            }
         }
 
         "threads" => {
