@@ -983,15 +983,17 @@ impl Search {
             let start = m.start();
 
             // skip capture moves with a SEE score below the given threshold
-            if self.board.has_negative_see(
-                active_player.flip(),
-                start,
-                end,
-                previous_piece_id,
-                captured_piece_id,
-                threshold,
-                occupied_bb,
-            ) {
+            if captured_piece_id < previous_piece_id
+                && self.board.has_negative_see(
+                    active_player.flip(),
+                    start,
+                    end,
+                    previous_piece_id,
+                    captured_piece_id,
+                    threshold,
+                    occupied_bb,
+                )
+            {
                 continue;
             }
 
