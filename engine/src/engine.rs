@@ -21,6 +21,7 @@ use crate::fen::{create_from_fen, read_fen, write_fen, START_POS};
 use crate::history_heuristics::HistoryHeuristics;
 use crate::move_gen::MoveGenerator;
 use crate::moves::{Move, NO_MOVE};
+use crate::nn::init_nn_params;
 use crate::perft::perft;
 use crate::search::{Search, DEFAULT_SEARCH_THREADS};
 use crate::time_management::SearchLimits;
@@ -217,6 +218,8 @@ impl Engine {
     }
 
     fn check_readiness(&mut self) {
+        init_nn_params();
+
         if let Some(new_thread_count) = self.new_thread_count {
             self.search.reset_threads(new_thread_count);
             self.current_thread_count = new_thread_count;

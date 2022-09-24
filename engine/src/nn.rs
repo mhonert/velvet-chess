@@ -17,7 +17,7 @@
  */
 
 use std::io::BufReader;
-use std::sync::Arc;
+use std::sync::Once;
 
 use byteorder::{LittleEndian, ReadBytesExt};
 
@@ -41,15 +41,14 @@ pub const FULL_BUCKET_SIZE: usize = (64 * 6) * 2;
 pub const FP_HIDDEN_MULTIPLIER: i16 = 3379;
 pub const FP_INPUT_MULTIPLIER: i16 = 683;
 
-pub struct NeuralNetParams {
-    pub input_weights: Box<A32<[i16; INPUT_WEIGHT_COUNT]>>,
-    pub input_biases: Box<A32<[i16; HL_NODES]>>,
+pub static mut INPUT_WEIGHTS: A32<[i16; INPUT_WEIGHT_COUNT]> = A32([0; INPUT_WEIGHT_COUNT]);
+pub static mut INPUT_BIASES: A32<[i16; HL_NODES]> = A32([0; HL_NODES]);
+pub static mut OUTPUT_WEIGHTS: A32<[i16; HL_NODES]> = A32([0; HL_NODES]);
 
-    pub output_weights: Box<A32<[i16; HL_NODES]>>,
-}
+static INIT_NN_PARAMS: Once = Once::new();
 
-impl NeuralNetParams {
-    pub fn new() -> Arc<Self> {
+pub fn init_nn_params() {
+    INIT_NN_PARAMS.call_once(|| {
         let mut reader = BufReader::new(&include_bytes!("../nets/velvet.qnn")[..]);
 
         let input_multiplier = reader.read_i16::<LittleEndian>().expect("Could not read input multiplier");
@@ -66,25 +65,8 @@ impl NeuralNetParams {
             FP_HIDDEN_MULTIPLIER, hidden_multiplier
         );
 
-        let mut params = NeuralNetParams::default();
-
-        read_quantized(&mut reader, &mut params.input_weights.as_mut().0).expect("Could not read input weights");
-        read_quantized(&mut reader, &mut params.input_biases.as_mut().0).expect("Could not read input biases");
-
-        read_quantized(&mut reader, &mut params.output_weights.as_mut().0)
-            .expect("Could not read output weights biases");
-
-        Arc::new(params)
-    }
-}
-
-impl Default for NeuralNetParams {
-    fn default() -> Self {
-        NeuralNetParams {
-            input_weights: Box::new(A32([0; INPUT_WEIGHT_COUNT])),
-            input_biases: Box::new(A32([0; HL_NODES])),
-
-            output_weights: Box::new(A32([0; HL_NODES])),
-        }
-    }
+        read_quantized(&mut reader, unsafe { &mut INPUT_WEIGHTS.0 }).expect("Could not read input weights");
+        read_quantized(&mut reader, unsafe { &mut INPUT_BIASES.0 }).expect("Could not read input biases");
+        read_quantized(&mut reader, unsafe { &mut OUTPUT_WEIGHTS.0 }).expect("Could not read output weights biases");
+    });
 }

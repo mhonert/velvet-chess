@@ -19,19 +19,16 @@
 use crate::align::A32;
 use crate::bitboard::{h_mirror, h_mirror_i8, v_mirror, v_mirror_i8, BitBoards};
 use crate::colors::Color;
-use crate::nn::{NeuralNetParams, FP_HIDDEN_MULTIPLIER, FP_INPUT_MULTIPLIER, FULL_BUCKET_SIZE, HL_HALF_NODES};
+use crate::nn::{
+    FP_HIDDEN_MULTIPLIER, FP_INPUT_MULTIPLIER, FULL_BUCKET_SIZE, HL_HALF_NODES, INPUT_BIASES, INPUT_WEIGHTS,
+    OUTPUT_WEIGHTS,
+};
 use crate::pieces::{Q, R};
 use crate::scores::sanitize_eval_score;
 use std::cmp::max;
-use std::sync::{Arc, Once};
-
-static INIT_NN_PARAMS: Once = Once::new();
-static mut NN_PARAMS: Option<Arc<NeuralNetParams>> = None;
 
 #[derive(Clone)]
 pub struct NeuralNetEval {
-    params: Arc<NeuralNetParams>,
-
     hidden_nodes_white: A32<[i16; HL_HALF_NODES]>, // white perspective
     hidden_nodes_black: A32<[i16; HL_HALF_NODES]>, // black perspective
 
@@ -57,10 +54,7 @@ enum UpdateAction {
 
 impl NeuralNetEval {
     pub fn new() -> Box<Self> {
-        INIT_NN_PARAMS.call_once(|| unsafe { NN_PARAMS = Some(NeuralNetParams::new()) });
         Box::new(NeuralNetEval {
-            params: unsafe { NN_PARAMS.clone().unwrap() },
-
             hidden_nodes_white: A32([0; HL_HALF_NODES]),
             hidden_nodes_black: A32([0; HL_HALF_NODES]),
 
@@ -162,7 +156,7 @@ impl NeuralNetEval {
             .hidden_nodes_white
             .0
             .iter_mut()
-            .zip(self.params.input_weights.0.chunks_exact(HL_HALF_NODES).nth(white_pov_idx).unwrap())
+            .zip(unsafe { &INPUT_WEIGHTS.0 }.chunks_exact(HL_HALF_NODES).nth(white_pov_idx).unwrap())
         {
             *nodes += *weight as i16;
         }
@@ -171,7 +165,7 @@ impl NeuralNetEval {
             .hidden_nodes_black
             .0
             .iter_mut()
-            .zip(self.params.input_weights.0.chunks_exact(HL_HALF_NODES).nth(black_pov_idx).unwrap())
+            .zip(unsafe { &INPUT_WEIGHTS.0 }.chunks_exact(HL_HALF_NODES).nth(black_pov_idx).unwrap())
         {
             *nodes += *weight as i16;
         }
@@ -206,7 +200,7 @@ impl NeuralNetEval {
             .hidden_nodes_white
             .0
             .iter_mut()
-            .zip(self.params.input_weights.0.chunks_exact(HL_HALF_NODES).nth(white_pov_idx).unwrap())
+            .zip(unsafe { &INPUT_WEIGHTS.0 }.chunks_exact(HL_HALF_NODES).nth(white_pov_idx).unwrap())
         {
             *nodes -= *weight as i16;
         }
@@ -215,7 +209,7 @@ impl NeuralNetEval {
             .hidden_nodes_black
             .0
             .iter_mut()
-            .zip(self.params.input_weights.0.chunks_exact(HL_HALF_NODES).nth(black_pov_idx).unwrap())
+            .zip(unsafe { &INPUT_WEIGHTS.0 }.chunks_exact(HL_HALF_NODES).nth(black_pov_idx).unwrap())
         {
             *nodes -= *weight as i16;
         }
@@ -240,11 +234,11 @@ impl NeuralNetEval {
 
         let output = ((forward_pass::<HL_HALF_NODES>(
             own_hidden_nodes,
-            &self.params.output_weights.0[0..HL_HALF_NODES],
-            &self.params.input_biases.0[0..HL_HALF_NODES],
+            unsafe { &OUTPUT_WEIGHTS.0[0..HL_HALF_NODES] },
+            unsafe { &INPUT_BIASES.0[0..HL_HALF_NODES] },
             opp_hidden_nodes,
-            &self.params.output_weights.0[HL_HALF_NODES..],
-            &self.params.input_biases.0[HL_HALF_NODES..],
+            unsafe { &OUTPUT_WEIGHTS.0[HL_HALF_NODES..] },
+            unsafe { &INPUT_BIASES.0[HL_HALF_NODES..] },
         ) as i64
             * 2048)
             / (FP_HIDDEN_MULTIPLIER as i64 * FP_INPUT_MULTIPLIER as i64)) as i32;

@@ -83,7 +83,7 @@ pub fn start_uci_loop(tx: &Sender<Message>) {
                     return;
                 }
 
-                "setoption" => set_option(tx, &parts[i + 1..].to_vec()),
+                "setoption" => set_option(tx, &parts[i + 1..]),
 
                 "stop" => send_message(tx, Message::Stop),
 
