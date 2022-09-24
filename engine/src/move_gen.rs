@@ -207,7 +207,10 @@ impl MoveList {
 
     #[inline]
     pub fn add_move(&mut self, typ: MoveType, piece: i8, start: i32, end: i32) {
-        self.moves.push(Move::new(typ, piece, start, end));
+        let m = Move::new(typ, piece, start, end);
+        if !m.is_same_move(self.scored_hash_move) {
+            self.moves.push(m);
+        }
     }
 
     pub fn update_root_move(&mut self, scored_move: Move) {
@@ -224,8 +227,10 @@ impl MoveList {
     #[inline]
     pub fn add_capture_move(&mut self, board: &Board, typ: MoveType, piece: i8, start: i32, end: i32) {
         let m = Move::new(typ, piece, start, end);
-        let score = evaluate_capture_move_order(board, m);
-        self.capture_moves.push(m.with_score(score));
+        if !m.is_same_move(self.scored_hash_move) {
+            let score = evaluate_capture_move_order(board, m);
+            self.capture_moves.push(m.with_score(score));
+        }
     }
 
     #[inline(always)]
@@ -243,9 +248,6 @@ impl MoveList {
                 Stage::GenerateMoves => {
                     self.stage = Stage::CaptureMoves;
                     self.gen_moves(board);
-                    if self.scored_hash_move != NO_MOVE {
-                        remove_move(&mut self.capture_moves, self.scored_hash_move);
-                    }
                     self.capture_moves.sort_unstable_by_key(Move::score);
                     self.moves_generated = true;
                 }
@@ -291,9 +293,6 @@ impl MoveList {
 
                 Stage::SortQuietMoves => {
                     self.stage = Stage::QuietMoves;
-                    if self.scored_hash_move != NO_MOVE {
-                        remove_move(&mut self.moves, self.scored_hash_move);
-                    }
                     self.score_quiets(hh);
                     self.moves.sort_unstable_by_key(Move::score)
                 }
