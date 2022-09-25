@@ -970,17 +970,11 @@ impl Search {
         while let Some(m) = self.movegen.next_capture_move(&mut self.board) {
             let end = m.end();
             let captured_piece_id = self.board.get_item(end).abs();
-            let previous_piece_id;
-            if !m.is_queen_promotion() {
-                if prune_low_captures && captured_piece_id < R {
-                    continue;
-                }
-
-                previous_piece_id = m.piece_id();
-            } else {
-                previous_piece_id = P;
+            if prune_low_captures && captured_piece_id < R && !m.is_queen_promotion() {
+                continue;
             }
 
+            let previous_piece_id = m.piece_id();
             // skip capture moves with a SEE score below the given threshold
             if captured_piece_id < previous_piece_id
                 && self.board.has_negative_see(
