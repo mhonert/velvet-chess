@@ -580,7 +580,7 @@ impl Search {
 
             // Quiescence search
             if depth <= 0 || ply >= (MAX_DEPTH - 16) as i32 {
-                return self.quiescence_search(rx, active_player, alpha, beta, ply, pos_score, pv);
+                return self.quiescence_search::<false>(rx, active_player, alpha, beta, ply, pos_score, pv);
             }
 
             if !is_pv && !flags.in_check() {
@@ -590,7 +590,7 @@ impl Search {
                     let score = pos_score.unwrap();
 
                     if score.abs() < MATE_SCORE - (2 * MAX_DEPTH as i32) && score - (100 * depth) >= beta {
-                        return self.quiescence_search(rx, active_player, alpha, beta, ply, pos_score, pv);
+                        return self.quiescence_search::<false>(rx, active_player, alpha, beta, ply, pos_score, pv);
                     }
                 } else if !self.board.is_pawn_endgame() {
                     // Null move pruning
@@ -642,7 +642,7 @@ impl Search {
                 prune_low_score.abs() < MATE_SCORE - 2 * MAX_DEPTH as i32 && prune_low_score + margin <= alpha;
 
             if depth <= 2 && prune_low_score + 200 * depth <= alpha {
-                let score = self.quiescence_search(rx, active_player, alpha, beta, ply, pos_score, pv);
+                let score = self.quiescence_search::<false>(rx, active_player, alpha, beta, ply, pos_score, pv);
                 if score <= alpha {
                     return score;
                 }
@@ -929,7 +929,7 @@ impl Search {
         }
     }
 
-    pub fn quiescence_search(
+    pub fn quiescence_search<const CPV: bool>(
         &mut self, rx: Option<&Receiver<Message>>, active_player: Color, mut alpha: i32, beta: i32, ply: i32,
         pos_score: Option<i32>, pv: &mut PrincipalVariation,
     ) -> i32 {
@@ -955,7 +955,6 @@ impl Search {
         // Prune nodes where the position score is already so far below alpha that it is very unlikely to be raised by any available move
         let prune_low_captures = position_score < alpha - QS_PRUNE_MARGIN;
 
-        let mut best_score = position_score;
         if alpha < position_score {
             alpha = position_score;
         }
@@ -965,6 +964,8 @@ impl Search {
         let mut threshold = (alpha - position_score - QS_SEE_THRESHOLD) as i16;
 
         let occupied_bb = self.board.occupancy_bb();
+
+        let mut best_score = position_score;
 
         while let Some(m) = self.movegen.next_capture_move(&mut self.board) {
             let end = m.end();
@@ -980,13 +981,11 @@ impl Search {
                 previous_piece_id = P;
             }
 
-            let start = m.start();
-
             // skip capture moves with a SEE score below the given threshold
             if captured_piece_id < previous_piece_id
                 && self.board.has_negative_see(
                     active_player.flip(),
-                    start,
+                    m.start(),
                     end,
                     previous_piece_id,
                     captured_piece_id,
@@ -1008,24 +1007,26 @@ impl Search {
             let mut local_pv = PrincipalVariation::default();
 
             self.inc_node_count();
-            let score = -self.quiescence_search(rx, active_player.flip(), -beta, -alpha, ply + 1, None, &mut local_pv);
+            let score =
+                -self.quiescence_search::<CPV>(rx, active_player.flip(), -beta, -alpha, ply + 1, None, &mut local_pv);
             self.board.undo_move(m, previous_piece, move_state);
 
             if score <= best_score {
                 // No improvement
                 continue;
             }
-
-            best_score = score;
-            if score >= beta {
-                self.movegen.leave_ply();
-                return score;
+            if CPV {
+                pv.update(m, &mut local_pv);
             }
 
-            if score > alpha {
-                alpha = score;
+            best_score = score;
+            if best_score > alpha {
+                if best_score >= beta {
+                    break;
+                }
+
+                alpha = best_score;
                 threshold = (alpha - position_score - QS_SEE_THRESHOLD) as i16;
-                pv.update(m, &mut local_pv);
             }
         }
 
