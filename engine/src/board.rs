@@ -769,11 +769,12 @@ impl Board {
         let mut attackers = self.find_attackers(!occupied, occupied, target);
 
         // Pieces blocking line of sight for ray-attacking pieces (B, R, Q)
-        let los_blockers = self.bitboards.occupancy()
+        let los_blockers = (self.bitboards.occupancy()
             ^ (self.bitboards.by_piece(N)
                 | self.bitboards.by_piece(-N)
                 | self.bitboards.by_piece(K)
-                | self.bitboards.by_piece(-K));
+                | self.bitboards.by_piece(-K)))
+            & (self.get_queen_attacks(BitBoard(!0), target));
 
         let mut own_turn = false;
 
@@ -803,12 +804,36 @@ impl Board {
 
     #[inline(always)]
     fn find_smallest_attacker(&self, attackers: BitBoard, color: Color) -> Option<(BitBoard, i32)> {
-        for piece_id in P..=K {
-            let pieces = self.get_bitboard(color.piece(piece_id)) & attackers;
-            if pieces.is_occupied() {
-                return Some((pieces.first(), get_see_value(piece_id)));
-            }
+        let pieces = self.get_bitboard(color.piece(P)) & attackers;
+        if pieces.is_occupied() {
+            return Some((pieces.first(), get_see_value(P)));
         }
+
+        let pieces = self.get_bitboard(color.piece(N)) & attackers;
+        if pieces.is_occupied() {
+            return Some((pieces.first(), get_see_value(N)));
+        }
+
+        let pieces = self.get_bitboard(color.piece(B)) & attackers;
+        if pieces.is_occupied() {
+            return Some((pieces.first(), get_see_value(B)));
+        }
+
+        let pieces = self.get_bitboard(color.piece(R)) & attackers;
+        if pieces.is_occupied() {
+            return Some((pieces.first(), get_see_value(R)));
+        }
+
+        let pieces = self.get_bitboard(color.piece(Q)) & attackers;
+        if pieces.is_occupied() {
+            return Some((pieces.first(), get_see_value(Q)));
+        }
+
+        let pieces = self.get_bitboard(color.piece(K)) & attackers;
+        if pieces.is_occupied() {
+            return Some((pieces.first(), get_see_value(K)));
+        }
+
         None
     }
 
