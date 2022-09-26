@@ -323,7 +323,7 @@ impl Network {
         let min_bias = input.biases.iter().min_by(|a, b| b.partial_cmp(a).unwrap()).unwrap();
         let max_bias = input.biases.iter().max_by(|a, b| b.partial_cmp(a).unwrap()).unwrap();
 
-        for weights in input_weights.chunks(HL_HALF_NODES).into_iter() {
+        for weights in input_weights.chunks(HL_HALF_NODES) {
             let max_combo_sum =
                 weights.iter().sorted_by(|a, b| b.partial_cmp(a).unwrap()).take(32).sum::<f32>() + max_bias;
             let min_combo_sum =
@@ -480,7 +480,7 @@ fn write_quantized(writer: &mut dyn Write, multiplier: i16, values: Vec<f32>) ->
         index += 1;
     }
 
-    let codes = CodeBook::from_values(&outputs);
+    let codes = CodeBook::from_values(&mut outputs);
     codes.write(writer)?;
 
     let mut bit_writer = BitWriter::new();

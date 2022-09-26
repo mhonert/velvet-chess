@@ -41,7 +41,7 @@ const USE_GAME_RESULT: bool = true;
 
 const TEST_BATCH_SIZE: usize = 400000;
 
-const MIN_TRAINING_SET_ID: usize = 5;
+const MIN_TRAINING_SET_ID: usize = 11;
 
 const FEN_TRAINING_SET_PATH: &str = "./data/train_fen/";
 const LZ4_TRAINING_SET_PATH: &str = "./data/train_lz4";

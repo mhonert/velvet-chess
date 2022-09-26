@@ -165,8 +165,8 @@ fn read_from_fen_file(
             } else {
                 score as f32 / 2048.0
             }
-        } else if parts.len() == 8 {
-            const SCORE_IDX: usize = 7;
+        } else if parts.len() == 7 {
+            const SCORE_IDX: usize = 6;
             let score = i32::from_str(parts[SCORE_IDX]).expect("Could not parse score");
             score as f32 / 2048.0
         } else {
