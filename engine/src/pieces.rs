@@ -23,16 +23,3 @@ pub const B: i8 = 3;
 pub const R: i8 = 4;
 pub const Q: i8 = 5;
 pub const K: i8 = 6;
-
-const KING_VALUE: i16 = 1500;
-const QUEEN_VALUE: i16 = 1000;
-const ROOK_VALUE: i16 = 525;
-const BISHOP_VALUE: i16 = 350;
-const KNIGHT_VALUE: i16 = 350;
-const PAWN_VALUE: i16 = 100;
-
-const PIECE_VALUES: [i16; 7] = [0, PAWN_VALUE, KNIGHT_VALUE, BISHOP_VALUE, ROOK_VALUE, QUEEN_VALUE, KING_VALUE];
-
-pub fn get_piece_value(piece_id: usize) -> i16 {
-    unsafe { *PIECE_VALUES.get_unchecked(piece_id) }
-}

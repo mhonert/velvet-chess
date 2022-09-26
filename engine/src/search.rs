@@ -25,7 +25,7 @@ use crate::history_heuristics::{HistoryHeuristics, MIN_HISTORY_SCORE};
 use crate::move_gen::{is_killer, MoveGenerator, NEGATIVE_HISTORY_SCORE, QUIET_BASE_SCORE};
 use crate::moves::{Move, NO_MOVE};
 use crate::nn::init_nn_params;
-use crate::pieces::{EMPTY, P, R};
+use crate::pieces::{EMPTY, R};
 use crate::pos_history::PositionHistory;
 use crate::scores::{mate_in, sanitize_score, MATED_SCORE, MATE_SCORE, MAX_SCORE, MIN_SCORE};
 use crate::time_management::{SearchLimits, TimeManager};
@@ -961,7 +961,7 @@ impl Search {
 
         self.movegen.enter_ply(active_player, NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE);
 
-        let mut threshold = (alpha - position_score - QS_SEE_THRESHOLD) as i16;
+        let mut threshold = (alpha - position_score - QS_SEE_THRESHOLD) as i32;
 
         let occupied_bb = self.board.occupancy_bb();
 
@@ -1020,7 +1020,7 @@ impl Search {
                 }
 
                 alpha = best_score;
-                threshold = (alpha - position_score - QS_SEE_THRESHOLD) as i16;
+                threshold = (alpha - position_score - QS_SEE_THRESHOLD) as i32;
             }
         }
 

@@ -20,7 +20,7 @@ use crate::bitboard::Direction::{AntiDiagonal, Diagonal, Horizontal, Vertical};
 use crate::colors::Color;
 use std::ops::Not;
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq, Debug)]
 pub struct BitBoard(pub u64);
 
 impl Iterator for BitBoard {
@@ -55,6 +55,10 @@ impl BitBoard {
 
     pub fn contains(&self, other: BitBoard) -> bool {
         (self.0 & other.0) == other.0
+    }
+
+    pub fn first(&self) -> BitBoard {
+        BitBoard(self.0 & -(self.0 as i64) as u64)
     }
 }
 
