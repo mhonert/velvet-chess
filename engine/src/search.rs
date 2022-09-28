@@ -608,7 +608,7 @@ impl Search {
                             flags.null_move_search(),
                             -1,
                             &mut PrincipalVariation::default(),
-                            NO_MOVE,
+                            opponent_move,
                             NO_MOVE,
                             NO_MOVE,
                         );
