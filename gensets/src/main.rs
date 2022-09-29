@@ -296,7 +296,7 @@ fn collect_quiet_pos(
         if num > 8 && selected_move.score().abs() < (MATE_SCORE - MAX_DEPTH as i32 * 2) && selected_move.is_quiet() {
             let mut qs_pv = PrincipalVariation::default();
             search.set_stopped(false);
-            let base_score = search.board.active_player().score(search.quiescence_search::<true>(
+            search.board.active_player().score(search.quiescence_search::<true>(
                 rx,
                 search.board.active_player(),
                 MIN_SCORE,
@@ -307,6 +307,11 @@ fn collect_quiet_pos(
             ));
 
             if qs_pv.is_empty() {
+                let bm = search.find_best_move(rx, 8, &[]);
+                if !bm.0.is_quiet() {
+                    continue;
+                }
+                let base_score = search.board.active_player().score(bm.0.score());
                 let (mut score, divider) = eval_pos(rx, tb, search, base_score as i32, 1);
                 score /= divider;
 
@@ -337,7 +342,7 @@ fn eval_pos(
         }
     }
 
-    let search_depth = 8 - log2(depth as u32).min(7);
+    let search_depth = 4 - log2(depth as u32).min(3);
     let (m, _) = search.find_best_move(rx, search_depth, &[]);
     if m == NO_MOVE {
         return (prev_score, 1);
