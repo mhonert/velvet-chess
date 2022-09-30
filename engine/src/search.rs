@@ -25,7 +25,7 @@ use crate::history_heuristics::{HistoryHeuristics, MIN_HISTORY_SCORE};
 use crate::move_gen::{is_killer, MoveGenerator, NEGATIVE_HISTORY_SCORE, QUIET_BASE_SCORE};
 use crate::moves::{Move, NO_MOVE};
 use crate::nn::init_nn_params;
-use crate::pieces::{B, EMPTY, N, P, Q, R};
+use crate::pieces::{EMPTY, R};
 use crate::pos_history::PositionHistory;
 use crate::scores::{mate_in, sanitize_score, MATED_SCORE, MATE_SCORE, MAX_SCORE, MIN_SCORE};
 use crate::time_management::{SearchLimits, TimeManager};
