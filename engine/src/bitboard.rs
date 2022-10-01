@@ -58,7 +58,7 @@ impl BitBoard {
     }
 
     pub fn first(&self) -> BitBoard {
-        BitBoard(self.0 & -(self.0 as i64) as u64)
+        BitBoard(self.0 & (self.0 as i64).wrapping_neg() as u64)
     }
 }
 
