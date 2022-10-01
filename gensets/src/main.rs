@@ -40,6 +40,7 @@ use velvet::fen::{create_from_fen, read_fen, write_fen, START_POS};
 use velvet::history_heuristics::HistoryHeuristics;
 use velvet::move_gen::MoveGenerator;
 use velvet::moves::{Move, NO_MOVE};
+use velvet::nn::init_nn_params;
 use velvet::random::Random;
 use velvet::scores::{is_mate_score, MATE_SCORE, MAX_SCORE, MIN_SCORE};
 use velvet::search::{PrincipalVariation, Search};
@@ -94,6 +95,7 @@ fn main() {
 
     let (tx, rx) = mpsc::channel::<TestPos>();
 
+    init_nn_params();
     println!("Starting worker threads ...");
     let mut start = Instant::now();
     spawn_threads(&tx, concurrency, &openings, String::from(tb_path));

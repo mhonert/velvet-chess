@@ -205,6 +205,7 @@ impl Engine {
     }
 
     fn search(&mut self, mut limits: SearchLimits, ponder: bool, search_moves: Option<Vec<String>>) -> (Move, Move) {
+        init_nn_params();
         let skipped_moves = if let Some(search_moves) = search_moves {
             self.search.determine_skipped_moves(search_moves)
         } else {

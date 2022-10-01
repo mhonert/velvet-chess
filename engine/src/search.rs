@@ -24,7 +24,6 @@ use crate::engine::{LogLevel, Message};
 use crate::history_heuristics::{HistoryHeuristics, MIN_HISTORY_SCORE};
 use crate::move_gen::{is_killer, MoveGenerator, NEGATIVE_HISTORY_SCORE, QUIET_BASE_SCORE};
 use crate::moves::{Move, NO_MOVE};
-use crate::nn::init_nn_params;
 use crate::pieces::{EMPTY, R};
 use crate::pos_history::PositionHistory;
 use crate::scores::{mate_in, sanitize_score, MATED_SCORE, MATE_SCORE, MAX_SCORE, MIN_SCORE};
@@ -184,8 +183,6 @@ impl Search {
     pub fn find_best_move(
         &mut self, rx: Option<&Receiver<Message>>, min_depth: i32, skipped_moves: &[Move],
     ) -> (Move, PrincipalVariation) {
-        init_nn_params();
-
         self.reset();
         self.time_mgr.reset(self.limits);
 
