@@ -20,6 +20,7 @@ use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use itertools::Itertools;
 use std::cmp::max;
 use std::collections::HashMap;
+use std::hash::{BuildHasherDefault, Hasher};
 use std::io::{Error, ErrorKind, Read, Write};
 
 pub fn read_quantized(reader: &mut dyn Read, target: &mut [i16]) -> Result<(), Error> {
@@ -39,18 +40,16 @@ pub fn read_quantized(reader: &mut dyn Read, target: &mut [i16]) -> Result<(), E
     let mut index = 0;
 
     while index < size {
-        let mut value = read_value(&codebook, reader, &mut bitreader)?;
-        let repetitions = if value == zero_rep_marker {
-            value = 0;
-            read_value(&codebook, reader, &mut bitreader)? as i32 + 32768
-        } else {
-            1
-        };
+        let value = read_value(&codebook, reader, &mut bitreader)?;
+        if value == zero_rep_marker {
+            let repetitions = read_value(&codebook, reader, &mut bitreader)? as i32 + 32768;
 
-        for _ in 0..repetitions {
+            target[index..(index + repetitions as usize)].fill(0);
+            index += repetitions as usize;
+        } else {
             target[index] = value;
             index += 1;
-        }
+        };
     }
 
     Ok(())
@@ -86,8 +85,8 @@ enum Tree {
     Node { count: usize, left: Box<Tree>, right: Box<Tree> },
 }
 
-type CodeByValue = HashMap<i16, (BitCount, BitPattern)>;
-type ValueByCode = HashMap<(BitCount, BitPattern), i16>;
+type CodeByValue = HashMap<i16, (BitCount, BitPattern), BuildHasherDefault<FastHasher>>;
+type ValueByCode = HashMap<(BitCount, BitPattern), i16, BuildHasherDefault<FastHasher>>;
 
 impl CodeBook {
     const END: u8 = 0;
@@ -173,8 +172,8 @@ impl CodeBook {
     }
 
     fn gen_codes(value_bitcounts: &[(i16, BitCount)]) -> (CodeByValue, ValueByCode) {
-        let mut code_by_value = HashMap::new();
-        let mut value_by_code = HashMap::new();
+        let mut code_by_value = CodeByValue::default();
+        let mut value_by_code = ValueByCode::default();
 
         let mut code = 0;
         let mut curr_bitcount = 0;
@@ -293,6 +292,38 @@ impl BitWriter {
 
 fn reverse(bit_count: u8, bits: u32) -> u32 {
     bits.reverse_bits() >> (32 - bit_count)
+}
+
+#[derive(Default)]
+struct FastHasher(u64);
+
+const GOLDEN_RATIO: u64 = 0x9E3779B97F4A7C15;
+
+impl Hasher for FastHasher {
+    #[inline]
+    fn finish(&self) -> u64 {
+        self.0
+    }
+
+    #[inline]
+    fn write(&mut self, _: &[u8]) {
+        panic!("write for &[u8] not implemented")
+    }
+
+    #[inline]
+    fn write_u8(&mut self, value: u8) {
+        self.0 = (self.0 ^ value as u64).wrapping_mul(GOLDEN_RATIO);
+    }
+
+    #[inline]
+    fn write_u32(&mut self, value: u32) {
+        self.0 = (self.0 ^ value as u64).wrapping_mul(GOLDEN_RATIO);
+    }
+
+    #[inline]
+    fn write_i16(&mut self, value: i16) {
+        self.0 = (self.0 ^ value as u64).wrapping_mul(GOLDEN_RATIO);
+    }
 }
 
 #[cfg(test)]

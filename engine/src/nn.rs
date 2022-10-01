@@ -16,7 +16,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::io::BufReader;
 use std::sync::Once;
 
 use byteorder::{LittleEndian, ReadBytesExt};
@@ -49,7 +48,7 @@ static INIT_NN_PARAMS: Once = Once::new();
 
 pub fn init_nn_params() {
     INIT_NN_PARAMS.call_once(|| {
-        let mut reader = BufReader::new(&include_bytes!("../nets/velvet.qnn")[..]);
+        let mut reader = &include_bytes!("../nets/velvet.qnn")[..];
 
         let input_multiplier = reader.read_i16::<LittleEndian>().expect("Could not read input multiplier");
         assert_eq!(
