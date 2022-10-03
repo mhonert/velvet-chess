@@ -24,7 +24,7 @@ use crate::engine::{LogLevel, Message};
 use crate::history_heuristics::{HistoryHeuristics, MIN_HISTORY_SCORE};
 use crate::move_gen::{is_killer, MoveGenerator, NEGATIVE_HISTORY_SCORE, QUIET_BASE_SCORE};
 use crate::moves::{Move, NO_MOVE};
-use crate::pieces::{EMPTY, R};
+use crate::pieces::EMPTY;
 use crate::pos_history::PositionHistory;
 use crate::scores::{mate_in, sanitize_score, MATED_SCORE, MATE_SCORE, MAX_SCORE, MIN_SCORE};
 use crate::time_management::{SearchLimits, TimeManager};
@@ -54,7 +54,6 @@ const FUTILE_MOVE_REDUCTIONS: i32 = 2;
 const LOSING_MOVE_REDUCTIONS: i32 = 2;
 
 const QS_SEE_THRESHOLD: i32 = 104;
-const QS_PRUNE_MARGIN: i32 = 650;
 
 const INITIAL_ASPIRATION_WINDOW_SIZE: i32 = 16;
 const INITIAL_ASPIRATION_WINDOW_STEP: i32 = 16;
@@ -754,58 +753,53 @@ impl Search {
                     reductions = 1;
                 }
 
-                if se_extension == 0 {
-                    if removed_piece_id == EMPTY {
-                        if allow_lmr && evaluated_move_count > LMR_THRESHOLD {
-                            reductions += if is_pv { 1 } else { 2 };
+                if se_extension == 0 && removed_piece_id == EMPTY {
+                    if allow_lmr && evaluated_move_count > LMR_THRESHOLD {
+                        reductions += if is_pv { 1 } else { 2 };
 
-                            if info.excluded_singular_move != NO_MOVE && evaluated_move_count >= 6 {
-                                reductions += 1;
-                            }
-
-                            reductions += -((curr_move.score() - QUIET_BASE_SCORE) / MIN_HISTORY_SCORE.abs())
-                                .min(reductions)
-                                .max(-2);
-                        } else if allow_futile_move_pruning && !gives_check && !curr_move.is_queen_promotion() {
-                            // Reduce futile move
-                            reductions += FUTILE_MOVE_REDUCTIONS;
-                        } else if !is_pv
-                            && (curr_move.score() <= NEGATIVE_HISTORY_SCORE
-                                || (curr_move.score() <= QUIET_BASE_SCORE
-                                    && self.board.has_negative_see(
-                                        active_player.flip(),
-                                        start,
-                                        end,
-                                        target_piece_id,
-                                        EMPTY,
-                                        0,
-                                        occupied_bb,
-                                    )))
-                        {
-                            // Reduce search depth for moves with negative history or negative SEE score
-                            reductions += LOSING_MOVE_REDUCTIONS;
-                            if evaluated_move_count > 0 && depth <= 3 {
-                                skip = true;
-                            }
-                        }
-
-                        if is_singular {
+                        if info.excluded_singular_move != NO_MOVE && evaluated_move_count >= 6 {
                             reductions += 1;
                         }
 
-                        if allow_futile_move_pruning
-                            && evaluated_move_count > 0
-                            && !gives_check
-                            && reductions >= (depth - 1)
-                        {
-                            // Prune futile move
+                        reductions +=
+                            -((curr_move.score() - QUIET_BASE_SCORE) / MIN_HISTORY_SCORE.abs()).min(reductions).max(-2);
+                    } else if allow_futile_move_pruning && !gives_check && !curr_move.is_queen_promotion() {
+                        // Reduce futile move
+                        reductions += FUTILE_MOVE_REDUCTIONS;
+                    } else if !is_pv
+                        && (curr_move.score() <= NEGATIVE_HISTORY_SCORE
+                            || (curr_move.score() <= QUIET_BASE_SCORE
+                                && self.board.has_negative_see(
+                                    active_player.flip(),
+                                    start,
+                                    end,
+                                    target_piece_id,
+                                    EMPTY,
+                                    0,
+                                    occupied_bb,
+                                )))
+                    {
+                        // Reduce search depth for moves with negative history or negative SEE score
+                        reductions += LOSING_MOVE_REDUCTIONS;
+                        if evaluated_move_count > 0 && depth <= 3 {
                             skip = true;
-                        } else if reductions > 0 && is_killer(curr_move) {
-                            // Reduce killer moves less
-                            reductions -= 1;
                         }
-                    } else if removed_piece_id < previous_piece.abs() as i8 {
-                        skip = self.movegen.skip_bad_capture(curr_move, removed_piece_id, occupied_bb, &mut self.board)
+                    }
+
+                    if is_singular {
+                        reductions += 1;
+                    }
+
+                    if allow_futile_move_pruning
+                        && evaluated_move_count > 0
+                        && !gives_check
+                        && reductions >= (depth - 1)
+                    {
+                        // Prune futile move
+                        skip = true;
+                    } else if reductions > 0 && is_killer(curr_move) {
+                        // Reduce killer moves less
+                        reductions -= 1;
                     }
                 }
             }
@@ -983,49 +977,23 @@ impl Search {
             return position_score;
         }
 
-        // Prune nodes where the position score is already so far below alpha that it is very unlikely to be raised by any available move
-        let prune_low_captures = position_score < alpha - QS_PRUNE_MARGIN;
-
         if alpha < position_score {
             alpha = position_score;
         }
 
         self.movegen.enter_ply(active_player, NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE);
+        self.movegen.generate_captures(&mut self.board);
 
         let mut threshold = (alpha - position_score - QS_SEE_THRESHOLD) as i32;
 
-        let occupied_bb = self.board.occupancy_bb();
-
         let mut best_score = position_score;
 
-        while let Some(m) = self.movegen.next_capture_move(&mut self.board) {
-            let end = m.end();
-            let captured_piece_id = self.board.get_item(end).abs();
-            if prune_low_captures && captured_piece_id < R && !m.is_queen_promotion() {
-                continue;
-            }
-
-            let previous_piece_id = m.piece_id();
-            // skip capture moves with a SEE score below the given threshold
-            if captured_piece_id < previous_piece_id
-                && self.board.has_negative_see(
-                    active_player.flip(),
-                    m.start(),
-                    end,
-                    previous_piece_id,
-                    captured_piece_id,
-                    threshold,
-                    occupied_bb,
-                )
-            {
-                continue;
-            }
-
-            let (previous_piece, move_state) = self.board.perform_move(m);
+        while let Some(m) = self.movegen.next_good_capture_move(&mut self.board, threshold) {
+            let (previous_piece, captured_piece_id) = self.board.perform_move(m);
 
             if self.board.is_in_check(active_player) {
                 // Invalid move
-                self.board.undo_move(m, previous_piece, move_state);
+                self.board.undo_move(m, previous_piece, captured_piece_id);
                 continue;
             }
 
@@ -1034,7 +1002,7 @@ impl Search {
             self.inc_node_count();
             let score =
                 -self.quiescence_search::<CPV>(rx, active_player.flip(), -beta, -alpha, ply + 1, None, &mut local_pv);
-            self.board.undo_move(m, previous_piece, move_state);
+            self.board.undo_move(m, previous_piece, captured_piece_id);
 
             if score <= best_score {
                 // No improvement

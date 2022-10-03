@@ -68,6 +68,10 @@ impl MoveGenerator {
         );
     }
 
+    pub fn generate_captures(&mut self, board: &mut Board) {
+        self.entries[self.ply].generate_captures(board);
+    }
+
     pub fn leave_ply(&mut self) {
         self.ply -= 1;
     }
@@ -90,19 +94,12 @@ impl MoveGenerator {
     }
 
     #[inline(always)]
-    pub fn next_capture_move(&mut self, board: &mut Board) -> Option<Move> {
-        self.entries[self.ply].next_capture_move(board)
+    pub fn next_good_capture_move(&mut self, board: &mut Board, see_threshold: i32) -> Option<Move> {
+        self.entries[self.ply].next_good_capture_move(board, see_threshold)
     }
 
     pub fn update_root_move(&mut self, m: Move) {
         self.entries[self.ply].update_root_move(m);
-    }
-
-    #[inline(always)]
-    pub fn skip_bad_capture(
-        &mut self, m: Move, captured_piece_id: i8, occupied_bb: BitBoard, board: &mut Board,
-    ) -> bool {
-        self.entries[self.ply].skip_bad_capture(m, captured_piece_id, occupied_bb, board)
     }
 
     pub fn sanitize_move(&mut self, board: &Board, active_player: Color, untyped_move: Move) -> Move {
@@ -253,7 +250,13 @@ impl MoveList {
                 }
 
                 Stage::CaptureMoves => match self.capture_moves.pop() {
-                    Some(m) => return Some(m),
+                    Some(m) => {
+                        if self.is_bad_capture(m, board, 0) {
+                            self.bad_capture_moves.push(m);
+                            continue;
+                        }
+                        return Some(m);
+                    }
                     None => self.stage = Stage::PrimaryKillerMove,
                 },
 
@@ -332,14 +335,20 @@ impl MoveList {
     }
 
     #[inline(always)]
-    pub fn next_capture_move(&mut self, board: &mut Board) -> Option<Move> {
-        if !self.moves_generated {
-            self.moves_generated = true;
-            self.gen_capture_moves(board);
-            self.capture_moves.sort_unstable_by_key(Move::score)
+    pub fn generate_captures(&mut self, board: &mut Board) {
+        self.gen_capture_moves(board);
+        self.capture_moves.sort_unstable_by_key(Move::score);
+    }
+
+    #[inline(always)]
+    pub fn next_good_capture_move(&mut self, board: &mut Board, see_threshold: i32) -> Option<Move> {
+        while let Some(m) = self.capture_moves.pop() {
+            if !self.is_bad_capture(m, board, see_threshold) {
+                return Some(m);
+            }
         }
 
-        self.capture_moves.pop()
+        None
     }
 
     fn gen_moves(&mut self, board: &Board) {
@@ -736,28 +745,22 @@ impl MoveList {
     }
 
     // If the given move is a bad capture (i.e. has a negative SEE value), the search can be skipped for now and the move will be stored in a separate "bad capture" list
-    pub fn skip_bad_capture(
-        &mut self, m: Move, captured_piece_id: i8, occupied_bb: BitBoard, board: &mut Board,
-    ) -> bool {
-        if !matches!(self.stage, Stage::CaptureMoves) {
+    #[inline(always)]
+    fn is_bad_capture(&mut self, m: Move, board: &mut Board, see_threshold: i32) -> bool {
+        if m.is_en_passant() {
             return false;
         }
-
-        if !board.has_negative_see(
-            board.active_player(),
-            m.start(),
-            m.end(),
-            m.piece_id(),
-            captured_piece_id,
-            0,
-            occupied_bb,
-        ) {
-            return false;
-        }
-
-        self.bad_capture_moves.push(m);
-
-        true
+        let captured_piece_id = board.get_item(m.end()).abs();
+        captured_piece_id < m.piece_id()
+            && board.has_negative_see(
+                board.active_player().flip(),
+                m.start(),
+                m.end(),
+                m.piece_id(),
+                captured_piece_id,
+                see_threshold,
+                board.occupancy_bb(),
+            )
     }
 }
 
