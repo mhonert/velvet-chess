@@ -661,7 +661,7 @@ impl Search {
             allow_futile_move_pruning =
                 prune_low_score.abs() < MATE_SCORE - 2 * MAX_DEPTH as i32 && prune_low_score + margin <= alpha;
 
-            if depth <= 2 && prune_low_score + 200 * depth <= alpha {
+            if depth == 1 && prune_low_score + 200 <= alpha {
                 let score = self.quiescence_search::<false>(rx, active_player, alpha, beta, info.ply, pos_score, pv);
                 if score <= alpha {
                     return score;
