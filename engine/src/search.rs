@@ -538,6 +538,8 @@ impl Search {
         let mut hash_score = 0;
 
         let mut check_se = false;
+
+        let mut skip_null_move = false;
         if info.excluded_singular_move == NO_MOVE {
             // Check transposition table
             let tt_entry = self.tt.get_entry(hash);
@@ -560,6 +562,7 @@ impl Search {
                             if hash_score <= alpha && tt_depth >= depth {
                                 return hash_score;
                             }
+                            skip_null_move = tt_depth >= depth - null_move_reduction(depth);
                         }
 
                         ScoreType::LowerBound => {
@@ -609,18 +612,17 @@ impl Search {
                             pv,
                         );
                     }
-                } else if !self.board.is_pawn_endgame() {
+                } else if !skip_null_move && !self.board.is_pawn_endgame() {
                     // Null move pruning
                     pos_score = pos_score.or_else(|| Some(active_player.score(self.board.eval())));
                     if pos_score.unwrap() >= beta {
-                        let r = log2((depth * 3 - 3) as u32);
                         self.board.perform_null_move();
                         self.tt.prefetch(self.board.get_hash());
                         let result = self.rec_find_best_move(
                             rx,
                             -beta,
                             -beta + 1,
-                            depth - r - 1,
+                            depth - null_move_reduction(depth),
                             &mut PrincipalVariation::default(),
                             SearchInfo {
                                 ply: info.ply + 1,
@@ -1534,6 +1536,11 @@ fn get_score_info(score: i32) -> String {
     }
 
     format!("cp {}", score)
+}
+
+#[inline]
+fn null_move_reduction(depth: i32) -> i32 {
+    log2((depth * 3 - 3) as u32 - 1) + 1
 }
 
 #[inline]
