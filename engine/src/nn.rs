@@ -22,29 +22,39 @@ use byteorder::{LittleEndian, ReadBytesExt};
 
 use crate::align::A32;
 use crate::nn::io::read_quantized;
+use crate::pieces::{B, P, Q, R};
 
 pub mod eval;
 pub mod io;
 
+pub const fn bucket_size(max_piece_id: i8) -> usize {
+    (piece_idx(max_piece_id) + 1) as usize * 64
+}
+
 // NN layer size
-pub const FULL_BUCKETS: usize = 8 + 8 + 8;
-pub const INPUTS: usize = FULL_BUCKETS * FULL_BUCKET_SIZE;
+pub const KING_BUCKETS: usize = 8;
+pub const INPUTS: usize = (bucket_size(Q) + bucket_size(R) + bucket_size(B) + bucket_size(P)) * KING_BUCKETS * 2;
+
 pub const HL_NODES: usize = 2 * HL_HALF_NODES;
-pub const HL_HALF_NODES: usize = 288;
+pub const HL_HALF_NODES: usize = 320;
 
 pub const INPUT_WEIGHT_COUNT: usize = INPUTS * HL_HALF_NODES;
 
-pub const FULL_BUCKET_SIZE: usize = (64 * 6) * 2;
-
 // Fixed point number precision
-pub const FP_HIDDEN_MULTIPLIER: i16 = 3379;
-pub const FP_INPUT_MULTIPLIER: i16 = 683;
+pub const FP_HIDDEN_MULTIPLIER: i16 = 2476;
+pub const FP_INPUT_MULTIPLIER: i16 = 784;
 
 pub static mut INPUT_WEIGHTS: A32<[i16; INPUT_WEIGHT_COUNT]> = A32([0; INPUT_WEIGHT_COUNT]);
 pub static mut INPUT_BIASES: A32<[i16; HL_NODES]> = A32([0; HL_NODES]);
 pub static mut OUTPUT_WEIGHTS: A32<[i16; HL_NODES]> = A32([0; HL_NODES]);
 
 static INIT_NN_PARAMS: Once = Once::new();
+
+const PIECE_INDEXES: [u16; 7] = [0, 1, 2, 3, 4, 5, 0];
+
+pub const fn piece_idx(piece_id: i8) -> u16 {
+    PIECE_INDEXES[piece_id as usize]
+}
 
 pub fn init_nn_params() {
     INIT_NN_PARAMS.call_once(|| {

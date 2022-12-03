@@ -16,7 +16,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-mod lr_scheduler;
 mod net;
 mod sets;
 
@@ -121,8 +120,6 @@ pub fn main() {
 
     spawn_training_threads(thread_count, &from_tx, &to_rx, &net, &thread_nets, &full_test_set);
 
-    // let lr_scheduler = LrScheduler::new(EPOCH_TARGET, 0.001, 0.0005, 0.000001);
-    // let mut lr = lr_scheduler.calc_lr(1);
     let mut lr = 0.002;
     let mut lr_reduction = 0.75;
     let mut lr_reduced = false;
@@ -138,7 +135,7 @@ pub fn main() {
     let mut epoch_start = Instant::now();
 
     // Shuffling all data sets is too time consuming.
-    // Instead, two random data sets will be merged and shuffled
+    // Instead, multiple random data sets will be merged and shuffled
     let mut ids = (MIN_TRAINING_SET_ID..max_training_set_id).collect_vec();
     ids.shuffle(&mut rng);
 
@@ -234,8 +231,8 @@ pub fn main() {
             best_net.save_raw(id.as_str());
             best_net.save_quantized(id.as_str());
 
-            if no_improvements > 0 {
-                if lr <= 0.0000001 {
+            if lr_reduced || no_improvements > 0 {
+                if lr <= 0.000001 {
                     break;
                 }
 

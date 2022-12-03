@@ -349,7 +349,7 @@ impl Board {
 
                 self.reset_half_move_clock();
 
-                if removed_piece.abs() >= R {
+                if removed_piece.abs() >= N {
                     self.nn_eval.check_refresh();
                 }
 
@@ -404,10 +404,8 @@ impl Board {
                     }
                 }
 
-                if target_piece_id >= R {
-                    // Rook or Queen Promotion
-                    self.nn_eval.check_refresh();
-                }
+                // Promotion
+                self.nn_eval.check_refresh();
             }
 
             MoveType::KingQuiet => {
@@ -484,7 +482,7 @@ impl Board {
                 self.add_piece_without_inc_update(color, piece, move_start);
                 self.add_piece_without_inc_update(color.flip(), color.flip().piece(removed_piece_id), move_end);
 
-                if removed_piece_id >= R {
+                if removed_piece_id >= N {
                     self.nn_eval.check_refresh();
                 }
             }

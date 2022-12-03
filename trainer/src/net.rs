@@ -35,7 +35,7 @@ const WEIGHT_DECAY: f32 = 0.0001;
 const K: f64 = 1.603;
 const K_DIV: f64 = K / 400.0;
 
-const MAX_WEIGHT: f32 = 127.0 / (1 << 6) as f32;
+const MAX_WEIGHT: f32 = 160.0 / (1 << 6) as f32;
 const MIN_WEIGHT: f32 = -MAX_WEIGHT;
 
 const MIN_INPUT_WEIGHT: i32 = (MIN_WEIGHT * 1500000000.0) as i32;

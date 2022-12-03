@@ -29,7 +29,8 @@ use std::thread;
 use velvet::bitboard::{v_mirror, v_mirror_u16, BitBoard};
 use velvet::colors::Color;
 use velvet::fen::{parse_fen, FenParseResult};
-use velvet::nn::FULL_BUCKET_SIZE;
+use velvet::nn::{bucket_size, piece_idx, INPUTS, KING_BUCKETS};
+use velvet::pieces::{B, N, P, Q, R};
 
 pub const POS_PER_SET: usize = 200_000;
 
@@ -254,39 +255,39 @@ pub fn read_samples(samples: &mut Vec<DataSample>, file_name: &str) {
         let black_no_queens = bb_map & (1 << 9) == 0;
         let white_no_rooks = bb_map & (1 << 3) == 0;
         let black_no_rooks = bb_map & (1 << 8) == 0;
-        //
+        let white_no_bishops = bb_map & (1 << 2) == 0;
+        let black_no_bishops = bb_map & (1 << 7) == 0;
+        let white_no_knights = bb_map & (1 << 1) == 0;
+        let black_no_knights = bb_map & (1 << 6) == 0;
+
         let white_king_col = white_king & 7;
         let black_king_col = black_king & 7;
         let mirror_white_pov = white_king_col > 3;
         let mirror_black_pov = black_king_col > 3;
 
-        let (white_offset, black_offset) = if white_no_queens && black_no_queens {
+        let (bucket_offset, max_piece_id) = if white_no_queens && black_no_queens {
             if white_no_rooks && black_no_rooks {
-                (
-                    16 * FULL_BUCKET_SIZE as u16
-                        + board_eighth(h_mirror_if(mirror_white_pov, white_king)) * FULL_BUCKET_SIZE as u16,
-                    16 * FULL_BUCKET_SIZE as u16
-                        + board_eighth(v_mirror(h_mirror_if(mirror_black_pov, black_king) as usize) as u16)
-                            * FULL_BUCKET_SIZE as u16,
-                )
+                if white_no_bishops && black_no_bishops && white_no_knights && black_no_knights {
+                    ((bucket_size(Q) + bucket_size(R) + bucket_size(B)) * KING_BUCKETS, P)
+                } else {
+                    ((bucket_size(Q) + bucket_size(R)) * KING_BUCKETS, B)
+                }
             } else {
-                (
-                    8 * FULL_BUCKET_SIZE as u16
-                        + board_eighth(h_mirror_if(mirror_white_pov, white_king)) * FULL_BUCKET_SIZE as u16,
-                    8 * FULL_BUCKET_SIZE as u16
-                        + board_eighth(v_mirror(h_mirror_if(mirror_black_pov, black_king) as usize) as u16)
-                            * FULL_BUCKET_SIZE as u16,
-                )
+                (bucket_size(Q) * KING_BUCKETS, R)
             }
         } else {
-            (
-                board_eighth(h_mirror_if(mirror_white_pov, white_king)) * FULL_BUCKET_SIZE as u16,
-                board_eighth(v_mirror(h_mirror_if(mirror_black_pov, black_king) as usize) as u16)
-                    * FULL_BUCKET_SIZE as u16,
-            )
+            (0, Q)
         };
+        let bucket_size = bucket_size(max_piece_id);
 
-        let opp_offset = (FULL_BUCKET_SIZE / 2) as u16;
+        let (white_offset, black_offset) = (
+            bucket_offset as u16 + board_eighth(h_mirror_if(mirror_white_pov, white_king)) * bucket_size as u16,
+            bucket_offset as u16
+                + board_eighth(v_mirror(h_mirror_if(mirror_black_pov, black_king) as usize) as u16)
+                    * bucket_size as u16,
+        );
+
+        let opp_offset = (INPUTS / 2) as u16;
 
         let mut sample = DataSample {
             wpov_inputs: Vec::with_capacity(32),
@@ -308,9 +309,9 @@ pub fn read_samples(samples: &mut Vec<DataSample>, file_name: &str) {
                 for pos in BitBoard(bb) {
                     sample
                         .wpov_inputs
-                        .push((6 - i as u16) * 64 + h_mirror_if(mirror_white_pov, pos as u16) + white_offset);
+                        .push(piece_idx(i) * 64 + h_mirror_if(mirror_white_pov, pos as u16) + white_offset);
                     sample.bpov_inputs.push(
-                        (6 - i as u16) * 64
+                        piece_idx(i) * 64
                             + v_mirror_u16(h_mirror_if(mirror_black_pov, pos as u16))
                             + black_offset
                             + opp_offset,
@@ -323,10 +324,10 @@ pub fn read_samples(samples: &mut Vec<DataSample>, file_name: &str) {
                 let bb = reader.read_u64::<LittleEndian>().unwrap();
                 for pos in BitBoard(bb) {
                     sample.bpov_inputs.push(
-                        (6 - i as u16) * 64 + v_mirror_u16(h_mirror_if(mirror_black_pov, pos as u16)) + black_offset,
+                        piece_idx(i) * 64 + v_mirror_u16(h_mirror_if(mirror_black_pov, pos as u16)) + black_offset,
                     );
                     sample.wpov_inputs.push(
-                        (6 - i as u16) * 64 + h_mirror_if(mirror_white_pov, pos as u16) + white_offset + opp_offset,
+                        piece_idx(i) * 64 + h_mirror_if(mirror_white_pov, pos as u16) + white_offset + opp_offset,
                     );
                 }
             }
