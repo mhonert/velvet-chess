@@ -19,26 +19,29 @@
 mod net;
 mod sets;
 
-use crate::net::Network;
-use crate::sets::{convert_sets, read_samples, DataSample, POS_PER_SET};
-use crossbeam_channel::{bounded, Receiver, Sender};
+use crate::net::{HiddenGradients, InputGradients, NetMomentums, Network, NetworkStats, A32};
+use crate::sets::{convert_sets, read_samples, DataSample, SAMPLES_PER_SET};
+use crossbeam_channel::{bounded, Receiver, Sender, TryRecvError};
+use env_logger::{Env, Target};
 use itertools::Itertools;
+use log::{error, info, trace};
 use rand::prelude::SliceRandom;
 use rand::rngs::ThreadRng;
-use std::cmp::max;
+use rand::RngCore;
 use std::env;
 use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::Instant;
-use velvet::nn::HL_NODES;
 pub use velvet::nn::INPUTS;
+use velvet::nn::{HL_HALF_NODES, HL_NODES};
 
-const SETS_PER_BATCH: usize = 5;
-const BATCH_SIZE: usize = SETS_PER_BATCH * POS_PER_SET;
-const USE_GAME_RESULT: bool = true;
+const TEST_BATCH_SIZE: usize = SAMPLES_PER_SET * 10;
 
-const TEST_BATCH_SIZE: usize = 400000;
+const BATCH_SIZE: usize = 4000;
+const INIT_LR: f64 = 0.0004;
+
+const SETS_PER_BATCH: usize = 8;
 
 const MIN_TRAINING_SET_ID: usize = 11;
 
@@ -47,64 +50,324 @@ const LZ4_TRAINING_SET_PATH: &str = "./data/train_lz4";
 const FEN_TEST_SET_PATH: &str = "./data/test_fen";
 const LZ4_TEST_SET_PATH: &str = "./data/test_lz4";
 
+const USAGE: &str = "Usage: trainer [train|quantize] [thread count]";
+
 #[derive(Copy, Clone)]
 enum Command {
-    Train,
-    TrainNewInputs([usize; SETS_PER_BATCH]),
-    Test(Option<usize>),
-    UpdateNet,
+    Train(usize),
+    Test(Scope),
+    Reshuffle,
+    Stats,
 }
 
 #[derive(Debug)]
 enum Result {
-    Train((usize, bool)),
-    Test(f64),
-    UpdateNet,
+    Train(usize, f64),
+    Test(f64, u32),
+    Stats(NetworkStats),
+}
+
+#[derive(Copy, Clone)]
+enum Scope {
+    Only(usize),
+    AllExcept([usize; 2]),
+    Full,
 }
 
 pub fn main() {
-    let usage = "Usage: trainer [train thread count]";
+    env_logger::Builder::from_env(Env::default().default_filter_or("info")).target(Target::Stdout).init();
 
-    if env::args().len() <= 1 {
-        println!("{}", usage);
+    if env::args().len() <= 2 {
+        info!("{}", USAGE);
         return;
     }
 
-    let thread_count = match usize::from_str(env::args().nth(1).unwrap().as_str()) {
-        Ok(count) => max(1, count),
+    let thread_count = match usize::from_str(env::args().nth(2).unwrap().as_str()) {
+        Ok(count) => count.max(1),
         Err(_) => {
-            println!("{}", usage);
+            error!("{}", USAGE);
             return;
         }
     };
 
-    let mut rng = ThreadRng::default();
+    match env::args().nth(1).unwrap().as_str() {
+        "train" => {
+            main_train(thread_count);
+        }
 
-    println!("Scanning available training sets ...");
-    let max_training_set_id = convert_sets(
-        thread_count,
-        "training",
-        FEN_TRAINING_SET_PATH,
-        LZ4_TRAINING_SET_PATH,
-        MIN_TRAINING_SET_ID,
-        USE_GAME_RESULT,
-    );
+        "quantize" => {
+            main_quantize(thread_count);
+        }
+
+        _ => {
+            info!("{}: invalid commmand", USAGE);
+        }
+    };
+}
+
+pub fn main_train(thread_count: usize) {
+    info!("Scanning available training sets ...");
+    let max_training_set_id =
+        convert_sets(thread_count, "training", FEN_TRAINING_SET_PATH, LZ4_TRAINING_SET_PATH, MIN_TRAINING_SET_ID);
 
     let training_set_count = (max_training_set_id - MIN_TRAINING_SET_ID) + 1;
-    println!(
+    info!(
         "Using {} training sets with a total of {} positions",
         training_set_count,
-        training_set_count * POS_PER_SET
+        training_set_count * SAMPLES_PER_SET
     );
 
-    println!("Scanning available test sets ...");
-    let max_test_set_id = convert_sets(thread_count, "test", FEN_TEST_SET_PATH, LZ4_TEST_SET_PATH, 1, false);
+    info!("Scanning available test sets ...");
+    let max_test_set_id = convert_sets(thread_count, "test", FEN_TEST_SET_PATH, LZ4_TEST_SET_PATH, 1);
 
-    println!("Reading test sets ...");
-    let mut test_set = Vec::with_capacity(POS_PER_SET * max_test_set_id);
+    info!("Reading test sets ...");
+    let mut test_set = vec![DataSample::default(); SAMPLES_PER_SET * max_test_set_id];
+    let mut start = 0;
     for i in 1..=max_test_set_id {
-        read_samples(&mut test_set, format!("{}/{}.lz4", LZ4_TEST_SET_PATH, i).as_str());
+        read_samples(&mut test_set, start, format!("{}/{}.lz4", LZ4_TEST_SET_PATH, i).as_str(), false, &[]);
+        start += SAMPLES_PER_SET;
     }
+    let mut rng = ThreadRng::default();
+    test_set.shuffle(&mut rng);
+    let full_test_set = Arc::new(test_set);
+
+    let (to_tx, to_rx) = bounded(thread_count);
+    let (from_tx, from_rx) = bounded(thread_count);
+
+    let net = Arc::new(RwLock::new(Network::new()));
+    // net.write().unwrap().init_from_base_file(&"./data/nets/velvet_base.nn".to_string());
+
+    let samples_per_thread = (BATCH_SIZE / thread_count) / 2;
+    info!("Samples per thread: {}", samples_per_thread);
+
+    let id_source =
+        Arc::new(RwLock::new(IDSource::new(&mut rng, MIN_TRAINING_SET_ID, max_training_set_id, SETS_PER_BATCH)));
+
+    let input_gradients = Arc::new(InputGradients::default());
+    let mut thread_hidden_gradients = Vec::with_capacity(thread_count);
+    for _ in 0..thread_count {
+        thread_hidden_gradients.push(Arc::new(RwLock::new(HiddenGradients::default())));
+    }
+
+    spawn_training_threads(
+        thread_count,
+        max_test_set_id,
+        &from_tx,
+        &to_rx,
+        &net,
+        &input_gradients,
+        &thread_hidden_gradients,
+        &full_test_set,
+        &id_source,
+    );
+
+    let mut hidden_gradients = HiddenGradients::default();
+
+    let mut lr = INIT_LR;
+    let mut lr_reduction = 0.75;
+
+    let mut no_improvements = 0;
+
+    let mut best_sub_error = 1.0f64;
+
+    let (error_sum, error_count) = test_net(Command::Test(Scope::Full), thread_count, &to_tx, &from_rx);
+    let mut best_full_error = error_sum / error_count as f64;
+
+    let mut best_net = Network::new();
+
+    let mut epoch = 1;
+    let mut epoch_start = Instant::now();
+
+    let mut idle_threads = thread_count;
+
+    let mut curr_test_set_id = 0;
+    let mut epoch_error_start = best_full_error;
+
+    let mut curr_epoch_samples = 0;
+
+    info!("Initial error: {:1.10}", epoch_error_start);
+    info!("Start training network with {} inputs and {} hidden layer nodes", INPUTS, HL_NODES);
+
+    let samples_per_epoch = (max_training_set_id - MIN_TRAINING_SET_ID) * SAMPLES_PER_SET;
+
+    let train_start = Instant::now();
+
+    let mut momentums = NetMomentums::new();
+
+    for iteration in 1..usize::MAX {
+        let start = Instant::now();
+        let mut epoch_changed = false;
+        let mut curr_iteration_samples = 0;
+
+        let r = if no_improvements == 0 { 100 } else { 10 };
+        let mut train_err = 0f64;
+        for _ in 0..r {
+            let mut curr_batch_samples = 0;
+            let mut allocated_count = 0;
+            let train_start = Instant::now();
+            loop {
+                while allocated_count < BATCH_SIZE && idle_threads > 0 {
+                    to_tx.send(Command::Train(samples_per_thread)).expect("could not send training input");
+
+                    allocated_count += samples_per_thread;
+                    idle_threads -= 1;
+                }
+
+                for _ in 0..thread_count {
+                    match from_rx.try_recv() {
+                        Ok(Result::Train(sample_count, err)) => {
+                            curr_batch_samples += sample_count;
+                            train_err += err;
+                            idle_threads += 1;
+                        }
+                        Err(e) => {
+                            if !matches!(e, TryRecvError::Empty) {
+                                panic!("Error receiving training results: {}", e)
+                            }
+                        }
+                        _ => {}
+                    };
+                }
+
+                if curr_batch_samples >= BATCH_SIZE && idle_threads == thread_count {
+                    train_err /= curr_batch_samples as f64;
+                    break;
+                }
+            }
+            trace!("Train duration: {}", train_start.elapsed().as_secs_f64() * 1000.0);
+
+            let update_start = Instant::now();
+            hidden_gradients.reset();
+            for h in thread_hidden_gradients.iter_mut() {
+                h.write()
+                    .map(|mut g| {
+                        hidden_gradients.add_all(&g);
+                        g.reset();
+                    })
+                    .expect("could not update hidden gradients");
+            }
+            trace!("Update hidden gradients duration: {}", update_start.elapsed().as_secs_f64() * 1000.0);
+
+            let update_start = Instant::now();
+            net.write().unwrap().update_weights(
+                &input_gradients,
+                &hidden_gradients,
+                &mut momentums,
+                lr,
+                iteration,
+                curr_batch_samples as u32,
+            );
+            curr_iteration_samples += curr_batch_samples;
+
+            trace!("Update weights duration: {}", update_start.elapsed().as_secs_f64() * 1000.0);
+        }
+
+        // Test
+        let fast_test_start = Instant::now();
+        let (curr_sub_error, sub_counts) =
+            test_net(Command::Test(Scope::Only(curr_test_set_id)), thread_count, &to_tx, &from_rx);
+        trace!("Total fast test duration: {}", fast_test_start.elapsed().as_secs_f64() * 1000.0);
+
+        if curr_sub_error / sub_counts as f64 <= best_sub_error {
+            let full_test_start = Instant::now();
+            let prev_test_set_id = curr_test_set_id;
+            curr_test_set_id = next_test_set_id(max_test_set_id, curr_test_set_id);
+            let (next_sub_error, next_sub_counts) =
+                test_net(Command::Test(Scope::Only(curr_test_set_id)), thread_count, &to_tx, &from_rx);
+            best_sub_error = next_sub_error / next_sub_counts as f64;
+
+            let (mut full_error, mut full_counts) = test_net(
+                Command::Test(Scope::AllExcept([prev_test_set_id, curr_test_set_id])),
+                thread_count,
+                &to_tx,
+                &from_rx,
+            );
+            full_error += curr_sub_error + next_sub_error;
+            full_counts += sub_counts + next_sub_counts;
+            full_error /= full_counts as f64;
+
+            trace!("Total test duration: {}", full_test_start.elapsed().as_secs_f64() * 1000.0);
+
+            if full_error <= best_full_error {
+                best_net.copy_weights(net.read().unwrap().as_ref());
+                best_full_error = full_error;
+
+                no_improvements = 0;
+            }
+        }
+        trace!("Total iteration duration: {}", start.elapsed().as_secs_f64() * 1000.0);
+
+        let samples_per_sec = curr_iteration_samples as f64 / start.elapsed().as_secs_f64();
+        info!(
+            "Epoch: {:02} [ {:2}% ] / Test ID: {}, LR: {:1.8}, BS: {} - Best err: {:1.10} / Train err: {:1.10} / Acc.: {:1.10} / {:.0} samples/sec / Elapsed: {:3.1}m",
+            epoch, (curr_epoch_samples * 100 / samples_per_epoch).min(100), curr_test_set_id, lr, BATCH_SIZE, best_full_error, train_err, epoch_error_start - best_full_error, samples_per_sec,
+            train_start.elapsed().as_secs_f64() / 60.0
+        );
+
+        curr_epoch_samples += curr_iteration_samples;
+        if curr_epoch_samples >= samples_per_epoch {
+            epoch_changed = true;
+            epoch += 1;
+            curr_epoch_samples = 0;
+        }
+
+        if epoch_changed {
+            let epoch_duration = Instant::now().duration_since(epoch_start);
+            info!("- Epoch {:02} finished in {} seconds", epoch - 1, epoch_duration.as_secs());
+
+            epoch_error_start = best_full_error;
+
+            let id = format!("{}", epoch - 1);
+            best_net.save_raw(id.as_str());
+
+            if lr < 0.0000001 && no_improvements > 1 {
+                break;
+            }
+
+            lr *= lr_reduction;
+            lr_reduction *= 0.9;
+            if no_improvements > 0 {
+                net.write().unwrap().copy_weights(&best_net);
+            }
+
+            curr_test_set_id = next_test_set_id(max_test_set_id, curr_test_set_id);
+            let (sub_error, count) =
+                test_net(Command::Test(Scope::Only(curr_test_set_id)), thread_count, &to_tx, &from_rx);
+            best_sub_error = sub_error / count as f64;
+
+            no_improvements += 1;
+
+            epoch_start = Instant::now();
+            (0..thread_count).for_each(|_| to_tx.send(Command::Reshuffle).expect("could not send Reshuffle command"));
+        }
+    }
+
+    best_net.save_raw("final");
+}
+
+pub fn main_quantize(thread_count: usize) {
+    info!("Scanning available training sets ...");
+    let max_training_set_id =
+        convert_sets(thread_count, "training", FEN_TRAINING_SET_PATH, LZ4_TRAINING_SET_PATH, MIN_TRAINING_SET_ID);
+
+    let training_set_count = (max_training_set_id - MIN_TRAINING_SET_ID) + 1;
+    info!(
+        "Using {} training sets with a total of {} positions",
+        training_set_count,
+        training_set_count * SAMPLES_PER_SET
+    );
+
+    info!("Scanning available test sets ...");
+    let max_test_set_id = convert_sets(thread_count, "test", FEN_TEST_SET_PATH, LZ4_TEST_SET_PATH, 1);
+
+    info!("Reading test sets ...");
+    let mut test_set = vec![DataSample::default(); SAMPLES_PER_SET * max_test_set_id];
+    let mut start = 0;
+    for i in 1..=max_test_set_id {
+        read_samples(&mut test_set, start, format!("{}/{}.lz4", LZ4_TEST_SET_PATH, i).as_str(), false, &[]);
+        start += SAMPLES_PER_SET;
+    }
+    let mut rng = ThreadRng::default();
     test_set.shuffle(&mut rng);
     let full_test_set = Arc::new(test_set);
 
@@ -113,273 +376,281 @@ pub fn main() {
 
     let net = Arc::new(RwLock::new(Network::new()));
 
-    let mut thread_nets: Vec<Arc<RwLock<Box<Network>>>> = Vec::new();
+    let batch_size = BATCH_SIZE;
+    let samples_per_thread = batch_size / thread_count;
+    info!("Samples per thread: {}", samples_per_thread);
+
+    let id_source =
+        Arc::new(RwLock::new(IDSource::new(&mut rng, MIN_TRAINING_SET_ID, max_training_set_id, SETS_PER_BATCH)));
+
+    let input_gradients = Arc::new(InputGradients::default());
+    let mut thread_hidden_gradients = Vec::with_capacity(thread_count);
     for _ in 0..thread_count {
-        thread_nets.push(Arc::new(RwLock::new(Network::new())));
+        thread_hidden_gradients.push(Arc::new(RwLock::new(HiddenGradients::default())));
     }
 
-    spawn_training_threads(thread_count, &from_tx, &to_rx, &net, &thread_nets, &full_test_set);
+    spawn_training_threads(
+        thread_count,
+        max_test_set_id,
+        &from_tx,
+        &to_rx,
+        &net,
+        &input_gradients,
+        &thread_hidden_gradients,
+        &full_test_set,
+        &id_source,
+    );
 
-    let mut lr = 0.002;
-    let mut lr_reduction = 0.75;
-    let mut lr_reduced = false;
+    net.write().unwrap().init_from_base_file(&"./data/nets/velvet_base.nn".to_string());
 
-    let mut no_improvements = 0;
+    let stats = stats_net(thread_count, &to_tx, &from_rx);
+    info!("Network stats     : {:?}", stats);
 
-    let mut best_sub_error = 1.0f64;
-    let mut best_full_error = 1.0f64;
+    let (error_sum, error_count) = test_net(Command::Test(Scope::Full), thread_count, &to_tx, &from_rx);
+    let error = error_sum / error_count as f64;
+    info!("Initial error     : {:1.10}", error);
 
-    let mut best_net = Network::new();
+    let (input_scale, hidden_scale) = net.write().map(|n| n.save_quantized(&stats)).expect("could not quantize net");
 
-    let mut epoch = 1;
-    let mut epoch_start = Instant::now();
+    net.read().map(|n| n.zero_check(input_scale, hidden_scale)).expect("could not quantize net");
 
-    // Shuffling all data sets is too time consuming.
-    // Instead, multiple random data sets will be merged and shuffled
-    let mut ids = (MIN_TRAINING_SET_ID..max_training_set_id).collect_vec();
-    ids.shuffle(&mut rng);
+    net.write().unwrap().init_from_base_file(&"./data/nets/velvet_base.nn".to_string());
+    net.write().map(|mut n| n.quantize(input_scale, hidden_scale)).expect("could not quantize net");
 
-    let mut thread_requires_input = vec![true; thread_count];
-
-    let mut curr_test_set_id = 0;
-    let mut epoch_error_start = 0.0;
-
-    let epoch_set_count = (((max_training_set_id - MIN_TRAINING_SET_ID) / SETS_PER_BATCH) * SETS_PER_BATCH) as i32;
-    let mut processed_epoch_set_count: i32 = -(SETS_PER_BATCH as i32);
-
-    println!("Start training network with {} inputs and {} hidden layer nodes", INPUTS, HL_NODES);
-
-    for iteration in 1..usize::MAX {
-        let start = Instant::now();
-        let mut epoch_changed = false;
-        for i in 0..thread_count {
-            if thread_requires_input[i] {
-                if ids.len() < SETS_PER_BATCH {
-                    ids = (MIN_TRAINING_SET_ID..max_training_set_id).collect_vec();
-                    ids.shuffle(&mut rng);
-                    epoch += 1;
-                    epoch_changed = true;
-                    processed_epoch_set_count = -4;
-                }
-
-                let mut sets = [0; SETS_PER_BATCH];
-                sets.fill_with(|| ids.pop().unwrap());
-                processed_epoch_set_count += SETS_PER_BATCH as i32;
-
-                to_tx.send(Command::TrainNewInputs(sets)).expect("could not send training input");
-            } else {
-                to_tx.send(Command::Train).expect("could not send training input");
-            }
-        }
-
-        let mut sample_counts = 0;
-        for i in 0..thread_count {
-            match from_rx.recv().expect("could not receive training results") {
-                Result::Train((sample_count, requires_input)) => {
-                    sample_counts += sample_count;
-                    thread_requires_input[i] = requires_input;
-                }
-                unexpected => panic!("Unexpected result: {:?}", unexpected),
-            };
-        }
-
-        // Update weights
-        net.write().unwrap().reset_training_gradients();
-        for thread_net in thread_nets.iter() {
-            thread_net
-                .read()
-                .and_then(|tn| {
-                    net.write().unwrap().add_gradients(&tn);
-                    Ok(())
-                })
-                .expect("could not lock thread net");
-        }
-
-        net.write().unwrap().update_weights(lr as f32, sample_counts, iteration);
-        (0..thread_count).for_each(|_| to_tx.send(Command::UpdateNet).expect("could not send UpdateNet command"));
-        (0..thread_count).for_each(|_| {
-            from_rx.recv().expect("could not receive UpdateNet result");
-        });
-
-        // Test
-        let curr_sub_error = test_net(Command::Test(Some(curr_test_set_id)), thread_count, &to_tx, &from_rx);
-
-        if curr_sub_error < best_sub_error {
-            curr_test_set_id = next_test_set_id(max_test_set_id, curr_test_set_id);
-            best_sub_error = test_net(Command::Test(Some(curr_test_set_id)), thread_count, &to_tx, &from_rx);
-
-            let full_error = test_net(Command::Test(None), thread_count, &to_tx, &from_rx);
-            if full_error < best_full_error {
-                best_net.copy(net.read().unwrap().as_ref());
-                best_full_error = full_error;
-
-                if iteration == 1 {
-                    epoch_error_start = best_full_error;
-                }
-                no_improvements = 0;
-            }
-        }
-
-        let samples_per_sec = sample_counts as f64 / start.elapsed().as_secs_f64();
-
-        if epoch_changed {
-            let epoch_duration = Instant::now().duration_since(epoch_start);
-            println!("- Epoch {:02} finished in {} seconds", epoch - 1, epoch_duration.as_secs());
-            epoch_error_start = best_full_error;
-
-            let id = format!("{}", epoch - 1);
-            best_net.save_raw(id.as_str());
-            best_net.save_quantized(id.as_str());
-
-            if lr_reduced || no_improvements > 0 {
-                if lr <= 0.000001 {
-                    break;
-                }
-
-                if lr_reduced || no_improvements > 1 {
-                    if no_improvements > 2 {
-                        net.write().unwrap().copy_weights(&best_net);
-                        net.write().unwrap().reset_momentums();
-                    }
-                    lr *= lr_reduction;
-                    lr_reduction *= 0.75;
-                    lr_reduced = true;
-                }
-                curr_test_set_id = next_test_set_id(max_test_set_id, curr_test_set_id);
-                best_sub_error = test_net(Command::Test(Some(curr_test_set_id)), thread_count, &to_tx, &from_rx);
-            }
-            no_improvements += 1;
-
-            epoch_start = Instant::now();
-        }
-
-        println!(
-            "Epoch: {:02} [ {:2}% ] / Test Set: {}, LR: {:1.8} - Best error: {:1.10} / Acc.: {:1.10} / samples per second: {:.1}",
-            epoch, processed_epoch_set_count * 100 / epoch_set_count, curr_test_set_id, lr, best_full_error, epoch_error_start - best_full_error, samples_per_sec
-        );
-    }
-
-    best_net.save_raw("final");
-    best_net.save_quantized("final");
+    let (error_sum, error_count) = test_net(Command::Test(Scope::Full), thread_count, &to_tx, &from_rx);
+    let error = error_sum / error_count as f64;
+    info!("Quantization error: {:1.10}", error);
 }
 
 fn next_test_set_id(max_test_set_id: usize, curr_test_set_id: usize) -> usize {
-    (curr_test_set_id + 1) % (max_test_set_id * POS_PER_SET / TEST_BATCH_SIZE)
+    (curr_test_set_id + 1) % (max_test_set_id * SAMPLES_PER_SET / TEST_BATCH_SIZE)
 }
 
-fn test_net(command: Command, thread_count: usize, to_tx: &Sender<Command>, from_rx: &Receiver<Result>) -> f64 {
+fn test_net(command: Command, thread_count: usize, to_tx: &Sender<Command>, from_rx: &Receiver<Result>) -> (f64, u32) {
     (0..thread_count).for_each(|_| to_tx.send(command).expect("could not send Test command"));
-    (0..thread_count)
-        .map(|_| match from_rx.recv().expect("could not receive Test result") {
-            Result::Test(error) => error,
-            unexpected => panic!("Unexpected result: {:?}", unexpected),
-        })
-        .sum::<f64>()
-        / thread_count as f64
+    let mut errors = 0.;
+    let mut counts = 0;
+    for (error, count) in (0..thread_count).map(|_| match from_rx.recv().expect("could not receive Test result") {
+        Result::Test(error, count) => (error, count),
+        unexpected => panic!("Unexpected result: {:?}", unexpected),
+    }) {
+        errors += error;
+        counts += count;
+    }
+
+    (errors, counts)
+}
+
+fn stats_net(thread_count: usize, to_tx: &Sender<Command>, from_rx: &Receiver<Result>) -> NetworkStats {
+    (0..thread_count).for_each(|_| to_tx.send(Command::Stats).expect("could not send Test command"));
+    let mut stats = NetworkStats::default();
+    for thread_stats in (0..thread_count).map(|_| match from_rx.recv().expect("could not receive stats result") {
+        Result::Stats(s) => s,
+        unexpected => panic!("Unexpected result: {:?}", unexpected),
+    }) {
+        stats = stats.max(&thread_stats);
+    }
+
+    stats
 }
 
 fn spawn_training_threads(
-    threads: usize, tx: &Sender<Result>, rx: &Receiver<Command>, base_net: &Arc<RwLock<Box<Network>>>,
-    nets: &[Arc<RwLock<Box<Network>>>], full_test_set: &Arc<Vec<DataSample>>,
+    threads: usize, max_test_set_id: usize, tx: &Sender<Result>, rx: &Receiver<Command>,
+    base_net: &Arc<RwLock<Box<Network>>>, input_gradients: &Arc<InputGradients>,
+    hidden_gradients: &Vec<Arc<RwLock<HiddenGradients>>>, full_test_set: &Arc<Vec<DataSample>>,
+    id_source: &Arc<RwLock<IDSource>>,
 ) {
     for i in 0..threads {
         let thread_tx = tx.clone();
         let thread_rx = rx.clone();
         let thread_base_net = base_net.clone();
-        let thread_net = nets[i].clone();
+        let thread_input_gradients = input_gradients.clone();
+        let thread_hidden_gradients = hidden_gradients[i].clone();
+
         let thread_full_test_set = full_test_set.clone();
+        let thread_id_source = id_source.clone();
         thread::Builder::new()
-            .stack_size(1048576 * 16)
-            .spawn(move || train(i, threads, thread_tx, thread_rx, thread_base_net, thread_net, thread_full_test_set))
+            .stack_size(1048576 * 32)
+            .spawn(move || {
+                train(
+                    i,
+                    threads,
+                    max_test_set_id,
+                    thread_tx,
+                    thread_rx,
+                    thread_base_net,
+                    thread_input_gradients,
+                    thread_hidden_gradients,
+                    thread_full_test_set,
+                    thread_id_source,
+                )
+            })
             .expect("Could not spawn training thread");
     }
 }
 
 fn train(
-    thread_num: usize, thread_count: usize, tx: Sender<Result>, rx: Receiver<Command>,
-    base_net: Arc<RwLock<Box<Network>>>, net: Arc<RwLock<Box<Network>>>, full_test_set: Arc<Vec<DataSample>>,
+    thread_id: usize, thread_count: usize, max_test_set_id: usize, tx: Sender<Result>, rx: Receiver<Command>,
+    base_net: Arc<RwLock<Box<Network>>>, input_gradients: Arc<InputGradients>,
+    hidden_gradients: Arc<RwLock<HiddenGradients>>, full_test_set: Arc<Vec<DataSample>>,
+    id_source: Arc<RwLock<IDSource>>,
 ) {
-    let thread_test_size = TEST_BATCH_SIZE / thread_count;
-    let thread_train_size = BATCH_SIZE / thread_count;
+    let thread_test_set_size = full_test_set.len() / thread_count;
 
-    let thread_full_test_size = full_test_set.len() / thread_count;
+    let thread_test_set =
+        Vec::from(&full_test_set[(thread_id * thread_test_set_size)..((thread_id + 1) * thread_test_set_size)]);
 
-    let thread_full_test_set =
-        Vec::from(&full_test_set[(thread_num * thread_full_test_size)..((thread_num + 1) * thread_full_test_size)]);
-    let mut test_sub_set = Vec::new();
+    let thread_test_batch_size = thread_test_set_size / (max_test_set_id + 1);
 
     let mut rng = ThreadRng::default();
 
-    let mut samples = Vec::with_capacity(2 * POS_PER_SET);
-    let mut remaining_samples: &mut [DataSample] = &mut samples;
+    let sets_per_batch = id_source.read().unwrap().batch_id_count;
+    let batch_size = sets_per_batch * SAMPLES_PER_SET;
+    let mut training_samples = vec![DataSample::default(); batch_size];
 
-    let mut curr_subset_id = usize::MAX;
+    let mut shuffle_base = (0..batch_size).collect_vec();
+    shuffle_base.shuffle(&mut rng);
+
+    let mut shuffled_idx = Vec::new();
+
+    let mut white_ihidden_values = A32([0f32; HL_HALF_NODES]);
+    let mut black_ihidden_values = A32([0f32; HL_HALF_NODES]);
 
     loop {
-        match rx.recv().expect("Could not read training command") {
-            Command::Train => (),
+        let samples_per_thread = match rx.recv().expect("Could not read training command") {
+            Command::Train(samples) => samples,
 
-            Command::TrainNewInputs(ids) => {
-                samples.clear();
-                for &id in ids.iter() {
-                    read_samples(&mut samples, format!("{}/{}.lz4", LZ4_TRAINING_SET_PATH, id).as_str());
-                }
-                remaining_samples = &mut samples;
-            }
-
-            Command::UpdateNet => {
-                net.write().unwrap().copy_weights(base_net.read().unwrap().as_ref());
-                tx.send(Result::UpdateNet).expect("Could not send UpdateNet result");
+            Command::Reshuffle => {
+                shuffle_base.shuffle(&mut rng);
                 continue;
             }
 
-            Command::Test(subset) => {
-                let test_set = if let Some(subset_id) = subset {
-                    if subset_id != curr_subset_id {
-                        curr_subset_id = subset_id;
-                        let subset_start = curr_subset_id * TEST_BATCH_SIZE;
-                        test_sub_set = Vec::from(
-                            &full_test_set[(subset_start + thread_num * thread_test_size)
-                                ..(subset_start + (thread_num + 1) * thread_test_size)],
-                        );
+            Command::Test(scope) => {
+                let set_ids = match scope {
+                    Scope::Only(subset_id) => Vec::from([subset_id]),
+
+                    Scope::AllExcept(excluded_ids) => {
+                        (0..max_test_set_id).into_iter().filter(|id| !excluded_ids.contains(id)).collect_vec()
                     }
 
-                    &test_sub_set
-                } else {
-                    &thread_full_test_set
+                    Scope::Full => (0..max_test_set_id).into_iter().collect_vec(),
                 };
 
-                let curr_error = net
-                    .write()
-                    .map(|mut n| {
+                let (curr_error, count) = base_net
+                    .read()
+                    .map(|n| {
                         let mut curr_error = 0.;
-                        for sample in test_set.iter() {
-                            curr_error += n.test(sample) as f64;
+                        let mut count = 0;
+                        for &i in set_ids.iter() {
+                            for sample in
+                                thread_test_set.iter().skip(i * thread_test_batch_size).take(thread_test_batch_size)
+                            {
+                                curr_error += n.test(sample, &mut white_ihidden_values, &mut black_ihidden_values);
+                                count += 1;
+                            }
                         }
-                        curr_error /= test_set.len() as f64;
-                        curr_error
+                        (curr_error, count)
                     })
                     .expect("Could not lock for test");
 
-                tx.send(Result::Test(curr_error)).expect("Could not send Test result");
+                tx.send(Result::Test(curr_error, count)).expect("Could not send Test result");
                 continue;
+            }
+
+            Command::Stats => {
+                let set_ids = (0..max_test_set_id).into_iter().collect_vec();
+
+                let stats = base_net
+                    .read()
+                    .map(|n| {
+                        let mut curr_stats = NetworkStats::default();
+                        for &i in set_ids.iter() {
+                            for sample in
+                                thread_test_set.iter().skip(i * thread_test_batch_size).take(thread_test_batch_size)
+                            {
+                                curr_stats = curr_stats.max(&n.stats(
+                                    sample,
+                                    &mut white_ihidden_values,
+                                    &mut black_ihidden_values,
+                                ));
+                            }
+                        }
+                        curr_stats
+                    })
+                    .expect("Could not lock for test");
+
+                tx.send(Result::Stats(stats)).expect("Could not send Stats result");
+                continue;
+            }
+        };
+
+        if shuffled_idx.len() < samples_per_thread {
+            let sets = id_source.write().unwrap().next_batch(&mut rng);
+
+            shuffled_idx = shuffle_base.clone();
+
+            let mut start = 0;
+            for &id in sets.iter() {
+                read_samples(
+                    &mut training_samples,
+                    start,
+                    format!("{}/{}.lz4", LZ4_TRAINING_SET_PATH, id).as_str(),
+                    true,
+                    &shuffled_idx,
+                );
+                start += SAMPLES_PER_SET;
             }
         }
 
-        let (batch, remaining_samples2) = remaining_samples.partial_shuffle(&mut rng, thread_train_size as usize);
-        remaining_samples = remaining_samples2;
-
-        net.write()
-            .and_then(|mut n| {
-                n.reset_training_gradients();
-                for sample in batch.iter() {
-                    n.train(sample);
-                }
-                Ok(())
+        let train_err = base_net
+            .read()
+            .map(|n| {
+                hidden_gradients
+                    .write()
+                    .map(|mut hg| {
+                        let mut errors = 0f64;
+                        for idx in shuffled_idx.drain(shuffled_idx.len() - samples_per_thread..) {
+                            let error = n.train(
+                                &training_samples[idx],
+                                &input_gradients,
+                                &mut hg,
+                                &mut white_ihidden_values,
+                                &mut black_ihidden_values,
+                            );
+                            errors += error as f64;
+                        }
+                        errors
+                    })
+                    .expect("Could not lock hidden_gradients")
             })
-            .expect("Could not lock net in training thread");
+            .expect("Could not read base net in training thread");
 
-        let requires_input = remaining_samples.is_empty();
-        tx.send(Result::Train((batch.len(), requires_input))).expect("Could not send Train result");
+        tx.send(Result::Train(samples_per_thread, train_err)).expect("Could not send Train result");
     }
+}
+
+struct IDSource {
+    ids: Vec<usize>,
+    min_id: usize,
+    max_id: usize,
+    batch_id_count: usize,
+}
+
+impl IDSource {
+    pub fn new(rng: &mut dyn RngCore, min_id: usize, max_id: usize, batch_id_count: usize) -> Self {
+        IDSource { ids: shuffled_ids(rng, min_id, max_id), min_id, max_id, batch_id_count }
+    }
+
+    pub fn next_batch(&mut self, rng: &mut dyn RngCore) -> Vec<usize> {
+        if self.ids.len() < self.batch_id_count {
+            self.ids.append(&mut shuffled_ids(rng, self.min_id, self.max_id));
+        }
+        self.ids.drain(self.ids.len() - self.batch_id_count..).collect_vec()
+    }
+}
+
+fn shuffled_ids(rng: &mut dyn RngCore, min: usize, max: usize) -> Vec<usize> {
+    let mut ids = (min..=max).collect_vec();
+    ids.shuffle(rng);
+    ids
 }

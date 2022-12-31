@@ -36,17 +36,18 @@ pub const KING_BUCKETS: usize = 8;
 pub const INPUTS: usize = (bucket_size(Q) + bucket_size(R) + bucket_size(B) + bucket_size(P)) * KING_BUCKETS * 2;
 
 pub const HL_NODES: usize = 2 * HL_HALF_NODES;
-pub const HL_HALF_NODES: usize = 320;
+pub const HL_HALF_NODES: usize = 256;
 
 pub const INPUT_WEIGHT_COUNT: usize = INPUTS * HL_HALF_NODES;
 
 // Fixed point number precision
-pub const FP_HIDDEN_MULTIPLIER: i16 = 2476;
-pub const FP_INPUT_MULTIPLIER: i16 = 784;
+pub const FP_HIDDEN_MULTIPLIER: i16 = 1 << 13;
+pub const FP_INPUT_MULTIPLIER: i16 = 1 << 10;
 
 pub static mut INPUT_WEIGHTS: A32<[i16; INPUT_WEIGHT_COUNT]> = A32([0; INPUT_WEIGHT_COUNT]);
 pub static mut INPUT_BIASES: A32<[i16; HL_NODES]> = A32([0; HL_NODES]);
 pub static mut OUTPUT_WEIGHTS: A32<[i16; HL_NODES]> = A32([0; HL_NODES]);
+pub static mut OUTPUT_BIASES: A32<[i16; 1]> = A32([0; 1]);
 
 static INIT_NN_PARAMS: Once = Once::new();
 
@@ -76,6 +77,7 @@ pub fn init_nn_params() {
 
         read_quantized(&mut reader, unsafe { &mut INPUT_WEIGHTS.0 }).expect("Could not read input weights");
         read_quantized(&mut reader, unsafe { &mut INPUT_BIASES.0 }).expect("Could not read input biases");
-        read_quantized(&mut reader, unsafe { &mut OUTPUT_WEIGHTS.0 }).expect("Could not read output weights biases");
+        read_quantized(&mut reader, unsafe { &mut OUTPUT_WEIGHTS.0 }).expect("Could not read output weights");
+        read_quantized(&mut reader, unsafe { &mut OUTPUT_BIASES.0 }).expect("Could not read output biases");
     });
 }

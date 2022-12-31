@@ -21,80 +21,157 @@ use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use itertools::Itertools;
 use rand::distributions::{Distribution, Uniform};
 use rand::prelude::ThreadRng;
+use rayon::prelude::*;
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Error, ErrorKind, Write};
+use std::mem::MaybeUninit;
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use velvet::nn::io::{BitWriter, CodeBook};
 use velvet::nn::{HL_HALF_NODES, HL_NODES, INPUTS, INPUT_WEIGHT_COUNT};
 
 const BETA1: f64 = 0.9;
 const BETA2: f64 = 0.999;
 
-const WEIGHT_DECAY: f32 = 0.0001;
+const WEIGHT_DECAY: f64 = 0.001;
 
 const K: f64 = 1.603;
 const K_DIV: f64 = K / 400.0;
 
-const MAX_WEIGHT: f32 = 160.0 / (1 << 6) as f32;
-const MIN_WEIGHT: f32 = -MAX_WEIGHT;
+const MAX_WEIGHT_INPUTS: f32 = 240.0 / (1 << 6) as f32;
+const MIN_WEIGHT_INPUTS: f32 = -MAX_WEIGHT_INPUTS;
 
-const MIN_INPUT_WEIGHT: i32 = (MIN_WEIGHT * 1500000000.0) as i32;
-const MAX_INPUT_WEIGHT: i32 = (MAX_WEIGHT * 1500000000.0) as i32;
+const MAX_WEIGHT_HIDDEN: f32 = 160.0 / (1 << 6) as f32;
+const MIN_WEIGHT_HIDDEN: f32 = -MAX_WEIGHT_HIDDEN;
 
-const MIN_HIDDEN_WEIGHT: i32 = (MIN_WEIGHT * 1000000000.0) as i32;
-const MAX_HIDDEN_WEIGHT: i32 = (MAX_WEIGHT * 1000000000.0) as i32;
-
-#[derive(Copy, Clone)]
-struct Gradients<const N: usize, const MIN_W: i32, const MAX_W: i32> {
-    values: [f64; N],
-    momentums: [(f64, f64); N],
+pub struct InputGradients {
+    updated: [AtomicU32; INPUTS],
+    values: SharedGradients<INPUT_WEIGHT_COUNT>,
 }
 
-impl<const N: usize, const MIN_W: i32, const MAX_W: i32> Default for Gradients<N, MIN_W, MAX_W> {
+impl Default for InputGradients {
     fn default() -> Self {
-        Self { values: [0f64; N], momentums: [(0f64, 0f64); N] }
+        unsafe { MaybeUninit::zeroed().assume_init() }
     }
 }
 
-impl<const N: usize, const MIN_W: i32, const MAX_W: i32> Gradients<N, MIN_W, MAX_W> {
-    pub fn copy_from(&mut self, other: &Gradients<N, MIN_W, MAX_W>) {
-        self.values.copy_from_slice(&other.values);
-        self.momentums.copy_from_slice(&other.momentums);
+impl InputGradients {
+    pub fn mark_updated(&self, idx: usize) {
+        unsafe { self.updated.get_unchecked(idx) }.fetch_add(1, Ordering::Relaxed);
     }
 
-    pub fn add(&mut self, idx: usize, gradient: f32) {
-        *unsafe { self.values.get_unchecked_mut(idx) } += gradient as f64;
+    #[inline(always)]
+    pub fn add(&self, idx: usize, gradient: f32) {
+        self.values.add(idx, gradient);
+    }
+}
+
+#[derive(Default)]
+pub struct HiddenGradients {
+    iweights: Gradients<HL_NODES>,
+    ibias: Gradients<HL_NODES>,
+    output_bias: Gradients<1>,
+}
+
+impl HiddenGradients {
+    pub fn reset(&mut self) {
+        self.iweights.reset();
+        self.ibias.reset();
+        self.output_bias.reset();
     }
 
-    pub fn add_all(&mut self, other: &Gradients<N, MIN_W, MAX_W>) {
-        for i in 0..self.values.len() {
-            unsafe {
-                *self.values.get_unchecked_mut(i) += *other.values.get_unchecked(i);
-            }
+    pub fn add_all(&mut self, other: &HiddenGradients) {
+        self.iweights.add_all(&other.iweights);
+        self.ibias.add_all(&other.ibias);
+        self.output_bias.add_all(&other.output_bias);
+    }
+}
+
+struct SharedGradients<const N: usize>([AtomicU64; N]);
+
+impl<const N: usize> Default for SharedGradients<N> {
+    fn default() -> Self {
+        SharedGradients(unsafe { MaybeUninit::zeroed().assume_init() })
+    }
+}
+
+impl<const N: usize> SharedGradients<N> {
+    #[inline(always)]
+    pub fn add(&self, idx: usize, gradient: f32) {
+        let v: &AtomicU64 = unsafe { self.0.get_unchecked(idx) };
+
+        // Note: overall not an atomic operation!
+        let curr = v.load(Ordering::Relaxed);
+        let new = (f64::from_bits(curr) + gradient as f64).to_bits();
+        v.store(new, Ordering::Relaxed);
+    }
+}
+
+struct Gradients<const N: usize>([f64; N]);
+
+impl<const N: usize> Default for Gradients<N> {
+    fn default() -> Self {
+        Gradients(unsafe { MaybeUninit::zeroed().assume_init() })
+    }
+}
+
+impl<const N: usize> Gradients<N> {
+    #[inline(always)]
+    pub fn add(&mut self, idx: usize, gradient: f64) {
+        unsafe { *self.0.get_unchecked_mut(idx) += gradient };
+    }
+
+    pub fn reset(&mut self) {
+        self.0.fill(0f64);
+    }
+
+    pub fn add_all(&mut self, other: &Gradients<N>) {
+        for (s, o) in self.0.iter_mut().zip(other.0.iter()) {
+            *s += o;
         }
     }
+}
 
-    pub fn reset_values(&mut self) {
-        self.values.fill(0f64);
-    }
+#[inline(always)]
+pub fn update_weight_hidden(
+    weight: &mut f32, momentum: &mut (f64, f64), gradient: f64, lr: f64, iteration: usize, scale: f64,
+) {
+    let gradient = gradient * scale;
 
-    pub fn reset_momentums(&mut self) {
-        self.momentums.fill((0f64, 0f64));
-    }
+    momentum.0 = BETA1 * momentum.0 + (1.0 - BETA1) * gradient;
+    momentum.1 = BETA2 * momentum.1 + (1.0 - BETA2) * gradient * gradient;
 
-    pub fn update_weight(&mut self, idx: usize, weight: &mut f32, lr: f32, batch_size: usize, iteration: usize) {
-        let value = unsafe { self.values.get_unchecked(idx) };
+    let lr = lr * (1.0 - momentum.1.powi(iteration as i32).sqrt());
+    let delta = momentum.0 / (momentum.1.sqrt() + f64::EPSILON);
+    *weight -= (lr * (delta + WEIGHT_DECAY * *weight as f64)) as f32;
+    *weight = weight.clamp(MIN_WEIGHT_HIDDEN, MAX_WEIGHT_HIDDEN);
+}
 
-        let momentum = unsafe { self.momentums.get_unchecked_mut(idx) };
+#[inline(always)]
+pub fn update_weight_input(
+    weight: &mut f32, momentum: &mut (f64, f64), gradient: &AtomicU64, lr: f64, iteration: usize, scale: f64,
+) {
+    let gradient = f64::from_bits(gradient.load(Ordering::Relaxed)) * scale;
 
-        let gradient = *value / batch_size as f64;
-        momentum.0 = BETA1 * momentum.0 + (1.0 - BETA1) * gradient;
-        momentum.1 = BETA2 * momentum.1 + (1.0 - BETA2) * gradient * gradient;
+    momentum.0 = BETA1 * momentum.0 + (1.0 - BETA1) * gradient;
+    momentum.1 = BETA2 * momentum.1 + (1.0 - BETA2) * gradient * gradient;
 
-        let lr = (lr as f64 * (1.0 - momentum.1.powi(iteration as i32).sqrt())) as f32;
-        let delta = (momentum.0 / (momentum.1.sqrt() + f64::EPSILON)) as f32;
-        *weight -= lr * (delta + WEIGHT_DECAY * *weight);
-        *weight = weight.clamp((MIN_W as f32) / 1000000000.0, (MAX_W as f32) / 1000000000.0);
+    let lr = lr * (1.0 - momentum.1.powi(iteration as i32).sqrt());
+    let delta = momentum.0 / (momentum.1.sqrt() + f64::EPSILON);
+    *weight -= (lr * (delta + WEIGHT_DECAY * *weight as f64)) as f32;
+    *weight = weight.clamp(MIN_WEIGHT_INPUTS, MAX_WEIGHT_INPUTS);
+}
+
+pub struct NetMomentums {
+    input_weights: [(f64, f64); INPUT_WEIGHT_COUNT],
+    ihidden_bias: [(f64, f64); HL_NODES],
+    ihidden_weights: [(f64, f64); HL_NODES],
+    output_bias: (f64, f64),
+}
+
+impl NetMomentums {
+    pub fn new() -> Box<Self> {
+        Box::new(unsafe { MaybeUninit::zeroed().assume_init() })
     }
 }
 
@@ -102,188 +179,331 @@ impl<const N: usize, const MIN_W: i32, const MAX_W: i32> Gradients<N, MIN_W, MAX
 #[repr(align(32))]
 pub struct A32<T>(pub T); // Wrapper to ensure 32 Byte alignment of the wrapped type (e.g. for SIMD load/store instructions)
 
-#[derive(Copy, Clone)]
-pub struct Network {
-    g: NetGradients,
-    w: NetWeights,
-    white_hidden_values: A32<[f32; HL_HALF_NODES]>,
-    black_hidden_values: A32<[f32; HL_HALF_NODES]>,
+#[derive(Copy, Clone, Debug, Default)]
+pub struct NetworkStats {
+    input_max: f32,
+    hidden_max: f32,
+    output_max: f32,
 }
 
-#[derive(Copy, Clone)]
-struct NetGradients {
-    input_weight_gradients: Gradients<INPUT_WEIGHT_COUNT, MIN_INPUT_WEIGHT, MAX_INPUT_WEIGHT>,
-    hidden_bias_gradients: Gradients<HL_NODES, MIN_INPUT_WEIGHT, MAX_INPUT_WEIGHT>,
-    hidden_weight_gradients: Gradients<HL_NODES, MIN_HIDDEN_WEIGHT, MAX_HIDDEN_WEIGHT>,
+impl NetworkStats {
+    pub fn max(self, other: &NetworkStats) -> NetworkStats {
+        NetworkStats {
+            input_max: self.input_max.max(other.input_max),
+            hidden_max: self.hidden_max.max(other.hidden_max),
+            output_max: self.output_max.max(other.output_max),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct Network {
+    w: NetWeights,
 }
 
 #[derive(Copy, Clone)]
 struct NetWeights {
     input_weights: A32<[f32; INPUT_WEIGHT_COUNT]>,
-    hidden_biases: A32<[f32; HL_NODES]>,
-    hidden_weights: A32<[f32; HL_NODES]>,
+    ihidden_biases: A32<[f32; HL_NODES]>,
+    ihidden_weights: A32<[f32; HL_NODES]>,
+    output_bias: f32,
 }
 
 impl Network {
     pub fn new() -> Box<Network> {
-        let mut nn = unsafe {
-            let layout = std::alloc::Layout::new::<Network>();
-            let ptr = std::alloc::alloc_zeroed(layout) as *mut Network;
-            Box::from_raw(ptr)
-        };
+        let mut nn: Box<Network> = Box::new(unsafe { MaybeUninit::zeroed().assume_init() });
 
-        init_randomly(&mut nn.w.input_weights.0, INPUTS as usize);
-        init_randomly(&mut nn.w.hidden_weights.0, HL_HALF_NODES as usize);
+        init_randomly(&mut nn.w.input_weights.0, INPUTS);
+        init_randomly(&mut nn.w.ihidden_weights.0, HL_HALF_NODES);
 
         nn
     }
 
-    pub fn copy(&mut self, other: &Self) {
-        self.g.input_weight_gradients.copy_from(&other.g.input_weight_gradients);
-        self.w.input_weights.0.copy_from_slice(&other.w.input_weights.0);
-
-        self.w.hidden_weights.0.copy_from_slice(&other.w.hidden_weights.0);
-        self.w.hidden_biases.0.copy_from_slice(&other.w.hidden_biases.0);
-        self.g.hidden_weight_gradients.copy_from(&other.g.hidden_weight_gradients);
-    }
-
     pub fn copy_weights(&mut self, other: &Network) {
         self.w.input_weights.0.copy_from_slice(&other.w.input_weights.0);
-        self.w.hidden_weights.0.copy_from_slice(&other.w.hidden_weights.0);
-        self.w.hidden_biases.0.copy_from_slice(&other.w.hidden_biases.0);
+        self.w.ihidden_weights.0.copy_from_slice(&other.w.ihidden_weights.0);
+        self.w.ihidden_biases.0.copy_from_slice(&other.w.ihidden_biases.0);
+        self.w.output_bias = other.w.output_bias;
     }
 
-    pub fn reset_training_gradients(&mut self) {
-        self.g.hidden_bias_gradients.reset_values();
-        self.g.hidden_weight_gradients.reset_values();
-        self.g.input_weight_gradients.reset_values();
+    pub fn quantize(&mut self, input_scale: i16, hidden_scale: i16) {
+        for w in self.w.input_weights.0.iter_mut() {
+            *w = (((*w as f64 * input_scale as f64) as i32) as f64 / input_scale as f64) as f32;
+        }
+
+        for w in self.w.ihidden_weights.0.iter_mut() {
+            *w = (((*w as f64 * hidden_scale as f64) as i32) as f64 / hidden_scale as f64) as f32;
+        }
+
+        for w in self.w.ihidden_biases.0.iter_mut() {
+            *w = (((*w as f64 * input_scale as f64) as i32) as f64 / input_scale as f64) as f32;
+        }
+
+        self.w.output_bias =
+            (((self.w.output_bias as f64 * hidden_scale as f64) as i32) as f64 / hidden_scale as f64) as f32;
     }
 
-    pub fn reset_momentums(&mut self) {
-        self.g.hidden_bias_gradients.reset_momentums();
-        self.g.hidden_weight_gradients.reset_momentums();
-        self.g.input_weight_gradients.reset_momentums();
+    pub fn zero_check(&self, input_scale: i16, hidden_scale: i16) {
+        let mut zero_count = 0;
+        for w in self.w.input_weights.0.iter() {
+            if ((*w as f64 * input_scale as f64) as i32) == 0 {
+                zero_count += 1;
+            }
+        }
+        println!("Input weights: {:2.8}%", zero_count as f64 * 100.0 / self.w.input_weights.0.len() as f64);
+
+        let mut zero_count = 0;
+        for w in self.w.ihidden_weights.0.iter() {
+            if ((*w as f64 * hidden_scale as f64) as i32) == 0 {
+                zero_count += 1;
+            }
+        }
+        println!("Hidden weights: {:2.8}%", zero_count as f64 * 100.0 / self.w.ihidden_weights.0.len() as f64);
     }
 
-    pub fn add_gradients(&mut self, other: &Network) {
-        self.g.input_weight_gradients.add_all(&other.g.input_weight_gradients);
-        self.g.hidden_weight_gradients.add_all(&other.g.hidden_weight_gradients);
-        self.g.hidden_bias_gradients.add_all(&other.g.hidden_bias_gradients);
-    }
-
-    pub fn train(&mut self, sample: &DataSample) {
+    pub fn train(
+        &self, sample: &DataSample, input_gradients: &InputGradients, hidden_gradients: &mut HiddenGradients,
+        white_ihidden_values: &mut A32<[f32; HL_HALF_NODES]>, black_ihidden_values: &mut A32<[f32; HL_HALF_NODES]>,
+    ) -> f32 {
         // Forward pass
-        let out = self.forward(sample);
+        let out = sigmoid(self.forward(sample, white_ihidden_values, black_ihidden_values), 2048.0 * K_DIV);
 
         // Gradient calculation
-        let out_error = sigmoid(out, 2048.0 * K_DIV);
-        let train_error = sigmoid(sample.result, 2048.0 * K_DIV);
-        let out_delta = (out_error - train_error) * out_error * (1.0 - out_error) * 2048.0 * K_DIV as f32;
+        let train = sigmoid(sample.result, 2048.0 * K_DIV);
 
-        // Backward pass
-        let (own_hidden_values, opp_hidden_values) = if sample.wtm {
-            (&self.white_hidden_values.0, &self.black_hidden_values.0)
+        let out_error = (out - train).powi(2);
+        let out_delta = (out - train) * out * (1.0 - out) * 2048.0 * K_DIV as f32; // Can * 2048 * K_DIV be removed?
+
+        hidden_gradients.output_bias.add(0, out_delta as f64);
+
+        let (own_inputs, own_hidden_values, opp_inputs, opp_hidden_values) = if sample.wtm {
+            (&sample.wpov_inputs, &mut white_ihidden_values.0, &sample.bpov_inputs, &mut black_ihidden_values.0)
         } else {
-            (&self.black_hidden_values.0, &self.white_hidden_values.0)
+            (&sample.bpov_inputs, &mut black_ihidden_values.0, &sample.wpov_inputs, &mut white_ihidden_values.0)
         };
 
-        for (i, hidden_value) in own_hidden_values.iter().chain(opp_hidden_values).enumerate() {
-            let delta = out_delta * relu_deriv(*hidden_value);
-            self.g.hidden_weight_gradients.add(i, delta);
-        }
+        let prev_delta = out_delta;
 
-        for (i, (hidden_value, hidden_weight)) in
-            own_hidden_values.iter().chain(opp_hidden_values).zip(self.w.hidden_weights.0.iter()).enumerate()
-        {
-            let delta = out_delta * relu_deriv(*hidden_value) * *hidden_weight;
-            self.g.hidden_bias_gradients.add(i, delta);
-        }
+        // STM
+        let own_deltas = own_hidden_values
+            .iter()
+            .zip(hidden_gradients.iweights.0.iter_mut().take(HL_HALF_NODES))
+            .zip(hidden_gradients.ibias.0.iter_mut().take(HL_HALF_NODES))
+            .zip(self.w.ihidden_weights.0.iter().take(HL_HALF_NODES))
+            .map(|(((v, g), b), w)| {
+                *g += prev_delta as f64 * *v as f64;
+                let delta = prev_delta * *w * relu_deriv(*v);
+                *b += delta as f64;
+                delta
+            })
+            .collect_vec();
+
+        // non-STM
+        let opp_deltas = opp_hidden_values
+            .iter()
+            .zip(hidden_gradients.iweights.0.iter_mut().skip(HL_HALF_NODES).take(HL_HALF_NODES))
+            .zip(hidden_gradients.ibias.0.iter_mut().skip(HL_HALF_NODES).take(HL_HALF_NODES))
+            .zip(self.w.ihidden_weights.0.iter().skip(HL_HALF_NODES).take(HL_HALF_NODES))
+            .map(|(((v, g), b), w)| {
+                *g += prev_delta as f64 * *v as f64;
+                let delta = prev_delta * *w * relu_deriv(*v);
+                *b += delta as f64;
+                delta
+            })
+            .collect_vec();
 
         // Input Layer weights
-        let (white_hidden_weights, black_hidden_weights) = if sample.wtm {
-            (&self.w.hidden_weights.0[0..HL_HALF_NODES], &self.w.hidden_weights.0[HL_HALF_NODES..])
-        } else {
-            (&self.w.hidden_weights.0[HL_HALF_NODES..], &self.w.hidden_weights.0[0..HL_HALF_NODES])
-        };
-
-        for i in sample.wpov_inputs.iter() {
-            let weight_offset = *i as usize * HL_HALF_NODES;
-
-            for (n, (hidden_value, hidden_weight)) in
-                self.white_hidden_values.0.iter().zip(white_hidden_weights.iter()).enumerate()
-            {
-                let delta = out_delta * relu_deriv(*hidden_value) * *hidden_weight;
-                self.g.input_weight_gradients.add(weight_offset + n, delta);
+        for &i in own_inputs.iter() {
+            input_gradients.mark_updated(i as usize);
+            let offset = i as usize * HL_HALF_NODES;
+            for j in 0..HL_HALF_NODES {
+                let delta = unsafe { *own_deltas.get_unchecked(j) };
+                input_gradients.add(offset + j, delta);
             }
         }
-        for i in sample.bpov_inputs.iter() {
-            let weight_offset = *i as usize * HL_HALF_NODES;
 
-            for (n, (hidden_value, hidden_weight)) in
-                self.black_hidden_values.0.iter().zip(black_hidden_weights.iter()).enumerate()
-            {
-                let delta = out_delta * relu_deriv(*hidden_value) * *hidden_weight;
-                self.g.input_weight_gradients.add(weight_offset + n, delta);
+        for &i in opp_inputs.iter() {
+            input_gradients.mark_updated(i as usize);
+            let offset = i as usize * HL_HALF_NODES;
+            for j in 0..HL_HALF_NODES {
+                let delta = unsafe { *opp_deltas.get_unchecked(j) };
+                input_gradients.add(offset + j, delta);
             }
         }
+
+        out_error
     }
 
-    pub fn update_weights(&mut self, lr: f32, batch_size: usize, iteration: usize) {
-        for (i, weight) in self.w.input_weights.0.iter_mut().enumerate() {
-            self.g.input_weight_gradients.update_weight(i, weight, lr, batch_size, iteration);
-        }
+    #[inline(always)]
+    pub fn update_weights(
+        &mut self, input_gradients: &InputGradients, hidden_gradients: &HiddenGradients, momentums: &mut NetMomentums,
+        lr: f64, iteration: usize, samples: u32,
+    ) {
+        let scale = 1.0 / samples as f64;
+        self.w
+            .input_weights
+            .0
+            .par_chunks_exact_mut(HL_HALF_NODES)
+            .zip(momentums.input_weights.par_chunks_exact_mut(HL_HALF_NODES))
+            .zip(input_gradients.values.0.par_chunks_exact(HL_HALF_NODES))
+            .zip(input_gradients.updated.par_iter())
+            .filter(|((_, _), updated)| updated.load(Ordering::Relaxed) > 0)
+            .for_each(|(((w, m), g), updated)| {
+                let c = updated.load(Ordering::Relaxed);
+                let scale = 1.0 / c as f64;
+                updated.store(0, Ordering::Relaxed);
+                for ((w, m), g) in w.iter_mut().zip(m.iter_mut()).zip(g.iter()) {
+                    update_weight_input(w, m, g, lr, iteration, scale);
+                    g.store(0, Ordering::Relaxed);
+                }
+            });
 
-        for (i, weight) in self.w.hidden_weights.0.iter_mut().enumerate() {
-            self.g.hidden_weight_gradients.update_weight(i, weight, lr, batch_size, iteration);
-        }
+        self.w
+            .ihidden_weights
+            .0
+            .iter_mut()
+            .zip(momentums.ihidden_weights.iter_mut())
+            .zip(hidden_gradients.iweights.0.iter())
+            .for_each(|((w, m), &g)| {
+                update_weight_hidden(w, m, g, lr, iteration, scale);
+            });
 
-        for (i, bias) in self.w.hidden_biases.0.iter_mut().enumerate() {
-            self.g.hidden_bias_gradients.update_weight(i, bias, lr, batch_size, iteration);
-        }
+        self.w
+            .ihidden_biases
+            .0
+            .iter_mut()
+            .zip(momentums.ihidden_bias.iter_mut())
+            .zip(hidden_gradients.ibias.0.iter())
+            .for_each(|((w, m), &g)| {
+                update_weight_hidden(w, m, g, lr, iteration, scale);
+            });
+
+        update_weight_hidden(
+            &mut self.w.output_bias,
+            &mut momentums.output_bias,
+            hidden_gradients.output_bias.0[0],
+            lr,
+            iteration,
+            scale,
+        );
     }
 
-    pub fn test(&mut self, sample: &DataSample) -> f32 {
+    pub fn test(
+        &self, sample: &DataSample, white_hidden_values: &mut A32<[f32; HL_HALF_NODES]>,
+        black_hidden_values: &mut A32<[f32; HL_HALF_NODES]>,
+    ) -> f64 {
         // Error calculation
-        let out = self.forward(sample);
-        (sigmoid(sample.result, 2048.0 * K_DIV) - sigmoid(out, 2048.0 * K_DIV)).powi(2)
+        let out = self.forward(sample, white_hidden_values, black_hidden_values);
+        ((sigmoid(sample.result, 2048.0 * K_DIV) - sigmoid(out, 2048.0 * K_DIV)) as f64).powi(2)
     }
 
-    fn forward(&mut self, sample: &DataSample) -> f32 {
+    pub fn stats(
+        &self, sample: &DataSample, white_hidden_values: &mut A32<[f32; HL_HALF_NODES]>,
+        black_hidden_values: &mut A32<[f32; HL_HALF_NODES]>,
+    ) -> NetworkStats {
+        let mut stats = NetworkStats::default();
+
         let (own_inputs, own_hidden_values, opp_inputs, opp_hidden_values) = if sample.wtm {
-            (&sample.wpov_inputs, &mut self.white_hidden_values.0, &sample.bpov_inputs, &mut self.black_hidden_values.0)
+            (&sample.wpov_inputs, &mut white_hidden_values.0, &sample.bpov_inputs, &mut black_hidden_values.0)
         } else {
-            (&sample.bpov_inputs, &mut self.black_hidden_values.0, &sample.wpov_inputs, &mut self.white_hidden_values.0)
+            (&sample.bpov_inputs, &mut black_hidden_values.0, &sample.wpov_inputs, &mut white_hidden_values.0)
         };
 
-        own_hidden_values.copy_from_slice(&self.w.hidden_biases.0[0..HL_HALF_NODES]);
-        opp_hidden_values.copy_from_slice(&self.w.hidden_biases.0[HL_HALF_NODES..]);
-
+        own_hidden_values.copy_from_slice(&self.w.ihidden_biases.0[0..HL_HALF_NODES]);
         for i in own_inputs.iter() {
-            let weight_offset = *i as usize * HL_HALF_NODES;
-            for (n, hidden_node) in own_hidden_values.iter_mut().enumerate() {
-                *hidden_node += unsafe { *self.w.input_weights.0.get_unchecked(weight_offset + n) };
+            let mut weight_offset = *i as usize * HL_HALF_NODES;
+            for hidden_node in own_hidden_values.iter_mut() {
+                *hidden_node += unsafe { *self.w.input_weights.0.get_unchecked(weight_offset) };
+                weight_offset += 1;
+                stats.input_max = stats.input_max.max(hidden_node.abs());
+            }
+        }
+        for hidden_node in own_hidden_values.iter_mut() {
+            stats.input_max = stats.input_max.max(hidden_node.abs());
+            *hidden_node = relu(*hidden_node);
+        }
+
+        opp_hidden_values.copy_from_slice(&self.w.ihidden_biases.0[HL_HALF_NODES..]);
+        for i in opp_inputs.iter() {
+            let mut weight_offset = *i as usize * HL_HALF_NODES;
+            for hidden_node in opp_hidden_values.iter_mut() {
+                *hidden_node += unsafe { *self.w.input_weights.0.get_unchecked(weight_offset) };
+                weight_offset += 1;
+                stats.input_max = stats.input_max.max(hidden_node.abs());
+            }
+        }
+        for hidden_node in opp_hidden_values.iter_mut() {
+            stats.input_max = stats.input_max.max(hidden_node.abs());
+            *hidden_node = relu(*hidden_node);
+        }
+
+        let mut own_acc: f32 = 0.;
+        for (v, w) in own_hidden_values.iter().zip(self.w.ihidden_weights.0.iter().take(HL_HALF_NODES)) {
+            own_acc += v * w;
+            stats.hidden_max = stats.hidden_max.max(own_acc.abs());
+        }
+        stats.hidden_max = stats.hidden_max.max(own_acc.abs());
+
+        let mut opp_acc: f32 = 0.;
+        for (v, w) in
+            opp_hidden_values.iter().zip(self.w.ihidden_weights.0.iter().skip(HL_HALF_NODES).take(HL_HALF_NODES))
+        {
+            opp_acc += v * w;
+            stats.hidden_max = stats.hidden_max.max(opp_acc.abs());
+        }
+        stats.hidden_max = stats.hidden_max.max(opp_acc.abs());
+
+        let output = own_acc + opp_acc + self.w.output_bias;
+        stats.output_max = output;
+        stats
+    }
+
+    fn forward(
+        &self, sample: &DataSample, white_hidden_values: &mut A32<[f32; HL_HALF_NODES]>,
+        black_hidden_values: &mut A32<[f32; HL_HALF_NODES]>,
+    ) -> f32 {
+        let (own_inputs, own_hidden_values, opp_inputs, opp_hidden_values) = if sample.wtm {
+            (&sample.wpov_inputs, &mut white_hidden_values.0, &sample.bpov_inputs, &mut black_hidden_values.0)
+        } else {
+            (&sample.bpov_inputs, &mut black_hidden_values.0, &sample.wpov_inputs, &mut white_hidden_values.0)
+        };
+
+        own_hidden_values.copy_from_slice(&self.w.ihidden_biases.0[0..HL_HALF_NODES]);
+        for i in own_inputs.iter() {
+            let mut weight_offset = *i as usize * HL_HALF_NODES;
+            for hidden_node in own_hidden_values.iter_mut() {
+                *hidden_node += unsafe { *self.w.input_weights.0.get_unchecked(weight_offset) };
+                weight_offset += 1;
             }
         }
         for hidden_node in own_hidden_values.iter_mut() {
             *hidden_node = relu(*hidden_node);
         }
 
+        opp_hidden_values.copy_from_slice(&self.w.ihidden_biases.0[HL_HALF_NODES..]);
         for i in opp_inputs.iter() {
-            let weight_offset = *i as usize * HL_HALF_NODES;
-            for (n, hidden_node) in opp_hidden_values.iter_mut().enumerate() {
-                *hidden_node += unsafe { *self.w.input_weights.0.get_unchecked(weight_offset + n) };
+            let mut weight_offset = *i as usize * HL_HALF_NODES;
+            for hidden_node in opp_hidden_values.iter_mut() {
+                *hidden_node += unsafe { *self.w.input_weights.0.get_unchecked(weight_offset) };
+                weight_offset += 1;
             }
         }
         for hidden_node in opp_hidden_values.iter_mut() {
             *hidden_node = relu(*hidden_node);
         }
 
-        own_hidden_values
+        let own_acc = own_hidden_values
             .iter()
-            .chain(opp_hidden_values.iter())
-            .zip(self.w.hidden_weights.0.iter())
-            .map(|(v, w)| *v * *w)
-            .sum::<f32>()
+            .zip(self.w.ihidden_weights.0.iter().take(HL_HALF_NODES))
+            .map(|(&v, &w)| v * w)
+            .sum::<f32>();
+        let opp_acc = opp_hidden_values
+            .iter()
+            .zip(self.w.ihidden_weights.0.iter().skip(HL_HALF_NODES).take(HL_HALF_NODES))
+            .map(|(&v, &w)| v * w)
+            .sum::<f32>();
+
+        own_acc + opp_acc + self.w.output_bias
     }
 
     pub fn save_raw(&self, id: &str) {
@@ -294,15 +514,54 @@ impl Network {
 
         writer.write_i8(1).unwrap(); // Number of hidden layers
 
-        write_layer(&mut writer, &self.w.input_weights.0, &self.w.hidden_biases.0).expect("Could not write layer");
-
-        write_layer(&mut writer, &self.w.hidden_weights.0, &[0f32]).expect("Could not write layer");
+        write_layer(&mut writer, &self.w.input_weights.0, &self.w.ihidden_biases.0).expect("Could not write layer");
+        write_layer(&mut writer, &self.w.ihidden_weights.0, &[self.w.output_bias]).expect("Could not write layer");
     }
 
-    pub fn save_quantized(&self, net_id: &str) {
-        let in_file = &format!("./data/nets/velvet_{}.nn", net_id);
-        let out_file = &format!("./data/nets/velvet_{}.qnn", net_id);
+    pub fn save_quantized(&self, stats: &NetworkStats) -> (i16, i16) {
+        let out_file = &format!("./data/nets/velvet_{}.qnn", "final");
 
+        let input_weights = &self.w.input_weights.0;
+        let input_biases = &self.w.ihidden_biases.0;
+
+        let max_input_weight = input_weights.iter().max_by(|a, b| b.abs().partial_cmp(&a.abs()).unwrap()).unwrap();
+        let max_input_bias = input_biases.iter().max_by(|a, b| b.abs().partial_cmp(&a.abs()).unwrap()).unwrap();
+
+        let input_bound = max_input_weight.max(*max_input_bias).max(stats.input_max);
+        let input_precision_bits = 15 - ((32767.0 / input_bound) as i16 | 1).leading_zeros();
+        println!("Input weights precision bits: {}", input_precision_bits);
+
+        let hidden_weights = &self.w.ihidden_weights.0;
+        let max_hidden_weight = hidden_weights.iter().max_by(|a, b| b.abs().partial_cmp(&a.abs()).unwrap()).unwrap();
+        let max_hidden_bias = &self.w.output_bias;
+
+        let hidden_bound = max_hidden_weight.max(*max_hidden_bias).max(stats.hidden_max);
+        let hidden_precision_bits = 15 - ((32767.0 / hidden_bound) as i16 | 1).leading_zeros();
+        println!("Hidden weights precision bits: {}", hidden_precision_bits);
+
+        let file = File::create(out_file).expect("Could not create output file");
+        let mut writer = BufWriter::new(file);
+
+        let input_scale = 1 << input_precision_bits;
+        let hidden_scale = 1 << hidden_precision_bits;
+        // let input_multiplier = (32767.0 / bound) as i16;
+        writer.write_i16::<LittleEndian>(input_scale).unwrap();
+        writer.write_i16::<LittleEndian>(hidden_scale).unwrap();
+
+        write_quantized(&mut writer, input_scale, input_weights).expect("Could not write quantized input weights");
+        write_quantized(&mut writer, input_scale, input_biases).expect("Could not write quantized input biases");
+
+        write_quantized(&mut writer, hidden_scale, hidden_weights)
+            .expect("Could not write quantized hidden layer weights");
+        write_quantized(&mut writer, hidden_scale, &[self.w.output_bias])
+            .expect("Could not write quantized hidden layer biases");
+
+        writer.write_i16::<LittleEndian>(0).expect("Could not write quantized hidden bias");
+
+        (input_scale, hidden_scale)
+    }
+
+    pub fn init_from_base_file(&mut self, in_file: &String) {
         let file = File::open(in_file).unwrap_or_else(|_| panic!("Could not open NN file: {}", in_file));
         let mut reader = BufReader::new(file);
 
@@ -311,80 +570,10 @@ impl Network {
         let input = read_layer(&mut reader).expect("could not read NN input layer");
         let hidden = read_layer(&mut reader).expect("could not read NN hidden layer");
 
-        // Weights grouped by hidden layer target node
-        let mut input_weights = Vec::with_capacity(input.weights.len());
-        for i in 0..INPUTS {
-            input.weights.iter().skip(i).step_by(INPUTS).for_each(|&w| input_weights.push(w));
-        }
-
-        let mut max_sum = f32::MIN;
-        let mut min_sum = f32::MAX;
-
-        let min_bias = input.biases.iter().min_by(|a, b| b.partial_cmp(a).unwrap()).unwrap();
-        let max_bias = input.biases.iter().max_by(|a, b| b.partial_cmp(a).unwrap()).unwrap();
-
-        for weights in input_weights.chunks(HL_HALF_NODES) {
-            let max_combo_sum =
-                weights.iter().sorted_by(|a, b| b.partial_cmp(a).unwrap()).take(32).sum::<f32>() + max_bias;
-            let min_combo_sum =
-                weights.iter().sorted_by(|a, b| b.partial_cmp(a).unwrap()).rev().take(32).sum::<f32>() + min_bias;
-
-            min_sum = min_sum.min(min_combo_sum);
-            max_sum = max_sum.max(max_combo_sum);
-        }
-
-        println!("Min Combined Input Weight: {}, max combined input weight: {}", min_sum, max_sum);
-
-        let bound = if -min_sum > max_sum { -min_sum } else { max_sum };
-
-        let precision_bits = 15 - ((32767.0 / bound) as i16 | 1).leading_zeros();
-        println!("Input weights precision bits: {}", precision_bits);
-
-        let max_weight = *input_weights.iter().max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap();
-        let min_weight = *input_weights.iter().min_by(|a, b| a.partial_cmp(b).unwrap()).unwrap();
-
-        println!("Input Weight: min: {}, max: {}", min_weight, max_weight);
-        println!("Input Biases: min: {}, max: {}", min_bias, max_bias);
-
-        let hidden_weight_lb = hidden.weights.iter().sorted_by(|a, b| a.partial_cmp(b).unwrap()).take(8).sum::<f32>();
-        let hidden_weight_ub = hidden.weights.iter().sorted_by(|a, b| b.partial_cmp(a).unwrap()).take(8).sum::<f32>();
-
-        let hidden_bound = (hidden_weight_ub as f64
-            * max_weight as f64
-            * (HL_HALF_NODES as f64 * 2.0)
-            * ((1 << precision_bits) as f64))
-            .max(
-                hidden_weight_lb as f64
-                    * min_weight as f64
-                    * (HL_HALF_NODES as f64 * 2.0)
-                    * ((1 << precision_bits) as f64),
-            );
-        println!("Hidden bound: {}", hidden_bound);
-        let hidden_multiplier = (i32::MAX as f64 / hidden_bound) as i16;
-        println!("Hidden bound multiplier: {}", hidden_multiplier);
-
-        let file = File::create(out_file).expect("Could not create output file");
-        let mut writer = BufWriter::new(file);
-
-        let input_multiplier = (32767.0 / bound) as i16;
-        println!("Input weight multiplier: {}", input_multiplier);
-        writer.write_i16::<LittleEndian>(input_multiplier).unwrap();
-
-        println!("Hidden multiplier: {}", hidden_multiplier);
-        writer.write_i16::<LittleEndian>(hidden_multiplier).unwrap();
-
-        print!("Input weights: ");
-        write_quantized(&mut writer, 1 << precision_bits, input.weights)
-            .expect("Could not write quantized input weights");
-        print!("Input biases: ");
-        write_quantized(&mut writer, 1 << precision_bits, input.biases)
-            .expect("Could not write quantized input biases");
-
-        print!("Hidden weights: ");
-        write_quantized(&mut writer, hidden_multiplier, hidden.weights)
-            .expect("Could not write quantized hidden layer weights");
-
-        writer.write_i16::<LittleEndian>(0).expect("Could not write quantized hidden bias");
+        self.w.input_weights.0.copy_from_slice(&input.weights);
+        self.w.ihidden_biases.0.copy_from_slice(&input.biases);
+        self.w.ihidden_weights.0.copy_from_slice(&hidden.weights);
+        self.w.output_bias = hidden.biases[0];
     }
 }
 
@@ -451,7 +640,7 @@ fn read_layer(reader: &mut BufReader<File>) -> Result<Layer, Error> {
     Ok(Layer { weights, biases })
 }
 
-fn write_quantized(writer: &mut dyn Write, multiplier: i16, values: Vec<f32>) -> Result<(), Error> {
+fn write_quantized(writer: &mut dyn Write, multiplier: i16, values: &[f32]) -> Result<(), Error> {
     writer.write_u32::<LittleEndian>(values.len() as u32)?;
 
     let values = values.iter().map(|v| (v * multiplier as f32) as i16).collect_vec();
@@ -508,14 +697,17 @@ fn find_zero_repetitions(curr_value: i16, values: &[i16]) -> Option<u16> {
     }
 }
 
+#[inline(always)]
 fn sigmoid(v: f32, scale: f64) -> f32 {
     1.0 / (1.0 + (-v as f64 * scale).exp()) as f32
 }
 
+#[inline(always)]
 fn relu(v: f32) -> f32 {
     v.max(0.0)
 }
 
+#[inline(always)]
 fn relu_deriv(v: f32) -> f32 {
     if v > 0.0 {
         1.0
@@ -525,7 +717,7 @@ fn relu_deriv(v: f32) -> f32 {
 }
 
 fn init_randomly(weights: &mut [f32], nodes: usize) {
-    let range = (1.0 / (nodes as f32).sqrt()).min(MAX_WEIGHT);
+    let range = (1.55 / nodes as f32).sqrt();
     let distribution = Uniform::from(-range..range);
     let mut rng = ThreadRng::default();
 

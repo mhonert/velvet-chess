@@ -19,9 +19,8 @@
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use itertools::Itertools;
 use lz4_flex::frame::FrameEncoder;
-use std::cmp::{max, min};
+use std::cmp::min;
 use std::fs::File;
-use std::intrinsics::transmute;
 use std::io::{stdout, BufRead, BufReader, BufWriter, Error, Write};
 use std::path::Path;
 use std::str::FromStr;
@@ -30,11 +29,11 @@ use velvet::bitboard::{v_mirror, v_mirror_u16, BitBoard};
 use velvet::colors::Color;
 use velvet::fen::{parse_fen, FenParseResult};
 use velvet::nn::{bucket_size, piece_idx, INPUTS, KING_BUCKETS};
-use velvet::pieces::{B, N, P, Q, R};
+use velvet::pieces::{B, P, Q, R};
 
-pub const POS_PER_SET: usize = 200_000;
+pub const SAMPLES_PER_SET: usize = 200_000;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct DataSample {
     pub wpov_inputs: Vec<u16>,
     pub bpov_inputs: Vec<u16>,
@@ -42,34 +41,32 @@ pub struct DataSample {
     pub wtm: bool,
 }
 
-pub fn convert_sets(
-    thread_count: usize, caption: &str, in_path: &str, out_path: &str, min_id: usize, use_game_result: bool,
-) -> usize {
+impl Default for DataSample {
+    fn default() -> Self {
+        DataSample { wpov_inputs: Vec::with_capacity(32), bpov_inputs: Vec::with_capacity(32), result: 0.0, wtm: false }
+    }
+}
+
+pub fn convert_sets(thread_count: usize, caption: &str, in_path: &str, out_path: &str, min_id: usize) -> usize {
+    let mut max_converted_id = 0;
     let mut max_set_id = 0;
     let mut min_unconverted_id = usize::MAX;
     for id in min_id..usize::MAX {
-        if !Path::new(&format!("{}/test_pos_{}.fen", in_path, id)).exists() {
+        if Path::new(&format!("{}/{}.lz4", out_path, id)).exists() {
+            max_set_id = max_set_id.max(id);
+            max_converted_id = id;
+        } else if Path::new(&format!("{}/test_pos_{}.fen", in_path, id)).exists() {
+            max_set_id = max_set_id.max(id);
+            min_unconverted_id = min(id, min_unconverted_id);
+        } else {
             break;
         }
-
-        if !Path::new(&format!("{}/{}.lz4", out_path, id)).exists() {
-            min_unconverted_id = min(id, min_unconverted_id);
-        }
-
-        max_set_id = id;
     }
 
-    if min_unconverted_id < max_set_id {
+    if max_converted_id < max_set_id {
         println!("Converting {} added {} sets ...", (max_set_id - min_unconverted_id + 1), caption);
-        convert_test_pos(
-            thread_count,
-            in_path.to_string(),
-            out_path.to_string(),
-            min_unconverted_id,
-            max_set_id,
-            use_game_result,
-        )
-        .expect("Could not convert test positions!");
+        convert_test_pos(thread_count, in_path.to_string(), out_path.to_string(), min_unconverted_id, max_set_id)
+            .expect("Could not convert test positions!");
     }
 
     max_set_id
@@ -77,7 +74,6 @@ pub fn convert_sets(
 
 fn convert_test_pos(
     thread_count: usize, in_path: String, out_path: String, min_unconverted_id: usize, max_training_set_id: usize,
-    use_game_result: bool,
 ) -> Result<(), Error> {
     let mut threads = Vec::new();
     for c in 1..=thread_count {
@@ -92,20 +88,8 @@ fn convert_test_pos(
                 let encoder = lz4_flex::frame::FrameEncoder::new(file);
                 let mut writer = BufWriter::with_capacity(1024 * 1024, encoder);
 
-                let (ys, wtms) = read_from_fen_file(
-                    format!("{}/test_pos_{}.fen", in_path2, i).as_str(),
-                    &mut writer,
-                    use_game_result,
-                );
+                read_from_fen_file(format!("{}/test_pos_{}.fen", in_path2, i).as_str(), &mut writer);
                 writer.write_u16::<LittleEndian>(u16::MAX).unwrap();
-
-                for y in ys {
-                    writer.write_f32::<LittleEndian>(y).unwrap();
-                }
-
-                for wtm in wtms {
-                    writer.write_u8(unsafe { transmute(wtm) }).unwrap();
-                }
 
                 writer.flush().unwrap();
             }
@@ -121,14 +105,9 @@ fn convert_test_pos(
     Ok(())
 }
 
-fn read_from_fen_file(
-    file_name: &str, writer: &mut BufWriter<FrameEncoder<File>>, use_game_result: bool,
-) -> (Vec<f32>, Vec<Color>) {
+fn read_from_fen_file(file_name: &str, writer: &mut BufWriter<FrameEncoder<File>>) {
     let file = File::open(file_name).expect("Could not open test position file");
     let mut reader = BufReader::new(file);
-
-    let mut ys = Vec::with_capacity(POS_PER_SET);
-    let mut wtms = Vec::with_capacity(POS_PER_SET);
 
     loop {
         let mut line = String::new();
@@ -136,7 +115,7 @@ fn read_from_fen_file(
         match reader.read_line(&mut line) {
             Ok(read) => {
                 if read == 0 {
-                    return (ys, wtms);
+                    return;
                 }
             }
 
@@ -145,28 +124,7 @@ fn read_from_fen_file(
 
         let parts = line.trim_end().split(' ').collect_vec();
 
-        let result = if parts.len() == 10 {
-            const SCORE_IDX: usize = 6;
-            let score = i32::from_str(parts[SCORE_IDX]).expect("Could not parse score");
-
-            const SCORE_PLY_IDX: usize = 7;
-            let score_ply = i32::from_str(parts[SCORE_PLY_IDX]).expect("Could not parse score ply");
-
-            const RESULT_IDX: usize = 8;
-            let game_result = i32::from_str(parts[RESULT_IDX]).expect("Could not parse game result");
-            const RESULT_PLY_IDX: usize = 9;
-            let game_result_ply = i32::from_str(parts[RESULT_PLY_IDX]).expect("Could not parse game result ply");
-
-            if use_game_result {
-                let result = game_result as f32 * 4000.0;
-                let result_pct = 2.0 / (max(1, game_result_ply - score_ply) * 2) as f32;
-                let score_pct = 1.0 - result_pct;
-
-                ((score as f32) * score_pct + result * result_pct) / 2048.0
-            } else {
-                score as f32 / 2048.0
-            }
-        } else if parts.len() == 7 {
+        let result = if parts.len() == 7 {
             const SCORE_IDX: usize = 6;
             let score = i32::from_str(parts[SCORE_IDX]).expect("Could not parse score");
             score as f32 / 2048.0
@@ -180,9 +138,6 @@ fn read_from_fen_file(
             Ok(FenParseResult { pieces, active_player, .. }) => (pieces, active_player),
             Err(e) => panic!("could not parse FEN: {}", e),
         };
-
-        ys.push(if active_player.is_white() { result } else { -result });
-        wtms.push(active_player);
 
         let mut black_king_pos = 0;
         let mut white_king_pos = 0;
@@ -214,6 +169,9 @@ fn read_from_fen_file(
 
         writer.write_u16::<LittleEndian>(bb_map).unwrap();
 
+        writer.write_f32::<LittleEndian>(if active_player.is_white() { result } else { -result }).unwrap();
+        writer.write_u8(active_player.0).unwrap();
+
         let kings = white_king_pos as u16 | ((black_king_pos as u16) << 8);
         writer.write_u16::<LittleEndian>(kings).unwrap();
 
@@ -231,14 +189,14 @@ fn read_from_fen_file(
     }
 }
 
-pub fn read_samples(samples: &mut Vec<DataSample>, file_name: &str) {
+pub fn read_samples(samples: &mut [DataSample], start: usize, file_name: &str, flip_pawnless: bool, rnd: &[usize]) {
     let file = File::open(file_name).unwrap_or_else(|_| panic!("Could not open test position file: {}", file_name));
     let decoder = lz4_flex::frame::FrameDecoder::new(file);
-    let mut reader = BufReader::with_capacity(1024 * 1024, decoder);
-
-    let start = samples.len();
+    let mut reader = BufReader::new(decoder);
 
     let mut total_samples = 0;
+
+    let mut idx = start;
 
     loop {
         let bb_map = reader.read_u16::<LittleEndian>().unwrap();
@@ -246,6 +204,11 @@ pub fn read_samples(samples: &mut Vec<DataSample>, file_name: &str) {
             break;
         }
         total_samples += 1;
+
+        samples[idx].result = reader.read_f32::<LittleEndian>().unwrap();
+        samples[idx].wtm = Color(reader.read_u8().unwrap()).is_white();
+        samples[idx].wpov_inputs.clear();
+        samples[idx].bpov_inputs.clear();
 
         let kings = reader.read_u16::<LittleEndian>().unwrap();
         let white_king = kings & 0b111111;
@@ -259,6 +222,8 @@ pub fn read_samples(samples: &mut Vec<DataSample>, file_name: &str) {
         let black_no_bishops = bb_map & (1 << 7) == 0;
         let white_no_knights = bb_map & (1 << 1) == 0;
         let black_no_knights = bb_map & (1 << 6) == 0;
+        let white_no_pawns = bb_map & (1 << 0) == 0;
+        let black_no_pawns = bb_map & (1 << 5) == 0;
 
         let white_king_col = white_king & 7;
         let black_king_col = black_king & 7;
@@ -289,30 +254,33 @@ pub fn read_samples(samples: &mut Vec<DataSample>, file_name: &str) {
 
         let opp_offset = (INPUTS / 2) as u16;
 
-        let mut sample = DataSample {
-            wpov_inputs: Vec::with_capacity(32),
-            bpov_inputs: Vec::with_capacity(32),
-            result: 0f32,
-            wtm: false,
-        };
+        let vmirror = white_no_pawns && black_no_pawns && flip_pawnless && rnd[idx] & 1 == 1;
 
-        sample.wpov_inputs.push(h_mirror_if(mirror_white_pov, white_king) + white_offset);
-        sample.wpov_inputs.push(h_mirror_if(mirror_white_pov, black_king) + white_offset + opp_offset);
+        samples[idx].wpov_inputs.push(v_mirror_if(vmirror, h_mirror_if(mirror_white_pov, white_king)) + white_offset);
+        samples[idx]
+            .wpov_inputs
+            .push(v_mirror_if(vmirror, h_mirror_if(mirror_white_pov, black_king)) + white_offset + opp_offset);
 
-        sample.bpov_inputs.push(v_mirror_u16(h_mirror_if(mirror_black_pov, black_king)) + black_offset);
-        sample.bpov_inputs.push(v_mirror_u16(h_mirror_if(mirror_black_pov, white_king)) + black_offset + opp_offset);
+        samples[idx]
+            .bpov_inputs
+            .push(v_mirror_if(vmirror, v_mirror_u16(h_mirror_if(mirror_black_pov, black_king))) + black_offset);
+        samples[idx].bpov_inputs.push(
+            v_mirror_u16(v_mirror_if(vmirror, h_mirror_if(mirror_black_pov, white_king))) + black_offset + opp_offset,
+        );
 
         for i in 1i8..=5i8 {
             if bb_map & (1 << (i - 1)) != 0 {
                 // White pieces
                 let bb = reader.read_u64::<LittleEndian>().unwrap();
                 for pos in BitBoard(bb) {
-                    sample
-                        .wpov_inputs
-                        .push(piece_idx(i) * 64 + h_mirror_if(mirror_white_pov, pos as u16) + white_offset);
-                    sample.bpov_inputs.push(
+                    samples[idx].wpov_inputs.push(
                         piece_idx(i) * 64
-                            + v_mirror_u16(h_mirror_if(mirror_black_pov, pos as u16))
+                            + v_mirror_if(vmirror, h_mirror_if(mirror_white_pov, pos as u16))
+                            + white_offset,
+                    );
+                    samples[idx].bpov_inputs.push(
+                        piece_idx(i) * 64
+                            + v_mirror_if(vmirror, v_mirror_u16(h_mirror_if(mirror_black_pov, pos as u16)))
                             + black_offset
                             + opp_offset,
                     );
@@ -323,31 +291,25 @@ pub fn read_samples(samples: &mut Vec<DataSample>, file_name: &str) {
                 // Black pieces
                 let bb = reader.read_u64::<LittleEndian>().unwrap();
                 for pos in BitBoard(bb) {
-                    sample.bpov_inputs.push(
-                        piece_idx(i) * 64 + v_mirror_u16(h_mirror_if(mirror_black_pov, pos as u16)) + black_offset,
+                    samples[idx].bpov_inputs.push(
+                        piece_idx(i) * 64
+                            + v_mirror_if(vmirror, v_mirror_u16(h_mirror_if(mirror_black_pov, pos as u16)))
+                            + black_offset,
                     );
-                    sample.wpov_inputs.push(
-                        piece_idx(i) * 64 + h_mirror_if(mirror_white_pov, pos as u16) + white_offset + opp_offset,
+                    samples[idx].wpov_inputs.push(
+                        piece_idx(i) * 64
+                            + v_mirror_if(vmirror, h_mirror_if(mirror_white_pov, pos as u16))
+                            + white_offset
+                            + opp_offset,
                     );
                 }
             }
         }
-
-        samples.push(sample);
+        idx += 1;
     }
 
-    if total_samples != POS_PER_SET {
+    if total_samples != SAMPLES_PER_SET {
         panic!("File does not contain the expected 200_000 samples, but: {}", total_samples);
-    }
-
-    for i in 0..POS_PER_SET {
-        let result = reader.read_f32::<LittleEndian>().unwrap();
-        unsafe { samples.get_unchecked_mut(start + i).result = result };
-    }
-
-    for i in 0..POS_PER_SET {
-        let stm = reader.read_u8().unwrap();
-        unsafe { samples.get_unchecked_mut(start + i).wtm = Color(stm).is_white() };
     }
 }
 
@@ -356,6 +318,14 @@ fn h_mirror_if(mirror: bool, pos: u16) -> u16 {
         pos
     } else {
         h_mirror(pos)
+    }
+}
+
+fn v_mirror_if(mirror: bool, pos: u16) -> u16 {
+    if !mirror {
+        pos
+    } else {
+        v_mirror_u16(pos)
     }
 }
 

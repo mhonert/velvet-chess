@@ -25,7 +25,7 @@ jobs:
         env:
           RUSTFLAGS: '${{ matrix.add_rustflags }} -Cinline-threshold=500'
         run: |
-          rustup override set 1.58.1
+          rustup override set 1.66.0
           rustup target add x86_64-unknown-linux-musl
           cargo build --release --target x86_64-unknown-linux-musl --bin velvet
           mv target/x86_64-unknown-linux-musl/release/velvet velvet-linux-x86_64-${{ matrix.exec_postfix }}
@@ -56,7 +56,7 @@ jobs:
         env:
           RUSTFLAGS: '${{ matrix.add_rustflags }} -Cinline-threshold=500'
         run: |
-          rustup override set 1.58.1
+          rustup override set 1.66.0
           cargo build --release --bin velvet
           mv .\target\release\velvet.exe velvet-windows-x86_64-${{ matrix.exec_postfix }}.exe
 
@@ -92,7 +92,7 @@ jobs:
         env:
           RUSTFLAGS: '${{ matrix.add_rustflags }} -Cinline-threshold=500'
         run: |
-          rustup override set 1.58.1
+          rustup override set 1.66.0
           rustup target add ${{ matrix.toolchain }}
           cargo build --release --target ${{ matrix.toolchain }} --bin velvet
           mv target/${{ matrix.toolchain }}/release/velvet velvet-macOS-${{ matrix.exec_postfix }}

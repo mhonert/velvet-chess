@@ -21,7 +21,7 @@ use crate::bitboard::{h_mirror, h_mirror_i8, v_mirror, v_mirror_i8, BitBoards};
 use crate::colors::Color;
 use crate::nn::{
     bucket_size, piece_idx, FP_HIDDEN_MULTIPLIER, FP_INPUT_MULTIPLIER, HL_HALF_NODES, INPUTS, INPUT_BIASES,
-    INPUT_WEIGHTS, KING_BUCKETS, OUTPUT_WEIGHTS,
+    INPUT_WEIGHTS, KING_BUCKETS, OUTPUT_BIASES, OUTPUT_WEIGHTS,
 };
 use crate::pieces::{B, N, P, Q, R};
 use crate::scores::sanitize_eval_score;
@@ -203,7 +203,7 @@ impl NeuralNetEval {
             (&self.hidden_nodes_black.0, &self.hidden_nodes_white.0)
         };
 
-        let output = ((forward_pass::<HL_HALF_NODES>(
+        let output = (((forward_pass::<HL_HALF_NODES>(
             own_hidden_nodes,
             unsafe { &OUTPUT_WEIGHTS.0[0..HL_HALF_NODES] },
             unsafe { &INPUT_BIASES.0[0..HL_HALF_NODES] },
@@ -211,6 +211,7 @@ impl NeuralNetEval {
             unsafe { &OUTPUT_WEIGHTS.0[HL_HALF_NODES..] },
             unsafe { &INPUT_BIASES.0[HL_HALF_NODES..] },
         ) as i64
+            + unsafe { *OUTPUT_BIASES.0.get_unchecked(0) } as i64)
             * 2048)
             / (FP_HIDDEN_MULTIPLIER as i64 * FP_INPUT_MULTIPLIER as i64)) as i32;
 
