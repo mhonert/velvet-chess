@@ -3,15 +3,17 @@
 [<img src="logo/velvet_logo_square.png" align="middle" alt="Velvet Logo">](logo/velvet_logo_square.png?raw=true)
 
 ![Release](https://img.shields.io/github/v/release/mhonert/velvet-chess)
-![Test](https://img.shields.io/github/workflow/status/mhonert/velvet-chess/Test?label=Test&logo=github)
+![Test](https://img.shields.io/github/actions/workflow/status/mhonert/velvet-chess/test.yml?logo=github&branch=master&label=tests)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
-
 
 **Velvet Chess Engine** is a UCI chess engine written in [Rust](https://www.rust-lang.org).
 
-Version 4.0.0 is currently ranked around 3330 Elo (Blitz) and 3250 Elo (40/15) in the Computer Chess Rating Lists (CCRL):
+Version 4.1.0 is currently ranked around 3350 Elo (Blitz) and 3285 Elo (40/15) in the Computer Chess Rating Lists (CCRL):
 - [CCRL Blitz](https://www.computerchess.org.uk/ccrl/404/cgi/compare_engines.cgi?family=Velvet&print=Rating+list)
 - [CCRL 40/15](https://www.computerchess.org.uk/ccrl/4040/cgi/compare_engines.cgi?family=Velvet&print=Rating+list)
+
+In Fischer Random Chess, the single-threaded rating is around 3480 Elo:
+- [CCRL 40/2 FRC](https://www.computerchess.org.uk/ccrl/404FRC)
 
 In order to play against Velvet, you need a Chess GUI with support for the UCI protocol.
 
