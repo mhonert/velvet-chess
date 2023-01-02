@@ -230,24 +230,28 @@ pub fn read_samples(samples: &mut [DataSample], start: usize, file_name: &str, f
         let mirror_white_pov = white_king_col > 3;
         let mirror_black_pov = black_king_col > 3;
 
-        let (bucket_offset, max_piece_id) = if white_no_queens && black_no_queens {
+        let (king_bucket, bucket_offset, max_piece_id) = if white_no_queens && black_no_queens {
             if white_no_rooks && black_no_rooks {
                 if white_no_bishops && black_no_bishops && white_no_knights && black_no_knights {
-                    ((bucket_size(Q) + bucket_size(R) + bucket_size(B)) * KING_BUCKETS, P)
+                    (3, (bucket_size(Q) + bucket_size(R) + bucket_size(B)) * KING_BUCKETS, P)
                 } else {
-                    ((bucket_size(Q) + bucket_size(R)) * KING_BUCKETS, B)
+                    (2, (bucket_size(Q) + bucket_size(R)) * KING_BUCKETS, B)
                 }
             } else {
-                (bucket_size(Q) * KING_BUCKETS, R)
+                (1, bucket_size(Q) * KING_BUCKETS, R)
             }
         } else {
-            (0, Q)
+            (0, 0, Q)
         };
+        let king_offset = king_bucket * 64;
         let bucket_size = bucket_size(max_piece_id);
 
         let (white_offset, black_offset) = (
-            bucket_offset as u16 + board_eighth(h_mirror_if(mirror_white_pov, white_king)) * bucket_size as u16,
-            bucket_offset as u16
+            64 * 4
+                + bucket_offset as u16
+                + board_eighth(h_mirror_if(mirror_white_pov, white_king)) * bucket_size as u16,
+            64 * 4
+                + bucket_offset as u16
                 + board_eighth(v_mirror(h_mirror_if(mirror_black_pov, black_king) as usize) as u16)
                     * bucket_size as u16,
         );
@@ -256,16 +260,16 @@ pub fn read_samples(samples: &mut [DataSample], start: usize, file_name: &str, f
 
         let vmirror = white_no_pawns && black_no_pawns && flip_pawnless && rnd[idx] & 1 == 1;
 
-        samples[idx].wpov_inputs.push(v_mirror_if(vmirror, h_mirror_if(mirror_white_pov, white_king)) + white_offset);
+        samples[idx].wpov_inputs.push(v_mirror_if(vmirror, h_mirror_if(mirror_white_pov, white_king)) + king_offset);
         samples[idx]
             .wpov_inputs
-            .push(v_mirror_if(vmirror, h_mirror_if(mirror_white_pov, black_king)) + white_offset + opp_offset);
+            .push(v_mirror_if(vmirror, h_mirror_if(mirror_white_pov, black_king)) + king_offset + opp_offset);
 
         samples[idx]
             .bpov_inputs
-            .push(v_mirror_if(vmirror, v_mirror_u16(h_mirror_if(mirror_black_pov, black_king))) + black_offset);
+            .push(v_mirror_if(vmirror, v_mirror_u16(h_mirror_if(mirror_black_pov, black_king))) + king_offset);
         samples[idx].bpov_inputs.push(
-            v_mirror_u16(v_mirror_if(vmirror, h_mirror_if(mirror_black_pov, white_king))) + black_offset + opp_offset,
+            v_mirror_u16(v_mirror_if(vmirror, h_mirror_if(mirror_black_pov, white_king))) + king_offset + opp_offset,
         );
 
         for i in 1i8..=5i8 {

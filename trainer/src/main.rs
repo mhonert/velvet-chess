@@ -137,7 +137,7 @@ pub fn main_train(thread_count: usize) {
     let net = Arc::new(RwLock::new(Network::new()));
     // net.write().unwrap().init_from_base_file(&"./data/nets/velvet_base.nn".to_string());
 
-    let samples_per_thread = (BATCH_SIZE / thread_count) / 2;
+    let samples_per_thread = (BATCH_SIZE / thread_count);
     info!("Samples per thread: {}", samples_per_thread);
 
     let id_source =

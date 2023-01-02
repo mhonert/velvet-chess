@@ -23,15 +23,15 @@ use crate::nn::{
     bucket_size, piece_idx, FP_HIDDEN_MULTIPLIER, FP_INPUT_MULTIPLIER, HL_HALF_NODES, INPUTS, INPUT_BIASES,
     INPUT_WEIGHTS, KING_BUCKETS, OUTPUT_BIASES, OUTPUT_WEIGHTS,
 };
-use crate::pieces::{B, N, P, Q, R};
+use crate::pieces::{B, K, N, P, Q, R};
 use crate::scores::sanitize_eval_score;
-use std::cmp::max;
 
 #[derive(Clone)]
 pub struct NeuralNetEval {
     hidden_nodes_white: A32<[i16; HL_HALF_NODES]>, // white perspective
     hidden_nodes_black: A32<[i16; HL_HALF_NODES]>, // black perspective
 
+    king_offset: u16,
     white_offset: u16,
     black_offset: u16,
 
@@ -60,6 +60,7 @@ impl NeuralNetEval {
             hidden_nodes_white: A32([0; HL_HALF_NODES]),
             hidden_nodes_black: A32([0; HL_HALF_NODES]),
 
+            king_offset: 0,
             white_offset: 0,
             black_offset: 0,
 
@@ -83,10 +84,11 @@ impl NeuralNetEval {
         self.hidden_nodes_white.0.fill(0);
         self.hidden_nodes_black.0.fill(0);
 
-        let (mirror_white_pov, mirror_black_pov, white_offset, black_offset, max_piece_id) =
+        let (mirror_white_pov, mirror_black_pov, king_offset, white_offset, black_offset, max_piece_id) =
             calc_bucket_offsets(bitboards, white_king, black_king);
         self.mirror_white_pov = mirror_white_pov;
         self.mirror_black_pov = mirror_black_pov;
+        self.king_offset = king_offset;
         self.white_offset = white_offset;
         self.black_offset = black_offset;
         self.max_piece_id = max_piece_id;
@@ -166,21 +168,23 @@ impl NeuralNetEval {
 
     fn calc_pov_weight_start(&self, pos: usize, piece: i8) -> (usize, usize, u16) {
         let idx = piece_idx(piece.unsigned_abs() as i8);
+        let (white_offset, black_offset) = if piece.abs() == K {
+            (self.king_offset, self.king_offset)
+        } else {
+            (self.white_offset, self.black_offset)
+        };
         let base_index = idx as usize * 64;
         let opp_offset = INPUTS / 2;
 
         let (white_pov_idx, black_pov_idx) = if piece > 0 {
             (
-                self.white_offset as usize + base_index + h_mirror_if(self.mirror_white_pov, pos),
-                self.black_offset as usize
-                    + base_index
-                    + opp_offset
-                    + v_mirror(h_mirror_if(self.mirror_black_pov, pos)),
+                white_offset as usize + base_index + h_mirror_if(self.mirror_white_pov, pos),
+                black_offset as usize + base_index + opp_offset + v_mirror(h_mirror_if(self.mirror_black_pov, pos)),
             )
         } else {
             (
-                self.white_offset as usize + base_index + opp_offset + h_mirror_if(self.mirror_white_pov, pos),
-                self.black_offset as usize + base_index + v_mirror(h_mirror_if(self.mirror_black_pov, pos)),
+                white_offset as usize + base_index + opp_offset + h_mirror_if(self.mirror_white_pov, pos),
+                black_offset as usize + base_index + v_mirror(h_mirror_if(self.mirror_black_pov, pos)),
             )
         };
         (white_pov_idx, black_pov_idx, idx)
@@ -224,12 +228,13 @@ impl NeuralNetEval {
             let (_, _, update) = unsafe { self.updates.get_unchecked(i) };
             match *update {
                 UpdateAction::CheckRefresh => {
-                    let (mirror_white_pov, mirror_black_pov, white_offset, black_offset, _) =
+                    let (mirror_white_pov, mirror_black_pov, king_offset, white_offset, black_offset, _) =
                         calc_bucket_offsets(bitboards, white_king, black_king);
                     if mirror_white_pov != self.mirror_white_pov
                         || mirror_black_pov != self.mirror_black_pov
                         || white_offset != self.white_offset
                         || black_offset != self.black_offset
+                        || king_offset != self.king_offset
                     {
                         self.init_pos(bitboards, white_king, black_king);
                         self.updates.clear();
@@ -252,7 +257,7 @@ impl NeuralNetEval {
 
 // Scale eval score towards 0 for decreasing number of remaining half moves till the 50-move (draw) rule triggers
 fn adjust_eval(score: i32, half_move_clock: u8) -> i32 {
-    let remaining_half_moves = max(0, 100 - half_move_clock as i32);
+    let remaining_half_moves = 0.max(100 - half_move_clock as i32);
     if remaining_half_moves >= 95 {
         score
     } else {
@@ -260,7 +265,9 @@ fn adjust_eval(score: i32, half_move_clock: u8) -> i32 {
     }
 }
 
-fn calc_bucket_offsets(bitboards: &BitBoards, mut white_king: i8, mut black_king: i8) -> (bool, bool, u16, u16, u16) {
+fn calc_bucket_offsets(
+    bitboards: &BitBoards, mut white_king: i8, mut black_king: i8,
+) -> (bool, bool, u16, u16, u16, u16) {
     let white_king_col = white_king & 7;
     let black_king_col = black_king & 7;
 
@@ -274,31 +281,32 @@ fn calc_bucket_offsets(bitboards: &BitBoards, mut white_king: i8, mut black_king
         black_king = h_mirror_i8(black_king);
     }
 
-    let (bucket_offset, max_piece_id) = if bitboards.by_piece(Q).is_empty() && bitboards.by_piece(-Q).is_empty() {
-        if bitboards.by_piece(R).is_empty() && bitboards.by_piece(-R).is_empty() {
-            if bitboards.by_piece(B).is_empty()
-                && bitboards.by_piece(-B).is_empty()
-                && bitboards.by_piece(N).is_empty()
-                && bitboards.by_piece(-N).is_empty()
-            {
-                ((bucket_size(Q) + bucket_size(R) + bucket_size(B)) * KING_BUCKETS, P)
+    let (king_bucket, bucket_offset, max_piece_id) =
+        if bitboards.by_piece(Q).is_empty() && bitboards.by_piece(-Q).is_empty() {
+            if bitboards.by_piece(R).is_empty() && bitboards.by_piece(-R).is_empty() {
+                if bitboards.by_piece(B).is_empty()
+                    && bitboards.by_piece(-B).is_empty()
+                    && bitboards.by_piece(N).is_empty()
+                    && bitboards.by_piece(-N).is_empty()
+                {
+                    (3, (bucket_size(Q) + bucket_size(R) + bucket_size(B)) * KING_BUCKETS, P)
+                } else {
+                    (2, (bucket_size(Q) + bucket_size(R)) * KING_BUCKETS, B)
+                }
             } else {
-                ((bucket_size(Q) + bucket_size(R)) * KING_BUCKETS, B)
+                (1, bucket_size(Q) * KING_BUCKETS, R)
             }
         } else {
-            (bucket_size(Q) * KING_BUCKETS, R)
-        }
-    } else {
-        (0, Q)
-    };
+            (0, 0, Q)
+        };
 
     let bucket_size = bucket_size(max_piece_id);
     let (white_offset, black_offset) = (
-        bucket_offset as u16 + board_eighth(white_king) * bucket_size as u16,
-        bucket_offset as u16 + board_eighth(v_mirror_i8(black_king)) * bucket_size as u16,
+        64 * 4 + bucket_offset as u16 + board_eighth(white_king) * bucket_size as u16,
+        64 * 4 + bucket_offset as u16 + board_eighth(v_mirror_i8(black_king)) * bucket_size as u16,
     );
 
-    (mirror_white_pov, mirror_black_pov, white_offset, black_offset, piece_idx(max_piece_id))
+    (mirror_white_pov, mirror_black_pov, 64 * king_bucket, white_offset, black_offset, piece_idx(max_piece_id))
 }
 
 #[inline(always)]
