@@ -62,6 +62,7 @@ pub struct Engine {
     rx: Receiver<Message>,
     board: Board,
     log_level: LogLevel,
+    initialized: bool,
     new_thread_count: Option<i32>,
     current_thread_count: i32,
     new_tt_size: Option<i32>,
@@ -99,10 +100,11 @@ impl Engine {
             rx,
             board,
             log_level: LogLevel::Info,
-            new_tt_size: None,
+            initialized: false,
             new_thread_count: None,
-            current_tt_size: DEFAULT_SIZE_MB as i32,
             current_thread_count: DEFAULT_SEARCH_THREADS as i32,
+            new_tt_size: None,
+            current_tt_size: DEFAULT_SIZE_MB as i32,
             search,
         }
     }
@@ -140,12 +142,18 @@ impl Engine {
             Message::SetTranspositionTableSize(size_mb) => {
                 if size_mb != self.current_tt_size {
                     self.new_tt_size = Some(size_mb);
+                    if self.initialized {
+                        self.update_tt_size();
+                    }
                 }
             }
 
             Message::SetThreadCount(count) => {
                 if count != self.current_thread_count {
                     self.new_thread_count = Some(count);
+                    if self.initialized {
+                        self.update_thread_count();
+                    }
                 }
             }
 
@@ -222,21 +230,29 @@ impl Engine {
     }
 
     fn check_readiness(&mut self) {
+        // Peform postponed initializations
         init_nn_params();
+        self.update_thread_count();
+        self.update_tt_size();
 
-        if let Some(new_thread_count) = self.new_thread_count {
-            self.search.reset_threads(new_thread_count);
-            self.current_thread_count = new_thread_count;
+        self.initialized = true;
+        println!("readyok")
+    }
+
+    fn update_thread_count(&mut self) {
+        if let Some(count) = self.new_thread_count {
+            self.search.reset_threads(count);
+            self.current_thread_count = count;
             self.new_thread_count = None;
         }
+    }
 
+    fn update_tt_size(&mut self) {
         if let Some(new_tt_size) = self.new_tt_size {
             self.search.resize_tt(new_tt_size);
             self.current_tt_size = new_tt_size;
             self.new_tt_size = None;
         }
-
-        println!("readyok")
     }
 
     pub fn set_position(&mut self, fen: String, moves: Vec<UCIMove>) {
