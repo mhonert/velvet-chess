@@ -19,7 +19,6 @@
 use crate::colors::Color;
 use crate::moves::{Move, NO_MOVE};
 use crate::transposition_table::MAX_DEPTH;
-use std::cmp::{max, min};
 use std::time::{Duration, Instant};
 
 pub const TIMEEXT_MULTIPLIER: i32 = 3;
@@ -103,13 +102,13 @@ impl TimeManager {
             .iter()
             .take(self.next_index)
             .rev()
-            .take(min(self.next_index, TIMEEXT_HISTORY_SIZE))
+            .take(self.next_index.min(TIMEEXT_HISTORY_SIZE))
             .map(Move::score)
             .rfold((0, 0, 0), |(highest_drop, count, prev_score), score| {
                 if count == 0 {
                     (0, 1, score)
                 } else {
-                    (max(highest_drop, max(0, prev_score - score)), count + 1, score)
+                    (highest_drop.max((prev_score - score).max(0)), count + 1, score)
                 }
             })
             .0;
@@ -131,6 +130,8 @@ impl TimeManager {
 
 #[derive(Copy, Clone, Debug)]
 pub struct SearchLimits {
+    infinite: bool,
+
     node_limit: u64,
     depth_limit: i32,
     mate_limit: i32,
@@ -148,6 +149,8 @@ pub struct SearchLimits {
 impl SearchLimits {
     pub fn default() -> Self {
         SearchLimits {
+            infinite: false,
+
             node_limit: u64::MAX,
             depth_limit: MAX_DEPTH as i32,
             mate_limit: 0,
@@ -161,6 +164,12 @@ impl SearchLimits {
             move_time: i32::MAX,
             moves_to_go: 1,
         }
+    }
+
+    pub fn infinite() -> SearchLimits {
+        let mut limits = SearchLimits::default();
+        limits.infinite = true;
+        limits
     }
 
     pub fn nodes(node_limit: u64) -> SearchLimits {
@@ -183,6 +192,7 @@ impl SearchLimits {
         let mate_limit = mate_limit.unwrap_or(0);
 
         Ok(SearchLimits {
+            infinite: false,
             depth_limit,
             node_limit,
             mate_limit,
@@ -224,6 +234,10 @@ impl SearchLimits {
     pub fn mate_limit(&self) -> i32 {
         self.mate_limit
     }
+
+    pub fn is_infinite(&self) -> bool {
+        self.infinite
+    }
 }
 
 fn calc_time_limit(movetime: i32, mut time_left: i32, time_increment: i32, moves_to_go: i32) -> i32 {
@@ -232,7 +246,7 @@ fn calc_time_limit(movetime: i32, mut time_left: i32, time_increment: i32, moves
     }
 
     if movetime > 0 {
-        return max(0, movetime - TIME_SAFETY_MARGIN_MS);
+        return (movetime - TIME_SAFETY_MARGIN_MS).max(0);
     }
 
     time_left -= TIME_SAFETY_MARGIN_MS;
@@ -240,7 +254,7 @@ fn calc_time_limit(movetime: i32, mut time_left: i32, time_increment: i32, moves
         return 0;
     }
 
-    let time_for_move = time_left / max(1, moves_to_go);
+    let time_for_move = time_left / moves_to_go.max(1);
 
     if time_for_move > time_left {
         return time_left;

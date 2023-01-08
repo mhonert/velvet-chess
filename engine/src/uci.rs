@@ -263,7 +263,7 @@ fn go(tx: &Sender<Message>, valid_cmds: &HashSet<&str>, parts: Vec<&str>) {
     let mut move_time: Option<i32> = None;
     let mut moves_to_go: Option<i32> = None;
     let mut search_moves: Option<Vec<String>> = None;
-    let mut unlimited = false;
+    let mut infinite = false;
     let mut ponder = false;
     let mut mate_limit: Option<i32> = None;
 
@@ -285,15 +285,15 @@ fn go(tx: &Sender<Message>, valid_cmds: &HashSet<&str>, parts: Vec<&str>) {
                 i + 1
             }
             "infinite" => {
-                unlimited = true;
+                infinite = true;
                 i + 1
             }
             _ => i + 1,
         }
     }
 
-    let limits = if unlimited {
-        SearchLimits::default()
+    let limits = if infinite {
+        SearchLimits::infinite()
     } else {
         match SearchLimits::new(depth_limit, node_limit, wtime, btime, winc, binc, move_time, moves_to_go, mate_limit) {
             Ok(limits) => limits,

@@ -33,7 +33,7 @@ use crate::transposition_table::{
     TranspositionTable, MAX_DEPTH,
 };
 use crate::uci_move::UCIMove;
-use std::cmp::{max, min, Reverse};
+use std::cmp::Reverse;
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
@@ -192,7 +192,7 @@ impl Search {
         self.cancel_possible = false;
         self.node_count.store(0, Ordering::Relaxed);
 
-        self.next_check_node_count = min(self.limits.node_limit(), 1000);
+        self.next_check_node_count = self.limits.node_limit().min(1000);
 
         let mut last_best_move: Move = NO_MOVE;
 
@@ -299,7 +299,7 @@ impl Search {
         self.movegen.leave_ply();
 
         if let Some(r) = rx {
-            while self.pondering && !self.is_stopped() {
+            while (self.limits.is_infinite() || self.pondering) && !self.is_stopped() {
                 self.check_messages(r, true);
             }
         }
@@ -337,14 +337,14 @@ impl Search {
 
             let best_score = best_move.score();
             if best_score <= alpha {
-                alpha = max(MIN_SCORE, alpha.saturating_sub(step));
+                alpha = MIN_SCORE.max(alpha.saturating_sub(step));
             } else if best_score >= beta {
-                beta = min(MAX_SCORE, beta.saturating_add(step));
+                beta = MAX_SCORE.min(beta.saturating_add(step));
             } else {
                 return (false, move_num, best_move, current_pv, step);
             }
 
-            step = min(MATE_SCORE / 2, step.saturating_mul(2));
+            step = (MATE_SCORE / 2).min(step.saturating_mul(2));
         }
     }
 
@@ -402,7 +402,7 @@ impl Search {
                 &mut local_pv,
                 SearchInfo {
                     ply: 1,
-                    flags: SearchFlags::new().check(gives_check),
+                    flags: SearchFlags::default().check(gives_check),
                     capture_pos,
                     prev_own_move: NO_MOVE,
                     opponent_move: m,
@@ -421,7 +421,7 @@ impl Search {
                     &mut local_pv,
                     SearchInfo {
                         ply: 1,
-                        flags: SearchFlags::new().check(gives_check),
+                        flags: SearchFlags::default().check(gives_check),
                         capture_pos,
                         prev_own_move: NO_MOVE,
                         opponent_move: m,
@@ -465,9 +465,9 @@ impl Search {
 
             tree_size = (self.local_total_node_count - tree_size) << reduction;
             if move_num == 1 {
-                tree_scale = max(13, 64 - tree_size.leading_zeros()) - 13;
+                tree_scale = 13.max(64 - tree_size.leading_zeros()) - 13;
             }
-            self.movegen.update_root_move(m.with_score(min(MAX_SCORE, (tree_size >> tree_scale) as i32)));
+            self.movegen.update_root_move(m.with_score(MAX_SCORE.min((tree_size >> tree_scale) as i32)));
         }
 
         self.movegen.reorder_root_moves(best_move, self.is_helper_thread);
@@ -490,7 +490,7 @@ impl Search {
         &mut self, rx: Option<&Receiver<Message>>, mut alpha: i32, beta: i32, mut depth: i32,
         pv: &mut PrincipalVariation, info: SearchInfo,
     ) -> i32 {
-        self.max_reached_depth = max(info.ply, self.max_reached_depth);
+        self.max_reached_depth = info.ply.max(self.max_reached_depth);
 
         if let Some(rx) = rx {
             self.check_search_limits(rx)
@@ -529,7 +529,7 @@ impl Search {
         let active_player = self.board.active_player();
         if info.flags.in_check() {
             // Extend search when in check
-            depth = max(1, depth + 1);
+            depth = (depth + 1).max(1);
         }
 
         let hash = self.board.get_hash();
@@ -566,7 +566,7 @@ impl Search {
                         }
 
                         ScoreType::LowerBound => {
-                            if tt_depth >= depth && max(alpha, hash_score) >= beta {
+                            if tt_depth >= depth && hash_score.max(alpha) >= beta {
                                 if hash_move.is_quiet() {
                                     self.hh.update_killer_moves(info.ply, hash_move);
                                     self.hh.update_counter_move(info.opponent_move, hash_move);
@@ -764,7 +764,7 @@ impl Search {
                         }
 
                         reductions +=
-                            -((curr_move.score() - QUIET_BASE_SCORE) / MIN_HISTORY_SCORE.abs()).min(reductions).max(-2);
+                            -((curr_move.score() - QUIET_BASE_SCORE) / MIN_HISTORY_SCORE.abs()).clamp(-2, reductions);
                     } else if allow_futile_move_pruning && !gives_check && !curr_move.is_queen_promotion() {
                         // Reduce futile move
                         reductions += FUTILE_MOVE_REDUCTIONS;
@@ -964,7 +964,7 @@ impl Search {
             return CANCEL_SEARCH;
         }
 
-        self.max_reached_depth = max(ply, self.max_reached_depth);
+        self.max_reached_depth = ply.max(self.max_reached_depth);
 
         if self.board.is_insufficient_material_draw() {
             return 0;
@@ -986,7 +986,7 @@ impl Search {
         self.movegen.enter_ply(active_player, NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE);
         self.movegen.generate_captures(&mut self.board);
 
-        let mut threshold = (alpha - position_score - QS_SEE_THRESHOLD) as i32;
+        let mut threshold = alpha - position_score - QS_SEE_THRESHOLD;
 
         let mut best_score = position_score;
 
@@ -1021,7 +1021,7 @@ impl Search {
                 }
 
                 alpha = best_score;
-                threshold = (alpha - position_score - QS_SEE_THRESHOLD) as i32;
+                threshold = alpha - position_score - QS_SEE_THRESHOLD;
             }
         }
 
@@ -1488,16 +1488,13 @@ impl HelperThread {
     }
 }
 
+#[derive(Default)]
 pub struct SearchFlags(u8);
 
 impl SearchFlags {
     const IN_CHECK: u8 = 0b0001;
     const IN_SINGULAR_SEARCH: u8 = 0b0010;
     const IN_NULL_MOVE_SEARCH: u8 = 0b0100;
-
-    pub fn new() -> Self {
-        Self(0)
-    }
 
     pub fn in_check(&self) -> bool {
         self.0 & SearchFlags::IN_CHECK != 0
