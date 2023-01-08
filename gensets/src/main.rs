@@ -48,7 +48,6 @@ use velvet::time_management::SearchLimits;
 use velvet::transposition_table::{TranspositionTable, MAX_DEPTH};
 
 mod chess960;
-pub mod gen_quiet_pos;
 
 #[derive(Clone, Debug)]
 struct TestPos {
