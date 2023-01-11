@@ -67,7 +67,7 @@ pub fn start_uci_loop(tx: &Sender<Message>) {
 
                 "perft" => perft(tx, parts[i + 1..].to_vec()),
 
-                "position" => set_position(tx, &parts[i + 1..].to_vec()),
+                "position" => set_position(tx, &parts[i + 1..]),
 
                 "profile" => {
                     profile(tx);
@@ -141,7 +141,7 @@ fn set_position(tx: &Sender<Message>, parts: &[&str]) {
     let fen = parse_position_cmd(parts);
 
     let moves = match parts.iter().position(|&part| part == "moves") {
-        Some(idx) => parse_moves(idx, &parts),
+        Some(idx) => parse_moves(idx, parts),
         None => Vec::new(),
     };
 
