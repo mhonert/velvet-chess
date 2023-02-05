@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2022 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2023 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -21,8 +21,8 @@ use std::sync::Once;
 use byteorder::{LittleEndian, ReadBytesExt};
 
 use crate::align::A32;
-use crate::nn::io::read_quantized;
-use crate::pieces::{B, P, Q, R};
+use crate::nn::io::{read_quantized};
+use crate::pieces::{B, Q, R};
 
 pub mod eval;
 pub mod io;
@@ -34,16 +34,18 @@ pub const fn bucket_size(max_piece_id: i8) -> usize {
 // NN layer size
 pub const KING_BUCKETS: usize = 8;
 pub const INPUTS: usize =
-    ((bucket_size(Q) + bucket_size(R) + bucket_size(B) + bucket_size(P)) * KING_BUCKETS + 64 * 4) * 2;
+    ((bucket_size(Q) + bucket_size(R) + bucket_size(B)) * KING_BUCKETS + 64 * 4) * 2;
 
 pub const HL_NODES: usize = 2 * HL_HALF_NODES;
-pub const HL_HALF_NODES: usize = 256;
+pub const HL_HALF_NODES: usize = 512;
 
 pub const INPUT_WEIGHT_COUNT: usize = INPUTS * HL_HALF_NODES;
 
 // Fixed point number precision
+pub const FP_INPUT_MULTIPLIER: i16 = 1 << 11;
 pub const FP_HIDDEN_MULTIPLIER: i16 = 1 << 12;
-pub const FP_INPUT_MULTIPLIER: i16 = 1 << 10;
+
+pub const SCORE_SCALE: i16 = 1024;
 
 pub static mut INPUT_WEIGHTS: A32<[i16; INPUT_WEIGHT_COUNT]> = A32([0; INPUT_WEIGHT_COUNT]);
 pub static mut INPUT_BIASES: A32<[i16; HL_NODES]> = A32([0; HL_NODES]);

@@ -4,7 +4,9 @@ members = [
     "engine",
     "gensets",
     "genmagics",
-    "trainer",
+    "cputrainer",
+    "gputrainer",
+    "traincommon"
 ]
 
 [profile.release]

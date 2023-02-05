@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2022 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2023 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -349,7 +349,7 @@ impl Board {
 
                 self.reset_half_move_clock();
 
-                if removed_piece.abs() >= N {
+                if removed_piece.abs() >= R {
                     self.nn_eval.check_refresh();
                 }
 
@@ -482,7 +482,7 @@ impl Board {
                 self.add_piece_without_inc_update(color, piece, move_start);
                 self.add_piece_without_inc_update(color.flip(), color.flip().piece(removed_piece_id), move_end);
 
-                if removed_piece_id >= N {
+                if removed_piece_id >= R {
                     self.nn_eval.check_refresh();
                 }
             }

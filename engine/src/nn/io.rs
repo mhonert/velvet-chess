@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2022 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2023 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -26,7 +26,7 @@ use std::io::{Error, ErrorKind, Read, Write};
 pub fn read_quantized(reader: &mut dyn Read, target: &mut [i16]) -> Result<(), Error> {
     let size = reader.read_u32::<LittleEndian>()? as usize;
     if size != target.len() {
-        return Result::Err(Error::new(
+        return Err(Error::new(
             ErrorKind::InvalidData,
             format!("Size mismatch: expected {}, but got {}", target.len(), size),
         ));
@@ -69,7 +69,7 @@ fn read_value(codebook: &CodeBook, reader: &mut dyn Read, bitreader: &mut BitRea
         }
     }
 
-    Result::Err(Error::new(ErrorKind::UnexpectedEof, "Could not read additional bits"))
+    Err(Error::new(ErrorKind::UnexpectedEof, "Could not read additional bits"))
 }
 
 pub type BitCount = u8;

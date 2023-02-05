@@ -1,18 +1,13 @@
 
-This release provides new engine features (e.g. MultiPV analysis) and a small strength increase :fireworks:
+This releases provides ...
 
 
-Estimated strength increase: ~ 30 Elo
+Estimated strength increase: ~ ... Elo
 
 ## Changes
-- Add support for MultiPV analysis
-- Add support for UCI "go mate ..." command
-- Add support for UCI "go searchmoves ..." command
-- Improved training set generator and NN trainer
-- New neural network based upon 4.1.0 self-play training data
-- Some minor search improvements
-- Some minor optimizations
-- Update to latest Rust version (1.66.0)
+- Increase hidden layer size
+- Re-introduce GPU trainer
+- Fix UCI compatibility issue with Nibbler Chess UI
 
 Due to the lack of an ARM-based (Apple Silicon) computer, the new "apple-silicon" builds are untested.
 

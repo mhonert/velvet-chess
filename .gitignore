@@ -4,7 +4,5 @@
 fen
 epd
 __pycache__
-build.sh
-build_tools.sh
-build_trainer.sh
+build*.sh
 pytools/patch-verifier/tmp
