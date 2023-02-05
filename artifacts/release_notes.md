@@ -8,6 +8,7 @@ Estimated strength increase: ~ ... Elo
 - Increase hidden layer size
 - Re-introduce GPU trainer
 - Fix UCI compatibility issue with Nibbler Chess UI
+- Fix analysis mode issue when search reaches the maximum depth
 
 Due to the lack of an ARM-based (Apple Silicon) computer, the new "apple-silicon" builds are untested.
 
