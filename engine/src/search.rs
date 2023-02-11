@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2022 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2023 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -57,6 +57,21 @@ const QS_SEE_THRESHOLD: i32 = 104;
 
 const INITIAL_ASPIRATION_WINDOW_SIZE: i32 = 16;
 const INITIAL_ASPIRATION_WINDOW_STEP: i32 = 16;
+
+const MAX_LMR_MOVES: usize = 64;
+
+const LMR: [i32; MAX_LMR_MOVES] = calc_late_move_reductions();
+
+const fn calc_late_move_reductions() -> [i32; MAX_LMR_MOVES] {
+    let mut lmr = [0i32; MAX_LMR_MOVES];
+    let mut moves = 0;
+    while moves < MAX_LMR_MOVES {
+        lmr[moves] = log2(1 + moves as u32 / 4);
+        moves += 1;
+    }
+
+    lmr
+}
 
 struct SearchInfo {
     ply: i32,
@@ -747,29 +762,19 @@ impl Search {
                 let target_piece_id = curr_move.piece_id();
                 has_valid_moves = true;
 
-                if !is_pv
-                    && previous_move_was_capture
-                    && evaluated_move_count > 0
-                    && info.capture_pos != curr_move.end()
-                {
+                if !is_pv && previous_move_was_capture && evaluated_move_count > 0 && !curr_move.is_queen_promotion() && info.capture_pos != curr_move.end() {
                     reductions = 1;
                 }
 
                 if se_extension == 0 && removed_piece_id == EMPTY {
-                    if allow_lmr && evaluated_move_count > LMR_THRESHOLD {
-                        reductions += if is_pv { 1 } else { 2 };
 
-                        if info.excluded_singular_move != NO_MOVE && evaluated_move_count >= 6 {
-                            reductions += 1;
-                        }
+                    if allow_lmr && evaluated_move_count > LMR_THRESHOLD && !curr_move.is_queen_promotion()  {
+                        reductions += unsafe { *LMR.get_unchecked((evaluated_move_count as usize).min(MAX_LMR_MOVES - 1)) } + if is_pv { 0 } else { 1 };
 
-                        reductions +=
-                            -((curr_move.score() - QUIET_BASE_SCORE) / MIN_HISTORY_SCORE.abs()).clamp(-2, reductions);
                     } else if allow_futile_move_pruning && !gives_check && !curr_move.is_queen_promotion() {
                         // Reduce futile move
                         reductions += FUTILE_MOVE_REDUCTIONS;
-                    } else if !is_pv
-                        && (curr_move.score() <= NEGATIVE_HISTORY_SCORE
+                    } else if curr_move.score() <= NEGATIVE_HISTORY_SCORE
                             || (curr_move.score() <= QUIET_BASE_SCORE
                                 && self.board.has_negative_see(
                                     active_player.flip(),
@@ -779,7 +784,7 @@ impl Search {
                                     EMPTY,
                                     0,
                                     occupied_bb,
-                                )))
+                                ))
                     {
                         // Reduce search depth for moves with negative history or negative SEE score
                         reductions += LOSING_MOVE_REDUCTIONS;
@@ -795,6 +800,7 @@ impl Search {
                     if allow_futile_move_pruning
                         && evaluated_move_count > 0
                         && !gives_check
+                        && !curr_move.is_queen_promotion()
                         && reductions >= (depth - 1)
                     {
                         // Prune futile move
@@ -1541,7 +1547,7 @@ fn null_move_reduction(depth: i32) -> i32 {
 }
 
 #[inline]
-fn log2(i: u32) -> i32 {
+const fn log2(i: u32) -> i32 {
     (32 - i.leading_zeros()) as i32 - 1
 }
 
