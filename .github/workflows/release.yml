@@ -44,8 +44,10 @@ jobs:
         include:
           - exec_postfix: "avx2"
             add_rustflags: "-Ctarget-feature=+crt-static,-bmi2 -Ctarget-cpu=x86-64-v3"
+            clags: "-march=x86-64-v3"
           - exec_postfix: "sse4-popcnt"
             add_rustflags: "-Ctarget-feature=+crt-static -Ctarget-cpu=x86-64-v2"
+            clags: "-march=x86-64-v2"
 #          - exec_postfix: "nopopcnt"
 #            add_rustflags: "-Ctarget-feature=+crt-static"
 
@@ -56,6 +58,7 @@ jobs:
       - name: Build
         env:
           RUSTFLAGS: '${{ matrix.add_rustflags }} -Cinline-threshold=500'
+          CFLAGS: '${{ matrix.cflags }}'
         run: |
           rustup override set 1.66.0
           cargo build --release --bin velvet
