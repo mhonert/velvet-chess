@@ -12,8 +12,10 @@ jobs:
         include:
           - exec_postfix: "avx2"
             add_rustflags: "-Ctarget-feature=+crt-static,-bmi2 -Ctarget-cpu=x86-64-v3"
+            cc_march: "-march=x86-64-v3"
           - exec_postfix: "sse4-popcnt"
             add_rustflags: "-Ctarget-feature=+crt-static -Ctarget-cpu=x86-64-v2"
+            cc_march: "-march=x86-64-v2"
           - exec_postfix: "nopopcnt"
             add_rustflags: "-Ctarget-feature=+crt-static"
 
@@ -24,6 +26,7 @@ jobs:
       - name: Build
         env:
           RUSTFLAGS: '${{ matrix.add_rustflags }} -Cinline-threshold=500'
+          CC_MARCH: '${{ matrix.cc_march }}'
         run: |
           sudo apt-get install -y musl-tools
           rustup override set 1.66.0
@@ -139,7 +142,7 @@ jobs:
           chmod +x velvet-linux-x86_64-nopopcnt
           mv velvet-windows-x86_64-avx2.exe velvet-${tag_name}-x86_64-avx2.exe
           mv velvet-windows-x86_64-sse4-popcnt.exe velvet-${tag_name}-x86_64-sse4-popcnt.exe
-          mv velvet-windows-x86_64-nopopcnt.exe velvet-${tag_name}-x86_64-nopopcnt.exe
+#          mv velvet-windows-x86_64-nopopcnt.exe velvet-${tag_name}-x86_64-nopopcnt.exe
           mv velvet-linux-x86_64-avx2 velvet-${tag_name}-x86_64-avx2
           mv velvet-linux-x86_64-sse4-popcnt velvet-${tag_name}-x86_64-sse4-popcnt
           mv velvet-linux-x86_64-nopopcnt velvet-${tag_name}-x86_64-nopopcnt
@@ -154,7 +157,7 @@ jobs:
                              -a "checksums.txt#Checksums" \
                              -a "velvet-${tag_name}-x86_64-avx2.exe#Velvet - Windows (x86_64 - AVX2)" \
                              -a "velvet-${tag_name}-x86_64-sse4-popcnt.exe#Velvet - Windows (x86_64 - SSE4.2+POPCNT)" \
-                             -a "velvet-${tag_name}-x86_64-nopopcnt.exe#Velvet - Windows (x86_64 - No POPCNT)" \
+#                             -a "velvet-${tag_name}-x86_64-nopopcnt.exe#Velvet - Windows (x86_64 - No POPCNT)" \
                              -a "velvet-${tag_name}-x86_64-avx2#Velvet - Linux (x86_64 - AVX2)" \
                              -a "velvet-${tag_name}-x86_64-sse4-popcnt#Velvet - Linux (x86_64 - SSE4.2+POPCNT)" \
                              -a "velvet-${tag_name}-x86_64-nopopcnt#Velvet - Linux (x86_64 - No POPCNT)" \
