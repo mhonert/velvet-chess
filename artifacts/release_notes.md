@@ -1,5 +1,5 @@
 
-This releases provides ...
+This releases comes with a bigger neural network and support for Syzygy Tablebase
 
 
 Estimated strength increase: ~ 40 Elo
