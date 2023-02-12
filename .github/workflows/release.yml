@@ -46,8 +46,8 @@ jobs:
             add_rustflags: "-Ctarget-feature=+crt-static,-bmi2 -Ctarget-cpu=x86-64-v3"
           - exec_postfix: "sse4-popcnt"
             add_rustflags: "-Ctarget-feature=+crt-static -Ctarget-cpu=x86-64-v2"
-          - exec_postfix: "nopopcnt"
-            add_rustflags: "-Ctarget-feature=+crt-static"
+#          - exec_postfix: "nopopcnt"
+#            add_rustflags: "-Ctarget-feature=+crt-static"
 
     steps:
       - name: Checkout code
