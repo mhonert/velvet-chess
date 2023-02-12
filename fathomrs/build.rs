@@ -33,6 +33,8 @@ fn main() {
     if env::consts::OS == "windows" {
         // Workaround for error: <stdatomic.h> is not yet supported when compiling as C
         build.compiler("clang");
+        build.define("_CRT_SECURE_NO_WARNINGS", None);
+        build.flag(env::var("CC_MARCH").unwrap().as_str());
     }
 
     build.compile("fathom");
