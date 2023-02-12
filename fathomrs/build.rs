@@ -23,12 +23,19 @@ use std::env;
 use std::path::PathBuf;
 
 fn main() {
-    cc::Build::default()
-        .include("fathom/src")
+    let mut build = cc::Build::default();
+
+    build.include("fathom/src")
         .file("fathom/src/tbprobe.c")
         .static_flag(true)
-        .static_crt(true)
-        .compile("fathom");
+        .static_crt(true);
+
+    if env::consts::OS == "windows" {
+        // Workaround for error: <stdatomic.h> is not yet supported when compiling as C
+        build.compiler("clang");
+    }
+
+    build.compile("fathom");
 
     // Tell cargo to invalidate the built crate whenever the wrapper changes
     println!("cargo:rerun-if-changed=fathom/src/tbprobe.h");
