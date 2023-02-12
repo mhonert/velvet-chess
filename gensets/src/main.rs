@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2022 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2023 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -230,7 +230,7 @@ fn find_test_positions(tx: &Sender<TestPos>, openings: &[String], tb_path: Strin
 
     let limits = SearchLimits::new(None, Some(10), None, None, None, None, None, None, None).unwrap();
     let mut search =
-        Search::new(stop, Arc::new(AtomicU64::new(0)), LogLevel::Error, limits, tt, create_from_fen(START_POS), false);
+        Search::new(stop, Arc::new(AtomicU64::new(0)), Arc::new(AtomicU64::new(0)), LogLevel::Error, limits, tt, create_from_fen(START_POS), false);
 
     let (_tx, rx) = mpsc::channel::<Message>();
 
