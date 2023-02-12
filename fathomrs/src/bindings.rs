@@ -16,34 +16,30 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::transposition_table::MAX_DEPTH;
+#![allow(non_upper_case_globals)]
+#![allow(non_camel_case_types)]
+#![allow(non_snake_case)]
+#![allow(unused)]
+include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
-pub const MIN_SCORE: i32 = -8191;
-pub const MAX_SCORE: i32 = 8191;
-
-pub const MATED_SCORE: i32 = -8000;
-pub const MATE_SCORE: i32 = 8000;
-
-pub const TB_WIN: i32 = 6500;
-pub const TB_LOSS: i32 = -6500;
-
-pub fn is_mate_score(score: i32) -> bool {
-    score.abs() > (TB_WIN + 1000)
-}
-
-pub fn mate_in(score: i32) -> Option<i32> {
-    let mate_ply_distance = MATE_SCORE - score;
-    if mate_ply_distance >= 0 && mate_ply_distance <= MAX_DEPTH as i32 {
-        Some((mate_ply_distance + 1) / 2)
-    } else {
-        None
+impl Default for TbRootMoves {
+    fn default() -> Self {
+        TbRootMoves{
+            size: 0,
+            moves: [TbRootMove::default(); TB_MAX_MOVES as usize],
+        }
     }
 }
 
-pub fn sanitize_eval_score(score: i32) -> i32 {
-    score.clamp(TB_LOSS + 50 + 1, TB_WIN - (50 + 1))
+impl Default for TbRootMove {
+    fn default() -> Self {
+        TbRootMove{
+            move_: 0,
+            pv: [0; TB_MAX_PLY as usize],
+            pvSize: 0,
+            tbScore: 0,
+            tbRank: 0,
+        }
+    }
 }
 
-pub fn sanitize_score(score: i32) -> i32 {
-    score.clamp(MATED_SCORE, MATE_SCORE)
-}

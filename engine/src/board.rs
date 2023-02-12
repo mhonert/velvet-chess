@@ -267,6 +267,10 @@ impl Board {
         self.state.castling.can_castle(castling)
     }
 
+    pub fn any_castling(&self) -> bool {
+        self.state.castling.any_castling()
+    }
+
     pub fn can_castle_king_side(&self, color: Color) -> bool {
         self.state.castling.can_castle_king_side(color)
     }
@@ -277,6 +281,10 @@ impl Board {
 
     pub fn get_enpassant_state(&self) -> u16 {
         self.state.en_passant
+    }
+
+    pub fn piece_count(&self) -> u32 {
+        self.occupancy_bb().piece_count()
     }
 
     pub fn can_enpassant(&self, color: Color, location: u8) -> bool {

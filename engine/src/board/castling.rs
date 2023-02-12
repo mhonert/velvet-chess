@@ -55,6 +55,11 @@ impl CastlingState {
     }
 
     #[inline]
+    pub fn any_castling(&self) -> bool {
+        self.0 != 0
+    }
+
+    #[inline]
     pub fn can_castle_king_side(&self, color: Color) -> bool {
         self.can_castle(Self::king_side(color))
     }

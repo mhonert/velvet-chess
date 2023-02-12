@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2022 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2023 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -32,6 +32,7 @@ use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{mpsc, Arc};
 use std::thread;
 use std::time::SystemTime;
+use fathomrs::tb;
 
 pub enum Message {
     ClearHash,
@@ -44,6 +45,8 @@ pub enum Message {
     Quit,
     SetPosition(String, Vec<UCIMove>),
     SetThreadCount(i32),
+    SetTableBasePath(String),
+    SetTableBaseProbeDepth(i32),
     SetMultiPV(i32),
     SetTranspositionTableSize(i32),
     Stop,
@@ -67,6 +70,7 @@ pub struct Engine {
     current_thread_count: i32,
     new_tt_size: Option<i32>,
     current_tt_size: i32,
+    new_tb_path: Option<String>,
     search: Search,
 }
 
@@ -89,6 +93,7 @@ impl Engine {
         let search = Search::new(
             Arc::new(AtomicBool::new(true)),
             Arc::new(AtomicU64::new(0)),
+            Arc::new(AtomicU64::new(0)),
             LogLevel::Info,
             SearchLimits::default(),
             TranspositionTable::new(tt_size_mb),
@@ -106,6 +111,7 @@ impl Engine {
             new_tt_size: None,
             current_tt_size: DEFAULT_SIZE_MB as i32,
             search,
+            new_tb_path: None
         }
     }
 
@@ -155,6 +161,17 @@ impl Engine {
                         self.update_thread_count();
                     }
                 }
+            }
+
+            Message::SetTableBasePath(path) => {
+                self.new_tb_path = Some(path.trim().to_string());
+                if self.initialized {
+                    self.update_tb();
+                }
+            }
+
+            Message::SetTableBaseProbeDepth(depth) => {
+                self.search.set_tb_probe_depth(depth);
             }
 
             Message::SetMultiPV(count) => {
@@ -234,6 +251,7 @@ impl Engine {
         init_nn_params();
         self.update_thread_count();
         self.update_tt_size();
+        self.update_tb();
 
         self.initialized = true;
         println!("readyok")
@@ -252,6 +270,23 @@ impl Engine {
             self.search.resize_tt(new_tt_size);
             self.current_tt_size = new_tt_size;
             self.new_tt_size = None;
+        }
+    }
+
+    fn update_tb(&mut self) {
+        if let Some(path) = self.new_tb_path.clone() {
+            if !tb::init(path.clone()) {
+                eprintln!("could not initialize tablebases using path: {}", path);
+            } else {
+                let count = tb::max_piece_count();
+                if count == 0 {
+                    println!("debug no tablebases found");
+                } else {
+                    println!("debug found {}-men tablebases", tb::max_piece_count());
+                }
+
+            }
+            self.new_tb_path = None;
         }
     }
 

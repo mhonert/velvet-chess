@@ -2,13 +2,15 @@
 This releases provides ...
 
 
-Estimated strength increase: ~ ... Elo
+Estimated strength increase: ~ 40 Elo
 
 ## Changes
-- Increase hidden layer size
-- Re-introduce GPU trainer
-- Fix UCI compatibility issue with Nibbler Chess UI
-- Fix analysis mode issue when search reaches the maximum depth
+- Increased hidden layer size
+- Re-introduced GPU trainer
+- Fixed UCI compatibility issue with Nibbler Chess UI
+- Fixed analysis mode issue when search reaches the maximum depth
+- Integrated [Fathom](https://github.com/jdart1/Fathom) for Syzygy Tablebase support
+- Some minor search-related improvements
 
 Due to the lack of an ARM-based (Apple Silicon) computer, the new "apple-silicon" builds are untested.
 

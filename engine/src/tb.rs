@@ -1,0 +1,98 @@
+/*
+ * Velvet Chess Engine
+ * Copyright (C) 2023 mhonert (https://github.com/mhonert)
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+use itertools::Itertools;
+use fathomrs::tb;
+use fathomrs::tb::{extract_move, Promotion, TBResult};
+use crate::bitboard::{v_mirror_i8};
+use crate::board::Board;
+use crate::colors::{BLACK, WHITE};
+use crate::moves::Move;
+use crate::pieces::{B, EMPTY, K, N, P, Q, R};
+use crate::uci_move::UCIMove;
+
+pub const DEFAULT_TB_PROBE_DEPTH: i32 = 0;
+
+pub trait ProbeTB {
+    fn probe_wdl(&self) -> Option<TBResult>;
+    fn probe_root_wdl(&self) -> Option<(TBResult, Vec<Move>)>;
+}
+
+impl ProbeTB for Board {
+    fn probe_wdl(&self) -> Option<TBResult> {
+        if self.piece_count() > tb::max_piece_count() || self.halfmove_clock() != 0 || self.get_enpassant_state() != 0 || self.any_castling() {
+           return None;
+        }
+
+        Some(tb::probe_wdl(
+            self.get_all_piece_bitboard(WHITE).0.swap_bytes(),
+            self.get_all_piece_bitboard(BLACK).0.swap_bytes(),
+            (self.get_bitboard(K) | self.get_bitboard(-K)).0.swap_bytes(),
+            (self.get_bitboard(Q) | self.get_bitboard(-Q)).0.swap_bytes(),
+            (self.get_bitboard(R) | self.get_bitboard(-R)).0.swap_bytes(),
+            (self.get_bitboard(B) | self.get_bitboard(-B)).0.swap_bytes(),
+            (self.get_bitboard(N) | self.get_bitboard(-N)).0.swap_bytes(),
+            (self.get_bitboard(P) | self.get_bitboard(-P)).0.swap_bytes(),
+            0,
+            self.active_player().is_white()
+        ))
+    }
+
+    fn probe_root_wdl(&self) -> Option<(TBResult, Vec<Move>)> {
+        if self.piece_count() > tb::max_piece_count() || self.get_enpassant_state() != 0 || self.any_castling() {
+            return None;
+        }
+
+        let (result, moves) = tb::probe_root_wdl(
+            self.get_all_piece_bitboard(WHITE).0.swap_bytes(),
+            self.get_all_piece_bitboard(BLACK).0.swap_bytes(),
+            (self.get_bitboard(K) | self.get_bitboard(-K)).0.swap_bytes(),
+            (self.get_bitboard(Q) | self.get_bitboard(-Q)).0.swap_bytes(),
+            (self.get_bitboard(R) | self.get_bitboard(-R)).0.swap_bytes(),
+            (self.get_bitboard(B) | self.get_bitboard(-B)).0.swap_bytes(),
+            (self.get_bitboard(N) | self.get_bitboard(-N)).0.swap_bytes(),
+            (self.get_bitboard(P) | self.get_bitboard(-P)).0.swap_bytes(),
+            self.halfmove_clock(),
+            0,
+            self.active_player().is_white()
+        );
+
+        if tb::is_failed_result(result) {
+            return None;
+        }
+
+        let best_tb_result = TBResult::from_result(result);
+
+        Some((best_tb_result, moves.iter().filter(|&m| *m != 0).map(|&m| {
+            let tb_result = TBResult::from_result(m);
+            let (from, to, promotion) = extract_move(m);
+            (tb_result, from, to, promotion)
+        }).filter(|(tb_result, _, _, _)| tb_result < &best_tb_result)
+            .map(|(_, from, to, promotion)| {
+                let promotion_piece = match promotion {
+                    Promotion::Queen => Q,
+                    Promotion::Rook => R,
+                    Promotion::Bishop => B,
+                    Promotion::Knight => N,
+                    _ => EMPTY
+                };
+
+                UCIMove::new(v_mirror_i8(from), v_mirror_i8(to), promotion_piece).to_move(self)
+            }).collect_vec()))
+    }
+}

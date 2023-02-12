@@ -2,6 +2,7 @@
 
 members = [
     "engine",
+    "fathomrs",
     "gensets",
     "genmagics",
     "cputrainer",

@@ -16,27 +16,5 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub mod align;
-pub mod bitboard;
-pub mod board;
-pub mod colors;
-pub mod engine;
-pub mod fen;
-pub mod history_heuristics;
-pub mod magics;
-pub mod move_gen;
-pub mod moves;
-pub mod nn;
-pub mod perft;
-pub mod pieces;
-pub mod random;
-pub mod scores;
-pub mod search;
-pub mod time_management;
-pub mod transposition_table;
-pub mod uci;
-pub mod uci_move;
-
-mod pos_history;
-mod zobrist;
-mod tb;
+pub mod tb;
+mod bindings;
