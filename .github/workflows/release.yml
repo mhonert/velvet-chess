@@ -18,6 +18,7 @@ jobs:
             cc_march: "-march=x86-64-v2"
           - exec_postfix: "nopopcnt"
             add_rustflags: "-Ctarget-feature=+crt-static"
+            cc_march: "-march=x86-64"
 
     steps:
       - name: Checkout code
@@ -51,8 +52,9 @@ jobs:
           - exec_postfix: "sse4-popcnt"
             add_rustflags: "-Ctarget-feature=+crt-static -Ctarget-cpu=x86-64-v2"
             cc_march: "-march=x86-64-v2"
-#          - exec_postfix: "nopopcnt"
-#            add_rustflags: "-Ctarget-feature=+crt-static"
+          - exec_postfix: "nopopcnt"
+            add_rustflags: "-Ctarget-feature=+crt-static"
+            cc_march: "-march=x86-64"
 
     steps:
       - name: Checkout code
@@ -142,6 +144,7 @@ jobs:
           chmod +x velvet-linux-x86_64-nopopcnt
           mv velvet-windows-x86_64-avx2.exe velvet-${tag_name}-x86_64-avx2.exe
           mv velvet-windows-x86_64-sse4-popcnt.exe velvet-${tag_name}-x86_64-sse4-popcnt.exe
+          mv velvet-windows-x86_64-nopopcnt.exe velvet-${tag_name}-x86_64-nopopcnt.exe
           mv velvet-linux-x86_64-avx2 velvet-${tag_name}-x86_64-avx2
           mv velvet-linux-x86_64-sse4-popcnt velvet-${tag_name}-x86_64-sse4-popcnt
           mv velvet-linux-x86_64-nopopcnt velvet-${tag_name}-x86_64-nopopcnt
@@ -156,6 +159,7 @@ jobs:
                              -a "checksums.txt#Checksums" \
                              -a "velvet-${tag_name}-x86_64-avx2.exe#Velvet - Windows (x86_64 - AVX2)" \
                              -a "velvet-${tag_name}-x86_64-sse4-popcnt.exe#Velvet - Windows (x86_64 - SSE4.2+POPCNT)" \
+                             -a "velvet-${tag_name}-x86_64-nopopcnt.exe#Velvet - Windows (x86_64 - No POPCNT)" \
                              -a "velvet-${tag_name}-x86_64-avx2#Velvet - Linux (x86_64 - AVX2)" \
                              -a "velvet-${tag_name}-x86_64-sse4-popcnt#Velvet - Linux (x86_64 - SSE4.2+POPCNT)" \
                              -a "velvet-${tag_name}-x86_64-nopopcnt#Velvet - Linux (x86_64 - No POPCNT)" \
