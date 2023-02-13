@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     branches:
-      - fix/nopopcnt-fathom'
+      - fix/nopopcnt-fathom
 #    tags: "v*"
 
 jobs:
