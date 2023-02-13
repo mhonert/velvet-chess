@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2022 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2023 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -18,7 +18,7 @@
 
 use crate::align::A64;
 use crate::moves::Move;
-use crate::scores::{MATED_SCORE, MATE_SCORE};
+use crate::scores::{is_mate_score, is_mated_score, is_tb_win_score, is_tb_loss_score, sanitize_mate_score, sanitize_mated_score, sanitize_tb_win_score, sanitize_tb_loss_score};
 use std::intrinsics::transmute;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -176,10 +176,14 @@ pub fn get_untyped_move(entry: u64) -> Move {
 #[inline]
 // Convert current-node-relative mate scores to root-relative mate scores
 pub fn to_root_relative_score(ply: i32, score: i32) -> i32 {
-    if score <= MATED_SCORE + MAX_DEPTH as i32 {
-        score + ply
-    } else if score >= MATE_SCORE - MAX_DEPTH as i32 {
-        score - ply
+    if is_mate_score(score) {
+        sanitize_mate_score(score - ply)
+    } else if is_mated_score(score) {
+        sanitize_mated_score(score + ply)
+    } else if is_tb_win_score(score) {
+        sanitize_tb_win_score(score - ply)
+    } else if is_tb_loss_score(score) {
+        sanitize_tb_loss_score(score + ply)
     } else {
         score
     }
@@ -188,10 +192,14 @@ pub fn to_root_relative_score(ply: i32, score: i32) -> i32 {
 #[inline]
 // Convert root-relative mate scores to current-node-relative mate scores
 pub fn from_root_relative_score(ply: i32, score: i32) -> i32 {
-    if score <= MATED_SCORE + MAX_DEPTH as i32 {
-        score - ply
-    } else if score >= MATE_SCORE - MAX_DEPTH as i32 {
-        score + ply
+    if is_mate_score(score) {
+        sanitize_mate_score(score - ply)
+    } else if is_mated_score(score) {
+        sanitize_mated_score(score + ply)
+    } else if is_tb_win_score(score) {
+        sanitize_tb_win_score(score - ply)
+    } else if is_tb_loss_score(score) {
+        sanitize_tb_loss_score(score - ply)
     } else {
         score
     }

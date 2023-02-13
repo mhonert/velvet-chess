@@ -16,34 +16,69 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::transposition_table::MAX_DEPTH;
-
 pub const MIN_SCORE: i32 = -8191;
 pub const MAX_SCORE: i32 = 8191;
 
 pub const MATED_SCORE: i32 = -8000;
 pub const MATE_SCORE: i32 = 8000;
+const MATE_SCORE_RANGE: i32 = 499;
 
-pub const TB_WIN: i32 = 6500;
-pub const TB_LOSS: i32 = -6500;
+pub const TB_WIN: i32 = MATE_SCORE - (MATE_SCORE_RANGE + 1);
+pub const TB_LOSS: i32 = MATED_SCORE + (MATE_SCORE_RANGE + 1);
+const TB_SCORE_RANGE: i32 = 499;
+
+pub const MAX_EVAL: i32 = TB_WIN - (TB_SCORE_RANGE + 1);
+pub const MIN_EVAL: i32 = TB_LOSS + (TB_SCORE_RANGE + 1);
+
+pub fn is_mate_or_mated_score(score: i32) -> bool {
+    score.abs() >= (MATE_SCORE - MATE_SCORE_RANGE)
+}
 
 pub fn is_mate_score(score: i32) -> bool {
-    score.abs() > (TB_WIN + 1000)
+    score >= (MATE_SCORE - MATE_SCORE_RANGE)
+}
+
+pub fn is_mated_score(score: i32) -> bool {
+    score <= (MATED_SCORE + MATE_SCORE_RANGE)
+}
+
+pub fn is_tb_win_score(score: i32) -> bool {
+    !is_mate_score(score) && score >= (TB_WIN - TB_SCORE_RANGE)
+}
+
+pub fn is_tb_loss_score(score: i32) -> bool {
+    !is_mated_score(score) && score <= (TB_LOSS + TB_SCORE_RANGE)
 }
 
 pub fn mate_in(score: i32) -> Option<i32> {
     let mate_ply_distance = MATE_SCORE - score;
-    if mate_ply_distance >= 0 && mate_ply_distance <= MAX_DEPTH as i32 {
+    if (0..=MATE_SCORE_RANGE).contains(&mate_ply_distance) {
         Some((mate_ply_distance + 1) / 2)
     } else {
         None
     }
 }
 
-pub fn sanitize_eval_score(score: i32) -> i32 {
-    score.clamp(TB_LOSS + 50 + 1, TB_WIN - (50 + 1))
-}
-
 pub fn sanitize_score(score: i32) -> i32 {
     score.clamp(MATED_SCORE, MATE_SCORE)
+}
+
+pub fn sanitize_eval_score(score: i32) -> i32 {
+    score.clamp(MIN_EVAL, MAX_EVAL)
+}
+
+pub fn sanitize_mate_score(score: i32) -> i32 {
+    score.clamp(MATE_SCORE - MATE_SCORE_RANGE, MATE_SCORE)
+}
+
+pub fn sanitize_mated_score(score: i32) -> i32 {
+    score.clamp(MATED_SCORE, MATED_SCORE + MATE_SCORE_RANGE)
+}
+
+pub fn sanitize_tb_win_score(score: i32) -> i32 {
+    score.clamp(TB_WIN - TB_SCORE_RANGE, TB_WIN)
+}
+
+pub fn sanitize_tb_loss_score(score: i32) -> i32 {
+    score.clamp(TB_LOSS, TB_LOSS + TB_SCORE_RANGE)
 }

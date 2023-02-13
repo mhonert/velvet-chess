@@ -42,7 +42,7 @@ use velvet::move_gen::MoveGenerator;
 use velvet::moves::{Move, NO_MOVE};
 use velvet::nn::init_nn_params;
 use velvet::random::Random;
-use velvet::scores::{is_mate_score, MATE_SCORE, MAX_SCORE, MIN_SCORE};
+use velvet::scores::{is_mate_or_mated_score, MATE_SCORE, MAX_SCORE, MIN_SCORE};
 use velvet::search::{PrincipalVariation, Search};
 use velvet::time_management::SearchLimits;
 use velvet::transposition_table::{TranspositionTable, MAX_DEPTH};
@@ -294,7 +294,7 @@ fn collect_quiet_pos(
 
         let (previous_piece, move_state) = search.board.perform_move(selected_move);
 
-        if num > 8 && selected_move.score().abs() < (MATE_SCORE - MAX_DEPTH as i32 * 2) && selected_move.is_quiet() {
+        if num > 8 && is_mate_or_mated_score(selected_move.score()) && selected_move.is_quiet() {
             let mut qs_pv = PrincipalVariation::default();
             search.set_stopped(false);
             search.board.active_player().score(search.quiescence_search::<true>(
@@ -351,7 +351,7 @@ fn eval_pos(
 
     let pos_score = search.board.active_player().score(m.score());
 
-    if is_mate_score(pos_score) {
+    if is_mate_or_mated_score(pos_score) {
         return (((prev_score as i64 * depth + pos_score as i64) / (depth + 1)) as i32, 1);
     }
 

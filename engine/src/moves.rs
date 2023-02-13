@@ -56,7 +56,7 @@ const SCORE_SHIFT: u32 = 15;
 
 impl Move {
     #[inline]
-    pub fn new(typ: MoveType, piece_id: i8, start: i32, end: i32) -> Self {
+    pub const fn new(typ: MoveType, piece_id: i8, start: i32, end: i32) -> Self {
         Move(
             (piece_id as u32)
                 | ((end as u32) << END_SHIFT)
@@ -182,6 +182,7 @@ impl fmt::Debug for Move {
 }
 
 pub const NO_MOVE: Move = Move(0);
+pub const TB_MOVE: Move = Move::new(MoveType::PawnQuiet, 2, 31, 31); // <- invalid move to mark tablebase score entries
 
 #[cfg(test)]
 mod tests {

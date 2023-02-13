@@ -23,10 +23,10 @@ use crate::colors::Color;
 use crate::engine::{LogLevel, Message};
 use crate::history_heuristics::{HistoryHeuristics};
 use crate::move_gen::{is_killer, MoveGenerator, NEGATIVE_HISTORY_SCORE, QUIET_BASE_SCORE};
-use crate::moves::{Move, NO_MOVE};
+use crate::moves::{Move, NO_MOVE, TB_MOVE};
 use crate::pieces::EMPTY;
 use crate::pos_history::PositionHistory;
-use crate::scores::{mate_in, sanitize_score, MATED_SCORE, MATE_SCORE, MAX_SCORE, MIN_SCORE, TB_WIN, TB_LOSS, is_mate_score};
+use crate::scores::{mate_in, sanitize_score, MATED_SCORE, MATE_SCORE, MAX_SCORE, MIN_SCORE, TB_WIN, TB_LOSS, is_mate_or_mated_score};
 use crate::time_management::{SearchLimits, TimeManager};
 use crate::transposition_table::{
     from_root_relative_score, get_depth, get_score_type, get_untyped_move, to_root_relative_score, ScoreType,
@@ -596,10 +596,15 @@ impl Search {
             // Check transposition table
             let tt_entry = self.tt.get_entry(hash);
             if tt_entry != 0 {
-                hash_move = self.movegen.sanitize_move(&self.board, active_player, get_untyped_move(tt_entry));
+                let tt_move = get_untyped_move(tt_entry);
+                (hash_move, hash_score) = if tt_move.is_same_move(TB_MOVE) {
+                    (NO_MOVE, tt_move.score())
+                } else {
+                    (self.movegen.sanitize_move(&self.board, active_player, tt_move), tt_move.score())
+                };
 
-                if hash_move != NO_MOVE {
-                    hash_score = to_root_relative_score(info.ply, sanitize_score(hash_move.score()));
+                if hash_move != NO_MOVE || tt_move.is_same_move(TB_MOVE) {
+                    hash_score = to_root_relative_score(info.ply, sanitize_score(hash_score));
                     let tt_depth = get_depth(tt_entry);
                     match get_score_type(tt_entry) {
                         ScoreType::Exact => {
@@ -650,24 +655,29 @@ impl Search {
 
                     match tb_result {
                         TBResult::Draw => {
+                            self.tt.write_entry(hash, MAX_DEPTH as i32, TB_MOVE.with_score(0), ScoreType::Exact);
                             return 0;
                         },
                         TBResult::Win => {
-                            if TB_WIN >= beta {
-                                let score = self.quiescence_search::<false>(rx, active_player, alpha, beta, info.ply, pos_score, pv);
-                                return TB_WIN + (score / 4).clamp(0, 1000);
+                            let score = TB_WIN - info.ply;
+                            if score >= beta {
+                                self.tt.write_entry(hash, MAX_DEPTH as i32, TB_MOVE.with_score(TB_WIN), ScoreType::Exact);
+                                return score;
                             }
                         }
                         TBResult::Loss => {
-                            if TB_LOSS <= alpha {
-                                let score = self.quiescence_search::<false>(rx, active_player, alpha, beta, info.ply, pos_score, pv);
-                                return TB_LOSS + (score / 4).clamp(-1000, 0);
+                            let score = TB_LOSS + info.ply;
+                            if score <= alpha {
+                                self.tt.write_entry(hash, MAX_DEPTH as i32, TB_MOVE.with_score(TB_LOSS), ScoreType::Exact);
+                                return score;
                             }
                         },
                         TBResult::CursedWin => {
+                            self.tt.write_entry(hash, MAX_DEPTH as i32, TB_MOVE.with_score(1), ScoreType::Exact);
                             return 1;
                         },
                         TBResult::BlessedLoss => {
+                            self.tt.write_entry(hash, MAX_DEPTH as i32, TB_MOVE.with_score(-1), ScoreType::Exact);
                             return -1;
                         }
                     }
@@ -684,7 +694,7 @@ impl Search {
                     pos_score = pos_score.or_else(|| Some(active_player.score(self.board.eval())));
                     let score = pos_score.unwrap();
 
-                    if !is_mate_score(score) && score - (100 * depth) >= beta {
+                    if !is_mate_or_mated_score(score) && score - (100 * depth) >= beta {
                         return self.quiescence_search::<false>(rx, active_player, alpha, beta, info.ply, pos_score, pv);
                     }
                 } else if !skip_null_move && !self.board.is_pawn_endgame() {
@@ -714,7 +724,7 @@ impl Search {
                             return CANCEL_SEARCH;
                         }
                         if -result >= beta {
-                            return if !is_mate_score(result) { -result } else { beta };
+                            return if !is_mate_or_mated_score(result) { -result } else { beta };
                         }
                     }
                 }
@@ -735,10 +745,10 @@ impl Search {
         if !is_pv && depth <= 6 && !info.flags.in_check() {
             let margin = (6 << depth) * 4 + 16;
             pos_score = pos_score.or_else(|| Some(active_player.score(self.board.eval())));
-            let prune_low_score = pos_score.unwrap();
-            allow_futile_move_pruning = !is_mate_score(prune_low_score) && prune_low_score + margin <= alpha;
+            let static_score = pos_score.unwrap();
+            allow_futile_move_pruning = !is_mate_or_mated_score(static_score) && static_score + margin <= alpha;
 
-            if depth == 1 && prune_low_score + 200 <= alpha {
+            if depth == 1 && static_score + 200 <= alpha {
                 let score = self.quiescence_search::<false>(rx, active_player, alpha, beta, info.ply, pos_score, pv);
                 if score <= alpha {
                     return score;
@@ -1623,7 +1633,7 @@ impl SearchFlags {
 }
 
 fn get_score_info(score: i32) -> String {
-    if !is_mate_score(score) {
+    if !is_mate_or_mated_score(score) {
         return format!("cp {}", score);
     }
 
