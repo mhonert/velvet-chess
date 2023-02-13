@@ -35,8 +35,10 @@ fn main() {
         build.define("_CRT_SECURE_NO_WARNINGS", None);
     }
 
-    if let Ok(flag) = env::var("CC_MARCH") {
-        build.flag(flag.as_str());
+    if let Ok(flags) = env::var("CC_FLAGS") {
+        for flag in flags.split(' ') {
+            build.flag(flag);
+        }
     };
 
     build.compile("fathom");
