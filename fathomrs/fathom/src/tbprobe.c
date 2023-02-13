@@ -114,7 +114,7 @@ using namespace std;
 #undef TB_SOFTWARE_POP_COUNT
 
 #if defined(TB_CUSTOM_POP_COUNT)
-#define popcount(x) TB_CUSTOM_POP_COUNT(x)
+#define TB_SOFTWARE_POP_COUNT
 #elif defined(TB_NO_HW_POP_COUNT)
 #define TB_SOFTWARE_POP_COUNT
 #elif defined (__GNUC__) && defined(__x86_64__) && defined(__SSE4_2__)

@@ -2,7 +2,9 @@ name: Release
 
 on:
   push:
-    tags: "v*"
+    branches:
+      - fix/nopopcnt-fathom'
+#    tags: "v*"
 
 jobs:
   build-linux:
@@ -12,13 +14,13 @@ jobs:
         include:
           - exec_postfix: "avx2"
             add_rustflags: "-Ctarget-feature=+crt-static,-bmi2 -Ctarget-cpu=x86-64-v3"
-            cc_march: "-march=x86-64-v3"
+            cc_flags: "-march=x86-64-v3"
           - exec_postfix: "sse4-popcnt"
             add_rustflags: "-Ctarget-feature=+crt-static -Ctarget-cpu=x86-64-v2"
-            cc_march: "-march=x86-64-v2"
+            cc_flags: "-march=x86-64-v2"
           - exec_postfix: "nopopcnt"
             add_rustflags: "-Ctarget-feature=+crt-static"
-            cc_march: "-march=x86-64"
+            cc_flags: "-march=x86-64 -DTB_CUSTOM_POP_COUNT"
 
     steps:
       - name: Checkout code
@@ -27,7 +29,7 @@ jobs:
       - name: Build
         env:
           RUSTFLAGS: '${{ matrix.add_rustflags }} -Cinline-threshold=500'
-          CC_MARCH: '${{ matrix.cc_march }}'
+          CC_FLAGS: '${{ matrix.cc_flags }}'
         run: |
           sudo apt-get install -y musl-tools
           rustup override set 1.66.0
@@ -48,10 +50,13 @@ jobs:
         include:
           - exec_postfix: "avx2"
             add_rustflags: "-Ctarget-feature=+crt-static,-bmi2 -Ctarget-cpu=x86-64-v3"
-            cc_march: "-march=x86-64-v3"
+            cc_flags: "-march=x86-64-v3"
           - exec_postfix: "sse4-popcnt"
             add_rustflags: "-Ctarget-feature=+crt-static -Ctarget-cpu=x86-64-v2"
-            cc_march: "-march=x86-64-v2"
+            cc_flags: "-march=x86-64-v2"
+          - exec_postfix: "nopopcnt"
+            add_rustflags: "-Ctarget-feature=+crt-static"
+            cc_flags: "-march=x86-64 -DTB_CUSTOM_POP_COUNT"
 
     steps:
       - name: Checkout code
@@ -60,7 +65,7 @@ jobs:
       - name: Build
         env:
           RUSTFLAGS: '${{ matrix.add_rustflags }} -Cinline-threshold=500'
-          CC_MARCH: '${{ matrix.cc_march }}'
+          CC_FLAGS: '${{ matrix.cc_flags }}'
         run: |
           rustup override set 1.66.0
           cargo build --release --bin velvet
@@ -80,15 +85,19 @@ jobs:
           - exec_postfix: "avx2"
             toolchain: x86_64-apple-darwin
             add_rustflags: "-Ctarget-feature=+crt-static,-bmi2 -Ctarget-cpu=x86-64-v3"
+            cc_flags: "-march=x86-64-v3"
           - exec_postfix: "sse4-popcnt"
             toolchain: x86_64-apple-darwin
             add_rustflags: "-Ctarget-feature=+crt-static -Ctarget-cpu=x86-64-v2"
+            cc_flags: "-march=x86-64-v2"
           - exec_postfix: "nopopcnt"
             toolchain: x86_64-apple-darwin
             add_rustflags: "-Ctarget-feature=+crt-static"
+            cc_flags: "-march=x86-64 -DTB_CUSTOM_POP_COUNT"
           - exec_postfix: "apple-silicon"
             toolchain: aarch64-apple-darwin
             add_rustflags: "-Ctarget-feature=+crt-static"
+            cc_flags: ""
 
     steps:
       - name: Checkout code
@@ -97,6 +106,7 @@ jobs:
       - name: Build
         env:
           RUSTFLAGS: '${{ matrix.add_rustflags }} -Cinline-threshold=500'
+          CC_FLAGS: '${{ matrix.cc_flags }}'
         run: |
           rustup override set 1.66.0
           rustup target add ${{ matrix.toolchain }}
@@ -109,57 +119,59 @@ jobs:
           name: velvet-macos
           path: velvet-macOS-${{ matrix.exec_postfix }}
 
-  release:
-    if: github.repository == 'mhonert/velvet-chess'
-    needs: [build-linux, build-windows]
-    name: Publish release
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v2
-
-      - uses: actions/download-artifact@v2
-        with:
-          name: velvet-linux
-
-      - uses: actions/download-artifact@v2
-        with:
-          name: velvet-windows
-
-      - uses: actions/download-artifact@v2
-        with:
-          name: velvet-macos
-
-      - name: Create Release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          tag_name="${GITHUB_REF##*/}"
-          ls -l
-          chmod +x velvet-linux-x86_64-avx2
-          chmod +x velvet-linux-x86_64-sse4-popcnt
-          chmod +x velvet-linux-x86_64-nopopcnt
-          mv velvet-windows-x86_64-avx2.exe velvet-${tag_name}-x86_64-avx2.exe
-          mv velvet-windows-x86_64-sse4-popcnt.exe velvet-${tag_name}-x86_64-sse4-popcnt.exe
-          mv velvet-linux-x86_64-avx2 velvet-${tag_name}-x86_64-avx2
-          mv velvet-linux-x86_64-sse4-popcnt velvet-${tag_name}-x86_64-sse4-popcnt
-          mv velvet-linux-x86_64-nopopcnt velvet-${tag_name}-x86_64-nopopcnt
-          mv velvet-macOS-avx2 velvet-${tag_name}-macOS-x86_64-avx2
-          mv velvet-macOS-sse4-popcnt velvet-${tag_name}-macOS-x86_64-sse4-popcnt
-          mv velvet-macOS-nopopcnt velvet-${tag_name}-macOS-x86_64-nopopcnt
-          mv velvet-macOS-apple-silicon velvet-${tag_name}-macOS-apple-silicon
-          sha256sum velvet-* > checksums.txt
-          echo "$tag_name" > release_description.txt
-          cat artifacts/release_notes.md >> release_description.txt
-          hub release create --draft \
-                             -a "checksums.txt#Checksums" \
-                             -a "velvet-${tag_name}-x86_64-avx2.exe#Velvet - Windows (x86_64 - AVX2)" \
-                             -a "velvet-${tag_name}-x86_64-sse4-popcnt.exe#Velvet - Windows (x86_64 - SSE4.2+POPCNT)" \
-                             -a "velvet-${tag_name}-x86_64-avx2#Velvet - Linux (x86_64 - AVX2)" \
-                             -a "velvet-${tag_name}-x86_64-sse4-popcnt#Velvet - Linux (x86_64 - SSE4.2+POPCNT)" \
-                             -a "velvet-${tag_name}-x86_64-nopopcnt#Velvet - Linux (x86_64 - No POPCNT)" \
-                             -a "velvet-${tag_name}-macOS-apple-silicon#Velvet - macOS (Apple Silicon)" \
-                             -a "velvet-${tag_name}-macOS-x86_64-avx2#Velvet - macOS (x86_64 - AVX2)" \
-                             -a "velvet-${tag_name}-macOS-x86_64-sse4-popcnt#Velvet - macOS (x86_64 - SSE4.2+POPCNT)" \
-                             -a "velvet-${tag_name}-macOS-x86_64-nopopcnt#Velvet - macOS (x86_64 - No POPCNT)" \
-                             -F release_description.txt "$tag_name"
+#  release:
+#    if: github.repository == 'mhonert/velvet-chess'
+#    needs: [build-linux, build-windows]
+#    name: Publish release
+#    runs-on: ubuntu-latest
+#    steps:
+#      - name: Checkout code
+#        uses: actions/checkout@v2
+#
+#      - uses: actions/download-artifact@v2
+#        with:
+#          name: velvet-linux
+#
+#      - uses: actions/download-artifact@v2
+#        with:
+#          name: velvet-windows
+#
+#      - uses: actions/download-artifact@v2
+#        with:
+#          name: velvet-macos
+#
+#      - name: Create Release
+#        env:
+#          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+#        run: |
+#          tag_name="${GITHUB_REF##*/}"
+#          ls -l
+#          chmod +x velvet-linux-x86_64-avx2
+#          chmod +x velvet-linux-x86_64-sse4-popcnt
+#          chmod +x velvet-linux-x86_64-nopopcnt
+#          mv velvet-windows-x86_64-avx2.exe velvet-${tag_name}-x86_64-avx2.exe
+#          mv velvet-windows-x86_64-sse4-popcnt.exe velvet-${tag_name}-x86_64-sse4-popcnt.exe
+#          mv velvet-windows-x86_64-nopopcnt.exe velvet-${tag_name}-x86_64-nopopcnt.exe
+#          mv velvet-linux-x86_64-avx2 velvet-${tag_name}-x86_64-avx2
+#          mv velvet-linux-x86_64-sse4-popcnt velvet-${tag_name}-x86_64-sse4-popcnt
+#          mv velvet-linux-x86_64-nopopcnt velvet-${tag_name}-x86_64-nopopcnt
+#          mv velvet-macOS-avx2 velvet-${tag_name}-macOS-x86_64-avx2
+#          mv velvet-macOS-sse4-popcnt velvet-${tag_name}-macOS-x86_64-sse4-popcnt
+#          mv velvet-macOS-nopopcnt velvet-${tag_name}-macOS-x86_64-nopopcnt
+#          mv velvet-macOS-apple-silicon velvet-${tag_name}-macOS-apple-silicon
+#          sha256sum velvet-* > checksums.txt
+#          echo "$tag_name" > release_description.txt
+#          cat artifacts/release_notes.md >> release_description.txt
+#          hub release create --draft \
+#                             -a "checksums.txt#Checksums" \
+#                             -a "velvet-${tag_name}-x86_64-avx2.exe#Velvet - Windows (x86_64 - AVX2)" \
+#                             -a "velvet-${tag_name}-x86_64-sse4-popcnt.exe#Velvet - Windows (x86_64 - SSE4.2+POPCNT)" \
+#                             -a "velvet-${tag_name}-x86_64-nopopcnt.exe#Velvet - Windows (x86_64 - No POPCNT)" \
+#                             -a "velvet-${tag_name}-x86_64-avx2#Velvet - Linux (x86_64 - AVX2)" \
+#                             -a "velvet-${tag_name}-x86_64-sse4-popcnt#Velvet - Linux (x86_64 - SSE4.2+POPCNT)" \
+#                             -a "velvet-${tag_name}-x86_64-nopopcnt#Velvet - Linux (x86_64 - No POPCNT)" \
+#                             -a "velvet-${tag_name}-macOS-apple-silicon#Velvet - macOS (Apple Silicon)" \
+#                             -a "velvet-${tag_name}-macOS-x86_64-avx2#Velvet - macOS (x86_64 - AVX2)" \
+#                             -a "velvet-${tag_name}-macOS-x86_64-sse4-popcnt#Velvet - macOS (x86_64 - SSE4.2+POPCNT)" \
+#                             -a "velvet-${tag_name}-macOS-x86_64-nopopcnt#Velvet - macOS (x86_64 - No POPCNT)" \
+#                             -F release_description.txt "$tag_name"
