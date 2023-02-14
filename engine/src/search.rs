@@ -19,7 +19,7 @@
 use crate::bitboard::BitBoards;
 use crate::board::castling::CastlingRules;
 use crate::board::{Board, StateEntry};
-use crate::colors::Color;
+use crate::colors::{Color, WHITE};
 use crate::engine::{LogLevel, Message};
 use crate::history_heuristics::{HistoryHeuristics};
 use crate::move_gen::{is_killer, MoveGenerator, NEGATIVE_HISTORY_SCORE, QUIET_BASE_SCORE};
@@ -114,6 +114,9 @@ pub struct Search {
     threads: HelperThreads,
     is_helper_thread: bool,
 
+    draw_score: i32,
+    player_pov: Color,
+
     pondering: bool,
 }
 
@@ -147,6 +150,9 @@ impl Search {
             is_stopped,
             multi_pv_count: 1,
             tb_probe_depth: DEFAULT_TB_PROBE_DEPTH,
+
+            draw_score: 0,
+            player_pov: WHITE,
 
             threads: HelperThreads::new(),
             is_helper_thread,
@@ -237,17 +243,28 @@ impl Search {
         let mut analysis_result = AnalysisResult::new();
 
         // Probe tablebases
-        let (tb_result, mut tb_skip_moves) = if let Some((tb_result, tb_skip_moves)) = self.board.probe_root_wdl() { self.local_tb_hits += 1;
-            (Some(tb_result), tb_skip_moves)
+        let (draw_score, tb_result, mut tb_skip_moves) = if let Some((tb_result, tb_skip_moves)) = self.board.probe_root_wdl() { self.local_tb_hits += 1;
+            // Adjust draw score based upon the tablebase result to prevent
+            // accidental draws in winning TB positions when the eval is <= 0
+            let draw_score = match tb_result {
+                TBResult::Loss => MATE_SCORE,
+                TBResult::BlessedLoss => 1,
+                TBResult::Draw => 0,
+                TBResult::CursedWin => -1,
+                TBResult::Win => MATED_SCORE,
+            };
+            (draw_score, Some(tb_result), tb_skip_moves)
         } else {
-            (None, Vec::new())
+            (0, None, Vec::new())
         };
 
         for m in skipped_moves {
             tb_skip_moves.push(*m);
         }
 
-        self.threads.start_search(&self.board, &tb_skip_moves, self.multi_pv_count, self.tb_probe_depth, tb_result.is_some());
+        self.player_pov = self.board.active_player();
+        self.draw_score = draw_score;
+        self.threads.start_search(&self.board, &tb_skip_moves, self.multi_pv_count, self.tb_probe_depth, tb_result.is_some(), draw_score);
 
         let mut multi_pv_state = vec![
             (
@@ -558,7 +575,7 @@ impl Search {
         }
 
         if self.board.is_draw() {
-            return 0;
+            return self.effective_draw_score();
         }
 
         let is_pv = (alpha + 1) < beta; // in a principal variation search, non-PV nodes are searched with a zero-window
@@ -989,8 +1006,8 @@ impl Search {
             } else if info.flags.in_check() {
                 MATED_SCORE + info.ply // Check mate
             } else {
-                0 // Stale mate
-            };
+                return self.effective_draw_score();
+            }
         }
 
         if info.excluded_singular_move == NO_MOVE {
@@ -1046,7 +1063,7 @@ impl Search {
         self.max_reached_depth = ply.max(self.max_reached_depth);
 
         if self.board.is_insufficient_material_draw() {
-            return 0;
+            return self.effective_draw_score();
         }
 
         let position_score = pos_score.unwrap_or_else(|| active_player.score(self.board.eval()));
@@ -1226,6 +1243,14 @@ impl Search {
         self.limits.set_node_limit(node_limit);
     }
 
+    fn effective_draw_score(&self) -> i32 {
+        if self.board.active_player().0 == self.player_pov.0 {
+            self.draw_score
+        } else {
+            -self.draw_score
+        }
+    }
+
 }
 
 // Principal variation collects a sequence of best moves for a given position
@@ -1266,7 +1291,8 @@ enum ToThreadMessage {
         skipped_moves: Vec<Move>,
         multi_pv_count: usize,
         tb_probe_depth: i32,
-        tb_result_found: bool
+        tb_result_found: bool,
+        draw_score: i32,
     },
     ClearTT {
         thread_no: usize,
@@ -1323,9 +1349,9 @@ impl HelperThreads {
         self.threads.len()
     }
 
-    pub fn start_search(&self, board: &Board, skipped_moves: &[Move], multi_pv_count: usize, tb_probe_depth: i32, tb_result_found: bool) {
+    pub fn start_search(&self, board: &Board, skipped_moves: &[Move], multi_pv_count: usize, tb_probe_depth: i32, tb_result_found: bool, draw_score: i32) {
         for t in self.threads.iter() {
-            t.search(board, skipped_moves, multi_pv_count, tb_probe_depth, tb_result_found);
+            t.search(board, skipped_moves, multi_pv_count, tb_probe_depth, tb_result_found, draw_score);
         }
     }
 
@@ -1455,7 +1481,7 @@ struct HelperThread {
 }
 
 impl HelperThread {
-    pub fn search(&self, board: &Board, skipped_moves: &[Move], multi_pv_count: usize, tb_probe_depth: i32, tb_result_found: bool) {
+    pub fn search(&self, board: &Board, skipped_moves: &[Move], multi_pv_count: usize, tb_probe_depth: i32, tb_result_found: bool, draw_score: i32) {
         match self.to_tx.send(ToThreadMessage::Search {
             pos_history: board.pos_history.clone(),
             bitboards: board.bitboards,
@@ -1465,7 +1491,8 @@ impl HelperThread {
             skipped_moves: Vec::from(skipped_moves),
             multi_pv_count,
             tb_probe_depth,
-            tb_result_found
+            tb_result_found,
+            draw_score
         }) {
             Ok(_) => {}
             Err(e) => {
@@ -1513,10 +1540,13 @@ impl HelperThread {
                     multi_pv_count,
                     tb_probe_depth,
                     tb_result_found,
+                    draw_score
                 } => {
                     sub_search.reset();
                     sub_search.board.reset(pos_history, bitboards, halfmove_count, state, castling_rules);
                     sub_search.set_tb_probe_depth(tb_probe_depth);
+                    sub_search.draw_score = draw_score;
+                    sub_search.player_pov = sub_search.board.active_player();
 
                     sub_search.movegen.enter_ply(
                         sub_search.board.active_player(),

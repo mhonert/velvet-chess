@@ -193,11 +193,11 @@ pub fn to_root_relative_score(ply: i32, score: i32) -> i32 {
 // Convert root-relative mate scores to current-node-relative mate scores
 pub fn from_root_relative_score(ply: i32, score: i32) -> i32 {
     if is_mate_score(score) {
-        sanitize_mate_score(score - ply)
+        sanitize_mate_score(score + ply)
     } else if is_mated_score(score) {
-        sanitize_mated_score(score + ply)
+        sanitize_mated_score(score - ply)
     } else if is_tb_win_score(score) {
-        sanitize_tb_win_score(score - ply)
+        sanitize_tb_win_score(score + ply)
     } else if is_tb_loss_score(score) {
         sanitize_tb_loss_score(score - ply)
     } else {
