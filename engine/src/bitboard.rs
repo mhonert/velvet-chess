@@ -283,6 +283,41 @@ pub fn mask_without_outline(mut mask: u64, pos: u32) -> u64 {
     mask
 }
 
+// Patterns to check, whether the path in front and to the sides of the path in front of the pawn is free (i.e. not controlled by opponent pawns)
+const fn create_passed_pawn_mask(direction: i32) -> [u64; 64] {
+    let mut patterns: [u64; 64] = [0; 64];
+    let mut pos = 0;
+    while pos < 64 {
+        let mut row = pos / 8;
+        let col = pos & 7;
+        let mut pattern: u64 = 0;
+
+        while row >= 1 && row <= 6 {
+            row += direction;
+            pattern |= 1 << ((row * 8 + col) as u64);
+
+            if col - 1 >= 0 {
+                pattern |= 1 << ((row * 8 + (col - 1)) as u64);
+            }
+
+            if col + 1 < 8 {
+                pattern |= 1 << ((row * 8 + (col + 1)) as u64);
+            }
+        }
+        patterns[pos as usize] = pattern;
+        pos += 1;
+    }
+
+    patterns
+}
+
+const PAWN_PATH_MASKS: [[u64; 64]; 2] = [create_passed_pawn_mask(1), create_passed_pawn_mask(-1)];
+
+pub fn is_passed_pawn(pos: i32, own_color: Color, opp_pawns: BitBoard) -> bool {
+    let mask = unsafe { *PAWN_PATH_MASKS.get_unchecked(own_color.idx()).get_unchecked(pos as usize) };
+    (opp_pawns & mask).is_empty()
+}
+
 // Patterns for line movers (Bishop, Rook, Queen)
 #[repr(usize)]
 enum Direction {

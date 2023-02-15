@@ -16,7 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::bitboard::BitBoards;
+use crate::bitboard::{BitBoards, is_passed_pawn};
 use crate::board::castling::CastlingRules;
 use crate::board::{Board, StateEntry};
 use crate::colors::{Color, WHITE};
@@ -24,7 +24,7 @@ use crate::engine::{LogLevel, Message};
 use crate::history_heuristics::{HistoryHeuristics};
 use crate::move_gen::{is_killer, MoveGenerator, NEGATIVE_HISTORY_SCORE, QUIET_BASE_SCORE};
 use crate::moves::{Move, NO_MOVE, TB_MOVE};
-use crate::pieces::EMPTY;
+use crate::pieces::{EMPTY, P};
 use crate::pos_history::PositionHistory;
 use crate::scores::{mate_in, sanitize_score, MATED_SCORE, MATE_SCORE, MAX_SCORE, MIN_SCORE, TB_WIN, TB_LOSS, is_mate_or_mated_score};
 use crate::time_management::{SearchLimits, TimeManager};
@@ -862,6 +862,10 @@ impl Search {
                     } else if allow_futile_move_pruning && !gives_check && !curr_move.is_queen_promotion() {
                         // Reduce futile move
                         reductions += FUTILE_MOVE_REDUCTIONS;
+                        if curr_move.piece_id() == P && is_passed_pawn(end, active_player, self.board.get_bitboard(active_player.flip().piece(P))) {
+                            reductions -= 1;
+                        }
+
                     } else if curr_move.score() <= NEGATIVE_HISTORY_SCORE
                             || (curr_move.score() <= QUIET_BASE_SCORE
                                 && self.board.has_negative_see(
