@@ -20,4 +20,8 @@ path = "src/main.rs"
 [dependencies]
 byteorder = "1.4.3"
 itertools = "0.10.0"
-fathomrs = { path = "../fathomrs"}
+fathomrs = { path = "../fathomrs", optional = true }
+
+[features]
+default = ["fathomrs"]
+fathomrs = ["dep:fathomrs"]

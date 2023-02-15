@@ -4,4 +4,4 @@ version = "1.0.0"
 edition = "2021"
 
 [dependencies]
-velvet = { path = "../engine" }
+velvet = { path = "../engine", default-features = false }

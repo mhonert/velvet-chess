@@ -39,4 +39,4 @@ pub mod uci_move;
 
 mod pos_history;
 mod zobrist;
-mod tb;
+mod syzygy;

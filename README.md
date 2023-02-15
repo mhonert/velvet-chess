@@ -37,6 +37,13 @@ Then you can compile the engine using **cargo**:
 cargo build --release --bin velvet
 ```
 
+To compile the engine without Syzygy tablebase support (e.g. when the target architecture is not supported by the Fathom library),
+you can pass the `no-default-features` flag:
+
+```shell
+cargo build --no-default-features --release --bin velvet
+```
+
 ### :scroll: License
 This project is licensed under the GNU General Public License - see the [LICENSE](LICENSE) for details.
 

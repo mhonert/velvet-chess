@@ -41,9 +41,9 @@ use std::sync::Arc;
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
-use fathomrs::tb::TBResult;
 use LogLevel::Info;
-use crate::tb::{DEFAULT_TB_PROBE_DEPTH, ProbeTB};
+use crate::syzygy::{DEFAULT_TB_PROBE_DEPTH, ProbeTB};
+use crate::syzygy::tb::{TBResult};
 
 pub const DEFAULT_SEARCH_THREADS: usize = 1;
 pub const MAX_SEARCH_THREADS: usize = 256;

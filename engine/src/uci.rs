@@ -28,7 +28,7 @@ use std::str::FromStr;
 use std::sync::mpsc::Sender;
 use std::thread::sleep;
 use std::time::Duration;
-use crate::tb::DEFAULT_TB_PROBE_DEPTH;
+use crate::syzygy::{DEFAULT_TB_PROBE_DEPTH, HAS_TB_SUPPORT};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const AUTHOR: &str = "Martin Honert";
@@ -121,8 +121,10 @@ fn uci() {
     println!("option name Hash type spin default {} min 1 max {}", DEFAULT_SIZE_MB, MAX_HASH_SIZE_MB);
     println!("option name MultiPV type spin default 1 min 1 max {}", MAX_MULTI_PV_MOVES);
     println!("option name Ponder type check default false");
-    println!("option name SyzygyPath type string default");
-    println!("option name SyzygyProbeDepth type spin default {} min 0 max {}", DEFAULT_TB_PROBE_DEPTH, MAX_DEPTH);
+    if HAS_TB_SUPPORT {
+        println!("option name SyzygyPath type string default");
+        println!("option name SyzygyProbeDepth type spin default {} min 0 max {}", DEFAULT_TB_PROBE_DEPTH, MAX_DEPTH);
+    }
     println!("option name Threads type spin default {} min 1 max {}", DEFAULT_SEARCH_THREADS, MAX_SEARCH_THREADS);
     println!("option name UCI_Chess960 type check default false");
     println!(
@@ -194,10 +196,20 @@ fn set_option(tx: &Sender<Message>, parts: &[&str]) {
         }
 
         "syzygypath" => {
+            if !HAS_TB_SUPPORT {
+                println!("Unknown option: SyzygyPath");
+                return;
+            }
+
             send_message(tx, Message::SetTableBasePath(value.to_string()));
         }
 
         "syzygyprobedepth" => {
+            if !HAS_TB_SUPPORT {
+                println!("Unknown option: SyzygyProbeDepth");
+                return;
+            }
+
             if let Some(depth) = parse_int_option(value, 1, MAX_DEPTH as i32) {
                 send_message(tx, Message::SetTableBaseProbeDepth(depth));
             } else {

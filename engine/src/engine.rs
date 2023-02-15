@@ -32,7 +32,7 @@ use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{mpsc, Arc};
 use std::thread;
 use std::time::SystemTime;
-use fathomrs::tb;
+use crate::syzygy;
 
 pub enum Message {
     ClearHash,
@@ -275,14 +275,14 @@ impl Engine {
 
     fn update_tb(&mut self) {
         if let Some(path) = self.new_tb_path.clone() {
-            if !tb::init(path.clone()) {
+            if !syzygy::tb::init(path.clone()) {
                 eprintln!("could not initialize tablebases using path: {}", path);
             } else {
-                let count = tb::max_piece_count();
+                let count = syzygy::tb::max_piece_count();
                 if count == 0 {
                     println!("debug no tablebases found");
                 } else {
-                    println!("debug found {}-men tablebases", tb::max_piece_count());
+                    println!("debug found {}-men tablebases", syzygy::tb::max_piece_count());
                 }
 
             }
