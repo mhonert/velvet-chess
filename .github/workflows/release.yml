@@ -12,13 +12,13 @@ jobs:
         include:
           - exec_postfix: "avx2"
             add_rustflags: "-Ctarget-feature=+crt-static,-bmi2 -Ctarget-cpu=x86-64-v3"
-            cc_flags: "-march=x86-64-v3"
+            cflags: "-march=x86-64-v3"
           - exec_postfix: "sse4-popcnt"
             add_rustflags: "-Ctarget-feature=+crt-static -Ctarget-cpu=x86-64-v2"
-            cc_flags: "-march=x86-64-v2"
+            cflags: "-march=x86-64-v2"
           - exec_postfix: "nopopcnt"
             add_rustflags: "-Ctarget-feature=+crt-static"
-            cc_flags: "-march=x86-64 -DTB_CUSTOM_POP_COUNT"
+            cflags: "-march=x86-64 -DTB_CUSTOM_POP_COUNT"
 
     steps:
       - name: Checkout code
@@ -27,7 +27,7 @@ jobs:
       - name: Build
         env:
           RUSTFLAGS: '${{ matrix.add_rustflags }} -Cinline-threshold=500'
-          CC_FLAGS: '${{ matrix.cc_flags }}'
+          CFLAGS: '${{ matrix.cflags }}'
         run: |
           sudo apt-get install -y musl-tools
           rustup override set 1.66.0
@@ -48,13 +48,13 @@ jobs:
         include:
           - exec_postfix: "avx2"
             add_rustflags: "-Ctarget-feature=+crt-static,-bmi2 -Ctarget-cpu=x86-64-v3"
-            cc_flags: "-march=x86-64-v3"
+            cflags: "-march=x86-64-v3"
           - exec_postfix: "sse4-popcnt"
             add_rustflags: "-Ctarget-feature=+crt-static -Ctarget-cpu=x86-64-v2"
-            cc_flags: "-march=x86-64-v2"
+            cflags: "-march=x86-64-v2"
           - exec_postfix: "nopopcnt"
             add_rustflags: "-Ctarget-feature=+crt-static"
-            cc_flags: "-march=x86-64 -DTB_CUSTOM_POP_COUNT"
+            cflags: "-march=x86-64 -DTB_CUSTOM_POP_COUNT"
 
     steps:
       - name: Checkout code
@@ -63,7 +63,7 @@ jobs:
       - name: Build
         env:
           RUSTFLAGS: '${{ matrix.add_rustflags }} -Cinline-threshold=500'
-          CC_FLAGS: '${{ matrix.cc_flags }}'
+          CFLAGS: '${{ matrix.cflags }}'
         run: |
           rustup override set 1.66.0
           cargo build --release --bin velvet
@@ -83,19 +83,19 @@ jobs:
           - exec_postfix: "avx2"
             toolchain: x86_64-apple-darwin
             add_rustflags: "-Ctarget-feature=+crt-static,-bmi2 -Ctarget-cpu=x86-64-v3"
-            cc_flags: "-march=x86-64-v3"
+            cflags: "-march=x86-64-v3"
           - exec_postfix: "sse4-popcnt"
             toolchain: x86_64-apple-darwin
             add_rustflags: "-Ctarget-feature=+crt-static -Ctarget-cpu=x86-64-v2"
-            cc_flags: "-march=x86-64-v2"
+            cflags: "-march=x86-64-v2"
           - exec_postfix: "nopopcnt"
             toolchain: x86_64-apple-darwin
             add_rustflags: "-Ctarget-feature=+crt-static"
-            cc_flags: "-march=x86-64 -DTB_CUSTOM_POP_COUNT"
+            cflags: "-march=x86-64 -DTB_CUSTOM_POP_COUNT"
           - exec_postfix: "apple-silicon"
             toolchain: aarch64-apple-darwin
             add_rustflags: "-Ctarget-feature=+crt-static"
-            cc_flags: ""
+            cflags: ""
 
     steps:
       - name: Checkout code
@@ -104,7 +104,7 @@ jobs:
       - name: Build
         env:
           RUSTFLAGS: '${{ matrix.add_rustflags }} -Cinline-threshold=500'
-          CC_FLAGS: '${{ matrix.cc_flags }}'
+          CFLAGS: '${{ matrix.cflags }}'
         run: |
           rustup override set 1.66.0
           rustup target add ${{ matrix.toolchain }}

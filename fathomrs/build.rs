@@ -35,12 +35,6 @@ fn main() {
         build.define("_CRT_SECURE_NO_WARNINGS", None);
     }
 
-    if let Ok(flags) = env::var("CC_FLAGS") {
-        for flag in flags.split(' ') {
-            build.flag(flag);
-        }
-    };
-
     build.compile("fathom");
 
     // Tell cargo to invalidate the built crate whenever the wrapper changes
@@ -51,7 +45,7 @@ fn main() {
         .parse_callbacks(Box::new(bindgen::CargoCallbacks))
         .generate()
         .expect("Unable to generate bindings");
-    //
+
     let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
     bindings
         .write_to_file(out_path.join("bindings.rs"))
