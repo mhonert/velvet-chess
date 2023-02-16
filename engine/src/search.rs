@@ -804,7 +804,7 @@ impl Search {
             let mut se_extension = 0;
             if check_se && !gives_check && curr_move.is_same_move(hash_move) {
                 self.board.undo_move(curr_move, previous_piece, removed_piece_id);
-                let se_beta = hash_score - (5 + depth / 2);
+                let se_beta = sanitize_score(hash_score - (5 + depth / 2));
                 let result = self.rec_find_best_move(
                     rx,
                     se_beta - 1,
@@ -833,7 +833,7 @@ impl Search {
                 } else if se_beta >= beta {
                     // Multi-Cut Pruning
                     self.movegen.leave_ply();
-                    return beta;
+                    return se_beta;
                 }
 
                 self.board.perform_move(curr_move);
