@@ -791,6 +791,8 @@ impl Search {
 
         let mut is_singular = false;
 
+        let mut base_reduction = 0;
+
         let mut a = -beta;
         while let Some(curr_move) = self.movegen.next_move(&self.hh, &mut self.board) {
             if curr_move.is_same_move(info.excluded_singular_move) {
@@ -834,6 +836,8 @@ impl Search {
                     // Multi-Cut Pruning
                     self.movegen.leave_ply();
                     return se_beta;
+                } else if hash_score >= beta {
+                    base_reduction = 1;
                 }
 
                 self.board.perform_move(curr_move);
@@ -844,14 +848,14 @@ impl Search {
 
             let mut skip = self.board.is_in_check(active_player); // skip if move would put own king in check
 
-            let mut reductions = 0;
+            let mut reductions = base_reduction;
 
             if !skip {
                 let target_piece_id = curr_move.piece_id();
                 has_valid_moves = true;
 
                 if !is_pv && previous_move_was_capture && evaluated_move_count > 0 && !curr_move.is_queen_promotion() && info.capture_pos != curr_move.end() {
-                    reductions = 1;
+                    reductions += 1;
                 }
 
                 if se_extension == 0 && removed_piece_id == EMPTY {
