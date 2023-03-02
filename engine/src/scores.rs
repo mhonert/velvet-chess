@@ -16,19 +16,19 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub const MIN_SCORE: i32 = -8191;
 pub const MAX_SCORE: i32 = 8191;
+pub const MIN_SCORE: i32 = -MAX_SCORE;
 
-pub const MATED_SCORE: i32 = -8000;
-pub const MATE_SCORE: i32 = 8000;
+pub const MATE_SCORE: i32 = 8150;
+pub const MATED_SCORE: i32 = -MATE_SCORE;
 const MATE_SCORE_RANGE: i32 = 499;
 
 pub const TB_WIN: i32 = MATE_SCORE - (MATE_SCORE_RANGE + 1);
-pub const TB_LOSS: i32 = MATED_SCORE + (MATE_SCORE_RANGE + 1);
+pub const TB_LOSS: i32 = -TB_WIN;
 const TB_SCORE_RANGE: i32 = 499;
 
 pub const MAX_EVAL: i32 = TB_WIN - (TB_SCORE_RANGE + 1);
-pub const MIN_EVAL: i32 = TB_LOSS + (TB_SCORE_RANGE + 1);
+pub const MIN_EVAL: i32 = -MAX_EVAL;
 
 pub fn is_mate_or_mated_score(score: i32) -> bool {
     score.abs() >= (MATE_SCORE - MATE_SCORE_RANGE)
@@ -48,6 +48,10 @@ pub fn is_tb_win_score(score: i32) -> bool {
 
 pub fn is_tb_loss_score(score: i32) -> bool {
     !is_mated_score(score) && score <= (TB_LOSS + TB_SCORE_RANGE)
+}
+
+pub fn is_eval_score(score: i32) -> bool {
+    score.abs() <= MAX_EVAL
 }
 
 pub fn mate_in(score: i32) -> Option<i32> {

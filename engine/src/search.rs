@@ -23,15 +23,12 @@ use crate::colors::{Color, WHITE};
 use crate::engine::{LogLevel, Message};
 use crate::history_heuristics::{HistoryHeuristics};
 use crate::move_gen::{is_killer, MoveGenerator, NEGATIVE_HISTORY_SCORE, QUIET_BASE_SCORE};
-use crate::moves::{Move, NO_MOVE, TB_MOVE};
+use crate::moves::{Move, MoveType, NO_MOVE};
 use crate::pieces::{EMPTY, P};
 use crate::pos_history::PositionHistory;
 use crate::scores::{mate_in, sanitize_score, MATED_SCORE, MATE_SCORE, MAX_SCORE, MIN_SCORE, TB_WIN, TB_LOSS, is_mate_or_mated_score};
 use crate::time_management::{SearchLimits, TimeManager};
-use crate::transposition_table::{
-    from_root_relative_score, get_depth, get_score_type, get_untyped_move, to_root_relative_score, ScoreType,
-    TranspositionTable, MAX_DEPTH,
-};
+use crate::transposition_table::{from_root_relative_score, ScoreType, TranspositionTable, MAX_DEPTH, get_untyped_move, to_root_relative_score, get_depth, get_score_type};
 use crate::uci_move::UCIMove;
 use std::cmp::Reverse;
 use std::collections::HashSet;
@@ -268,7 +265,7 @@ impl Search {
 
         let mut multi_pv_state = vec![
             (
-                self.board.active_player().score(self.board.eval()),
+                self.board.eval(),
                 INITIAL_ASPIRATION_WINDOW_SIZE,
                 INITIAL_ASPIRATION_WINDOW_STEP
             );
@@ -587,18 +584,18 @@ impl Search {
         }
 
         // Prune, if worst possible score is already sufficient to reach beta
-        let worst_possible_score = MATED_SCORE + info.ply + if info.flags.in_check() { 0 } else { 1 };
+        let worst_possible_score = MATED_SCORE + info.ply + 1;
         if worst_possible_score >= beta {
             return worst_possible_score;
         }
-
-        let mut pos_score: Option<i32> = None;
 
         let active_player = self.board.active_player();
         if info.flags.in_check() {
             // Extend search when in check
             depth = (depth + 1).max(1);
         }
+
+        let mut pos_score = None;
 
         let hash = self.board.get_hash();
 
@@ -614,13 +611,14 @@ impl Search {
             let tt_entry = self.tt.get_entry(hash);
             if tt_entry != 0 {
                 let tt_move = get_untyped_move(tt_entry);
-                (hash_move, hash_score) = if tt_move.is_same_move(TB_MOVE) {
-                    (NO_MOVE, tt_move.score())
+                let is_tb_move: bool;
+                (hash_move, hash_score, is_tb_move) = if self.is_tb_move(tt_move) {
+                    (NO_MOVE, tt_move.score(), true)
                 } else {
-                    (self.movegen.sanitize_move(&self.board, active_player, tt_move), tt_move.score())
+                    (self.movegen.sanitize_move(&self.board, active_player, tt_move), tt_move.score(), false)
                 };
 
-                if hash_move != NO_MOVE || tt_move.is_same_move(TB_MOVE) {
+                if hash_move != NO_MOVE || is_tb_move {
                     hash_score = to_root_relative_score(info.ply, sanitize_score(hash_score));
                     let tt_depth = get_depth(tt_entry);
                     match get_score_type(tt_entry) {
@@ -672,77 +670,78 @@ impl Search {
 
                     match tb_result {
                         TBResult::Draw => {
-                            self.tt.write_entry(hash, MAX_DEPTH as i32, TB_MOVE.with_score(0), ScoreType::Exact);
+                            self.tt.write_entry(hash, MAX_DEPTH as i32, self.tb_move(0), ScoreType::Exact);
                             return 0;
                         },
                         TBResult::Win => {
                             let score = TB_WIN - info.ply;
                             if score >= beta {
-                                self.tt.write_entry(hash, MAX_DEPTH as i32, TB_MOVE.with_score(TB_WIN), ScoreType::Exact);
+                                self.tt.write_entry(hash, MAX_DEPTH as i32, self.tb_move(TB_WIN), ScoreType::LowerBound);
                                 return score;
                             }
                         }
                         TBResult::Loss => {
                             let score = TB_LOSS + info.ply;
                             if score <= alpha {
-                                self.tt.write_entry(hash, MAX_DEPTH as i32, TB_MOVE.with_score(TB_LOSS), ScoreType::Exact);
+                                self.tt.write_entry(hash, MAX_DEPTH as i32, self.tb_move(TB_LOSS), ScoreType::UpperBound);
                                 return score;
                             }
                         },
                         TBResult::CursedWin => {
-                            self.tt.write_entry(hash, MAX_DEPTH as i32, TB_MOVE.with_score(1), ScoreType::Exact);
+                            self.tt.write_entry(hash, MAX_DEPTH as i32, self.tb_move(1), ScoreType::Exact);
                             return 1;
                         },
                         TBResult::BlessedLoss => {
-                            self.tt.write_entry(hash, MAX_DEPTH as i32, TB_MOVE.with_score(-1), ScoreType::Exact);
+                            self.tt.write_entry(hash, MAX_DEPTH as i32, self.tb_move(-1), ScoreType::Exact);
                             return -1;
                         }
                     }
                 }
             }
-            // Quiescence search
-            if depth <= 0 || info.ply >= (MAX_DEPTH - 16) as i32 {
-                return self.quiescence_search::<false>(rx, active_player, alpha, beta, info.ply, pos_score, pv);
-            }
+        }
 
-            if !is_pv && !info.flags.in_check() {
-                if depth <= 2 {
-                    // Jump directly to QS, if position is already so good, that it is unlikely for the opponent to counter it within the remaining search depth
-                    pos_score = pos_score.or_else(|| Some(active_player.score(self.board.eval())));
-                    let score = pos_score.unwrap();
+        // Quiescence search
+        if depth <= 0 || info.ply >= (MAX_DEPTH - 16) as i32 {
+            return self.quiescence_search::<false>(rx, active_player, alpha, beta, info.ply, pos_score, pv);
+        }
 
-                    if !is_mate_or_mated_score(score) && score - (100 * depth) >= beta {
-                        return self.quiescence_search::<false>(rx, active_player, alpha, beta, info.ply, pos_score, pv);
+        if !is_pv && !info.flags.in_check() {
+            if depth <= 2 {
+                // Jump directly to QS, if position is already so good, that it is unlikely for the opponent to counter it within the remaining search depth
+                pos_score = pos_score.or_else(|| Some(self.board.eval()));
+                let score = pos_score.unwrap();
+
+                if !is_mate_or_mated_score(score) && score - (100 * depth) >= beta {
+                    return self.quiescence_search::<false>(rx, active_player, alpha, beta, info.ply, pos_score, pv);
+                }
+            } else if !skip_null_move {
+                // Null move pruning
+                pos_score = pos_score.or_else(|| Some(self.board.eval()));
+                if pos_score.unwrap() >= beta && !self.board.is_pawn_endgame() {
+                    self.board.perform_null_move();
+                    self.tt.prefetch(self.board.get_hash());
+                    let result = self.rec_find_best_move(
+                        rx,
+                        -beta,
+                        -beta + 1,
+                        depth - null_move_reduction(depth),
+                        &mut PrincipalVariation::default(),
+                        SearchInfo {
+                            ply: info.ply + 1,
+                            flags: info.flags.null_move_search(),
+                            capture_pos: -1,
+                            prev_own_move: info.opponent_move,
+                            opponent_move: NO_MOVE,
+                            excluded_singular_move: NO_MOVE,
+                            tb_result_found: info.tb_result_found || tb_result_found
+                        },
+                    );
+                    self.board.undo_null_move();
+                    if result == CANCEL_SEARCH {
+                        return CANCEL_SEARCH;
                     }
-                } else if !skip_null_move && !self.board.is_pawn_endgame() {
-                    // Null move pruning
-                    pos_score = pos_score.or_else(|| Some(active_player.score(self.board.eval())));
-                    if pos_score.unwrap() >= beta {
-                        self.board.perform_null_move();
-                        self.tt.prefetch(self.board.get_hash());
-                        let result = self.rec_find_best_move(
-                            rx,
-                            -beta,
-                            -beta + 1,
-                            depth - null_move_reduction(depth),
-                            &mut PrincipalVariation::default(),
-                            SearchInfo {
-                                ply: info.ply + 1,
-                                flags: info.flags.null_move_search(),
-                                capture_pos: -1,
-                                prev_own_move: info.opponent_move,
-                                opponent_move: NO_MOVE,
-                                excluded_singular_move: NO_MOVE,
-                                tb_result_found: info.tb_result_found || tb_result_found
-                            },
-                        );
-                        self.board.undo_null_move();
-                        if result == CANCEL_SEARCH {
-                            return CANCEL_SEARCH;
-                        }
-                        if -result >= beta {
-                            return if !is_mate_or_mated_score(result) { -result } else { beta };
-                        }
+                    if -result >= beta {
+                        return if !is_mate_or_mated_score(result) { -result } else { beta };
                     }
                 }
             }
@@ -761,7 +760,7 @@ impl Search {
         let mut allow_futile_move_pruning = false;
         if !is_pv && depth <= 6 && !info.flags.in_check() {
             let margin = (6 << depth) * 4 + 16;
-            pos_score = pos_score.or_else(|| Some(active_player.score(self.board.eval())));
+            pos_score = pos_score.or_else(|| Some(self.board.eval()));
             let static_score = pos_score.unwrap();
             allow_futile_move_pruning = !is_mate_or_mated_score(static_score) && static_score + margin <= alpha;
 
@@ -996,7 +995,9 @@ impl Search {
                     if best_score > alpha {
                         alpha = best_score;
                         score_type = ScoreType::Exact;
-                        pv.update(best_move, &mut local_pv);
+                        if is_pv {
+                            pv.update(best_move, &mut local_pv);
+                        }
                     }
                 } else if removed_piece_id == EMPTY {
                     self.hh.update_played_moves(active_player, info.prev_own_move, info.opponent_move, curr_move);
@@ -1014,7 +1015,7 @@ impl Search {
             } else if info.flags.in_check() {
                 MATED_SCORE + info.ply // Check mate
             } else {
-                return self.effective_draw_score();
+                self.effective_draw_score()
             }
         }
 
@@ -1074,7 +1075,7 @@ impl Search {
             return self.effective_draw_score();
         }
 
-        let position_score = pos_score.unwrap_or_else(|| active_player.score(self.board.eval()));
+        let position_score = pos_score.unwrap_or_else(|| self.board.eval());
         if ply >= MAX_DEPTH as i32 {
             return position_score;
         }
@@ -1182,8 +1183,29 @@ impl Search {
             self.board.undo_move(*m, previous_piece, move_state);
             format!("{} {}", uci_move, followup_moves)
         } else {
-            String::new()
+            self.pv_info_from_tt()
         }
+    }
+
+    fn pv_info_from_tt(&mut self) -> String {
+        if self.board.is_draw() {
+            return String::new();
+        }
+
+        let entry = self.tt.get_entry(self.board.get_hash());
+        let active_player = self.board.active_player();
+        let hash_move = self.movegen.sanitize_move(&mut self.board, active_player, get_untyped_move(entry));
+        if hash_move == NO_MOVE {
+            return String::new();
+        }
+
+        let uci_move = UCIMove::from_move(&self.board, hash_move);
+        let (previous_piece, move_state) = self.board.perform_move(hash_move);
+
+        let followup_moves = self.pv_info_from_tt();
+
+        self.board.undo_move(hash_move, previous_piece, move_state);
+        format!("{} {}", uci_move, followup_moves)
     }
 
     fn log(&self, log_level: LogLevel) -> bool {
@@ -1257,6 +1279,28 @@ impl Search {
         } else {
             -self.draw_score
         }
+    }
+
+    const TB_MARKER: i8 = 7;
+
+    fn tb_move(&self, score: i32) -> Move {
+        let active_player = self.board.active_player();
+        let start = self.board.king_pos(active_player);
+        let end = self.board.king_pos(active_player.flip());
+        Move::new(MoveType::Quiet, Search::TB_MARKER, start as i32, end as i32).with_score(score)
+    }
+
+    #[inline]
+    fn is_tb_move(&self, m: Move) -> bool {
+        if m.piece_id() != Search::TB_MARKER {
+            return false;
+        }
+
+        let active_player = self.board.active_player();
+        let start = self.board.king_pos(active_player);
+        let end = self.board.king_pos(active_player.flip());
+
+        m.start() == start as i32 && m.end() == end as i32
     }
 
 }
@@ -1568,7 +1612,7 @@ impl HelperThread {
 
                     let mut multi_pv_state = vec![
                         (
-                            sub_search.board.active_player().score(sub_search.board.eval()),
+                            sub_search.board.eval(),
                             INITIAL_ASPIRATION_WINDOW_SIZE,
                             INITIAL_ASPIRATION_WINDOW_STEP
                         );

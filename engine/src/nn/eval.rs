@@ -216,7 +216,7 @@ impl NeuralNetEval {
             * SCORE_SCALE as i64
             / (FP_INPUT_MULTIPLIER as i64 * FP_HIDDEN_MULTIPLIER as i64);
 
-        let score = active_player.score(sanitize_eval_score(output as i32));
+        let score = sanitize_eval_score(output as i32);
         adjust_eval(score, half_move_clock)
     }
 

@@ -182,7 +182,6 @@ impl fmt::Debug for Move {
 }
 
 pub const NO_MOVE: Move = Move(0);
-pub const TB_MOVE: Move = Move::new(MoveType::PawnQuiet, 2, 31, 31); // <- invalid move to mark tablebase score entries
 
 #[cfg(test)]
 mod tests {
