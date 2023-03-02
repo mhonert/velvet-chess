@@ -16,18 +16,25 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+use core::arch::x86_64::{_MM_HINT_NTA, _mm_prefetch};
 use crate::align::A64;
 use crate::moves::Move;
 use crate::scores::{is_mate_score, is_mated_score, is_tb_win_score, is_tb_loss_score, sanitize_mate_score, sanitize_mated_score, sanitize_tb_win_score, sanitize_tb_loss_score};
 use std::intrinsics::transmute;
+use std::mem::MaybeUninit;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 pub const MAX_HASH_SIZE_MB: i32 = 256 * 1024;
 
 // Transposition table entry
-// Bits 63 - 39: 25 highest bits of the hash
-const HASHCHECK_MASK: u64 = 0b1111111111111111111111111000000000000000000000000000000000000000;
+// Bits 63 - 41: 23 highest bits of the hash
+const HASHCHECK_MASK: u64 = 0b1111111111111111111111100000000000000000000000000000000000000000;
+
+// Bits 40 - 39: Generation
+pub const MAX_GENERATION: u16 = 3;
+const GENERATION_BITSHIFT: u32 = 39;
+const GENERATION_MASK: u64 = 0b11;
 
 // Bits 38 - 32: Depth
 pub const MAX_DEPTH: usize = 127;
@@ -77,7 +84,7 @@ impl TranspositionTable {
         // Calculate table size as close to the desired size_mb as possible, but never above it
         let size_bytes = size_mb * 1_048_576;
         let segment_count = size_bytes / SEGMENT_BYTE_SIZE;
-        let index_bit_count = 63 - (segment_count as u64 | 1).leading_zeros();
+        let index_bit_count = 63 - (segment_count | 1).leading_zeros();
 
         let size = (1u64 << index_bit_count) as usize;
         self.index_mask = (size as u64) - 1;
@@ -92,33 +99,53 @@ impl TranspositionTable {
     }
 
     // Important: mate scores must be stored relative to the current node, not relative to the root node
-    pub fn write_entry(&self, hash: u64, new_depth: i32, scored_move: Move, typ: ScoreType) {
+    pub fn write_entry(&self, hash: u64, generation: u16, new_depth: i32, scored_move: Move, typ: ScoreType) {
         let index = self.calc_index(hash);
         let segment = unsafe { self.segments.0.get_unchecked(index) };
+        let hash_check = hash & HASHCHECK_MASK;
 
+        let mut new_entry = hash_check;
+        new_entry |= (generation as u64) << GENERATION_BITSHIFT;
+        new_entry |= (new_depth as u64) << DEPTH_BITSHIFT;
+        new_entry |= (typ as u64) << SCORE_TYPE_BITSHIFT;
+        new_entry |= scored_move.to_bit29() as u64;
+
+        let mut target_slot = MaybeUninit::uninit();
+        let mut lowest_sort_score = i16::MAX;
         for slot in segment.iter() {
-            let existing_entry = slot.load(Ordering::Relaxed) ^ hash;
-            if existing_entry & HASHCHECK_MASK == 0 {
-                slot.store(0, Ordering::Relaxed);
+            let entry = slot.load(Ordering::Relaxed);
+            if entry & HASHCHECK_MASK == hash_check {
+                // Only store entries for the same position if they are exact scores or have only slightly lower depth
+                // Reduces risk of storing invalid, path-dependent draw scores
+                if matches!(typ, ScoreType::Exact) || new_depth >= get_depth(entry) - 3 {
+                    slot.store(new_entry, Ordering::Relaxed);
+                }
+                return;
+            }
+
+            let age = get_age(entry, generation);
+            let depth = get_depth(entry);
+            let sort_score = depth as i16 - age as i16 * (MAX_DEPTH as i16 + 1);
+
+            if sort_score < lowest_sort_score {
+                lowest_sort_score = sort_score;
+                target_slot = MaybeUninit::new(slot);
             }
         }
 
-        let mut new_entry = hash;
-        new_entry ^= (new_depth as u64) << DEPTH_BITSHIFT;
-        new_entry ^= (typ as u64) << SCORE_TYPE_BITSHIFT;
-        new_entry ^= scored_move.to_bit29() as u64;
-
-        segment[new_depth as usize & (SLOTS_PER_SEGMENT - 1)].store(new_entry, Ordering::Relaxed);
+        unsafe { target_slot.assume_init() }.store(new_entry, Ordering::Relaxed);
     }
 
-    pub fn get_entry(&self, hash: u64) -> u64 {
+    pub fn get_entry(&self, hash: u64, generation: u16) -> u64 {
         let index = self.calc_index(hash);
         let slots = unsafe { self.segments.0.get_unchecked(index) };
+        let hash_check = hash & HASHCHECK_MASK;
 
-        for slot in slots.iter() {
-            let entry = slot.load(Ordering::Relaxed) ^ hash;
-            if (entry & HASHCHECK_MASK) == 0 {
-                return entry;
+        for value_slot in slots.iter() {
+            let value_entry = value_slot.load(Ordering::Relaxed);
+            if value_entry & HASHCHECK_MASK == hash_check {
+                update_generation(value_slot, generation);
+                return value_entry
             }
         }
 
@@ -145,7 +172,7 @@ impl TranspositionTable {
         {
             let index = self.calc_index(hash);
             unsafe {
-                core::arch::x86_64::_mm_prefetch::<0>(self.segments.0.as_ptr().add(index) as *const i8);
+                _mm_prefetch::<_MM_HINT_NTA>(self.segments.0.as_ptr().add(index) as *const i8);
             }
         }
 
@@ -167,6 +194,13 @@ impl TranspositionTable {
             * 1000
             / 1024
     }
+}
+
+fn update_generation(slot: &AtomicU64, generation: u16) {
+    let mut entry = slot.load(Ordering::Relaxed);
+    entry &= !(0b11 << GENERATION_BITSHIFT);
+    entry |= (generation as u64) << GENERATION_BITSHIFT;
+    slot.store(entry, Ordering::Relaxed);
 }
 
 pub fn get_untyped_move(entry: u64) -> Move {
@@ -209,6 +243,19 @@ pub fn get_depth(entry: u64) -> i32 {
     ((entry >> DEPTH_BITSHIFT) & DEPTH_MASK) as i32
 }
 
+pub fn is_lower_bound(entry: u64) -> bool {
+    ((entry >> SCORE_TYPE_BITSHIFT) & SCORE_TYPE_MASK) == 0
+}
+
+pub fn get_age(entry: u64, curr_generation: u16) -> u16 {
+    let entry_generation = ((entry >> GENERATION_BITSHIFT) & GENERATION_MASK) as u16;
+    calc_age(curr_generation, entry_generation)
+}
+
+fn calc_age(current: u16, previous: u16) -> u16 {
+    current.wrapping_sub(previous) & 0b11
+}
+
 pub fn get_score_type(entry: u64) -> ScoreType {
     ScoreType::from(((entry >> SCORE_TYPE_BITSHIFT) & SCORE_TYPE_MASK) as u8)
 }
@@ -229,9 +276,9 @@ mod tests {
         let m = Move::new(MoveType::Quiet, 5, 32, 33).with_score(score);
         let typ = ScoreType::Exact;
 
-        tt.write_entry(hash, depth, m, typ);
+        tt.write_entry(hash, 0, depth, m, typ);
 
-        let entry = tt.get_entry(hash);
+        let entry = tt.get_entry(hash, 0);
 
         assert_eq!(m.to_bit29(), get_untyped_move(entry).to_bit29());
         assert_eq!(depth, get_depth(entry));
@@ -244,9 +291,9 @@ mod tests {
         let score = MIN_SCORE;
         let hash = u64::MAX;
         let m = NO_MOVE.with_score(score);
-        tt.write_entry(hash, 1, m, ScoreType::Exact);
+        tt.write_entry(hash, 0, 1, m, ScoreType::Exact);
 
-        let entry = tt.get_entry(hash);
+        let entry = tt.get_entry(hash, 0);
         assert_eq!(score, get_untyped_move(entry).score());
     }
 
@@ -256,9 +303,34 @@ mod tests {
         let score = MAX_SCORE;
         let hash = u64::MAX;
         let m = NO_MOVE.with_score(score);
-        tt.write_entry(hash, 1, m, ScoreType::Exact);
+        tt.write_entry(hash, 0, 1, m, ScoreType::Exact);
 
-        let entry = tt.get_entry(hash);
+        let entry = tt.get_entry(hash, 0);
         assert_eq!(score, get_untyped_move(entry).score());
+    }
+
+
+    #[test]
+    fn calculates_age_from_generation_diff() {
+        assert_eq!(calc_age(0, 0), 0);
+        assert_eq!(calc_age(1, 1), 0);
+        assert_eq!(calc_age(2, 2), 0);
+        assert_eq!(calc_age(3, 3), 0);
+
+        assert_eq!(calc_age(1, 0), 1);
+        assert_eq!(calc_age(2, 0), 2);
+        assert_eq!(calc_age(3, 0), 3);
+
+        assert_eq!(calc_age(2, 1), 1);
+        assert_eq!(calc_age(3, 1), 2);
+        assert_eq!(calc_age(0, 1), 3);
+
+        assert_eq!(calc_age(3, 2), 1);
+        assert_eq!(calc_age(0, 2), 2);
+        assert_eq!(calc_age(1, 2), 3);
+
+        assert_eq!(calc_age(0, 3), 1);
+        assert_eq!(calc_age(1, 3), 2);
+        assert_eq!(calc_age(2, 3), 3);
     }
 }

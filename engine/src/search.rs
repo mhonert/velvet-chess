@@ -28,7 +28,7 @@ use crate::pieces::{EMPTY, P};
 use crate::pos_history::PositionHistory;
 use crate::scores::{mate_in, sanitize_score, MATED_SCORE, MATE_SCORE, MAX_SCORE, MIN_SCORE, TB_WIN, TB_LOSS, is_mate_or_mated_score};
 use crate::time_management::{SearchLimits, TimeManager};
-use crate::transposition_table::{from_root_relative_score, ScoreType, TranspositionTable, MAX_DEPTH, get_untyped_move, to_root_relative_score, get_depth, get_score_type};
+use crate::transposition_table::{from_root_relative_score, ScoreType, TranspositionTable, MAX_DEPTH, get_untyped_move, to_root_relative_score, get_depth, get_score_type, MAX_GENERATION};
 use crate::uci_move::UCIMove;
 use std::cmp::Reverse;
 use std::collections::HashSet;
@@ -115,6 +115,8 @@ pub struct Search {
     player_pov: Color,
 
     pondering: bool,
+
+    tt_gen: u16,
 }
 
 impl Search {
@@ -155,6 +157,8 @@ impl Search {
             is_helper_thread,
 
             pondering: false,
+
+            tt_gen: 0,
         }
     }
 
@@ -226,6 +230,8 @@ impl Search {
         self.tb_hits.store(0, Ordering::Relaxed);
 
         self.next_check_node_count = self.limits.node_limit().min(1000);
+
+        self.tt_gen = self.board.fullmove_count() % (MAX_GENERATION + 1);
 
         let mut last_best_move: Move = NO_MOVE;
 
@@ -608,7 +614,7 @@ impl Search {
         let mut tb_result_found = false;
         if info.excluded_singular_move == NO_MOVE {
             // Check transposition table
-            let tt_entry = self.tt.get_entry(hash);
+            let tt_entry = self.tt.get_entry(hash, self.tt_gen);
             if tt_entry != 0 {
                 let tt_move = get_untyped_move(tt_entry);
                 let is_tb_move: bool;
@@ -670,29 +676,29 @@ impl Search {
 
                     match tb_result {
                         TBResult::Draw => {
-                            self.tt.write_entry(hash, MAX_DEPTH as i32, self.tb_move(0), ScoreType::Exact);
+                            self.tt.write_entry(hash, self.tt_gen, MAX_DEPTH as i32, self.tb_move(0), ScoreType::Exact);
                             return 0;
                         },
                         TBResult::Win => {
                             let score = TB_WIN - info.ply;
                             if score >= beta {
-                                self.tt.write_entry(hash, MAX_DEPTH as i32, self.tb_move(TB_WIN), ScoreType::LowerBound);
+                                self.tt.write_entry(hash, self.tt_gen, MAX_DEPTH as i32, self.tb_move(TB_WIN), ScoreType::LowerBound);
                                 return score;
                             }
                         }
                         TBResult::Loss => {
                             let score = TB_LOSS + info.ply;
                             if score <= alpha {
-                                self.tt.write_entry(hash, MAX_DEPTH as i32, self.tb_move(TB_LOSS), ScoreType::UpperBound);
+                                self.tt.write_entry(hash, self.tt_gen, MAX_DEPTH as i32, self.tb_move(TB_LOSS), ScoreType::UpperBound);
                                 return score;
                             }
                         },
                         TBResult::CursedWin => {
-                            self.tt.write_entry(hash, MAX_DEPTH as i32, self.tb_move(1), ScoreType::Exact);
+                            self.tt.write_entry(hash, self.tt_gen, MAX_DEPTH as i32, self.tb_move(1), ScoreType::Exact);
                             return 1;
                         },
                         TBResult::BlessedLoss => {
-                            self.tt.write_entry(hash, MAX_DEPTH as i32, self.tb_move(-1), ScoreType::Exact);
+                            self.tt.write_entry(hash, self.tt_gen, MAX_DEPTH as i32, self.tb_move(-1), ScoreType::Exact);
                             return -1;
                         }
                     }
@@ -978,6 +984,7 @@ impl Search {
                         if info.excluded_singular_move == NO_MOVE {
                             self.tt.write_entry(
                                 hash,
+                                self.tt_gen,
                                 depth,
                                 best_move.with_score(from_root_relative_score(info.ply, best_score)),
                                 ScoreType::LowerBound,
@@ -1022,6 +1029,7 @@ impl Search {
         if info.excluded_singular_move == NO_MOVE {
             self.tt.write_entry(
                 hash,
+                self.tt_gen,
                 depth,
                 best_move.with_score(from_root_relative_score(info.ply, best_score)),
                 score_type,
@@ -1192,7 +1200,7 @@ impl Search {
             return String::new();
         }
 
-        let entry = self.tt.get_entry(self.board.get_hash());
+        let entry = self.tt.get_entry(self.board.get_hash(), self.tt_gen);
         let active_player = self.board.active_player();
         let hash_move = self.movegen.sanitize_move(&mut self.board, active_player, get_untyped_move(entry));
         if hash_move == NO_MOVE {
@@ -1599,6 +1607,7 @@ impl HelperThread {
                     sub_search.set_tb_probe_depth(tb_probe_depth);
                     sub_search.draw_score = draw_score;
                     sub_search.player_pov = sub_search.board.active_player();
+                    sub_search.tt_gen = sub_search.board.fullmove_count() % (MAX_GENERATION + 1);
 
                     sub_search.movegen.enter_ply(
                         sub_search.board.active_player(),
