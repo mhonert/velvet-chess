@@ -642,14 +642,14 @@ impl Search {
                         }
 
                         ScoreType::UpperBound => {
-                            if hash_score <= alpha && tt_depth >= depth {
+                            if !is_pv && hash_score <= alpha && tt_depth >= depth {
                                 return hash_score;
                             }
                             skip_null_move = tt_depth >= depth - null_move_reduction(depth);
                         }
 
                         ScoreType::LowerBound => {
-                            if tt_depth >= depth && hash_score.max(alpha) >= beta {
+                            if !is_pv && tt_depth >= depth && hash_score.max(alpha) >= beta {
                                 if hash_move.is_quiet() {
                                     self.hh.update_killer_moves(info.ply, hash_move);
                                     self.hh.update_counter_move(info.opponent_move, hash_move);
