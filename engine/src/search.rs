@@ -584,7 +584,7 @@ impl Search {
         let is_pv = (alpha + 1) < beta; // in a principal variation search, non-PV nodes are searched with a zero-window
 
         // Prune, if even the best possible score cannot improve alpha (because a shorter mate has already been found)
-        let best_possible_score = MATE_SCORE - info.ply - 1;
+        let mut best_possible_score = MATE_SCORE - info.ply - 1;
         if best_possible_score <= alpha {
             return best_possible_score;
         }
@@ -705,6 +705,7 @@ impl Search {
                                 self.tt.write_entry(hash, self.tt_gen, depth, self.tb_move(TB_LOSS), ScoreType::UpperBound);
                                 return score;
                             }
+                            best_possible_score = score;
                         },
                         TBResult::CursedWin => {
                             self.tt.write_entry(hash, self.tt_gen, depth, self.tb_move(1), ScoreType::Exact);
@@ -1034,6 +1035,8 @@ impl Search {
                 self.effective_draw_score()
             }
         }
+
+        best_score = best_score.min(best_possible_score);
 
         if info.excluded_singular_move == NO_MOVE {
             self.tt.write_entry(
