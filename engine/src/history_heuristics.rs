@@ -50,8 +50,8 @@ impl HistoryHeuristics {
     }
 
     #[inline]
-    pub fn get_killer_moves(&self, ply: i32) -> (Move, Move) {
-        self.killers[ply as usize]
+    pub fn get_killer_moves(&self, ply: usize) -> (Move, Move) {
+        self.killers[ply]
     }
 
     #[inline]
@@ -63,7 +63,7 @@ impl HistoryHeuristics {
     }
 
     #[inline]
-    pub fn update(&mut self, ply: i32, active_player: Color, prev_own_m: Move, opponent_move: Move, m: Move) {
+    pub fn update(&mut self, ply: usize, active_player: Color, prev_own_m: Move, opponent_move: Move, m: Move) {
         self.update_follow_up_history(active_player, prev_own_m, m, 1);
         self.update_counter_history(active_player, opponent_move, m, 1);
 
@@ -96,8 +96,8 @@ impl HistoryHeuristics {
     }
 
     #[inline]
-    pub fn update_killer_moves(&mut self, ply: i32, m: Move) {
-        let entry = unsafe { self.killers.get_unchecked_mut(ply as usize) };
+    pub fn update_killer_moves(&mut self, ply: usize, m: Move) {
+        let entry = unsafe { self.killers.get_unchecked_mut(ply) };
         if entry.0 != m.without_score() {
             entry.1 = entry.0;
             entry.0 = m.without_score();

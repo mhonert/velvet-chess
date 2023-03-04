@@ -34,7 +34,7 @@ pub enum MoveType {
     Castling = 7,
 }
 
-#[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Copy, Clone, Default, Ord, PartialOrd, Eq, PartialEq)]
 pub struct Move(u32);
 
 const PIECE_MASK: u32 = 0b111;
