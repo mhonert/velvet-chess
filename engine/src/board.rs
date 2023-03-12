@@ -743,8 +743,8 @@ impl Board {
     }
 
     #[inline]
-    pub fn is_pawn_endgame(&self) -> bool {
-        (self.occupancy_bb() & !(self.get_bitboard(P) | self.get_bitboard(-P))).piece_count() == 2
+    pub fn has_non_pawns(&self, player: Color) -> bool {
+        (self.get_all_piece_bitboard(player) & !self.get_bitboard(player.piece(P))).piece_count() > 1
     }
 
     /* Perform a Static Exchange Evaluation (SEE) to check, whether the net gain of the capture is still positive,

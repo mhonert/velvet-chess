@@ -26,7 +26,7 @@ use crate::move_gen::{is_killer, MoveGenerator, NEGATIVE_HISTORY_SCORE, QUIET_BA
 use crate::moves::{Move, MoveType, NO_MOVE};
 use crate::pieces::{EMPTY, P};
 use crate::pos_history::PositionHistory;
-use crate::scores::{mate_in, sanitize_score, MATED_SCORE, MATE_SCORE, MAX_SCORE, MIN_SCORE, TB_WIN, TB_LOSS, is_mate_or_mated_score};
+use crate::scores::{mate_in, sanitize_score, MATED_SCORE, MATE_SCORE, MAX_SCORE, MIN_SCORE, TB_WIN, TB_LOSS, is_mate_or_mated_score, is_eval_score};
 use crate::time_management::{SearchLimits, TimeManager};
 use crate::transposition_table::{from_root_relative_score, ScoreType, TranspositionTable, MAX_DEPTH, get_untyped_move, to_root_relative_score, get_depth, get_score_type, MAX_GENERATION};
 use crate::uci_move::UCIMove;
@@ -784,7 +784,7 @@ impl Search {
             } else if !skip_null_move {
                 // Null move pruning
                 pos_score = pos_score.or_else(|| Some(self.infos[ply].eval()));
-                if pos_score.unwrap() >= beta && !self.board.is_pawn_endgame() {
+                if pos_score.unwrap() >= beta && self.board.has_non_pawns(active_player) {
                     self.board.perform_null_move();
                     self.tt.prefetch(self.board.get_hash());
 
@@ -801,7 +801,7 @@ impl Search {
                         return CANCEL_SEARCH;
                     }
                     if -result >= beta {
-                        return if !is_mate_or_mated_score(result) { -result } else { beta };
+                        return if is_eval_score(result) { -result } else { beta };
                     }
                 }
             }
