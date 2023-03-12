@@ -28,6 +28,7 @@ use std::str::FromStr;
 use std::sync::mpsc::Sender;
 use std::thread::sleep;
 use std::time::Duration;
+use crate::params;
 use crate::syzygy::{DEFAULT_TB_PROBE_DEPTH, HAS_TB_SUPPORT};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -130,6 +131,7 @@ fn uci() {
     println!(
         "option name UCI_EngineAbout type string default Velvet Chess Engine (https://github.com/mhonert/velvet-chess)"
     );
+    params::print_options();
 
     println!("uciok");
 }
@@ -210,7 +212,7 @@ fn set_option(tx: &Sender<Message>, parts: &[&str]) {
                 return;
             }
 
-            if let Some(depth) = parse_int_option(value, 1, MAX_DEPTH as i32) {
+            if let Some(depth) = parse_int_option(value, 0, MAX_DEPTH as i32) {
                 send_message(tx, Message::SetTableBaseProbeDepth(depth));
             } else {
                 println!("Invalid probe depth: {}", value);
@@ -229,7 +231,13 @@ fn set_option(tx: &Sender<Message>, parts: &[&str]) {
             };
         }
 
-        _ => println!("Unknown option: {}", name),
+        _ => {
+            if let Some(value) = parse_int_option(value, i32::MIN, i32::MAX) {
+                send_message(tx, Message::SetParam(name, value));
+            } else {
+                println!("Invalid value for param {}: {}", name, value)
+            }
+        },
     }
 }
 

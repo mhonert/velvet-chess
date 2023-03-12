@@ -30,25 +30,11 @@ use crate::colors::{Color, BLACK, WHITE};
 use crate::magics::Magics;
 use crate::moves::{Move, MoveType};
 use crate::nn::eval::NeuralNetEval;
+use crate::params;
 use crate::pieces::{B, EMPTY, K, N, P, Q, R};
 use crate::pos_history::PositionHistory;
 use crate::transposition_table::MAX_DEPTH;
 use crate::zobrist::{enpassant_zobrist_key, piece_zobrist_key, player_zobrist_key};
-
-const KING_SEE_VALUE: i32 = 8000;
-const QUEEN_SEE_VALUE: i32 = 1000;
-const ROOK_SEE_VALUE: i32 = 525;
-const BISHOP_SEE_VALUE: i32 = 350;
-const KNIGHT_SEE_VALUE: i32 = 350;
-const PAWN_SEE_VALUE: i32 = 100;
-
-const PIECE_VALUES: [i32; 7] =
-    [0, PAWN_SEE_VALUE, KNIGHT_SEE_VALUE, BISHOP_SEE_VALUE, ROOK_SEE_VALUE, QUEEN_SEE_VALUE, KING_SEE_VALUE];
-
-#[inline(always)]
-fn get_see_value(piece_id: i8) -> i32 {
-    unsafe { *PIECE_VALUES.get_unchecked(piece_id as usize) }
-}
 
 #[repr(u8)]
 pub enum WhiteBoardPos {
@@ -768,9 +754,9 @@ impl Board {
         &mut self, mut opp_color: Color, from: i32, target: i32, own_piece_id: i8, captured_piece_id: i8,
         threshold: i32, mut occupied: BitBoard,
     ) -> bool {
-        let mut score = get_see_value(captured_piece_id);
+        let mut score = params::see_piece_values(captured_piece_id as usize);
         occupied = occupied & !(1 << from as u64);
-        let mut potential_gain = get_see_value(own_piece_id);
+        let mut potential_gain = params::see_piece_values(own_piece_id as usize);
 
         let mut attackers = self.find_attackers(!occupied, occupied, target);
 
@@ -812,32 +798,32 @@ impl Board {
     fn find_smallest_attacker(&self, attackers: BitBoard, color: Color) -> Option<(BitBoard, i32)> {
         let pieces = self.get_bitboard(color.piece(P)) & attackers;
         if pieces.is_occupied() {
-            return Some((pieces.first(), get_see_value(P)));
+            return Some((pieces.first(), params::see_piece_values(P as usize)));
         }
 
         let pieces = self.get_bitboard(color.piece(N)) & attackers;
         if pieces.is_occupied() {
-            return Some((pieces.first(), get_see_value(N)));
+            return Some((pieces.first(), params::see_piece_values(N as usize)));
         }
 
         let pieces = self.get_bitboard(color.piece(B)) & attackers;
         if pieces.is_occupied() {
-            return Some((pieces.first(), get_see_value(B)));
+            return Some((pieces.first(), params::see_piece_values(B as usize)));
         }
 
         let pieces = self.get_bitboard(color.piece(R)) & attackers;
         if pieces.is_occupied() {
-            return Some((pieces.first(), get_see_value(R)));
+            return Some((pieces.first(), params::see_piece_values(R as usize)));
         }
 
         let pieces = self.get_bitboard(color.piece(Q)) & attackers;
         if pieces.is_occupied() {
-            return Some((pieces.first(), get_see_value(Q)));
+            return Some((pieces.first(), params::see_piece_values(Q as usize)));
         }
 
         let pieces = self.get_bitboard(color.piece(K)) & attackers;
         if pieces.is_occupied() {
-            return Some((pieces.first(), get_see_value(K)));
+            return Some((pieces.first(), params::see_piece_values(K as usize)));
         }
 
         None
@@ -1067,7 +1053,7 @@ mod tests {
 
         let board = Board::new(&items, WHITE, CastlingState::default(), None, 0, 1, CastlingRules::default());
         let attackers = board.find_attackers(!board.occupancy_bb(), board.occupancy_bb(), 27);
-        assert_eq!(Some((BitBoard(1 << 34), PAWN_SEE_VALUE)), board.find_smallest_attacker(attackers, WHITE));
+        assert_eq!(Some((BitBoard(1 << 34), params::see_piece_values(P as usize))), board.find_smallest_attacker(attackers, WHITE));
     }
 
     #[test]
@@ -1086,7 +1072,7 @@ mod tests {
 
         let board = Board::new(&items, WHITE, CastlingState::default(), None, 0, 1, CastlingRules::default());
         let attackers = board.find_attackers(!board.occupancy_bb(), board.occupancy_bb(), 27);
-        assert_eq!(Some((BitBoard(1 << 36), PAWN_SEE_VALUE)), board.find_smallest_attacker(attackers, WHITE));
+        assert_eq!(Some((BitBoard(1 << 36), params::see_piece_values(P as usize))), board.find_smallest_attacker(attackers, WHITE));
     }
 
     #[test]
@@ -1105,7 +1091,7 @@ mod tests {
 
         let board = Board::new(&items, BLACK, CastlingState::default(), None, 0, 1, CastlingRules::default());
         let attackers = board.find_attackers(!board.occupancy_bb(), board.occupancy_bb(), 27);
-        assert_eq!(Some((BitBoard(1 << 20), PAWN_SEE_VALUE)), board.find_smallest_attacker(attackers, BLACK));
+        assert_eq!(Some((BitBoard(1 << 20), params::see_piece_values(P as usize))), board.find_smallest_attacker(attackers, BLACK));
     }
 
     #[test]
@@ -1124,7 +1110,7 @@ mod tests {
 
         let board = Board::new(&items, BLACK, CastlingState::default(), None, 0, 1, CastlingRules::default());
         let attackers = board.find_attackers(!board.occupancy_bb(), board.occupancy_bb(), 27);
-        assert_eq!(Some((BitBoard(1 << 18), PAWN_SEE_VALUE)), board.find_smallest_attacker(attackers, BLACK));
+        assert_eq!(Some((BitBoard(1 << 18), params::see_piece_values(P as usize))), board.find_smallest_attacker(attackers, BLACK));
     }
 
     #[test]
@@ -1143,7 +1129,7 @@ mod tests {
 
         let board = Board::new(&items, WHITE, CastlingState::default(), None, 0, 1, CastlingRules::default());
         let attackers = board.find_attackers(!board.occupancy_bb(), board.occupancy_bb(), 27);
-        assert_eq!(Some((BitBoard(1 << 37), KNIGHT_SEE_VALUE)), board.find_smallest_attacker(attackers, WHITE));
+        assert_eq!(Some((BitBoard(1 << 37), params::see_piece_values(N as usize))), board.find_smallest_attacker(attackers, WHITE));
     }
 
     #[test]
@@ -1162,7 +1148,7 @@ mod tests {
 
         let board = Board::new(&items, WHITE, CastlingState::default(), None, 0, 1, CastlingRules::default());
         let attackers = board.find_attackers(!board.occupancy_bb(), board.occupancy_bb(), 27);
-        assert_eq!(Some((BitBoard(1 << 45), BISHOP_SEE_VALUE)), board.find_smallest_attacker(attackers, WHITE));
+        assert_eq!(Some((BitBoard(1 << 45), params::see_piece_values(B as usize))), board.find_smallest_attacker(attackers, WHITE));
     }
 
     #[test]
@@ -1181,7 +1167,7 @@ mod tests {
 
         let board = Board::new(&items, WHITE, CastlingState::default(), None, 0, 1, CastlingRules::default());
         let attackers = board.find_attackers(!board.occupancy_bb(), board.occupancy_bb(), 27);
-        assert_eq!(Some((BitBoard(1 << 24), ROOK_SEE_VALUE)), board.find_smallest_attacker(attackers, WHITE));
+        assert_eq!(Some((BitBoard(1 << 24), params::see_piece_values(R as usize))), board.find_smallest_attacker(attackers, WHITE));
     }
 
     #[test]
@@ -1200,7 +1186,7 @@ mod tests {
 
         let board = Board::new(&items, WHITE, CastlingState::default(), None, 0, 1, CastlingRules::default());
         let attackers = board.find_attackers(!board.occupancy_bb(), board.occupancy_bb(), 27);
-        assert_eq!(Some((BitBoard(1 << 29), QUEEN_SEE_VALUE)), board.find_smallest_attacker(attackers, WHITE));
+        assert_eq!(Some((BitBoard(1 << 29), params::see_piece_values(Q as usize))), board.find_smallest_attacker(attackers, WHITE));
     }
 
     #[test]
@@ -1219,7 +1205,7 @@ mod tests {
 
         let board = Board::new(&items, WHITE, CastlingState::default(), None, 0, 1, CastlingRules::default());
         let attackers = board.find_attackers(!board.occupancy_bb(), board.occupancy_bb(), 27);
-        assert_eq!(Some((BitBoard(1 << 35), KING_SEE_VALUE)), board.find_smallest_attacker(attackers, WHITE));
+        assert_eq!(Some((BitBoard(1 << 35), params::see_piece_values(K as usize))), board.find_smallest_attacker(attackers, WHITE));
     }
 
     #[test]

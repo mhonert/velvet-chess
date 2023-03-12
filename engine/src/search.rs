@@ -39,6 +39,7 @@ use std::thread;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 use LogLevel::Info;
+use crate::params;
 use crate::syzygy::{DEFAULT_TB_PROBE_DEPTH, ProbeTB};
 use crate::syzygy::tb::{TBResult};
 
@@ -51,8 +52,6 @@ const LMR_THRESHOLD: i32 = 1;
 
 const FUTILE_MOVE_REDUCTIONS: i32 = 2;
 const LOSING_MOVE_REDUCTIONS: i32 = 2;
-
-const QS_SEE_THRESHOLD: i32 = 104;
 
 const INITIAL_ASPIRATION_WINDOW_SIZE: i32 = 16;
 const INITIAL_ASPIRATION_WINDOW_STEP: i32 = 16;
@@ -72,8 +71,17 @@ const fn calc_late_move_reductions() -> [i32; MAX_LMR_MOVES] {
     lmr
 }
 
+fn lmp_threshold(improving: bool, depth: i32) -> i32 {
+    if improving {
+        params::lmp_improving(depth as usize)
+    } else {
+        params::lmp_not_improving(depth as usize)
+    }
+}
+
 #[derive(Copy, Clone, Default)]
 struct SearchInfo {
+    eval: i32,
     in_check: bool,
     capture_pos: i32,
     opp_move: Move,
@@ -81,6 +89,10 @@ struct SearchInfo {
 }
 
 impl SearchInfo {
+    pub fn set_eval(&mut self, eval: i32) {
+        self.eval = eval;
+    }
+
     pub fn set_capture_pos(&mut self, pos: i32) -> &mut Self {
         self.capture_pos = pos;
         self
@@ -99,6 +111,10 @@ impl SearchInfo {
     pub fn set_in_check(&mut self, gives_check: bool) -> &mut Self {
         self.in_check = gives_check;
         self
+    }
+
+    pub fn eval(&self) -> i32 {
+        self.eval
     }
 
     pub fn in_check(&self) -> bool {
@@ -206,7 +222,7 @@ impl Search {
 
             tt_gen: 0,
 
-            infos: [SearchInfo::default(); MAX_DEPTH + 1]
+            infos: [SearchInfo::default(); MAX_DEPTH + 1],
         }
     }
 
@@ -425,6 +441,8 @@ impl Search {
         score: i32, depth: i32, pv: &mut PrincipalVariation) -> (bool, i32, Move, Option<String>, i32) {
         let mut alpha = if depth > 7 { score - window_size } else { MIN_SCORE };
         let mut beta = if depth > 7 { score + window_size } else { MAX_SCORE };
+
+        self.infos[0].set_eval(self.board.eval());
 
         let mut step = window_step;
         loop {
@@ -746,18 +764,26 @@ impl Search {
             return self.quiescence_search::<false>(rx, active_player, alpha, beta, ply, pos_score, pv);
         }
 
+        self.infos[ply].set_eval(self.board.eval());
+        let improving = self.is_improving(ply);
+
         if !is_pv && !in_check {
             if depth <= 2 {
                 // Jump directly to QS, if position is already so good, that it is unlikely for the opponent to counter it within the remaining search depth
-                pos_score = pos_score.or_else(|| Some(self.board.eval()));
+                pos_score = pos_score.or_else(|| Some(self.infos[ply].eval()));
                 let score = pos_score.unwrap();
 
-                if !is_mate_or_mated_score(score) && score - (100 * depth) >= beta {
+                let margin = if improving {
+                    params::rfp_base_margin_improving() + params::rfp_margin_improving_multiplier() * depth
+                } else {
+                    params::rfp_base_margin_not_improving() + params::rfp_margin_not_improving_multiplier() * depth
+                };
+                if !is_mate_or_mated_score(score) && score - margin >= beta {
                     return self.quiescence_search::<false>(rx, active_player, alpha, beta, ply, pos_score, pv);
                 }
             } else if !skip_null_move {
                 // Null move pruning
-                pos_score = pos_score.or_else(|| Some(self.board.eval()));
+                pos_score = pos_score.or_else(|| Some(self.infos[ply].eval()));
                 if pos_score.unwrap() >= beta && !self.board.is_pawn_endgame() {
                     self.board.perform_null_move();
                     self.tt.prefetch(self.board.get_hash());
@@ -782,6 +808,7 @@ impl Search {
         }
 
         let mut evaluated_move_count = 0;
+        let mut quiet_move_count = 0;
         let mut has_valid_moves = false;
 
         let allow_lmr = depth > 2;
@@ -789,12 +816,12 @@ impl Search {
         // Futile move pruning
         let mut allow_futile_move_pruning = false;
         if !is_pv && depth <= 6 && !in_check {
-            let margin = (6 << depth) * 4 + 16;
-            pos_score = pos_score.or_else(|| Some(self.board.eval()));
+            let margin: i32 = params::fp_base_margin() + depth * params::fp_margin_multiplier();
+            pos_score = pos_score.or_else(|| Some(self.infos[ply].eval()));
             let static_score = pos_score.unwrap();
             allow_futile_move_pruning = !is_mate_or_mated_score(static_score) && static_score + margin <= alpha;
 
-            if depth == 1 && static_score + 200 <= alpha {
+            if depth == 1 && static_score + params::razor_margin_multiplier() <= alpha {
                 let score = self.quiescence_search::<false>(rx, active_player, alpha, beta, ply, pos_score, pv);
                 if score <= alpha {
                     return score;
@@ -823,6 +850,10 @@ impl Search {
         let mut a = -beta;
         while let Some(curr_move) = self.movegen.next_move(&self.hh, &mut self.board) {
             if excluded_singular_move.is_same_move(curr_move) {
+                continue;
+            }
+
+            if !is_pv && !in_check && curr_move.is_quiet() && depth <= 8 && !curr_move.is_queen_promotion() && !is_mate_or_mated_score(alpha) && quiet_move_count > lmp_threshold(improving, depth) {
                 continue;
             }
 
@@ -872,8 +903,11 @@ impl Search {
 
                 if se_extension == 0 && removed_piece_id == EMPTY {
 
-                    if allow_lmr && evaluated_move_count > LMR_THRESHOLD && !curr_move.is_queen_promotion()  {
-                        reductions += unsafe { *LMR.get_unchecked((evaluated_move_count as usize).min(MAX_LMR_MOVES - 1)) } + if is_pv { 0 } else { 1 };
+                    if allow_lmr && quiet_move_count > LMR_THRESHOLD && !curr_move.is_queen_promotion()  {
+                        reductions += unsafe { *LMR.get_unchecked((quiet_move_count as usize).min(MAX_LMR_MOVES - 1)) } + i32::from(!is_pv);
+                        if !improving && curr_move.score() <= NEGATIVE_HISTORY_SCORE {
+                            reductions += 1;
+                        }
 
                     } else if allow_futile_move_pruning && !gives_check && !curr_move.is_queen_promotion() {
                         // Reduce futile move
@@ -904,6 +938,8 @@ impl Search {
                     if is_singular {
                         reductions += 1;
                     }
+
+                    quiet_move_count += 1;
 
                     if allow_futile_move_pruning
                         && evaluated_move_count > 0
@@ -1085,7 +1121,7 @@ impl Search {
         self.movegen.enter_ply(active_player, NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE);
         self.movegen.generate_captures(&mut self.board);
 
-        let mut threshold = alpha - position_score - QS_SEE_THRESHOLD;
+        let mut threshold = alpha - position_score - params::qs_see_threshold();
 
         let mut best_score = position_score;
 
@@ -1120,7 +1156,7 @@ impl Search {
                 }
 
                 alpha = best_score;
-                threshold = alpha - position_score - QS_SEE_THRESHOLD;
+                threshold = alpha - position_score - params::qs_see_threshold();
             }
         }
 
@@ -1279,6 +1315,16 @@ impl Search {
         self.infos.iter().skip(1).take(ply).any(|s| s.opp_played_null_move())
     }
 
+    fn is_improving(&self, ply: usize) -> bool {
+        if ply <= 1 || self.infos[ply].in_check {
+            return false;
+        }
+        let prev_eval = self.infos[ply - 2].eval();
+        let curr_eval = self.infos[ply].eval();
+
+        curr_eval > prev_eval
+    }
+
     const TB_MARKER: i8 = 7;
 
     fn tb_move(&self, score: i32) -> Move {
@@ -1363,7 +1409,7 @@ impl HelperThreads {
 
     pub fn resize(
         &mut self, target_count: usize, node_count: &Arc<AtomicU64>, tb_hits: &Arc<AtomicU64>, tt: &Arc<TranspositionTable>, board: &Board,
-        is_stopped: &Arc<AtomicBool>,
+        is_stopped: &Arc<AtomicBool>
     ) {
         if target_count < self.threads.len() {
             self.threads.drain(target_count..).for_each(|t| {
@@ -1387,6 +1433,7 @@ impl HelperThreads {
             let handle = thread::spawn(move || {
                 let limits = SearchLimits::default();
                 let sub_search = Search::new(is_stopped, node_count, tb_hits, LogLevel::Error, limits, tt, board, true);
+
                 HelperThread::run(to_rx, from_tx, sub_search);
             });
 

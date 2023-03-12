@@ -37,6 +37,7 @@ pub mod transposition_table;
 pub mod uci;
 pub mod uci_move;
 
+mod params;
 mod pos_history;
-mod zobrist;
 mod syzygy;
+mod zobrist;

@@ -32,7 +32,7 @@ use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{mpsc, Arc};
 use std::thread;
 use std::time::SystemTime;
-use crate::syzygy;
+use crate::{params, syzygy};
 
 pub enum Message {
     ClearHash,
@@ -44,6 +44,7 @@ pub enum Message {
     Profile,
     Quit,
     SetPosition(String, Vec<UCIMove>),
+    SetParam(String, i32),
     SetThreadCount(i32),
     SetTableBasePath(String),
     SetTableBaseProbeDepth(i32),
@@ -200,6 +201,10 @@ impl Engine {
             Message::PonderHit => println!("info Received 'ponderhit' outside ongoing search"),
 
             Message::ClearHash => self.search.clear_tt(),
+
+            Message::SetParam(name, value) => {
+                params::set(name, value);
+            }
         }
 
         true

@@ -25,3 +25,4 @@ fathomrs = { path = "../fathomrs", optional = true }
 [features]
 default = ["fathomrs"]
 fathomrs = ["dep:fathomrs"]
+tune = []
