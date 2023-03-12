@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2022 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2023 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -68,8 +68,8 @@ impl MoveGenerator {
         );
     }
 
-    pub fn generate_captures(&mut self, board: &mut Board) {
-        self.entries[self.ply].generate_captures(board);
+    pub fn generate_qs_captures(&mut self, board: &mut Board) {
+        self.entries[self.ply].generate_qs_captures(board);
     }
 
     pub fn leave_ply(&mut self) {
@@ -335,8 +335,8 @@ impl MoveList {
     }
 
     #[inline(always)]
-    pub fn generate_captures(&mut self, board: &mut Board) {
-        self.gen_capture_moves(board);
+    pub fn generate_qs_captures(&mut self, board: &mut Board) {
+        self.gen_qs_capture_moves(board);
         self.capture_moves.sort_unstable_by_key(Move::score);
     }
 
@@ -359,13 +359,13 @@ impl MoveList {
 
         if active_player.is_white() {
             let pawns = board.get_bitboard(P);
-            self.gen_white_attack_pawn_moves(board, pawns, opponent_bb);
+            self.gen_white_attack_pawn_moves::<true>(board, pawns, opponent_bb);
             self.gen_white_straight_pawn_moves(pawns, empty_bb);
             self.gen_white_en_passant_moves(board, pawns);
         } else {
             let pawns = board.get_bitboard(-P);
             self.gen_black_straight_pawn_moves(pawns, empty_bb);
-            self.gen_black_attack_pawn_moves(board, pawns, opponent_bb);
+            self.gen_black_attack_pawn_moves::<true>(board, pawns, opponent_bb);
             self.gen_black_en_passant_moves(board, pawns);
         }
 
@@ -392,7 +392,7 @@ impl MoveList {
         self.gen_king_moves(active_player, board, opponent_bb, empty_bb);
     }
 
-    fn gen_capture_moves(&mut self, board: &Board) {
+    fn gen_qs_capture_moves(&mut self, board: &Board) {
         let active_player = self.active_player;
 
         let opponent_bb = board.get_all_piece_bitboard(active_player.flip());
@@ -400,9 +400,9 @@ impl MoveList {
         let empty_bb = !occupied;
 
         if active_player.is_white() {
-            self.gen_white_attack_pawn_moves(board, board.get_bitboard(P), opponent_bb);
+            self.gen_white_attack_pawn_moves::<false>(board, board.get_bitboard(P), opponent_bb);
         } else {
-            self.gen_black_attack_pawn_moves(board, board.get_bitboard(-P), opponent_bb);
+            self.gen_black_attack_pawn_moves::<false>(board, board.get_bitboard(-P), opponent_bb);
         }
 
         for pos in board.get_bitboard(active_player.piece(N)) {
@@ -443,18 +443,19 @@ impl MoveList {
         self.add_pawn_quiet_moves(MoveType::PawnDoubleQuiet, target_bb, 16);
     }
 
-    fn gen_white_attack_pawn_moves(&mut self, board: &Board, pawns: BitBoard, opponent_bb: BitBoard) {
+    #[inline(always)]
+    fn gen_white_attack_pawn_moves<const MINOR_PROMOTIONS: bool>(&mut self, board: &Board, pawns: BitBoard, opponent_bb: BitBoard) {
         let mut left_attacks = pawns & 0xfefefefefefefefe; // mask right column
         left_attacks >>= BitBoard(9);
 
         left_attacks &= opponent_bb;
-        self.add_pawn_capture_moves(board, MoveType::Capture, left_attacks, 9);
+        self.add_pawn_capture_moves::<MINOR_PROMOTIONS>(board, MoveType::Capture, left_attacks, 9);
 
         let mut right_attacks = pawns & 0x7f7f7f7f7f7f7f7f; // mask left column
         right_attacks >>= BitBoard(7);
 
         right_attacks &= opponent_bb;
-        self.add_pawn_capture_moves(board, MoveType::Capture, right_attacks, 7);
+        self.add_pawn_capture_moves::<MINOR_PROMOTIONS>(board, MoveType::Capture, right_attacks, 7);
     }
 
     fn gen_white_en_passant_moves(&mut self, board: &Board, pawns: BitBoard) {
@@ -492,18 +493,19 @@ impl MoveList {
         self.add_pawn_quiet_moves(MoveType::PawnDoubleQuiet, target_bb, -16);
     }
 
-    fn gen_black_attack_pawn_moves(&mut self, board: &Board, pawns: BitBoard, opponent_bb: BitBoard) {
+    #[inline(always)]
+    fn gen_black_attack_pawn_moves<const MINOR_PROMOTIONS: bool>(&mut self, board: &Board, pawns: BitBoard, opponent_bb: BitBoard) {
         let mut left_attacks = pawns & 0xfefefefefefefefe; // mask right column
         left_attacks <<= BitBoard(7);
 
         left_attacks &= opponent_bb;
-        self.add_pawn_capture_moves(board, MoveType::Capture, left_attacks, -7);
+        self.add_pawn_capture_moves::<MINOR_PROMOTIONS>(board, MoveType::Capture, left_attacks, -7);
 
         let mut right_attacks = pawns & 0x7f7f7f7f7f7f7f7f; // mask left column
         right_attacks <<= BitBoard(9);
 
         right_attacks &= opponent_bb;
-        self.add_pawn_capture_moves(board, MoveType::Capture, right_attacks, -9);
+        self.add_pawn_capture_moves::<MINOR_PROMOTIONS>(board, MoveType::Capture, right_attacks, -9);
     }
 
     fn gen_black_en_passant_moves(&mut self, board: &Board, pawns: BitBoard) {
@@ -545,16 +547,18 @@ impl MoveList {
         }
     }
 
-    fn add_pawn_capture_moves(&mut self, board: &Board, typ: MoveType, target_bb: BitBoard, direction: i32) {
+    fn add_pawn_capture_moves<const MINOR_PROMOTIONS: bool>(&mut self, board: &Board, typ: MoveType, target_bb: BitBoard, direction: i32) {
         for end in target_bb {
             let start = end as i32 + direction;
 
             if end <= 7 || end >= 56 {
                 // Promotion
                 self.add_capture_move(board, MoveType::PawnSpecial, Q, start, end as i32);
-                self.add_capture_move(board, MoveType::PawnSpecial, N, start, end as i32);
-                self.add_capture_move(board, MoveType::PawnSpecial, R, start, end as i32);
-                self.add_capture_move(board, MoveType::PawnSpecial, B, start, end as i32);
+                if !MINOR_PROMOTIONS {
+                    self.add_capture_move(board, MoveType::PawnSpecial, N, start, end as i32);
+                    self.add_capture_move(board, MoveType::PawnSpecial, R, start, end as i32);
+                    self.add_capture_move(board, MoveType::PawnSpecial, B, start, end as i32);
+                }
             } else {
                 // Normal move
                 self.add_capture_move(board, typ, P, start, end as i32);
@@ -642,9 +646,9 @@ impl MoveList {
                     }
                 } else {
                     if active_player.is_white() {
-                        self.gen_white_attack_pawn_moves(board, start_bb, opponent_bb);
+                        self.gen_white_attack_pawn_moves::<true>(board, start_bb, opponent_bb);
                     } else {
-                        self.gen_black_attack_pawn_moves(board, start_bb, opponent_bb);
+                        self.gen_black_attack_pawn_moves::<true>(board, start_bb, opponent_bb);
                     }
                 }
             }

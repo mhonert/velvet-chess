@@ -1119,7 +1119,7 @@ impl Search {
         }
 
         self.movegen.enter_ply(active_player, NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE);
-        self.movegen.generate_captures(&mut self.board);
+        self.movegen.generate_qs_captures(&mut self.board);
 
         let mut threshold = alpha - position_score - params::qs_see_threshold();
 
