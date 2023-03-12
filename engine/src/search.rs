@@ -310,7 +310,7 @@ impl Search {
         let mut analysis_result = AnalysisResult::new();
 
         // Probe tablebases
-        let (draw_score, tb_result, mut tb_skip_moves) = if let Some((tb_result, tb_skip_moves)) = self.board.probe_root_wdl() { self.local_tb_hits += 1;
+        let (draw_score, tb_result, mut tb_skip_moves) = if let Some((tb_result, tb_skip_moves)) = self.board.probe_root() { self.local_tb_hits += 1;
             // Adjust draw score based upon the tablebase result to prevent
             // accidental draws in winning TB positions when the eval is <= 0
             let draw_score = match tb_result {

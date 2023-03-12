@@ -27,7 +27,7 @@ pub const DEFAULT_TB_PROBE_DEPTH: i32 = 0;
 
 pub trait ProbeTB {
     fn probe_wdl(&self) -> Option<tb::TBResult>;
-    fn probe_root_wdl(&self) -> Option<(tb::TBResult, Vec<Move>)>;
+    fn probe_root(&self) -> Option<(tb::TBResult, Vec<Move>)>;
 }
 
 #[cfg(not(feature = "fathomrs"))]
@@ -53,7 +53,7 @@ pub mod tb {
             None
         }
 
-        fn probe_root_wdl(&self) -> Option<(TBResult, Vec<Move>)> {
+        fn probe_root(&self) -> Option<(TBResult, Vec<Move>)> {
             None
         }
     }
@@ -87,7 +87,7 @@ pub mod tb {
                 return None;
             }
 
-            Some(fathomrs::tb::probe_wdl(
+            fathomrs::tb::probe_wdl(
                 self.get_all_piece_bitboard(WHITE).0.swap_bytes(),
                 self.get_all_piece_bitboard(BLACK).0.swap_bytes(),
                 (self.get_bitboard(K) | self.get_bitboard(-K)).0.swap_bytes(),
@@ -98,15 +98,15 @@ pub mod tb {
                 (self.get_bitboard(P) | self.get_bitboard(-P)).0.swap_bytes(),
                 0,
                 self.active_player().is_white()
-            ))
+            )
         }
 
-        fn probe_root_wdl(&self) -> Option<(TBResult, Vec<Move>)> {
+        fn probe_root(&self) -> Option<(TBResult, Vec<Move>)> {
             if self.piece_count() > fathomrs::tb::max_piece_count() || self.get_enpassant_state() != 0 || self.any_castling() {
                 return None;
             }
 
-            let (result, moves) = fathomrs::tb::probe_root_wdl(
+            let (result, moves) = fathomrs::tb::probe_root(
                 self.get_all_piece_bitboard(WHITE).0.swap_bytes(),
                 self.get_all_piece_bitboard(BLACK).0.swap_bytes(),
                 (self.get_bitboard(K) | self.get_bitboard(-K)).0.swap_bytes(),

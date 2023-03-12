@@ -105,14 +105,18 @@ pub fn free() {
     }
 }
 
-pub fn probe_wdl(white: u64, black: u64, kings: u64, queens: u64, rooks: u64, bishops: u64, knights: u64, pawns: u64, ep: u16, turn: bool) -> TBResult {
+pub fn probe_wdl(white: u64, black: u64, kings: u64, queens: u64, rooks: u64, bishops: u64, knights: u64, pawns: u64, ep: u16, turn: bool) -> Option<TBResult> {
     unsafe {
         let result = tb_probe_wdl_impl(white, black, kings, queens, rooks, bishops, knights, pawns, ep as c_uint, turn);
-        transmute(result)
+        if !is_failed_result(result) {
+            Some(transmute(result))
+        } else {
+            None
+        }
     }
 }
 
-pub fn probe_root_wdl(white: u64, black: u64, kings: u64, queens: u64, rooks: u64, bishops: u64, knights: u64, pawns: u64, rule50: u8, ep: u16, turn: bool) -> (u32, Vec<u32>) {
+pub fn probe_root(white: u64, black: u64, kings: u64, queens: u64, rooks: u64, bishops: u64, knights: u64, pawns: u64, rule50: u8, ep: u16, turn: bool) -> (u32, Vec<u32>) {
     unsafe {
         let mut moves: Vec<u32> = Vec::with_capacity(TB_MAX_MOVES as usize);
 
