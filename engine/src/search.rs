@@ -37,7 +37,7 @@ use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::sync::Arc;
 use std::thread;
 use std::thread::JoinHandle;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 use LogLevel::Info;
 use crate::params;
 use crate::syzygy::{DEFAULT_TB_PROBE_DEPTH, ProbeTB};
@@ -815,7 +815,7 @@ impl Search {
 
         // Futile move pruning
         let mut allow_futile_move_pruning = false;
-        if !is_pv && depth <= 6 && !in_check {
+        if !is_pv && depth <= 4 && !in_check {
             let margin: i32 = params::fp_base_margin() + depth * params::fp_margin_multiplier();
             pos_score = pos_score.or_else(|| Some(self.infos[ply].eval()));
             let static_score = pos_score.unwrap();
@@ -853,7 +853,7 @@ impl Search {
                 continue;
             }
 
-            if !is_pv && !in_check && curr_move.is_quiet() && depth <= 8 && !curr_move.is_queen_promotion() && !is_mate_or_mated_score(alpha) && quiet_move_count > lmp_threshold(improving, depth) {
+            if !is_pv && !in_check && curr_move.is_quiet() && depth <= 3 && !curr_move.is_queen_promotion() && !is_mate_or_mated_score(alpha) && quiet_move_count > lmp_threshold(improving, depth) {
                 continue;
             }
 
@@ -1724,17 +1724,16 @@ fn get_score_info(score: i32) -> String {
         return format!("cp {}", score);
     }
 
-    return if score < 0 {
+    if score < 0 {
         format!("mate {}", (MATED_SCORE - score - 1) / 2)
     } else {
         format!("mate {}", (MATE_SCORE - score + 1) / 2)
     }
-
 }
 
 #[inline]
 fn null_move_reduction(depth: i32) -> i32 {
-    log2((depth * 3 - 3) as u32 - 1) + 1
+    log2((depth * 3 - 4) as u32) + 1
 }
 
 #[inline]
