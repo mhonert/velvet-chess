@@ -22,19 +22,14 @@ use byteorder::{LittleEndian, ReadBytesExt};
 
 use crate::align::A32;
 use crate::nn::io::{read_quantized};
-use crate::pieces::{B, Q, R};
 
 pub mod eval;
 pub mod io;
 
-pub const fn bucket_size(max_piece_id: i8) -> usize {
-    (piece_idx(max_piece_id) + 1) as usize * 64
-}
-
 // NN layer size
 pub const KING_BUCKETS: usize = 8;
-pub const INPUTS: usize =
-    ((bucket_size(Q) + bucket_size(R) + bucket_size(B)) * KING_BUCKETS + 64 * 4) * 2;
+pub const PIECE_BUCKETS: usize = 3;
+pub const INPUTS: usize = (6 * KING_BUCKETS * PIECE_BUCKETS * 64) * 2;
 
 pub const HL_NODES: usize = 2 * HL_HALF_NODES;
 pub const HL_HALF_NODES: usize = 512;
@@ -42,7 +37,7 @@ pub const HL_HALF_NODES: usize = 512;
 pub const INPUT_WEIGHT_COUNT: usize = INPUTS * HL_HALF_NODES;
 
 // Fixed point number precision
-pub const FP_INPUT_MULTIPLIER: i16 = 1 << 11;
+pub const FP_INPUT_MULTIPLIER: i16 = 1 << 10;
 pub const FP_HIDDEN_MULTIPLIER: i16 = 1 << 12;
 
 pub const SCORE_SCALE: i16 = 1024;
@@ -54,10 +49,8 @@ pub static mut OUTPUT_BIASES: A32<[i16; 1]> = A32([0; 1]);
 
 static INIT_NN_PARAMS: Once = Once::new();
 
-const PIECE_INDEXES: [u16; 7] = [0, 0, 1, 2, 3, 4, 0];
-
 pub const fn piece_idx(piece_id: i8) -> u16 {
-    PIECE_INDEXES[piece_id as usize]
+    (piece_id - 1) as u16
 }
 
 pub fn init_nn_params() {
@@ -83,4 +76,12 @@ pub fn init_nn_params() {
         read_quantized(&mut reader, unsafe { &mut OUTPUT_WEIGHTS.0 }).expect("Could not read output weights");
         read_quantized(&mut reader, unsafe { &mut OUTPUT_BIASES.0 }).expect("Could not read output biases");
     });
+}
+
+#[inline(always)]
+pub fn board_8(pos: u16) -> u16 {
+    let row = pos / 8;
+    let col = pos & 3;
+
+    (row / 2) * 2 + col / 2
 }

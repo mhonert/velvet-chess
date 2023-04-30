@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2022 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2023 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -36,7 +36,7 @@ pub struct FenParseResult {
     pub pieces: Vec<i8>,
     pub active_player: Color,
     castling_rules: CastlingRules,
-    castling_state: CastlingState,
+    pub castling_state: CastlingState,
     enpassant_target: Option<i8>,
     halfmove_clock: u8,
     fullmove_num: u16,

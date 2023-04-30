@@ -37,7 +37,7 @@ use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::sync::Arc;
 use std::thread;
 use std::thread::JoinHandle;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant};
 use LogLevel::Info;
 use crate::params;
 use crate::syzygy::{DEFAULT_TB_PROBE_DEPTH, ProbeTB};
@@ -1105,7 +1105,7 @@ impl Search {
             return self.effective_draw_score();
         }
 
-        let position_score = pos_score.unwrap_or_else(|| self.board.eval());
+        let position_score = pos_score.unwrap_or_else(|| { self.board.eval() });
         if ply >= MAX_DEPTH {
             return position_score;
         }
@@ -1163,6 +1163,7 @@ impl Search {
         self.movegen.leave_ply();
         best_score
     }
+
 
     pub fn determine_skipped_moves(&mut self, search_moves: Vec<String>) -> Vec<Move> {
         let mut search_moves_set = HashSet::new();

@@ -19,8 +19,8 @@
 use crate::align::A32;
 use crate::bitboard::{h_mirror, h_mirror_i8, v_mirror, v_mirror_i8, BitBoards};
 use crate::colors::Color;
-use crate::nn::{bucket_size, piece_idx, FP_HIDDEN_MULTIPLIER, FP_INPUT_MULTIPLIER, HL_HALF_NODES, INPUTS, INPUT_BIASES, INPUT_WEIGHTS, KING_BUCKETS, OUTPUT_BIASES, OUTPUT_WEIGHTS, SCORE_SCALE};
-use crate::pieces::{B, K, Q, R};
+use crate::nn::{piece_idx, FP_HIDDEN_MULTIPLIER, FP_INPUT_MULTIPLIER, HL_HALF_NODES, INPUT_BIASES, INPUT_WEIGHTS, KING_BUCKETS, OUTPUT_BIASES, OUTPUT_WEIGHTS, SCORE_SCALE, board_8};
+use crate::pieces::{Q, R};
 use crate::scores::sanitize_eval_score;
 
 #[derive(Clone)]
@@ -28,14 +28,11 @@ pub struct NeuralNetEval {
     hidden_nodes_white: A32<[i16; HL_HALF_NODES]>, // white perspective
     hidden_nodes_black: A32<[i16; HL_HALF_NODES]>, // black perspective
 
-    king_offset: u16,
     white_offset: u16,
     black_offset: u16,
 
     mirror_white_pov: bool,
     mirror_black_pov: bool,
-
-    max_piece_id: u16,
 
     move_id: usize,
     updates: Vec<(bool, usize, UpdateAction)>,
@@ -57,14 +54,11 @@ impl NeuralNetEval {
             hidden_nodes_white: A32([0; HL_HALF_NODES]),
             hidden_nodes_black: A32([0; HL_HALF_NODES]),
 
-            king_offset: 0,
             white_offset: 0,
             black_offset: 0,
 
             mirror_white_pov: true,
             mirror_black_pov: true,
-
-            max_piece_id: piece_idx(Q),
 
             move_id: 0,
             updates: Vec::with_capacity(32),
@@ -81,14 +75,12 @@ impl NeuralNetEval {
         self.hidden_nodes_white.0.fill(0);
         self.hidden_nodes_black.0.fill(0);
 
-        let (mirror_white_pov, mirror_black_pov, king_offset, white_offset, black_offset, max_piece_id) =
+        let (mirror_white_pov, mirror_black_pov, white_offset, black_offset) =
             calc_bucket_offsets(bitboards, white_king, black_king);
         self.mirror_white_pov = mirror_white_pov;
         self.mirror_black_pov = mirror_black_pov;
-        self.king_offset = king_offset;
         self.white_offset = white_offset;
         self.black_offset = black_offset;
-        self.max_piece_id = max_piece_id;
 
         for piece in 1..=6 {
             for pos in bitboards.by_piece(piece) {
@@ -138,10 +130,7 @@ impl NeuralNetEval {
     }
 
     fn add_piece_now(&mut self, pos: usize, piece: i8) {
-        let (white_pov_idx, black_pov_idx, idx) = self.calc_pov_weight_start(pos, piece);
-        if idx > self.max_piece_id {
-            return;
-        }
+        let (white_pov_idx, black_pov_idx) = self.calc_pov_weight_start(pos, piece);
 
         add_weights::<HL_HALF_NODES>(&mut self.hidden_nodes_white.0, unsafe { &INPUT_WEIGHTS.0 }, white_pov_idx);
         add_weights::<HL_HALF_NODES>(&mut self.hidden_nodes_black.0, unsafe { &INPUT_WEIGHTS.0 }, black_pov_idx);
@@ -154,37 +143,29 @@ impl NeuralNetEval {
     }
 
     fn remove_piece_now(&mut self, pos: usize, piece: i8) {
-        let (white_pov_idx, black_pov_idx, idx) = self.calc_pov_weight_start(pos, piece);
-        if idx > self.max_piece_id {
-            return;
-        }
+        let (white_pov_idx, black_pov_idx) = self.calc_pov_weight_start(pos, piece);
 
         sub_weights::<HL_HALF_NODES>(&mut self.hidden_nodes_white.0, unsafe { &INPUT_WEIGHTS.0 }, white_pov_idx);
         sub_weights::<HL_HALF_NODES>(&mut self.hidden_nodes_black.0, unsafe { &INPUT_WEIGHTS.0 }, black_pov_idx);
     }
 
-    fn calc_pov_weight_start(&self, pos: usize, piece: i8) -> (usize, usize, u16) {
+    fn calc_pov_weight_start(&self, pos: usize, piece: i8) -> (usize, usize) {
         let idx = piece_idx(piece.unsigned_abs() as i8);
-        let (white_offset, black_offset) = if piece.abs() == K {
-            (self.king_offset, self.king_offset)
-        } else {
-            (self.white_offset, self.black_offset)
-        };
-        let base_index = idx as usize * 64;
-        let opp_offset = INPUTS / 2;
 
-        let (white_pov_idx, black_pov_idx) = if piece > 0 {
+        let base_index = idx as usize * 64 * 2;
+        const OPP_OFFSET: usize = 64;
+
+        if piece > 0 {
             (
-                white_offset as usize + base_index + h_mirror_if(self.mirror_white_pov, pos),
-                black_offset as usize + base_index + opp_offset + v_mirror(h_mirror_if(self.mirror_black_pov, pos)),
+                self.white_offset as usize + base_index + h_mirror_if(self.mirror_white_pov, pos),
+                self.black_offset as usize + base_index + OPP_OFFSET + v_mirror(h_mirror_if(self.mirror_black_pov, pos)),
             )
         } else {
             (
-                white_offset as usize + base_index + opp_offset + h_mirror_if(self.mirror_white_pov, pos),
-                black_offset as usize + base_index + v_mirror(h_mirror_if(self.mirror_black_pov, pos)),
+                self.white_offset as usize + base_index + OPP_OFFSET + h_mirror_if(self.mirror_white_pov, pos),
+                self.black_offset as usize + base_index + v_mirror(h_mirror_if(self.mirror_black_pov, pos)),
             )
-        };
-        (white_pov_idx, black_pov_idx, idx)
+        }
     }
 
     pub fn check_refresh(&mut self) {
@@ -225,13 +206,12 @@ impl NeuralNetEval {
             let (_, _, update) = unsafe { self.updates.get_unchecked(i) };
             match *update {
                 UpdateAction::CheckRefresh => {
-                    let (mirror_white_pov, mirror_black_pov, king_offset, white_offset, black_offset, _) =
+                    let (mirror_white_pov, mirror_black_pov, white_offset, black_offset) =
                         calc_bucket_offsets(bitboards, white_king, black_king);
                     if mirror_white_pov != self.mirror_white_pov
                         || mirror_black_pov != self.mirror_black_pov
                         || white_offset != self.white_offset
                         || black_offset != self.black_offset
-                        || king_offset != self.king_offset
                     {
                         self.init_pos(bitboards, white_king, black_king);
                         self.updates.clear();
@@ -264,7 +244,7 @@ fn adjust_eval(score: i32, half_move_clock: u8) -> i32 {
 
 fn calc_bucket_offsets(
     bitboards: &BitBoards, mut white_king: i8, mut black_king: i8,
-) -> (bool, bool, u16, u16, u16, u16) {
+) -> (bool, bool, u16, u16) {
     let white_king_col = white_king & 7;
     let black_king_col = black_king & 7;
 
@@ -278,24 +258,29 @@ fn calc_bucket_offsets(
         black_king = h_mirror_i8(black_king);
     }
 
-    let (king_bucket, bucket_offset, max_piece_id) =
-        if bitboards.by_piece(Q).is_empty() && bitboards.by_piece(-Q).is_empty() {
-            if bitboards.by_piece(R).is_empty() && bitboards.by_piece(-R).is_empty() {
-                (2, (bucket_size(Q) + bucket_size(R)) * KING_BUCKETS, B)
-            } else {
-                (1, bucket_size(Q) * KING_BUCKETS, R)
-            }
-        } else {
-            (0, 0, Q)
-        };
+    let w_kingrel_bucket = board_8(white_king as u16);
+    let b_kingrel_bucket = board_8(v_mirror_i8(black_king) as u16);
 
-    let bucket_size = bucket_size(max_piece_id);
+    let piece_bucket = if (bitboards.by_piece(Q) | bitboards.by_piece(-Q)).is_empty() {
+        if (bitboards.by_piece(R) | bitboards.by_piece(-R)).is_empty() {
+            2
+        } else {
+            1
+        }
+    } else {
+        0
+    };
+
+    let w_bucket: u16 = piece_bucket * KING_BUCKETS as u16 + w_kingrel_bucket;
+    let b_bucket: u16 = piece_bucket * KING_BUCKETS as u16 + b_kingrel_bucket;
+
+    const BUCKET_SIZE: i32 = 6 * 64 * 2;
     let (white_offset, black_offset) = (
-        64 * 4 + bucket_offset as u16 + board_eighth(white_king) * bucket_size as u16,
-        64 * 4 + bucket_offset as u16 + board_eighth(v_mirror_i8(black_king)) * bucket_size as u16,
+        w_bucket * BUCKET_SIZE as u16,
+        b_bucket * BUCKET_SIZE as u16,
     );
 
-    (mirror_white_pov, mirror_black_pov, 64 * king_bucket, white_offset, black_offset, piece_idx(max_piece_id))
+    (mirror_white_pov, mirror_black_pov, white_offset, black_offset)
 }
 
 #[inline(always)]
@@ -527,12 +512,6 @@ mod fallback {
     fn relu(v: i16) -> i16 {
         v.max(0)
     }
-}
-
-fn board_eighth(pos: i8) -> u16 {
-    let row = pos / 8;
-    let col = pos & 3;
-    ((row / 2) * 2 + (col / 2)) as u16
 }
 
 fn h_mirror_if(mirror: bool, pos: usize) -> usize {

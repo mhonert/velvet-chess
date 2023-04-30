@@ -16,6 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+use std::cmp::Ordering;
 use itertools::Itertools;
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -30,7 +31,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use clap::App;
 use shakmaty::fen::Fen;
-use shakmaty::{CastlingMode, Chess, Outcome, Position};
+use shakmaty::{CastlingMode, Chess, Setup};
 use shakmaty_syzygy::Tablebase;
 
 use crate::chess960::CHESS960_FENS;
@@ -39,13 +40,13 @@ use velvet::engine::{LogLevel, Message};
 use velvet::fen::{create_from_fen, read_fen, write_fen, START_POS};
 use velvet::history_heuristics::HistoryHeuristics;
 use velvet::move_gen::MoveGenerator;
-use velvet::moves::{Move, NO_MOVE};
+use velvet::moves::{NO_MOVE};
 use velvet::nn::init_nn_params;
 use velvet::random::Random;
-use velvet::scores::{is_mate_or_mated_score, MATE_SCORE, MAX_SCORE, MIN_SCORE};
+use velvet::scores::{is_eval_score, MAX_SCORE, MIN_SCORE};
 use velvet::search::{PrincipalVariation, Search};
 use velvet::time_management::SearchLimits;
-use velvet::transposition_table::{TranspositionTable, MAX_DEPTH};
+use velvet::transposition_table::{TranspositionTable};
 
 mod chess960;
 
@@ -53,6 +54,12 @@ mod chess960;
 struct TestPos {
     fen: String,
     score: i32,
+    tb_result: Option<i32>,
+    tb_result_ply: i32,
+    tb_result_dtz: i32,
+    ply: i32,
+    game_result: i32,
+    game_result_ply: i32,
 }
 
 fn main() {
@@ -60,9 +67,10 @@ fn main() {
         .version("1.0.0")
         .about("Generates labeled training sets of chess positions from self-play games")
         .args_from_usage(
-            "-i, --start-index=<START>              'Sets the start index for the generated training sets'
+            "-i, --start-index=<START>       'Sets the start index for the generated training sets'
              -c, --concurrency=<CONCURRENCY>        'Sets the number of threads'
              -f, --frc=<BOOL>                       'Generates training sets for Chess960'
+             -r, --rnd-moves=<NUM>                  'Sets the number of random moves'
              -t  --table-base-path=<FILE>           'Sets the Syzygy tablebase path'",
         )
         .get_matches();
@@ -75,6 +83,14 @@ fn main() {
         Some(v) => usize::from_str(v).expect("Concurrency must be an integer >= 1"),
         None => {
             eprintln!("Missing -c (concurrency) option");
+            exit(1);
+        }
+    };
+
+    let random_moves = match matches.value_of("rnd-moves") {
+        Some(v) => u8::from_str(v).expect("rnd-moves must be a positive integer >= 0"),
+        None => {
+            eprintln!("Missing -r (rnd-moves) option");
             exit(1);
         }
     };
@@ -97,7 +113,7 @@ fn main() {
     init_nn_params();
     println!("Starting worker threads ...");
     let mut start = Instant::now();
-    spawn_threads(&tx, concurrency, &openings, String::from(tb_path));
+    spawn_threads(&tx, concurrency, &openings, random_moves, String::from(tb_path));
 
     let mut count = 0;
     println!("Waiting for generated test positions ...");
@@ -114,7 +130,8 @@ fn main() {
     let mut sub_count: u64 = 0;
 
     for pos in rx {
-        writeln!(&mut writer, "{} {}", pos.fen, pos.score,).expect("Could not write position to file");
+        writeln!(&mut writer, "{} {} {} {} {} {} {} {}", pos.fen, pos.ply, pos.tb_result.unwrap_or(0xFF),
+                 pos.tb_result_ply, pos.tb_result_dtz, pos.game_result, pos.game_result_ply, pos.score).expect("Could not write position to file");
         count += 1;
         sub_count += 1;
 
@@ -141,8 +158,6 @@ fn main() {
 
 fn gen_openings(chess960: bool) -> Vec<String> {
     let mut openings = Vec::with_capacity(500000);
-    let hh = HistoryHeuristics::new();
-    let mut move_gen = MoveGenerator::new();
 
     if chess960 {
         for w_fen in CHESS960_FENS.iter() {
@@ -152,11 +167,7 @@ fn gen_openings(chess960: bool) -> Vec<String> {
             }
         }
     } else {
-        let chess_start_pos = [START_POS];
-        for fen in chess_start_pos.iter() {
-            let mut board = create_from_fen(fen);
-            play_opening(4, &hh, &mut move_gen, &mut board, &mut openings);
-        }
+        openings.push(String::from(START_POS));
     }
 
     openings.sort_unstable();
@@ -179,53 +190,26 @@ fn mix(white: &str, black: &str) -> String {
     format!("{}/{} w {}{} - 0 1", black_pieces, white_pieces, white_castling, black_castling)
 }
 
-fn play_opening(
-    remaining_plies: i32, hh: &HistoryHeuristics, move_gen: &mut MoveGenerator, board: &mut Board,
-    openings: &mut Vec<String>,
-) {
-    if remaining_plies == 0 {
-        openings.push(write_fen(board));
-        return;
-    }
-
-    move_gen.enter_ply(board.active_player(), NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE);
-
-    while let Some(m) = move_gen.next_root_move(hh, board) {
-        let (previous_piece, move_state) = board.perform_move(m);
-        if board.is_in_check(board.active_player().flip()) {
-            // Invalid move
-            board.undo_move(m, previous_piece, move_state);
-            continue;
-        }
-
-        play_opening(remaining_plies - 1, hh, move_gen, board, openings);
-
-        board.undo_move(m, previous_piece, move_state);
-    }
-
-    move_gen.leave_ply();
-}
-
-fn spawn_threads(tx: &Sender<TestPos>, concurrency: usize, openings: &[String], tb_path: String) {
+fn spawn_threads(tx: &Sender<TestPos>, concurrency: usize, openings: &[String], random_moves: u8, tb_path: String) {
     for pos in 0..concurrency {
         thread::sleep(Duration::from_millis(pos as u64 * 10));
         let tx2 = tx.clone();
         let openings2 = openings.to_owned();
         let tb_path2 = tb_path.clone();
         thread::spawn(move || {
-            find_test_positions(&tx2, &openings2, tb_path2);
+            find_test_positions(&tx2, &openings2, random_moves, tb_path2);
         });
     }
 }
 
-fn find_test_positions(tx: &Sender<TestPos>, openings: &[String], tb_path: String) {
+fn find_test_positions(tx: &Sender<TestPos>, openings: &[String], random_moves: u8, tb_path: String) {
     let mut rnd = Random::new_with_seed(new_rnd_seed());
 
     let mut tb = Tablebase::new();
     println!("Setting tablebase path to: {}", tb_path);
     tb.add_directory(tb_path).expect("Could not add tablebase path");
 
-    let tt = TranspositionTable::new(16);
+    let tt = TranspositionTable::new(64);
     let stop = Arc::new(AtomicBool::new(false));
 
     let limits = SearchLimits::new(None, Some(10), None, None, None, None, None, None, None).unwrap();
@@ -237,67 +221,65 @@ fn find_test_positions(tx: &Sender<TestPos>, openings: &[String], tb_path: Strin
     loop {
         let opening = openings[rnd.rand32() as usize % openings.len()].clone();
 
-        collect_quiet_pos(Some(&rx), tx, &mut rnd, opening.as_str(), &tb, &mut search);
+        collect_quiet_pos(Some(&rx), tx, opening.as_str(), random_moves, &tb, &mut search, &mut rnd);
     }
-}
-
-fn select_move(rx: Option<&Receiver<Message>>, rnd: &mut Random, search: &mut Search, min_depth: i32) -> Move {
-    let mut move_candidates = Vec::with_capacity(4);
-    let mut min_score = i32::MIN;
-    let mut latest_move = NO_MOVE;
-
-    loop {
-        let (m, _) = search.find_best_move(rx, min_depth, &move_candidates);
-        if m == NO_MOVE {
-            break;
-        }
-
-        if !move_candidates.is_empty() && m.score() < min_score {
-            break;
-        }
-
-        if move_candidates.is_empty() {
-            min_score = m.score() - 2;
-        }
-
-        latest_move = m;
-
-        if !move_candidates.is_empty() || rnd.rand32() & 1 == 1 {
-            break;
-        }
-
-        move_candidates.push(m.without_score());
-    }
-
-    latest_move
 }
 
 fn collect_quiet_pos(
-    rx: Option<&Receiver<Message>>, tx: &Sender<TestPos>, rnd: &mut Random, opening: &str, tb: &Tablebase<Chess>,
-    search: &mut Search,
+    rx: Option<&Receiver<Message>>, tx: &Sender<TestPos>, opening: &str, random_moves: u8, tb: &Tablebase<Chess>,
+    search: &mut Search, rnd: &mut Random,
 ) {
     read_fen(&mut search.board, opening).unwrap();
 
-    let mut num = 0;
+    let mut ply = 0;
+    for _ in 0..random_moves {
+        if !play_random_move(rnd, &search.hh, &mut search.movegen, &mut search.board) {
+            return;
+        }
+        ply += 1;
+    }
 
-    while num < 120 {
-        num += 1;
+    let mut positions: Vec<TestPos> = Vec::new();
+
+    let mut game_result = 0;
+
+    let mut last_score = 0;
+
+    loop {
+        ply += 1;
 
         if search.board.is_draw() {
-            return;
+            break;
         }
 
-        let selected_move = select_move(rx, rnd, search, 2);
+        let mut tb_result = None;
+        let mut tb_result_ply = 0;
+        let mut tb_result_dtz = 0;
+        if search.board.piece_count() <= 6 {
+            if let Some((result, dtz)) = tablebase_result(tb, write_fen(&search.board).as_str()) {
+                tb_result = Some(result);
+                tb_result_ply = ply;
+                tb_result_dtz = dtz;
+                for pos in positions.iter_mut().rev() {
+                    if pos.game_result != 0xFF {
+                        pos.game_result = result;
+                    }
+                }
+            }
+        }
+
+        // search.set_node_limit(5000);
+        let (selected_move, _) = search.find_best_move(rx, 8, &[]);
         if selected_move == NO_MOVE {
-            return;
+            break;
         }
 
-        let (previous_piece, move_state) = search.board.perform_move(selected_move);
+        let score = search.board.active_player().score(selected_move.score());
 
-        if num > 8 && is_mate_or_mated_score(selected_move.score()) && selected_move.is_quiet() {
+        if ply >= 12 && score.abs() <= 3000 && selected_move.is_quiet() && !search.board.is_in_check(search.board.active_player()) {
             let mut qs_pv = PrincipalVariation::default();
             search.set_stopped(false);
-            search.board.active_player().score(search.quiescence_search::<true>(
+            search.quiescence_search::<true>(
                 rx,
                 search.board.active_player(),
                 MIN_SCORE,
@@ -305,110 +287,110 @@ fn collect_quiet_pos(
                 0,
                 None,
                 &mut qs_pv,
-            ));
+            );
 
             if qs_pv.is_empty() {
-                let bm = search.find_best_move(rx, 8, &[]);
-                if !bm.0.is_quiet() {
-                    continue;
-                }
-                let base_score = search.board.active_player().score(bm.0.score());
-                let (mut score, divider) = eval_pos(rx, tb, search, base_score as i32, 1);
-                score /= divider;
-
-                if score.abs() <= 4000 {
-                    search.board.undo_move(selected_move, previous_piece, move_state);
-                    tx.send(TestPos { fen: write_fen(&search.board), score }).expect("Could not send position");
-                    search.board.perform_move(selected_move);
-                }
+                let fen = write_fen(&search.board);
+                positions.push(TestPos { fen: fen.clone(), score, tb_result, tb_result_ply, tb_result_dtz, game_result: 0xFF, ply, game_result_ply: 0 });
             }
         }
-    }
-}
-
-fn eval_pos(
-    rx: Option<&Receiver<Message>>, tb: &Tablebase<Chess>, search: &mut Search, prev_score: i32, depth: i64,
-) -> (i32, i32) {
-    if search.board.is_draw() {
-        return (((prev_score as i64 * depth) / (depth + 1)) as i32, 2);
-    }
-
-    if search.board.occupancy_bb().piece_count() <= 5 {
-        if let Some(tb_hit) = tablebase_result(tb, &write_fen(&search.board)) {
-            let tb_result = tb_hit.0;
-            let tb_score = tb_result * 8000 - (tb_hit.1 * 10 * tb_result.signum());
-
-            let divider = if tb_result == 0 { 2 } else { 1 };
-            return (((prev_score as i64 * depth + tb_score as i64) / (depth + 1)) as i32, divider);
+        last_score = score;
+        if last_score.abs() > 3000 {
+            break;
         }
+
+        let _ = search.board.perform_move(selected_move);
     }
 
-    let search_depth = 4 - log2(depth as u32).min(3);
-    let (m, _) = search.find_best_move(rx, search_depth, &[]);
-    if m == NO_MOVE {
-        return (prev_score, 1);
+    if last_score < -3000 {
+        game_result = -1;
+    } else if last_score > 3000 {
+        game_result = 1;
     }
 
-    let pos_score = search.board.active_player().score(m.score());
+    for pos in positions.iter_mut().rev() {
+        if ply >= 160 && game_result == 0 {
+            break;
+        }
 
-    if is_mate_or_mated_score(pos_score) {
-        return (((prev_score as i64 * depth + pos_score as i64) / (depth + 1)) as i32, 1);
+        if pos.game_result == 0xFF {
+            pos.game_result = game_result;
+        }
+        pos.game_result_ply = ply;
+
+        tx.send(pos.clone()).expect("Could not send position");
     }
-
-    let (previous_piece, move_state) = search.board.perform_move(m);
-    let (eval_score, divider) = eval_pos(rx, tb, search, pos_score, depth + 1);
-    search.board.undo_move(m, previous_piece, move_state);
-
-    let score = ((prev_score as i64 * depth + eval_score as i64) / (depth + 1)) as i32;
-
-    (score, divider)
 }
 
-#[inline]
-fn log2(i: u32) -> i32 {
-    (32 - i.leading_zeros()) as i32 - 1
+fn play_random_move(
+    rnd: &mut Random, hh: &HistoryHeuristics, move_gen: &mut MoveGenerator, board: &mut Board,
+) -> bool {
+    if board.is_in_check(board.active_player()) || board.is_draw() {
+        return false;
+    }
+
+    move_gen.enter_ply(board.active_player(), NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE);
+
+    let mut candidate_moves = Vec::new();
+
+    while let Some(m) = move_gen.next_root_move(hh, board) {
+        let (previous_piece, move_state) = board.perform_move(m);
+        if board.is_in_check(board.active_player().flip()) || board.is_draw() {
+            board.undo_move(m, previous_piece, move_state);
+            continue;
+        }
+        candidate_moves.push(m);
+
+        board.undo_move(m, previous_piece, move_state);
+    }
+    move_gen.leave_ply();
+
+    if candidate_moves.is_empty() {
+        return false;
+    }
+
+    let m = candidate_moves[rnd.rand32() as usize % candidate_moves.len()];
+    board.perform_move(m);
+
+    true
 }
 
 fn tablebase_result(tb: &Tablebase<Chess>, fen: &str) -> Option<(i32, i32)> {
-    let mut pos: Chess = fen.parse::<Fen>().expect("Could not parse FEN").position(CastlingMode::Standard).unwrap();
-    let mut distance = 0;
-
-    loop {
-        match pos.outcome() {
-            None => {}
-            Some(outcome) => {
-                return Some((outcome_to_result(outcome), distance));
-            }
-        }
-        match tb.best_move(&pos) {
-            Ok(result) => match result {
-                None => panic!("Missing best move from table base"),
-                Some((m, _)) => {
-                    pos = pos.play(&m).expect("TB returned invalid move");
-                }
-            },
-            Err(e) => {
-                println!("Tablebase probe failed: {}", e);
-                return None;
-            }
-        }
-        distance += 1;
-        if distance > 100 {
-            return Some((0, distance));
-        }
+    let pos: Chess = fen.parse::<Fen>().expect("Could not parse FEN").position(CastlingMode::Standard).unwrap();
+    if pos.board().pieces().count() > 6 {
+        return None;
     }
-}
 
-fn outcome_to_result(outcome: Outcome) -> i32 {
-    match outcome {
-        Outcome::Decisive { winner } => {
-            if winner.is_white() {
-                1
-            } else {
-                -1
+    let win_white_pov = if pos.turn().is_white() { 1 } else { -1 };
+
+    match tb.probe_dtz(&pos) {
+        Ok(result) => {
+            let r = result.ignore_rounding().0;
+            match r.cmp(&0) {
+                Ordering::Less => {
+                    if r < -100 {
+                        Some((0, 100))
+                    } else {
+                        Some((-win_white_pov, -r))
+                    }
+                },
+
+                Ordering::Greater => {
+                    if r > 100 {
+                        Some((0, 100))
+                    } else {
+                        Some((win_white_pov, r))
+                    }
+                },
+
+                Ordering::Equal => {
+                    Some((0, 0))
+                }
             }
         }
-        Outcome::Draw => 0,
+        Err(_) => {
+            None
+        }
     }
 }
 

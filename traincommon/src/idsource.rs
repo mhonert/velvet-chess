@@ -25,18 +25,20 @@ pub struct IDSource {
     min_id: usize,
     max_id: usize,
     batch_id_count: usize,
+    epoch: usize,
 }
 
 impl IDSource {
     pub fn new(rng: &mut dyn RngCore, min_id: usize, max_id: usize, batch_id_count: usize) -> Self {
-        IDSource { ids: shuffled_ids(rng, min_id, max_id), min_id, max_id, batch_id_count }
+        IDSource { ids: shuffled_ids(rng, min_id, max_id), min_id, max_id, batch_id_count, epoch: 1 }
     }
 
-    pub fn next_batch(&mut self, rng: &mut dyn RngCore) -> Vec<usize> {
+    pub fn next_batch(&mut self, rng: &mut dyn RngCore) -> (usize, Vec<usize>) {
         if self.ids.len() < self.batch_id_count {
             self.ids.append(&mut shuffled_ids(rng, self.min_id, self.max_id));
+            self.epoch += 1;
         }
-        self.ids.drain(self.ids.len() - self.batch_id_count..).collect_vec()
+        (self.epoch, self.ids.drain(self.ids.len() - self.batch_id_count..).collect_vec())
     }
 
     pub fn per_batch_count(&self) -> usize {

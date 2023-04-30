@@ -27,15 +27,16 @@ use std::fs::File;
 use std::io::{BufReader, BufWriter, Error, ErrorKind, Write};
 use std::mem::MaybeUninit;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use traincommon::sets::K;
 use velvet::nn::io::{BitWriter, CodeBook};
-use velvet::nn::{HL_HALF_NODES, HL_NODES, INPUTS, INPUT_WEIGHT_COUNT, SCORE_SCALE};
+use velvet::nn::{HL_HALF_NODES, HL_NODES, INPUTS, INPUT_WEIGHT_COUNT, SCORE_SCALE, piece_idx, board_8, PIECE_BUCKETS, KING_BUCKETS};
+use velvet::pieces::P;
 
 const BETA1: f64 = 0.9;
 const BETA2: f64 = 0.999;
 
 const WEIGHT_DECAY: f64 = 0.001;
 
-const K: f64 = 1.603;
 const K_DIV: f64 = K / (400.0 / SCORE_SCALE as f64);
 
 const MAX_WEIGHT_INPUTS: f32 = 240.0 / (1 << 6) as f32;
@@ -575,6 +576,61 @@ impl Network {
         self.w.ihidden_biases.0.copy_from_slice(&input.biases);
         self.w.ihidden_weights.0.copy_from_slice(&hidden.weights);
         self.w.output_bias = hidden.biases[0];
+    }
+
+    pub fn zero_unused_weights(&mut self) {
+        const PIECE_SKIP_MASK: [[bool; 6]; PIECE_BUCKETS] = [
+            // 0 -> all pieces presents
+            [false, false, false, false, false, false],
+            // 1 -> no queens
+            [false, false, false, false, true, false],
+            // 2 -> no queens, no rooks
+            [false, false, false, true, true, false],
+        ];
+
+        const BUCKET_SIZE: usize = 6 * 64 * 2;
+
+        for piece_bucket in 0..PIECE_BUCKETS {
+            for king_bucket in 0..KING_BUCKETS {
+                let bucket: usize = piece_bucket * 8 + king_bucket;
+                let offset = BUCKET_SIZE * bucket;
+
+                for piece in 1..=5 {
+                    if piece != 1  && !PIECE_SKIP_MASK[piece_bucket][piece_idx(piece) as usize] {
+                        continue;
+                    }
+                    for pos in 0..64 {
+                        if piece == P && (pos >= 8 || pos <= 55) {
+                            continue;
+                        }
+                        let base_index = piece_idx(piece) as usize * 64 * 2;
+
+                        let idx = (offset + base_index + pos) * HL_HALF_NODES;
+                        for i in idx..(idx + HL_HALF_NODES) {
+                            self.w.input_weights.0[i] = 0.0;
+                        }
+                        const OPP_OFFSET: usize = 64;
+                        let idx = (offset + base_index + pos + OPP_OFFSET) * HL_HALF_NODES;
+                        for i in idx..(idx + HL_HALF_NODES) {
+                            self.w.input_weights.0[i] = 0.0;
+                        }
+                    }
+                }
+
+                for pos in 0..64 {
+                    if board_8(pos) == king_bucket as u16 {
+                        continue;
+                    }
+                    let base_index = piece_idx(6) as usize * 64 * 2;
+
+                    let idx = (offset + base_index + pos as usize) * HL_HALF_NODES;
+                    for i in idx..(idx + HL_HALF_NODES) {
+                        self.w.input_weights.0[i] = 0.0;
+                    }
+                }
+
+            }
+        }
     }
 }
 

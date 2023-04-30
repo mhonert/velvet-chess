@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2022 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2023 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -158,11 +158,6 @@ pub fn v_mirror(pos: usize) -> usize {
 
 /// Mirrors the given bitboard position index vertically
 pub fn v_mirror_i8(pos: i8) -> i8 {
-    pos ^ 56
-}
-
-/// Mirrors the given bitboard position index vertically
-pub fn v_mirror_u16(pos: u16) -> u16 {
     pos ^ 56
 }
 

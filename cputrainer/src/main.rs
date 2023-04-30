@@ -24,13 +24,14 @@ use crossbeam_channel::{bounded, Receiver, Sender, TryRecvError};
 use env_logger::{Env, Target};
 use itertools::Itertools;
 use log::{error, info, trace};
-use rand::prelude::SliceRandom;
+use rand::prelude::{Distribution, SliceRandom};
 use rand::rngs::ThreadRng;
 use std::env;
 use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::Instant;
+use rand::distributions::Uniform;
 use traincommon::idsource::IDSource;
 use traincommon::sets::{convert_sets, read_samples, SAMPLES_PER_SET};
 pub use velvet::nn::INPUTS;
@@ -44,7 +45,7 @@ const INIT_LR: f64 = 0.0004;
 
 const SETS_PER_BATCH: usize = 8;
 
-const MIN_TRAINING_SET_ID: usize = 11;
+const MIN_TRAINING_SET_ID: usize = 1;
 
 const FEN_TRAINING_SET_PATH: &str = "./data/train_fen/";
 const LZ4_TRAINING_SET_PATH: &str = "./data/train_lz4";
@@ -109,7 +110,7 @@ pub fn main() {
 pub fn main_train(thread_count: usize) {
     info!("Scanning available training sets ...");
     let max_training_set_id =
-        convert_sets(thread_count, "training", FEN_TRAINING_SET_PATH, LZ4_TRAINING_SET_PATH, MIN_TRAINING_SET_ID);
+        convert_sets(thread_count, "training", FEN_TRAINING_SET_PATH, LZ4_TRAINING_SET_PATH, MIN_TRAINING_SET_ID, true);
 
     let training_set_count = (max_training_set_id - MIN_TRAINING_SET_ID) + 1;
     info!(
@@ -119,7 +120,7 @@ pub fn main_train(thread_count: usize) {
     );
 
     info!("Scanning available test sets ...");
-    let max_test_set_id = convert_sets(thread_count, "test", FEN_TEST_SET_PATH, LZ4_TEST_SET_PATH, 1);
+    let max_test_set_id = convert_sets(thread_count, "test", FEN_TEST_SET_PATH, LZ4_TEST_SET_PATH, 1, false);
 
     info!("Reading test sets ...");
     let mut test_set = CpuDataSamples(vec![DataSample::default(); SAMPLES_PER_SET * max_test_set_id]);
@@ -348,7 +349,7 @@ pub fn main_train(thread_count: usize) {
 pub fn main_quantize(thread_count: usize) {
     info!("Scanning available training sets ...");
     let max_training_set_id =
-        convert_sets(thread_count, "training", FEN_TRAINING_SET_PATH, LZ4_TRAINING_SET_PATH, MIN_TRAINING_SET_ID);
+        convert_sets(thread_count, "training", FEN_TRAINING_SET_PATH, LZ4_TRAINING_SET_PATH, MIN_TRAINING_SET_ID, true);
 
     let training_set_count = (max_training_set_id - MIN_TRAINING_SET_ID) + 1;
     info!(
@@ -358,7 +359,7 @@ pub fn main_quantize(thread_count: usize) {
     );
 
     info!("Scanning available test sets ...");
-    let max_test_set_id = convert_sets(thread_count, "test", FEN_TEST_SET_PATH, LZ4_TEST_SET_PATH, 1);
+    let max_test_set_id = convert_sets(thread_count, "test", FEN_TEST_SET_PATH, LZ4_TEST_SET_PATH, 1, false);
 
     info!("Reading test sets ...");
     let mut test_set = CpuDataSamples(vec![DataSample::default(); SAMPLES_PER_SET * max_test_set_id]);
@@ -403,18 +404,24 @@ pub fn main_quantize(thread_count: usize) {
 
     net.write().unwrap().init_from_base_file(&"./data/nets/velvet_base.nn".to_string());
 
-    let stats = stats_net(thread_count, &to_tx, &from_rx);
-    info!("Network stats     : {:?}", stats);
 
     let (error_sum, error_count) = test_net(Command::Test(Scope::Full), thread_count, &to_tx, &from_rx);
     let error = error_sum / error_count as f64;
     info!("Initial error     : {:1.10}", error);
+    net.write().unwrap().zero_unused_weights();
 
+    let (error_sum, error_count) = test_net(Command::Test(Scope::Full), thread_count, &to_tx, &from_rx);
+    let error = error_sum / error_count as f64;
+    info!("Initial error (0) : {:1.10}", error);
+
+    let stats = stats_net(thread_count, &to_tx, &from_rx);
+    info!("Network stats     : {:?}", stats);
     let (input_scale, hidden_scale) = net.write().map(|n| n.save_quantized(&stats)).expect("could not quantize net");
 
     net.read().map(|n| n.zero_check(input_scale, hidden_scale)).expect("could not quantize net");
 
     net.write().unwrap().init_from_base_file(&"./data/nets/velvet_base.nn".to_string());
+    net.write().unwrap().zero_unused_weights();
     net.write().map(|mut n| n.quantize(input_scale, hidden_scale)).expect("could not quantize net");
 
     let (error_sum, error_count) = test_net(Command::Test(Scope::Full), thread_count, &to_tx, &from_rx);
@@ -512,9 +519,16 @@ fn train(
     shuffle_base.shuffle(&mut rng);
 
     let mut shuffled_idx = Vec::new();
+    let distribution = Uniform::new_inclusive::<u8, u8>(0, 3);
+    let mut transform_rnd = Vec::with_capacity(batch_size);
+    for _ in 0..batch_size {
+        transform_rnd.push(distribution.sample(&mut rng));
+    }
 
     let mut white_ihidden_values = A32([0f32; HL_HALF_NODES]);
     let mut black_ihidden_values = A32([0f32; HL_HALF_NODES]);
+
+    let mut curr_epoch = 1;
 
     loop {
         let samples_per_thread = match rx.recv().expect("Could not read training command") {
@@ -585,7 +599,13 @@ fn train(
         };
 
         if shuffled_idx.len() < samples_per_thread {
-            let sets = id_source.write().unwrap().next_batch(&mut rng);
+            let (epoch, sets) = id_source.write().unwrap().next_batch(&mut rng);
+            if epoch != curr_epoch {
+                curr_epoch = epoch;
+                for v in transform_rnd.iter_mut() {
+                    *v = (*v + 1) & 3;
+                }
+            }
 
             shuffled_idx = shuffle_base.clone();
 
@@ -596,7 +616,7 @@ fn train(
                     start,
                     format!("{}/{}.lz4", LZ4_TRAINING_SET_PATH, id).as_str(),
                     true,
-                    &shuffled_idx,
+                    &transform_rnd,
                 );
                 start += SAMPLES_PER_SET;
             }
