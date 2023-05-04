@@ -624,19 +624,19 @@ impl Search {
         let is_pv = (alpha + 1) < beta; // in a principal variation search, non-PV nodes are searched with a zero-window
 
         // Prune, if even the best possible score cannot improve alpha (because a shorter mate has already been found)
-        let mut best_possible_score = MATE_SCORE - ply as i32 - 1;
+        let mut best_possible_score = MATE_SCORE - (ply as i32 + 1);
         if best_possible_score <= alpha {
             return best_possible_score;
         }
 
+        let in_check = self.infos[ply].in_check();
         // Prune, if worst possible score is already sufficient to reach beta
-        let worst_possible_score = MATED_SCORE + ply as i32 + 1;
+        let worst_possible_score = MATED_SCORE + ply as i32 + if in_check { 0 } else { 1 };
         if worst_possible_score >= beta {
             return worst_possible_score;
         }
 
         let active_player = self.board.active_player();
-        let in_check = self.infos[ply].in_check();
         if in_check {
             // Extend search when in check
             depth = (depth + 1).max(1);
@@ -853,7 +853,7 @@ impl Search {
                 continue;
             }
 
-            if !is_pv && !in_check && curr_move.is_quiet() && depth <= 3 && !curr_move.is_queen_promotion() && !is_mate_or_mated_score(alpha) && quiet_move_count > lmp_threshold(improving, depth) {
+            if !is_pv && !in_check && curr_move.is_quiet() && depth <= 2 && !curr_move.is_queen_promotion() && !is_mate_or_mated_score(alpha) && quiet_move_count > lmp_threshold(improving, depth) {
                 continue;
             }
 
