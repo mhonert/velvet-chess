@@ -24,21 +24,21 @@ mod macros;
 use std::str::FromStr;
 
 tunable_params!(
-    fp_base_margin = 23
-    fp_margin_multiplier = 42
+    fp_base_margin = 17
+    fp_margin_multiplier = 22
     razor_margin_multiplier = 200
     rfp_base_margin_improving = 19
+    rfp_margin_multiplier_improving = 22
     rfp_base_margin_not_improving = 23
-    rfp_margin_improving_multiplier = 57
-    rfp_margin_not_improving_multiplier = 70
+    rfp_margin_multiplier_not_improving = 28
 
     qs_see_threshold = 111
 );
 
 tunable_array_params!(
     see_piece_values = [0, 98, 349, 350, 523, 1016, 8000]
-    lmp_improving = [0, 4, 7, 12, 19, 28, 37, 50, 64]
-    lmp_not_improving = [0, 2, 3, 6, 9, 14, 20, 27, 35]
+    lmp_improving = [0, 4, 7]
+    lmp_not_improving = [0, 2, 3]
 );
 
 #[cfg(not(feature = "tune"))]

@@ -767,16 +767,18 @@ impl Search {
         self.infos[ply].set_eval(self.board.eval());
         let improving = self.is_improving(ply);
 
-        if !is_pv && !in_check {
+        let beta_is_mate_score = is_mate_or_mated_score(beta);
+
+        if !is_pv && !in_check && !beta_is_mate_score {
             if depth <= 2 {
                 // Jump directly to QS, if position is already so good, that it is unlikely for the opponent to counter it within the remaining search depth
                 pos_score = pos_score.or_else(|| Some(self.infos[ply].eval()));
                 let score = pos_score.unwrap();
 
                 let margin = if improving {
-                    params::rfp_base_margin_improving() + params::rfp_margin_improving_multiplier() * depth
+                    (params::rfp_margin_multiplier_improving() << depth) + params::rfp_base_margin_improving()
                 } else {
-                    params::rfp_base_margin_not_improving() + params::rfp_margin_not_improving_multiplier() * depth
+                    (params::rfp_margin_multiplier_not_improving() << depth) + params::rfp_base_margin_not_improving()
                 };
                 if !is_mate_or_mated_score(score) && score - margin >= beta {
                     return self.quiescence_search::<false>(rx, active_player, alpha, beta, ply, pos_score, pv);
@@ -813,10 +815,12 @@ impl Search {
 
         let allow_lmr = depth > 2;
 
+        let alpha_is_mate_score = is_mate_or_mated_score(alpha);
+
         // Futile move pruning
         let mut allow_futile_move_pruning = false;
-        if !is_pv && depth <= 4 && !in_check {
-            let margin: i32 = params::fp_base_margin() + depth * params::fp_margin_multiplier();
+        if !is_pv && depth <= 6 && !in_check && !alpha_is_mate_score {
+            let margin = (params::fp_margin_multiplier() << depth) + params::fp_base_margin();
             pos_score = pos_score.or_else(|| Some(self.infos[ply].eval()));
             let static_score = pos_score.unwrap();
             allow_futile_move_pruning = !is_mate_or_mated_score(static_score) && static_score + margin <= alpha;
@@ -847,13 +851,16 @@ impl Search {
 
         let mut base_reduction = 0;
 
+        let is_mate_search = alpha_is_mate_score || beta_is_mate_score;
+
         let mut a = -beta;
         while let Some(curr_move) = self.movegen.next_move(&self.hh, &mut self.board) {
             if excluded_singular_move.is_same_move(curr_move) {
                 continue;
             }
 
-            if !is_pv && !in_check && curr_move.is_quiet() && depth <= 2 && !curr_move.is_queen_promotion() && !is_mate_or_mated_score(alpha) && quiet_move_count > lmp_threshold(improving, depth) {
+            if !is_pv && !in_check && curr_move.is_quiet() && depth <= 2 && !curr_move.is_queen_promotion()
+                && !is_mate_search && quiet_move_count > lmp_threshold(improving, depth) {
                 continue;
             }
 
@@ -930,7 +937,7 @@ impl Search {
                     {
                         // Reduce search depth for moves with negative history or negative SEE score
                         reductions += LOSING_MOVE_REDUCTIONS;
-                        if evaluated_move_count > 0 && depth <= 3 {
+                        if evaluated_move_count > 0 && depth <= 3 && !is_mate_search {
                             skip = true;
                         }
                     }
