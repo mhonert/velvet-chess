@@ -23,11 +23,7 @@ pub const MATE_SCORE: i32 = 8150;
 pub const MATED_SCORE: i32 = -MATE_SCORE;
 const MATE_SCORE_RANGE: i32 = 499;
 
-pub const TB_WIN: i32 = MATE_SCORE - (MATE_SCORE_RANGE + 1);
-pub const TB_LOSS: i32 = -TB_WIN;
-const TB_SCORE_RANGE: i32 = 499;
-
-pub const MAX_EVAL: i32 = TB_WIN - (TB_SCORE_RANGE + 1);
+pub const MAX_EVAL: i32 = MATE_SCORE - (MATE_SCORE_RANGE + 1);
 pub const MIN_EVAL: i32 = -MAX_EVAL;
 
 pub fn is_mate_or_mated_score(score: i32) -> bool {
@@ -40,14 +36,6 @@ pub fn is_mate_score(score: i32) -> bool {
 
 pub fn is_mated_score(score: i32) -> bool {
     score <= (MATED_SCORE + MATE_SCORE_RANGE)
-}
-
-pub fn is_tb_win_score(score: i32) -> bool {
-    !is_mate_score(score) && score >= (TB_WIN - TB_SCORE_RANGE)
-}
-
-pub fn is_tb_loss_score(score: i32) -> bool {
-    !is_mated_score(score) && score <= (TB_LOSS + TB_SCORE_RANGE)
 }
 
 pub fn is_eval_score(score: i32) -> bool {
@@ -77,12 +65,4 @@ pub fn sanitize_mate_score(score: i32) -> i32 {
 
 pub fn sanitize_mated_score(score: i32) -> i32 {
     score.clamp(MATED_SCORE, MATED_SCORE + MATE_SCORE_RANGE)
-}
-
-pub fn sanitize_tb_win_score(score: i32) -> i32 {
-    score.clamp(TB_WIN - TB_SCORE_RANGE, TB_WIN)
-}
-
-pub fn sanitize_tb_loss_score(score: i32) -> i32 {
-    score.clamp(TB_LOSS, TB_LOSS + TB_SCORE_RANGE)
 }

@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2022 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2023 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -38,24 +38,14 @@ impl PositionHistory {
     }
 
     pub fn is_repetition_draw(&self, hash: u64, halfmove_clock: u8) -> bool {
-        if let Some((i, _)) = self
-            .positions
+        self.positions
             .iter()
             .enumerate()
             .rev()
             .skip(1)
             .step_by(2)
             .take(halfmove_clock as usize / 2)
-            .find(|(_, &pos)| pos == hash)
-        {
-            return if i < self.root {
-                // If the repeated position was actually played, then check for a 3rd repetition
-                self.positions.iter().take(i).rev().skip(2).step_by(2).any(|pos| *pos == hash)
-            } else {
-                true
-            };
-        }
-        false
+            .any(|(_, &pos)| pos == hash)
     }
 
     pub fn clear(&mut self) {

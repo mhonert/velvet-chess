@@ -19,7 +19,7 @@
 use core::arch::x86_64::{_MM_HINT_NTA, _mm_prefetch};
 use crate::align::A64;
 use crate::moves::Move;
-use crate::scores::{is_mate_score, is_mated_score, is_tb_win_score, is_tb_loss_score, sanitize_mate_score, sanitize_mated_score, sanitize_tb_win_score, sanitize_tb_loss_score};
+use crate::scores::{is_mate_score, is_mated_score, sanitize_mate_score, sanitize_mated_score};
 use std::intrinsics::transmute;
 use std::mem::MaybeUninit;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -214,10 +214,6 @@ pub fn to_root_relative_score(ply: i32, score: i32) -> i32 {
         sanitize_mate_score(score - ply)
     } else if is_mated_score(score) {
         sanitize_mated_score(score + ply)
-    } else if is_tb_win_score(score) {
-        sanitize_tb_win_score(score - ply)
-    } else if is_tb_loss_score(score) {
-        sanitize_tb_loss_score(score + ply)
     } else {
         score
     }
@@ -230,10 +226,6 @@ pub fn from_root_relative_score(ply: i32, score: i32) -> i32 {
         sanitize_mate_score(score + ply)
     } else if is_mated_score(score) {
         sanitize_mated_score(score - ply)
-    } else if is_tb_win_score(score) {
-        sanitize_tb_win_score(score + ply)
-    } else if is_tb_loss_score(score) {
-        sanitize_tb_loss_score(score - ply)
     } else {
         score
     }

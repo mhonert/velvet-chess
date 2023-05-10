@@ -26,7 +26,7 @@ use crate::move_gen::{is_killer, MoveGenerator, NEGATIVE_HISTORY_SCORE, QUIET_BA
 use crate::moves::{Move, MoveType, NO_MOVE};
 use crate::pieces::{EMPTY, P};
 use crate::pos_history::PositionHistory;
-use crate::scores::{mate_in, sanitize_score, MATED_SCORE, MATE_SCORE, MAX_SCORE, MIN_SCORE, TB_WIN, TB_LOSS, is_mate_or_mated_score, is_eval_score};
+use crate::scores::{mate_in, sanitize_score, MATED_SCORE, MATE_SCORE, MAX_SCORE, MIN_SCORE, is_mate_or_mated_score, is_eval_score, MAX_EVAL, MIN_EVAL};
 use crate::time_management::{SearchLimits, TimeManager};
 use crate::transposition_table::{from_root_relative_score, ScoreType, TranspositionTable, MAX_DEPTH, get_untyped_move, to_root_relative_score, get_depth, get_score_type, MAX_GENERATION};
 use crate::uci_move::UCIMove;
@@ -631,7 +631,7 @@ impl Search {
 
         let in_check = self.infos[ply].in_check();
         // Prune, if worst possible score is already sufficient to reach beta
-        let worst_possible_score = MATED_SCORE + ply as i32 + if in_check { 0 } else { 1 };
+        let mut worst_possible_score = MATED_SCORE + ply as i32 + if in_check { 0 } else { 1 };
         if worst_possible_score >= beta {
             return worst_possible_score;
         }
@@ -724,27 +724,10 @@ impl Search {
                             return 0;
                         },
                         TBResult::Win => {
-                            let score = TB_WIN - ply as i32;
-
-                            if score >= beta {
-                                self.tt.write_entry(hash, self.tt_gen, depth, self.tb_move(TB_WIN), ScoreType::LowerBound);
-                                return score;
-                            }
-
-                            best_score = score;
-                            best_move = self.tb_move(score);
-                            if best_score > alpha {
-                                alpha = best_score;
-                                score_type = ScoreType::Exact;
-                            }
+                            worst_possible_score = 400;
                         }
                         TBResult::Loss => {
-                            let score = TB_LOSS + ply as i32;
-                            if score <= alpha {
-                                self.tt.write_entry(hash, self.tt_gen, depth, self.tb_move(TB_LOSS), ScoreType::UpperBound);
-                                return score;
-                            }
-                            best_possible_score = score;
+                            best_possible_score = -400;
                         },
                         TBResult::CursedWin => {
                             self.tt.write_entry(hash, self.tt_gen, depth, self.tb_move(1), ScoreType::Exact);
@@ -761,7 +744,7 @@ impl Search {
 
         // Quiescence search
         if depth <= 0 || ply >= (MAX_DEPTH - 16) {
-            return self.quiescence_search::<false>(rx, active_player, alpha, beta, ply, pos_score, pv);
+            return clamp_score(self.quiescence_search::<false>(rx, active_player, alpha, beta, ply, pos_score, pv), worst_possible_score, best_possible_score);
         }
 
         self.infos[ply].set_eval(self.board.eval());
@@ -781,7 +764,7 @@ impl Search {
                     (params::rfp_margin_multiplier_not_improving() << depth) + params::rfp_base_margin_not_improving()
                 };
                 if !is_mate_or_mated_score(score) && score - margin >= beta {
-                    return self.quiescence_search::<false>(rx, active_player, alpha, beta, ply, pos_score, pv);
+                    return clamp_score(self.quiescence_search::<false>(rx, active_player, alpha, beta, ply, pos_score, pv), worst_possible_score, best_possible_score);
                 }
             } else if !skip_null_move {
                 // Null move pruning
@@ -802,8 +785,9 @@ impl Search {
                     if result == CANCEL_SEARCH {
                         return CANCEL_SEARCH;
                     }
+                    let score = clamp_score(-result, worst_possible_score, best_possible_score);
                     if -result >= beta {
-                        return if is_eval_score(result) { -result } else { beta };
+                        return if is_eval_score(score) { score } else { beta };
                     }
                 }
             }
@@ -826,7 +810,7 @@ impl Search {
             allow_futile_move_pruning = !is_mate_or_mated_score(static_score) && static_score + margin <= alpha;
 
             if depth == 1 && static_score + params::razor_margin_multiplier() <= alpha {
-                let score = self.quiescence_search::<false>(rx, active_player, alpha, beta, ply, pos_score, pv);
+                let score = clamp_score(self.quiescence_search::<false>(rx, active_player, alpha, beta, ply, pos_score, pv), worst_possible_score, best_possible_score);
                 if score <= alpha {
                     return score;
                 }
@@ -878,14 +862,14 @@ impl Search {
                     self.movegen.leave_ply();
                     return CANCEL_SEARCH;
                 }
-
+                
                 if result < se_beta {
                     se_extension = 1;
                     is_singular = true;
                 } else if se_beta >= beta {
                     // Multi-Cut Pruning
                     self.movegen.leave_ply();
-                    return se_beta;
+                    return clamp_score(se_beta, worst_possible_score, best_possible_score);
                 } else if hash_score >= beta {
                     base_reduction = 1;
                 }
@@ -999,7 +983,7 @@ impl Search {
                     }
                 }
 
-                let score = -result;
+                let score = clamp_score(-result, worst_possible_score, best_possible_score);
                 self.board.undo_move(curr_move, previous_piece, removed_piece_id);
 
                 if score > best_score {
@@ -1354,7 +1338,14 @@ impl Search {
 
         m.start() == start as i32 && m.end() == end as i32
     }
+}
 
+fn clamp_score(score: i32, worst_possible_score: i32, best_possible_score: i32) -> i32 {
+    if worst_possible_score < best_possible_score {
+        score.clamp(worst_possible_score, best_possible_score)
+    } else {
+        score.clamp(best_possible_score, worst_possible_score)
+    }
 }
 
 // Principal variation collects a sequence of best moves for a given position
@@ -1552,11 +1543,11 @@ fn adjust_score(halfmove_clock: u8, tb_result: Option<TBResult>, score: i32) -> 
     if let Some(result) = tb_result {
         let divider = halfmove_clock as i32 + 1;
         match result {
-            TBResult::Draw => score.clamp(-50, 50) / divider,
+            TBResult::Draw => 0,
             TBResult::CursedWin => score.clamp(0, 100) / divider,
             TBResult::BlessedLoss => score.clamp(-100, 0) / divider,
-            TBResult::Win => (TB_WIN - halfmove_clock as i32).max(score),
-            TBResult::Loss => (TB_LOSS + halfmove_clock as  i32).min(score)
+            TBResult::Win => (MAX_EVAL - halfmove_clock as i32).max(score),
+            TBResult::Loss => (MIN_EVAL + halfmove_clock as i32).min(score)
         }
     } else {
         score
