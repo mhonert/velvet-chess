@@ -16,7 +16,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use core::arch::x86_64::{_MM_HINT_NTA, _mm_prefetch};
 use crate::align::A64;
 use crate::moves::Move;
 use crate::scores::{is_mate_score, is_mated_score, sanitize_mate_score, sanitize_mated_score};
@@ -170,9 +169,10 @@ impl TranspositionTable {
     pub fn prefetch(&self, hash: u64) {
         #[cfg(target_feature = "sse")]
         {
+            use core::arch::x86_64::{_MM_HINT_NTA, _mm_prefetch};
             let index = self.calc_index(hash);
             unsafe {
-                _mm_prefetch::<_MM_HINT_NTA>(self.segments.0.as_ptr().add(index) as *const i8);
+                _mm_prefetch::<{ _MM_HINT_NTA }>(self.segments.0.as_ptr().add(index) as *const i8);
             }
         }
 
