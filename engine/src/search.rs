@@ -750,9 +750,7 @@ impl Search {
         self.infos[ply].set_eval(self.board.eval());
         let improving = self.is_improving(ply);
 
-        let beta_is_mate_score = is_mate_or_mated_score(beta);
-
-        if !is_pv && !in_check && !beta_is_mate_score {
+        if !is_pv && !in_check {
             if depth <= 2 {
                 // Jump directly to QS, if position is already so good, that it is unlikely for the opponent to counter it within the remaining search depth
                 pos_score = pos_score.or_else(|| Some(self.infos[ply].eval()));
@@ -786,7 +784,7 @@ impl Search {
                         return CANCEL_SEARCH;
                     }
                     let score = clamp_score(-result, worst_possible_score, best_possible_score);
-                    if -result >= beta {
+                    if score >= beta {
                         return if is_eval_score(score) { score } else { beta };
                     }
                 }
@@ -799,11 +797,9 @@ impl Search {
 
         let allow_lmr = depth > 2;
 
-        let alpha_is_mate_score = is_mate_or_mated_score(alpha);
-
         // Futile move pruning
         let mut allow_futile_move_pruning = false;
-        if !is_pv && depth <= 6 && !in_check && !alpha_is_mate_score {
+        if !is_pv && depth <= 6 && !in_check && self.current_depth >= 8 {
             let margin = (params::fp_margin_multiplier() << depth) + params::fp_base_margin();
             pos_score = pos_score.or_else(|| Some(self.infos[ply].eval()));
             let static_score = pos_score.unwrap();
@@ -833,9 +829,12 @@ impl Search {
 
         let mut is_singular = false;
 
-        let mut base_reduction = 0;
+        let alpha_is_mate_score = is_mate_or_mated_score(alpha);
+        let beta_is_mate_score = is_mate_or_mated_score(beta);
 
         let is_mate_search = alpha_is_mate_score || beta_is_mate_score;
+
+        let allow_lmp = !is_pv && !in_check && depth <= 2 && self.current_depth >= 7;
 
         let mut a = -beta;
         while let Some(curr_move) = self.movegen.next_move(&self.hh, &mut self.board) {
@@ -843,8 +842,10 @@ impl Search {
                 continue;
             }
 
-            if !is_pv && !in_check && curr_move.is_quiet() && depth <= 2 && !curr_move.is_queen_promotion()
-                && !is_mate_search && quiet_move_count > lmp_threshold(improving, depth) {
+            if allow_lmp && curr_move.is_quiet()
+                && !curr_move.is_same_move(primary_killer)
+                && !curr_move.is_same_move(secondary_killer)
+                && !curr_move.is_queen_promotion() && quiet_move_count > lmp_threshold(improving, depth) {
                 continue;
             }
 
@@ -862,7 +863,7 @@ impl Search {
                     self.movegen.leave_ply();
                     return CANCEL_SEARCH;
                 }
-                
+
                 if result < se_beta {
                     se_extension = 1;
                     is_singular = true;
@@ -870,8 +871,6 @@ impl Search {
                     // Multi-Cut Pruning
                     self.movegen.leave_ply();
                     return clamp_score(se_beta, worst_possible_score, best_possible_score);
-                } else if hash_score >= beta {
-                    base_reduction = 1;
                 }
 
                 self.board.perform_move(curr_move);
@@ -882,7 +881,7 @@ impl Search {
 
             let mut skip = self.board.is_in_check(active_player); // skip if move would put own king in check
 
-            let mut reductions = base_reduction;
+            let mut reductions = 0;
 
             if !skip {
                 let target_piece_id = curr_move.piece_id();
@@ -921,7 +920,7 @@ impl Search {
                     {
                         // Reduce search depth for moves with negative history or negative SEE score
                         reductions += LOSING_MOVE_REDUCTIONS;
-                        if evaluated_move_count > 0 && depth <= 3 && !is_mate_search {
+                        if evaluated_move_count > 0 && depth <= 3 && (!is_pv || !is_mate_search) {
                             skip = true;
                         }
                     }
@@ -1663,6 +1662,7 @@ impl HelperThread {
 
                     let mut found_moves = false;
                     for depth in 1..MAX_DEPTH {
+                        sub_search.current_depth = depth as i32;
                         let mut local_skipped_moves = skipped_moves.clone();
                         for multi_pv_num in 1..=multi_pv_count {
                             let (score, mut window_size, mut window_step) = multi_pv_state[multi_pv_num - 1];
