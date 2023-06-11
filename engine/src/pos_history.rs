@@ -38,14 +38,20 @@ impl PositionHistory {
     }
 
     pub fn is_repetition_draw(&self, hash: u64, halfmove_clock: u8) -> bool {
-        self.positions
-            .iter()
-            .enumerate()
-            .rev()
-            .skip(1)
-            .step_by(2)
-            .take(halfmove_clock as usize / 2)
-            .any(|(_, &pos)| pos == hash)
+        let mut found_repetition = false;
+        for (i, &pos) in self.positions.iter().enumerate().rev().skip(1).step_by(2).take(halfmove_clock as usize / 2) {
+            if pos == hash {
+                if i >= self.root {
+                    return true;
+                }
+                if found_repetition {
+                    return true;
+                }
+                found_repetition = true;
+            }
+        }
+
+        false
     }
 
     pub fn clear(&mut self) {
