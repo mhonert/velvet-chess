@@ -175,7 +175,7 @@ impl NeuralNetEval {
     }
 
     pub fn eval(
-        &mut self, active_player: Color, half_move_clock: u8, bitboards: &BitBoards, white_king: i8, black_king: i8,
+        &mut self, active_player: Color, bitboards: &BitBoards, white_king: i8, black_king: i8,
     ) -> i32 {
         self.apply_updates(bitboards, white_king, black_king);
 
@@ -190,7 +190,7 @@ impl NeuralNetEval {
                 + (unsafe { *OUT_BIASES.0.get_unchecked(0) } as i64)
             ) * SCORE_SCALE as i64) / FP_OUT_MULTIPLIER;
 
-        adjust_eval(output as i32, half_move_clock)
+        scale_eval(output as i32)
     }
 
     fn apply_updates(&mut self, bitboards: &BitBoards, white_king: i8, black_king: i8) {
@@ -224,8 +224,7 @@ impl NeuralNetEval {
     }
 }
 
-// Scale eval score towards 0 for decreasing number of remaining half moves till the 50-move (draw) rule triggers
-fn adjust_eval(mut score: i32, half_move_clock: u8) -> i32 {
+fn scale_eval(mut score: i32) -> i32 {
     if score > MAX_EVAL / 2  {
         score = MAX_EVAL / 2 + ((score - MAX_EVAL / 2) / 2);
         let bound = MAX_EVAL * 3 / 2;
@@ -241,13 +240,6 @@ fn adjust_eval(mut score: i32, half_move_clock: u8) -> i32 {
             score = sanitize_eval_score(score);
         }
     }
-
-    let remaining_half_moves = 0.max(100 - half_move_clock as i32);
-    score = if remaining_half_moves >= 95 {
-        score
-    } else {
-        score * remaining_half_moves / 95
-    };
 
     score
 }

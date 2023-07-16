@@ -886,7 +886,6 @@ impl Board {
     pub fn eval(&mut self) -> i32 {
         self.nn_eval.eval(
             self.active_player(),
-            self.halfmove_clock(),
             &self.bitboards,
             self.king_pos(WHITE),
             self.king_pos(BLACK),
