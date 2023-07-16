@@ -13,5 +13,5 @@ jobs:
 
       - name: Run tests
         run: |
-          rustup override set 1.66.0
+          rustup override set 1.71.0
           cargo test --no-default-features --release -p velvet --lib

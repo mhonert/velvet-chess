@@ -30,7 +30,7 @@ jobs:
           CFLAGS: '${{ matrix.cflags }}'
         run: |
           sudo apt-get install -y musl-tools
-          rustup override set 1.66.0
+          rustup override set 1.71.0
           rustup target add x86_64-unknown-linux-musl
           cargo build --release --target x86_64-unknown-linux-musl --bin velvet
           mv target/x86_64-unknown-linux-musl/release/velvet velvet-linux-x86_64-${{ matrix.exec_postfix }}
@@ -65,7 +65,7 @@ jobs:
           RUSTFLAGS: '${{ matrix.add_rustflags }} -Cinline-threshold=500'
           CFLAGS: '${{ matrix.cflags }}'
         run: |
-          rustup override set 1.66.0
+          rustup override set 1.71.0
           cargo build --release --bin velvet
           mv .\target\release\velvet.exe velvet-windows-x86_64-${{ matrix.exec_postfix }}.exe
 
@@ -106,7 +106,7 @@ jobs:
           RUSTFLAGS: '${{ matrix.add_rustflags }} -Cinline-threshold=500'
           CFLAGS: '${{ matrix.cflags }}'
         run: |
-          rustup override set 1.66.0
+          rustup override set 1.71.0
           rustup target add ${{ matrix.toolchain }}
           cargo build --release --target ${{ matrix.toolchain }} --bin velvet
           mv target/${{ matrix.toolchain }}/release/velvet velvet-macOS-${{ matrix.exec_postfix }}
