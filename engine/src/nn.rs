@@ -17,11 +17,10 @@
  */
 
 use std::sync::Once;
-
-use byteorder::{ReadBytesExt};
+use std::time::Instant;
 
 use crate::align::A32;
-use crate::nn::io::{read_quantized};
+use crate::nn::io::{read_quantized, read_u8};
 
 pub mod eval;
 pub mod io;
@@ -63,16 +62,17 @@ pub const fn piece_idx(piece_id: i8) -> u16 {
 
 pub fn init_nn_params() {
     INIT_NN_PARAMS.call_once(|| {
+        let start = Instant::now();
         let mut reader = &include_bytes!("../nets/velvet.qnn")[..];
 
-        let in_precision_bits = reader.read_u8().expect("Could not read input fixed point precision bits");
+        let in_precision_bits = read_u8(&mut reader).expect("Could not read input fixed point precision bits");
         assert_eq!(
             in_precision_bits, FP_IN_PRECISION_BITS,
             "NN hidden layer has been quantized with a different (input) fixed point precision, expected: {}, got: {}",
             FP_IN_PRECISION_BITS, in_precision_bits
         );
 
-        let out_precision_bits = reader.read_u8().expect("Could not read output fixed point precision bits");
+        let out_precision_bits = read_u8(&mut reader).expect("Could not read output fixed point precision bits");
         assert_eq!(
             out_precision_bits, FP_OUT_PRECISION_BITS,
             "NN hidden layer has been quantized with a different (input) fixed point precision, expected: {}, got: {}",
@@ -84,6 +84,8 @@ pub fn init_nn_params() {
 
         read_quantized(&mut reader, unsafe { &mut H1_TO_OUT_WEIGHTS.0 }).expect("Could not read weights");
         read_quantized(&mut reader, unsafe { &mut OUT_BIASES.0 }).expect("Could not read biases");
+
+        println!("Initialized in {:?}", start.elapsed());
     });
 }
 

@@ -19,7 +19,6 @@
 mod sets;
 mod layer;
 
-use byteorder::{LittleEndian, WriteBytesExt};
 use log::{info};
 use rand::prelude::{Distribution, SliceRandom, ThreadRng};
 use std::env;
@@ -39,6 +38,7 @@ use traincommon::idsource::IDSource;
 use traincommon::sets::{convert_sets, K, read_samples};
 use velvet::nn::{HL1_HALF_NODES, HL1_NODES, MAX_RELU, SCORE_SCALE};
 pub use velvet::nn::INPUTS;
+use velvet::nn::io::{write_f32, write_u16, write_u8};
 use crate::layer::{InputLayer, input_layer};
 use crate::sets::{DataSample, GpuDataSamples};
 
@@ -100,13 +100,13 @@ impl Mode for EvalNet {
         let file = File::create(format!("./data/nets/velvet_{}.nn", id)).expect("Could not create output file");
         let mut writer = BufWriter::new(file);
 
-        writer.write_i8('V' as i8).unwrap();
+        write_u8(&mut writer, b'V').unwrap();
 
         let hidden_layers = 1;
-        writer.write_i8(hidden_layers).unwrap(); // Number of hidden layers
+        write_u8(&mut writer, hidden_layers).unwrap(); // Number of hidden layers
 
         let input_bias = Tensor::cat(&[vars.get("input.own_bias").unwrap(), vars.get("input.opp_bias").unwrap()], 0);
-        write_raw(&mut writer, &vars.get("input.weight").unwrap(), 1.0).expect("Could not write layer");
+        write_raw(&mut writer, vars.get("input.weight").unwrap(), 1.0).expect("Could not write layer");
         write_raw(&mut writer, &input_bias, 1.0).expect("Could not write layer");
 
         write_raw(&mut writer, vars.get("output.weight").unwrap(), 1.0).expect("Could not write layer");
@@ -405,12 +405,12 @@ fn to_sparse_tensors(samples: &[DataSample], device: Device) -> (Tensor, Tensor,
 
 fn write_raw(writer: &mut BufWriter<File>, weights: &Tensor, scale: f32) -> Result<(), Error> {
     for size in weights.size() {
-        writer.write_u16::<LittleEndian>(size as u16)?;
+        write_u16(writer, size as u16)?;
     }
 
     let ws: Vec<f32> = weights.into();
     for &weight in ws.iter() {
-        writer.write_f32::<LittleEndian>(weight * scale)?;
+        write_f32(writer, weight * scale)?;
     }
 
     Ok(())

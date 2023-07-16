@@ -17,14 +17,13 @@
  */
 
 use crate::sets::DataSample;
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use itertools::Itertools;
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Error, ErrorKind, Write};
 use std::mem::MaybeUninit;
 use traincommon::sets::K;
-use velvet::nn::io::{BitWriter, CodeBook, read_quantized};
+use velvet::nn::io::{BitWriter, CodeBook, read_f32, read_quantized, read_u16, read_u8, write_i16, write_u32, write_u8};
 use velvet::nn::{HL1_HALF_NODES, HL1_NODES, INPUT_WEIGHT_COUNT, SCORE_SCALE, piece_idx, board_4, PIECE_BUCKETS, KING_BUCKETS, MAX_RELU, FP_IN_PRECISION_BITS, FP_OUT_PRECISION_BITS, FP_IN_MULTIPLIER, FP_OUT_MULTIPLIER};
 use velvet::pieces::P;
 
@@ -211,8 +210,8 @@ impl Network {
         let file = File::create(out_file).expect("Could not create output file");
         let mut writer = BufWriter::new(file);
 
-        writer.write_u8(FP_IN_PRECISION_BITS).unwrap();
-        writer.write_u8(FP_OUT_PRECISION_BITS).unwrap();
+        write_u8(&mut writer, FP_IN_PRECISION_BITS).unwrap();
+        write_u8(&mut writer, FP_OUT_PRECISION_BITS).unwrap();
 
         write_quantized(&mut writer, FP_IN_MULTIPLIER as i16, &self.w.in_to_h1_weights.0).expect("Could not write quantized input to h1 weights");
         write_quantized(&mut writer, FP_IN_MULTIPLIER as i16, &self.w.h1_biases.0).expect("Could not write quantized h1 biases");
@@ -243,10 +242,10 @@ impl Network {
         let file = File::open(in_file).unwrap_or_else(|_| panic!("Could not open NN file: {}", in_file));
         let mut reader = BufReader::new(file);
 
-        let in_precision_bits = reader.read_u8().expect("Could not read fixed point precision bits");
+        let in_precision_bits = read_u8(&mut reader).expect("Could not read fixed point precision bits");
         let in_precision = (1 << in_precision_bits) as f32;
 
-        let out_precision_bits = reader.read_u8().expect("Could not read fixed point precision bits");
+        let out_precision_bits = read_u8(&mut reader).expect("Could not read fixed point precision bits");
         let out_precision = (1 << out_precision_bits) as f32;
 
         let mut in_to_h1_weights = Vec::with_capacity(INPUT_WEIGHT_COUNT);
@@ -358,12 +357,12 @@ pub struct Layer {
 }
 
 fn read_header(reader: &mut BufReader<File>, expected_hl_count: usize) -> Result<(), Error> {
-    let head = reader.read_i8()?;
-    if head != 'V' as i8 {
+    let head = read_u8(reader)?;
+    if head != b'V' {
         return Err(Error::new(ErrorKind::InvalidData, "missing header 'V'"));
     }
 
-    let hidden_layer_count = reader.read_i8()? as usize;
+    let hidden_layer_count = read_u8(reader)? as usize;
     if hidden_layer_count != expected_hl_count {
         return Err(Error::new(
             ErrorKind::InvalidData,
@@ -375,12 +374,12 @@ fn read_header(reader: &mut BufReader<File>, expected_hl_count: usize) -> Result
 }
 
 fn read_input_layer(reader: &mut BufReader<File>) -> Result<Layer, Error> {
-    let out_count = reader.read_u16::<LittleEndian>()? as usize;
-    let in_count = reader.read_u16::<LittleEndian>()? as usize;
+    let out_count = read_u16(reader)? as usize;
+    let in_count = read_u16(reader)? as usize;
 
     let mut weights = Vec::with_capacity(out_count * in_count);
     for _ in 0..(out_count * in_count) {
-        let v = reader.read_f32::<LittleEndian>()?;
+        let v = read_f32(reader)?;
         weights.push(v);
     }
 
@@ -389,12 +388,12 @@ fn read_input_layer(reader: &mut BufReader<File>) -> Result<Layer, Error> {
         weights.iter().skip(i).step_by(in_count).for_each(|&w| input_weights.push(w));
     }
 
-    let bias_count = reader.read_u16::<LittleEndian>()? as usize;
+    let bias_count = read_u16(reader)? as usize;
     assert_eq!(out_count * 2, bias_count, "bias count mismatch");
 
     let mut biases = Vec::with_capacity(out_count * 2);
     for _ in 0..out_count * 2 {
-        let v = reader.read_f32::<LittleEndian>()?;
+        let v = read_f32(reader)?;
 
         biases.push(v);
     }
@@ -403,13 +402,13 @@ fn read_input_layer(reader: &mut BufReader<File>) -> Result<Layer, Error> {
 }
 
 fn read_layer(reader: &mut BufReader<File>) -> Result<Layer, Error> {
-    let out_count = reader.read_u16::<LittleEndian>()? as usize;
-    let in_count = reader.read_u16::<LittleEndian>()? as usize;
+    let out_count = read_u16(reader)? as usize;
+    let in_count = read_u16(reader)? as usize;
 
     let mut unoriented_weights = Vec::with_capacity(out_count * in_count);
 
     for _ in 0..(out_count * in_count) {
-        let v = reader.read_f32::<LittleEndian>()?;
+        let v = read_f32(reader)?;
         unoriented_weights.push(v);
     }
 
@@ -418,12 +417,12 @@ fn read_layer(reader: &mut BufReader<File>) -> Result<Layer, Error> {
         unoriented_weights.iter().skip(i).step_by(in_count).for_each(|&w| weights.push(w));
     }
 
-    let bias_count = reader.read_u16::<LittleEndian>()? as usize;
+    let bias_count = read_u16(reader)? as usize;
     assert_eq!(out_count, bias_count, "bias count mismatch");
 
     let mut biases = Vec::with_capacity(out_count);
     for _ in 0..out_count {
-        let v = reader.read_f32::<LittleEndian>()?;
+        let v = read_f32(reader)?;
 
         biases.push(v);
     }
@@ -432,7 +431,7 @@ fn read_layer(reader: &mut BufReader<File>) -> Result<Layer, Error> {
 }
 
 fn write_quantized(writer: &mut dyn Write, multiplier: i16, values: &[f32]) -> Result<(), Error> {
-    writer.write_u32::<LittleEndian>(values.len() as u32)?;
+    write_u32(writer, values.len() as u32)?;
 
     let ivalues = values.iter().map(|v| (v * multiplier as f32) as i32).collect_vec();
     let mut values = Vec::with_capacity(ivalues.len());
@@ -447,7 +446,7 @@ fn write_quantized(writer: &mut dyn Write, multiplier: i16, values: &[f32]) -> R
     }
 
     let rep_zero_marker = unused_values.iter().copied().next().expect("No free value as marker available!");
-    writer.write_i16::<LittleEndian>(rep_zero_marker)?;
+    write_i16(writer, rep_zero_marker)?;
 
     let mut outputs = Vec::with_capacity(values.len());
     let mut index = 0;

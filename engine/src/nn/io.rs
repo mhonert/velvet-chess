@@ -16,7 +16,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use itertools::Itertools;
 use std::cmp::max;
 use std::collections::HashMap;
@@ -24,7 +23,7 @@ use std::hash::{BuildHasherDefault, Hasher};
 use std::io::{Error, ErrorKind, Read, Write};
 
 pub fn read_quantized(reader: &mut dyn Read, target: &mut [i16]) -> Result<(), Error> {
-    let size = reader.read_u32::<LittleEndian>()? as usize;
+    let size = read_u32(reader)? as usize;
     if size != target.len() {
         return Err(Error::new(
             ErrorKind::InvalidData,
@@ -32,7 +31,7 @@ pub fn read_quantized(reader: &mut dyn Read, target: &mut [i16]) -> Result<(), E
         ));
     }
 
-    let zero_rep_marker = reader.read_i16::<LittleEndian>()?;
+    let zero_rep_marker = read_i16(reader)?;
 
     let codebook = CodeBook::from_reader(reader).expect("Could not read codebook for unpacking the NN data");
     let mut bitreader = BitReader::new();
@@ -123,13 +122,13 @@ impl CodeBook {
     pub fn from_reader(reader: &mut dyn Read) -> Result<Self, Error> {
         let mut value_bitcounts = Vec::new();
         loop {
-            let bitcount = reader.read_u8()?;
+            let bitcount = read_u8(reader)?;
             if bitcount == 0 {
                 break;
             }
-            let value_count = reader.read_u16::<LittleEndian>()?;
+            let value_count = read_u16(reader)?;
             for _ in 0..value_count {
-                let value = reader.read_i16::<LittleEndian>()?;
+                let value = read_i16(reader)?;
                 value_bitcounts.push((value, bitcount));
             }
         }
@@ -149,16 +148,16 @@ impl CodeBook {
             .group_by(|entry| entry.0)
             .into_iter()
         {
-            writer.write_u8(bitcount)?;
+            write_u8(writer, bitcount)?;
 
             let values = group.map(|e| *e.1).collect_vec();
-            writer.write_u16::<LittleEndian>(values.len() as u16)?;
+            write_u16(writer, values.len() as u16)?;
             for v in values.iter() {
-                writer.write_i16::<LittleEndian>(*v)?;
+                write_i16(writer, *v)?;
             }
         }
 
-        writer.write_u8(CodeBook::END)?;
+        write_u8(writer, CodeBook::END)?;
 
         Ok(())
     }
@@ -230,7 +229,7 @@ impl BitReader {
 
     pub fn read(&mut self, reader: &mut dyn Read) -> Result<Option<Bit>, Error> {
         if self.bit_index == 32 || self.buffer.is_none() {
-            self.buffer = Some(reader.read_u32::<LittleEndian>()?);
+            self.buffer = Some(read_u32(reader)?);
             self.bit_index = 0;
         }
 
@@ -276,7 +275,7 @@ impl BitWriter {
 
     pub fn flush(&mut self, writer: &mut dyn Write) -> Result<(), Error> {
         if self.bit_index > 0 {
-            writer.write_u32::<LittleEndian>(self.value)?;
+            write_u32(writer, self.value)?;
             self.value = 0;
             self.bit_index = 0;
         }
@@ -491,8 +490,8 @@ mod tests {
         let mut writer = Cursor::new(Vec::<u8>::new());
         let mut bitwriter = BitWriter::new();
 
-        writer.write_u32::<LittleEndian>(values.len() as u32).expect("Could not write size");
-        writer.write_i16::<LittleEndian>(2000).expect("Could not zero-rep marker");
+        write_u32(&mut writer, values.len() as u32).expect("Could not write size");
+        write_i16(&mut writer, 2000).expect("Could not zero-rep marker");
         codebook.write(&mut writer).expect("Could not write codebook");
         for &value in values.iter() {
             bitwriter.write(&mut writer, codebook.get_code(value)).expect("Could not write code");
@@ -501,4 +500,64 @@ mod tests {
 
         writer.into_inner()
     }
+}
+
+pub fn read_u8(reader: &mut dyn Read) -> Result<u8, Error> {
+    let mut buf = [0; 1];
+    reader.read_exact(&mut buf)?;
+    Ok(buf[0])
+}
+
+pub fn read_u16(reader: &mut dyn Read) -> Result<u16, Error> {
+    let mut buf = [0; 2];
+    reader.read_exact(&mut buf)?;
+    Ok(u16::from_le_bytes(buf))
+}
+
+pub fn read_u32(reader: &mut dyn Read) -> Result<u32, Error> {
+    let mut buf = [0; 4];
+    reader.read_exact(&mut buf)?;
+    Ok(u32::from_le_bytes(buf))
+}
+
+pub fn read_u64(reader: &mut dyn Read) -> Result<u64, Error> {
+    let mut buf = [0; 8];
+    reader.read_exact(&mut buf)?;
+    Ok(u64::from_le_bytes(buf))
+}
+
+pub fn read_f32(reader: &mut dyn Read) -> Result<f32, Error> {
+    let mut buf = [0; 4];
+    reader.read_exact(&mut buf)?;
+    Ok(f32::from_le_bytes(buf))
+}
+
+pub fn read_i16(reader: &mut dyn Read) -> Result<i16, Error> {
+    let mut buf = [0; 2];
+    reader.read_exact(&mut buf)?;
+    Ok(i16::from_le_bytes(buf))
+}
+
+pub fn write_u8(writer: &mut dyn Write, v: u8) -> Result<(), Error> {
+    writer.write_all(&[v])
+}
+
+pub fn write_u16(writer: &mut dyn Write, v: u16) -> Result<(), Error> {
+    writer.write_all(&v.to_le_bytes())
+}
+
+pub fn write_u64(writer: &mut dyn Write, v: u64) -> Result<(), Error> {
+    writer.write_all(&v.to_le_bytes())
+}
+
+pub fn write_u32(writer: &mut dyn Write, v: u32) -> Result<(), Error> {
+    writer.write_all(&v.to_le_bytes())
+}
+
+pub fn write_f32(writer: &mut dyn Write, v: f32) -> Result<(), Error> {
+    writer.write_all(&v.to_le_bytes())
+}
+
+pub fn write_i16(writer: &mut dyn Write, v: i16) -> Result<(), Error> {
+    writer.write_all(&v.to_le_bytes())
 }

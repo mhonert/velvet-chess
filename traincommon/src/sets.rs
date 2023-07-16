@@ -16,7 +16,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use itertools::{Itertools};
 use std::cmp::{min};
 use std::fs::File;
@@ -28,6 +27,7 @@ use lz4_flex::frame::FrameEncoder;
 use velvet::bitboard::{BitBoard};
 use velvet::fen::{parse_fen, FenParseResult};
 use velvet::nn::{piece_idx, KING_BUCKETS, SCORE_SCALE, board_4};
+use velvet::nn::io::{read_f32, read_u16, read_u64, read_u8, write_f32, write_u16, write_u64, write_u8};
 
 pub const SAMPLES_PER_SET: usize = 200_000;
 
@@ -84,7 +84,7 @@ fn convert_test_pos(
                 let mut writer = BufWriter::with_capacity(1024 * 1024, encoder);
 
                 read_from_fen_file(format!("{}/test_pos_{}.fen", in_path2, i).as_str(), &mut writer, use_game_result);
-                writer.write_u16::<LittleEndian>(u16::MAX).unwrap();
+                write_u16(&mut writer, u16::MAX).unwrap();
 
                 writer.flush().unwrap();
             }
@@ -168,22 +168,22 @@ fn read_from_fen_file(file_name: &str, writer: &mut BufWriter<FrameEncoder<File>
             }
         }
 
-        writer.write_u16::<LittleEndian>(bb_map).unwrap();
-        writer.write_f32::<LittleEndian>(if active_player.is_white() { score } else { -score }).unwrap();
-        writer.write_u8(active_player.0).unwrap();
+        write_u16(writer, bb_map).unwrap();
+        write_f32(writer, if active_player.is_white() { score } else { -score }).unwrap();
+        write_u8(writer, active_player.0).unwrap();
 
         let kings = white_king_pos as u16 | ((black_king_pos as u16) << 8);
-        writer.write_u16::<LittleEndian>(kings).unwrap();
+        write_u16(writer, kings).unwrap();
 
         for i in 1i8..=5i8 {
             let bb_white = bb[(i + 6) as usize];
             if bb_white != 0 {
-                writer.write_u64::<LittleEndian>(bb_white).unwrap();
+                write_u64(writer, bb_white).unwrap();
             }
 
             let bb_black = bb[(-i + 6) as usize];
             if bb_black != 0 {
-                writer.write_u64::<LittleEndian>(bb_black).unwrap();
+                write_u64(writer, bb_black).unwrap();
             }
         }
     }
@@ -199,14 +199,14 @@ pub fn read_samples<T: DataSamples>(samples: &mut T, start: usize, file_name: &s
     let mut idx = start;
 
     loop {
-        let mut bb_map = reader.read_u16::<LittleEndian>().unwrap();
+        let mut bb_map = read_u16(&mut reader).unwrap();
         if bb_map == u16::MAX {
             break;
         }
         total_samples += 1;
 
-        let score = reader.read_f32::<LittleEndian>().unwrap();
-        let stm = reader.read_u8().unwrap();
+        let score = read_f32(&mut reader).unwrap();
+        let stm = read_u8(&mut reader).unwrap();
         samples.init(idx, score, stm);
 
         let mut any_castling = false;
@@ -215,7 +215,7 @@ pub fn read_samples<T: DataSamples>(samples: &mut T, start: usize, file_name: &s
             any_castling = true;
         }
 
-        let kings = reader.read_u16::<LittleEndian>().unwrap();
+        let kings = read_u16(&mut reader).unwrap();
         let mut white_king = kings & 0b111111;
         let mut black_king = kings >> 8;
 
@@ -290,7 +290,7 @@ pub fn read_samples<T: DataSamples>(samples: &mut T, start: usize, file_name: &s
         for i in 1i8..=5i8 {
             if bb_map & (1 << (i - 1)) != 0 {
                 // White pieces
-                let bb = reader.read_u64::<LittleEndian>().unwrap();
+                let bb = read_u64(&mut reader).unwrap();
                 for pos in BitBoard(bb) {
                     samples.add_wpov(idx, piece_idx(i) * 64 * 2
                         + transform_wpov(transform(pos as u16))
@@ -303,7 +303,7 @@ pub fn read_samples<T: DataSamples>(samples: &mut T, start: usize, file_name: &s
 
             if bb_map & (1 << (i as usize + 4)) != 0 {
                 // Black pieces
-                let bb = reader.read_u64::<LittleEndian>().unwrap();
+                let bb = read_u64(&mut reader).unwrap();
                 for pos in BitBoard(bb) {
                     samples.add_bpov(idx, piece_idx(i) * 64 * 2
                         + transform_bpov(transform(pos as u16))
