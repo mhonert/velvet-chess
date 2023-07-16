@@ -295,7 +295,7 @@ fn reverse(bit_count: u8, bits: u32) -> u32 {
 }
 
 #[derive(Default)]
-struct FastHasher(u64);
+pub struct FastHasher(u64);
 
 const GOLDEN_RATIO: u64 = 0x9E3779B97F4A7C15;
 
@@ -318,6 +318,11 @@ impl Hasher for FastHasher {
     #[inline]
     fn write_u32(&mut self, value: u32) {
         self.0 = (self.0 ^ value as u64).wrapping_mul(GOLDEN_RATIO);
+    }
+
+    #[inline]
+    fn write_u64(&mut self, value: u64) {
+        self.0 = (self.0 ^ value).wrapping_mul(GOLDEN_RATIO);
     }
 
     #[inline]

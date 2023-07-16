@@ -20,7 +20,6 @@ mod sets;
 mod layer;
 
 use byteorder::{LittleEndian, WriteBytesExt};
-use itertools::Itertools;
 use log::{info};
 use rand::prelude::{Distribution, SliceRandom, ThreadRng};
 use std::env;
@@ -38,7 +37,7 @@ use tch::nn::{Linear, ModuleT, Optimizer, VarStore};
 use tch::{nn, nn::OptimizerConfig, Device, Kind, Reduction, Tensor};
 use traincommon::idsource::IDSource;
 use traincommon::sets::{convert_sets, K, read_samples};
-use velvet::nn::{HL_HALF_NODES, HL_NODES, SCORE_SCALE};
+use velvet::nn::{HL1_HALF_NODES, HL1_NODES, MAX_RELU, SCORE_SCALE};
 pub use velvet::nn::INPUTS;
 use crate::layer::{InputLayer, input_layer};
 use crate::sets::{DataSample, GpuDataSamples};
@@ -48,10 +47,8 @@ const TEST_BATCH_SIZE: usize = 200_000;
 const BATCH_SIZE: i64 = 32000;
 const SETS_PER_BATCH: usize = 4;
 
-const INIT_LR: f64 = 0.0005;
-const MIN_LR: f64 = 1e-8;
-
-const PATIENCE: usize = 8;
+const INIT_LR: f64 = 0.001;
+const INITIAL_PATIENCE: usize = 12;
 
 const VALIDATION_STEP_SIZE: usize = 200_000_000;
 
@@ -72,27 +69,27 @@ trait Mode {
 
 struct EvalNet {
     inputs: InputLayer,
-    hidden: Linear,
+    output: Linear,
 }
 
 impl EvalNet {
     fn new(vs: &nn::Path) -> Self {
         EvalNet{
-            inputs: input_layer(vs / "input", INPUTS as i64, HL_HALF_NODES as i64),
-            hidden: nn::linear(vs / "output", HL_NODES as i64, 1, Default::default()),
+            inputs: input_layer(vs / "input", INPUTS as i64, HL1_HALF_NODES as i64),
+            output: nn::linear(vs / "output", HL1_NODES as i64, 1, Default::default()),
         }
     }
 }
 
 impl Mode for EvalNet {
     fn print_info(&self) {
-        println!("Training neural network: {} x 2x{} x 1", INPUTS, HL_HALF_NODES);
+        println!("Training neural network: {} x 2x{} x 1", INPUTS, HL1_HALF_NODES);
     }
 
     fn forward_t(&self, white_xs: &Tensor, black_xs: &Tensor, stms: &Tensor, train: bool) -> Tensor {
-        let hidden_acc = self.inputs.forward(white_xs, black_xs, stms).clamp_min(0.0f64);
+        let acc = self.inputs.forward(white_xs, black_xs, stms).clamp(0.0, MAX_RELU as f64).square();
 
-        self.hidden.forward_t(&hidden_acc, train)
+        (self.output.forward_t(&acc, train))
             .multiply_scalar(K_DIV)
             .sigmoid()
     }
@@ -109,21 +106,11 @@ impl Mode for EvalNet {
         writer.write_i8(hidden_layers).unwrap(); // Number of hidden layers
 
         let input_bias = Tensor::cat(&[vars.get("input.own_bias").unwrap(), vars.get("input.opp_bias").unwrap()], 0);
-        write_layer(&mut writer, vars.get("input.weight").unwrap(), &input_bias, 1.0)
-            .expect("Could not write layer");
+        write_raw(&mut writer, &vars.get("input.weight").unwrap(), 1.0).expect("Could not write layer");
+        write_raw(&mut writer, &input_bias, 1.0).expect("Could not write layer");
 
-        for i in 1..hidden_layers {
-            write_layer(
-                &mut writer,
-                vars.get(format!("hidden{}.weight", i).as_str()).unwrap(),
-                vars.get(format!("hidden{}.bias", i).as_str()).unwrap(),
-                1.0,
-            )
-            .expect("Could not write layer");
-        }
-
-        write_layer(&mut writer, vars.get("output.weight").unwrap(), vars.get("output.bias").unwrap(), 1.0)
-            .expect("Could not write layer");
+        write_raw(&mut writer, vars.get("output.weight").unwrap(), 1.0).expect("Could not write layer");
+        write_raw(&mut writer, vars.get("output.bias").unwrap(), 1.0).expect("Could not write layer");
     }
 }
 
@@ -145,8 +132,6 @@ pub fn main() {
     let device = Device::cuda_if_available();
     let mut vs = VarStore::new(device);
 
-    let net = Box::new(EvalNet::new(&vs.root()));
-
     let data_reader_threads = match usize::from_str(env::args().nth(2).unwrap().as_str()) {
         Ok(count) => count.max(1),
         Err(_) => {
@@ -155,7 +140,6 @@ pub fn main() {
         }
     };
 
-    net.print_info();
 
     let available_parallelism = thread::available_parallelism().unwrap().get();
     info!("Scanning available training sets ...");
@@ -200,14 +184,10 @@ pub fn main() {
     let mut best_error = f64::MAX;
 
     let mut epoch = 1;
-    match vs.load(&format!("data/nets/{}.vs", 3)) {
-        Ok(_) => {
-            info!("Continue training from epoch {}", epoch);
-        }
-        Err(e) => {
-            info!("Could not continue training: {}", e);
-        }
-    }
+
+    let net = Box::new(EvalNet::new(&vs.root()));
+
+    net.print_info();
 
     let mut epoch_changed = false;
     let mut epoch_start = Instant::now();
@@ -232,6 +212,9 @@ pub fn main() {
     let mut missed_improvements = 0;
     let mut best_net_epoch_id = 0;
     let mut total_samples = 0;
+    let mut norm_epoch = 1;
+
+    let mut patience = INITIAL_PATIENCE;
 
     loop {
         if calc_validation_error {
@@ -256,7 +239,7 @@ pub fn main() {
 
             calc_validation_error = false;
 
-            if validation_error <= best_error {
+            if validation_error <= best_error || norm_epoch <= 2 {
                 best_net_epoch_id = epoch;
                 if best_error != f64::MAX {
                     accum += best_error - validation_error;
@@ -269,10 +252,19 @@ pub fn main() {
                 missed_improvements += 1;
             }
 
-            if missed_improvements >= PATIENCE {
+            if missed_improvements >= patience {
+                if patience > 6 {
+                    patience /= 2;
+                } else if patience > 2 {
+                    patience -= 1;
+                }
                 missed_improvements = 0;
                 lr *= 0.4;
                 opt.set_lr(lr);
+
+                if lr <= 0.00000166 {
+                    break;
+                }
 
                 if best_net_epoch_id != 0 {
                     match vs.load(&format!("data/nets/{}.vs", best_net_epoch_id)) {
@@ -284,7 +276,7 @@ pub fn main() {
                 }
             }
 
-            info!("Calculated validation error in {} seconds", validation_start.elapsed().as_secs_f64());
+            info!("Calculated validation error in {} seconds: {}", validation_start.elapsed().as_secs_f64(), validation_error);
         }
 
         let mut train_loss = 0.0;
@@ -319,6 +311,7 @@ pub fn main() {
         if total_samples >= epoch_validation_threshold {
             epoch_validation_threshold = total_samples + VALIDATION_STEP_SIZE;
             calc_validation_error = true;
+            norm_epoch += 1;
         }
 
         train_loss /= batch_count as f64;
@@ -327,8 +320,8 @@ pub fn main() {
             (train_count as f64 * 1000.0) / Instant::now().duration_since(iter_start).as_millis() as f64;
 
         info!(
-            "Epoch: {:02} [ {:2}% ] / LR: {:1.8}, BS: {} - Best err: {:1.10} / Train err: {:1.10} / Acc.: {:1.10} / {:.0} samples/sec / Elapsed: {:3.1}m",
-            epoch, (curr_epoch_samples * 100 / samples_per_epoch).min(100), lr, BATCH_SIZE, best_error, train_loss, accum, samples_per_sec,
+            "Norm. Epoch: {:02} / Set Epoch: {:02} [ {:2}% ] / LR: {:1.8}, BS: {} - Best err: {:1.10} / Train err: {:1.10} / Acc.: {:1.10} / {:.0} samples/sec / Elapsed: {:3.1}m",
+            norm_epoch, epoch, (curr_epoch_samples * 100 / samples_per_epoch).min(100), lr, BATCH_SIZE, best_error, train_loss, accum, samples_per_sec,
             train_start.elapsed().as_secs_f64() / 60.0
         );
 
@@ -342,10 +335,6 @@ pub fn main() {
             );
 
             epoch += 1;
-
-            if lr <= MIN_LR {
-                break;
-            }
 
             epoch_changed = false;
             curr_epoch_samples = 0;
@@ -414,20 +403,14 @@ fn to_sparse_tensors(samples: &[DataSample], device: Device) -> (Tensor, Tensor,
      Tensor::of_slice(&ys).to(device).view((samples.len() as i64, 1)))
 }
 
-fn write_layer(writer: &mut BufWriter<File>, weights: &Tensor, biases: &Tensor, scale: f32) -> Result<(), Error> {
-    let size = weights.size();
-
-    writer.write_i32::<LittleEndian>(size[0] as i32)?;
-    writer.write_i32::<LittleEndian>(size[1] as i32)?;
+fn write_raw(writer: &mut BufWriter<File>, weights: &Tensor, scale: f32) -> Result<(), Error> {
+    for size in weights.size() {
+        writer.write_u16::<LittleEndian>(size as u16)?;
+    }
 
     let ws: Vec<f32> = weights.into();
     for &weight in ws.iter() {
         writer.write_f32::<LittleEndian>(weight * scale)?;
-    }
-
-    let bs: Vec<f32> = biases.into();
-    for &bias in bs.iter() {
-        writer.write_f32::<LittleEndian>(bias * scale)?;
     }
 
     Ok(())
@@ -449,9 +432,6 @@ fn spawn_data_reader_threads(
             let batch_size = sets_per_batch * SAMPLES_PER_SET;
             let mut training_samples = GpuDataSamples(vec![DataSample::default(); batch_size]);
 
-            let mut shuffle_base = (0..batch_size).collect_vec();
-            shuffle_base.shuffle(&mut rng);
-
             let distribution = Uniform::new_inclusive::<u8, u8>(0, 3);
             let mut transform_rnd = Vec::with_capacity(batch_size);
             for _ in 0..batch_size {
@@ -461,14 +441,9 @@ fn spawn_data_reader_threads(
             let mut t_start = training_samples.0.len() - BATCH_SIZE as usize;
             let mut t_end = training_samples.0.len();
             let mut count = 0;
-            let mut iter = 0;
             let mut curr_epoch = 1;
             loop {
                 if count < BATCH_SIZE as usize {
-                    iter += 1;
-                    if iter & 15 == 0 {
-                        shuffle_base.shuffle(&mut rng);
-                    }
                     let (epoch, sets) = thread_id_source.write().unwrap().next_batch(&mut rng);
                     if epoch != curr_epoch {
                         curr_epoch = epoch;

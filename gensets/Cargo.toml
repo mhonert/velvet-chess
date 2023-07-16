@@ -7,9 +7,14 @@ edition = "2021"
 
 [dependencies]
 velvet = { path = "../engine", default-features = false }
+fathomrs = { path = "../fathomrs" }
 
-clap = "2.33.3"
-itertools = "0.10.0"
+anyhow = "1.0.71"
+clap = { version = "4.3.11", features = ["derive"] }
+ctrlc = "3.4.0"
+glob = "0.3.1"
+itertools = "0.11.0"
+pgn-reader = "0.24.0"
 rand = "0.8.4"
-shakmaty = "0.20.3"
-shakmaty-syzygy = "0.18.0"
+shakmaty = "0.25.0"
+uuid = { version = "1.4.0", features = ["v4", "fast-rng"] }

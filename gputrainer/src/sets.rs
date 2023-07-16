@@ -23,12 +23,13 @@ pub struct DataSample {
     pub wpov_inputs: Vec<i64>,
     pub bpov_inputs: Vec<i64>,
     pub result: f32,
-    pub wtm: f32,
+    pub wtm: i8,
+    pub piece_bucket: i8,
 }
 
 impl Default for DataSample {
     fn default() -> Self {
-        DataSample { wpov_inputs: Vec::with_capacity(32), bpov_inputs: Vec::with_capacity(32), result: 0.0, wtm: 0.0 }
+        DataSample { wpov_inputs: Vec::with_capacity(32), bpov_inputs: Vec::with_capacity(32), result: 0.0, wtm: 0, piece_bucket: 0 }
     }
 }
 
@@ -40,7 +41,7 @@ impl DataSamples for GpuDataSamples {
         sample.wpov_inputs.clear();
         sample.bpov_inputs.clear();
         sample.result = result;
-        sample.wtm = (1 - stm) as f32;
+        sample.wtm = 1 - stm as i8;
     }
 
     fn add_wpov(&mut self, idx: usize, pos: u16) {

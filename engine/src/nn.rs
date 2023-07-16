@@ -18,7 +18,7 @@
 
 use std::sync::Once;
 
-use byteorder::{LittleEndian, ReadBytesExt};
+use byteorder::{ReadBytesExt};
 
 use crate::align::A32;
 use crate::nn::io::{read_quantized};
@@ -31,21 +31,29 @@ pub const KING_BUCKETS: usize = 8;
 pub const PIECE_BUCKETS: usize = 3;
 pub const INPUTS: usize = (6 * KING_BUCKETS * PIECE_BUCKETS * 64) * 2;
 
-pub const HL_NODES: usize = 2 * HL_HALF_NODES;
-pub const HL_HALF_NODES: usize = 512;
+pub const HL1_NODES: usize = 2 * HL1_HALF_NODES;
+pub const HL1_HALF_NODES: usize = 512;
 
-pub const INPUT_WEIGHT_COUNT: usize = INPUTS * HL_HALF_NODES;
+pub const MAX_RELU: f32 = 1.999;
+pub const FP_MAX_RELU: i16 = (MAX_RELU * FP_IN_MULTIPLIER as f32) as i16;
+
+pub const INPUT_WEIGHT_COUNT: usize = INPUTS * HL1_HALF_NODES;
 
 // Fixed point number precision
-pub const FP_INPUT_MULTIPLIER: i16 = 1 << 10;
-pub const FP_HIDDEN_MULTIPLIER: i16 = 1 << 12;
+pub const FP_IN_PRECISION_BITS: u8 = 9;
+pub const FP_IN_MULTIPLIER: i64 = 1 << FP_IN_PRECISION_BITS;
+
+pub const FP_OUT_PRECISION_BITS: u8 = 10;
+pub const FP_OUT_MULTIPLIER: i64 = 1 << FP_OUT_PRECISION_BITS;
 
 pub const SCORE_SCALE: i16 = 1024;
 
-pub static mut INPUT_WEIGHTS: A32<[i16; INPUT_WEIGHT_COUNT]> = A32([0; INPUT_WEIGHT_COUNT]);
-pub static mut INPUT_BIASES: A32<[i16; HL_NODES]> = A32([0; HL_NODES]);
-pub static mut OUTPUT_WEIGHTS: A32<[i16; HL_NODES]> = A32([0; HL_NODES]);
-pub static mut OUTPUT_BIASES: A32<[i16; 1]> = A32([0; 1]);
+pub static mut IN_TO_H1_WEIGHTS: A32<[i16; INPUT_WEIGHT_COUNT]> = A32([0; INPUT_WEIGHT_COUNT]);
+pub static mut H1_BIASES: A32<[i16; HL1_NODES]> = A32([0; HL1_NODES]);
+
+pub static mut H1_TO_OUT_WEIGHTS: A32<[i16; HL1_NODES]> = A32([0; HL1_NODES]);
+
+pub static mut OUT_BIASES: A32<[i16; 1]> = A32([0; 1]);
 
 static INIT_NN_PARAMS: Once = Once::new();
 
@@ -57,29 +65,30 @@ pub fn init_nn_params() {
     INIT_NN_PARAMS.call_once(|| {
         let mut reader = &include_bytes!("../nets/velvet.qnn")[..];
 
-        let input_multiplier = reader.read_i16::<LittleEndian>().expect("Could not read input multiplier");
+        let in_precision_bits = reader.read_u8().expect("Could not read input fixed point precision bits");
         assert_eq!(
-            input_multiplier, FP_INPUT_MULTIPLIER,
-            "NN hidden layer has been quantized with a different (input) fixed point multiplier, expected: {}, got: {}",
-            FP_INPUT_MULTIPLIER, input_multiplier
+            in_precision_bits, FP_IN_PRECISION_BITS,
+            "NN hidden layer has been quantized with a different (input) fixed point precision, expected: {}, got: {}",
+            FP_IN_PRECISION_BITS, in_precision_bits
         );
 
-        let hidden_multiplier = reader.read_i16::<LittleEndian>().expect("Could not read hidden multiplier");
+        let out_precision_bits = reader.read_u8().expect("Could not read output fixed point precision bits");
         assert_eq!(
-            hidden_multiplier, FP_HIDDEN_MULTIPLIER,
-            "NN hidden layer has been quantized with a different (hidden) fixed point multiplier, expected: {}, got: {}",
-            FP_HIDDEN_MULTIPLIER, hidden_multiplier
+            out_precision_bits, FP_OUT_PRECISION_BITS,
+            "NN hidden layer has been quantized with a different (input) fixed point precision, expected: {}, got: {}",
+            FP_OUT_PRECISION_BITS, out_precision_bits
         );
 
-        read_quantized(&mut reader, unsafe { &mut INPUT_WEIGHTS.0 }).expect("Could not read input weights");
-        read_quantized(&mut reader, unsafe { &mut INPUT_BIASES.0 }).expect("Could not read input biases");
-        read_quantized(&mut reader, unsafe { &mut OUTPUT_WEIGHTS.0 }).expect("Could not read output weights");
-        read_quantized(&mut reader, unsafe { &mut OUTPUT_BIASES.0 }).expect("Could not read output biases");
+        read_quantized(&mut reader, unsafe { &mut IN_TO_H1_WEIGHTS.0 }).expect("Could not read weights");
+        read_quantized(&mut reader, unsafe { &mut H1_BIASES.0 }).expect("Could not read biases");
+
+        read_quantized(&mut reader, unsafe { &mut H1_TO_OUT_WEIGHTS.0 }).expect("Could not read weights");
+        read_quantized(&mut reader, unsafe { &mut OUT_BIASES.0 }).expect("Could not read biases");
     });
 }
 
 #[inline(always)]
-pub fn board_8(pos: u16) -> u16 {
+pub fn board_4(pos: u16) -> u16 {
     let row = pos / 8;
     let col = pos & 3;
 

@@ -19,14 +19,14 @@
 use crate::align::A32;
 use crate::bitboard::{h_mirror, h_mirror_i8, v_mirror, v_mirror_i8, BitBoards};
 use crate::colors::Color;
-use crate::nn::{piece_idx, FP_HIDDEN_MULTIPLIER, FP_INPUT_MULTIPLIER, HL_HALF_NODES, INPUT_BIASES, INPUT_WEIGHTS, KING_BUCKETS, OUTPUT_BIASES, OUTPUT_WEIGHTS, SCORE_SCALE, board_8};
+use crate::nn::{piece_idx, HL1_HALF_NODES, KING_BUCKETS, SCORE_SCALE, board_4, IN_TO_H1_WEIGHTS, OUT_BIASES, FP_OUT_MULTIPLIER};
 use crate::pieces::{Q, R};
-use crate::scores::sanitize_eval_score;
+use crate::scores::{MAX_EVAL, MIN_EVAL, sanitize_eval_score};
 
 #[derive(Clone)]
 pub struct NeuralNetEval {
-    hidden_nodes_white: A32<[i16; HL_HALF_NODES]>, // white perspective
-    hidden_nodes_black: A32<[i16; HL_HALF_NODES]>, // black perspective
+    hidden_nodes_white: A32<[i16; HL1_HALF_NODES]>, // white perspective
+    hidden_nodes_black: A32<[i16; HL1_HALF_NODES]>, // black perspective
 
     white_offset: u16,
     black_offset: u16,
@@ -51,8 +51,8 @@ enum UpdateAction {
 impl NeuralNetEval {
     pub fn new() -> Box<Self> {
         Box::new(NeuralNetEval {
-            hidden_nodes_white: A32([0; HL_HALF_NODES]),
-            hidden_nodes_black: A32([0; HL_HALF_NODES]),
+            hidden_nodes_white: A32([0; HL1_HALF_NODES]),
+            hidden_nodes_black: A32([0; HL1_HALF_NODES]),
 
             white_offset: 0,
             black_offset: 0,
@@ -132,8 +132,8 @@ impl NeuralNetEval {
     fn add_piece_now(&mut self, pos: usize, piece: i8) {
         let (white_pov_idx, black_pov_idx) = self.calc_pov_weight_start(pos, piece);
 
-        add_weights::<HL_HALF_NODES>(&mut self.hidden_nodes_white.0, unsafe { &INPUT_WEIGHTS.0 }, white_pov_idx);
-        add_weights::<HL_HALF_NODES>(&mut self.hidden_nodes_black.0, unsafe { &INPUT_WEIGHTS.0 }, black_pov_idx);
+        add_weights::<HL1_HALF_NODES>(&mut self.hidden_nodes_white.0, unsafe { &IN_TO_H1_WEIGHTS.0 }, white_pov_idx);
+        add_weights::<HL1_HALF_NODES>(&mut self.hidden_nodes_black.0, unsafe { &IN_TO_H1_WEIGHTS.0 }, black_pov_idx);
     }
 
     pub fn remove_piece(&mut self, pos: usize, piece: i8) {
@@ -145,8 +145,8 @@ impl NeuralNetEval {
     fn remove_piece_now(&mut self, pos: usize, piece: i8) {
         let (white_pov_idx, black_pov_idx) = self.calc_pov_weight_start(pos, piece);
 
-        sub_weights::<HL_HALF_NODES>(&mut self.hidden_nodes_white.0, unsafe { &INPUT_WEIGHTS.0 }, white_pov_idx);
-        sub_weights::<HL_HALF_NODES>(&mut self.hidden_nodes_black.0, unsafe { &INPUT_WEIGHTS.0 }, black_pov_idx);
+        sub_weights::<HL1_HALF_NODES>(&mut self.hidden_nodes_white.0, unsafe { &IN_TO_H1_WEIGHTS.0 }, white_pov_idx);
+        sub_weights::<HL1_HALF_NODES>(&mut self.hidden_nodes_black.0, unsafe { &IN_TO_H1_WEIGHTS.0 }, black_pov_idx);
     }
 
     fn calc_pov_weight_start(&self, pos: usize, piece: i8) -> (usize, usize) {
@@ -185,20 +185,12 @@ impl NeuralNetEval {
             (&self.hidden_nodes_black.0, &self.hidden_nodes_white.0)
         };
 
-        let output = (forward_pass::<HL_HALF_NODES>(
-            own_hidden_nodes,
-            unsafe { &OUTPUT_WEIGHTS.0[0..HL_HALF_NODES] },
-            unsafe { &INPUT_BIASES.0[0..HL_HALF_NODES] },
-            opp_hidden_nodes,
-            unsafe { &OUTPUT_WEIGHTS.0[HL_HALF_NODES..] },
-            unsafe { &INPUT_BIASES.0[HL_HALF_NODES..] },
-        ) as i64
-            + unsafe { *OUTPUT_BIASES.0.get_unchecked(0) } as i64 * FP_INPUT_MULTIPLIER as i64)
-            * SCORE_SCALE as i64
-            / (FP_INPUT_MULTIPLIER as i64 * FP_HIDDEN_MULTIPLIER as i64);
+        let output = (
+            (forward_pass(own_hidden_nodes, opp_hidden_nodes) as i64
+                + (unsafe { *OUT_BIASES.0.get_unchecked(0) } as i64)
+            ) * SCORE_SCALE as i64) / FP_OUT_MULTIPLIER;
 
-        let score = sanitize_eval_score(output as i32);
-        adjust_eval(score, half_move_clock)
+        adjust_eval(output as i32, half_move_clock)
     }
 
     fn apply_updates(&mut self, bitboards: &BitBoards, white_king: i8, black_king: i8) {
@@ -233,13 +225,31 @@ impl NeuralNetEval {
 }
 
 // Scale eval score towards 0 for decreasing number of remaining half moves till the 50-move (draw) rule triggers
-fn adjust_eval(score: i32, half_move_clock: u8) -> i32 {
+fn adjust_eval(mut score: i32, half_move_clock: u8) -> i32 {
+    if score > MAX_EVAL / 2  {
+        score = MAX_EVAL / 2 + ((score - MAX_EVAL / 2) / 2);
+        let bound = MAX_EVAL * 3 / 2;
+        if score > bound {
+            score = bound + ((score - bound) / 2);
+            score = sanitize_eval_score(score);
+        }
+    } else if score < MIN_EVAL / 2 {
+        score = MIN_EVAL / 2 + ((score - MIN_EVAL / 2) / 2);
+        let bound = MIN_EVAL * 3 / 2;
+        if score < bound {
+            score = bound + ((score - bound) / 2);
+            score = sanitize_eval_score(score);
+        }
+    }
+
     let remaining_half_moves = 0.max(100 - half_move_clock as i32);
-    if remaining_half_moves >= 95 {
+    score = if remaining_half_moves >= 95 {
         score
     } else {
         score * remaining_half_moves / 95
-    }
+    };
+
+    score
 }
 
 fn calc_bucket_offsets(
@@ -258,8 +268,8 @@ fn calc_bucket_offsets(
         black_king = h_mirror_i8(black_king);
     }
 
-    let w_kingrel_bucket = board_8(white_king as u16);
-    let b_kingrel_bucket = board_8(v_mirror_i8(black_king) as u16);
+    let w_kingrel_bucket = board_4(white_king as u16);
+    let b_kingrel_bucket = board_4(v_mirror_i8(black_king) as u16);
 
     let piece_bucket = if (bitboards.by_piece(Q) | bitboards.by_piece(-Q)).is_empty() {
         if (bitboards.by_piece(R) | bitboards.by_piece(-R)).is_empty() {
@@ -284,23 +294,20 @@ fn calc_bucket_offsets(
 }
 
 #[inline(always)]
-fn forward_pass<const N: usize>(
-    own_nodes: &[i16], own_weights: &[i16], own_biases: &[i16], opp_nodes: &[i16], opp_weights: &[i16],
-    opp_biases: &[i16],
-) -> i32 {
+fn forward_pass(own_nodes: &[i16], opp_nodes: &[i16]) -> i32 {
     #[cfg(target_feature = "avx2")]
     {
-        avx2::forward_pass::<N>(own_nodes, own_weights, own_biases, opp_nodes, opp_weights, opp_biases)
+        avx2::forward_pass(own_nodes, opp_nodes)
     }
 
     #[cfg(all(target_feature = "sse2", not(target_feature = "avx2")))]
     {
-        sse2::forward_pass::<N>(own_nodes, own_weights, own_biases, opp_nodes, opp_weights, opp_biases)
+        sse2::forward_pass(own_nodes, opp_nodes)
     }
 
     #[cfg(not(any(target_feature = "sse2", target_feature = "avx2")))]
     {
-        fallback::forward_pass::<N>(own_nodes, own_weights, own_biases, opp_nodes, opp_weights, opp_biases)
+        fallback::forward_pass(own_nodes, opp_nodes)
     }
 }
 
@@ -344,28 +351,42 @@ pub fn sub_weights<const N: usize>(nodes: &mut [i16], weights: &[i16], weight_id
 mod avx2 {
     use core::arch::x86_64::*;
     use std::intrinsics::transmute;
+    use crate::nn::{FP_MAX_RELU, FP_IN_PRECISION_BITS, H1_BIASES, H1_TO_OUT_WEIGHTS, HL1_HALF_NODES, FP_OUT_PRECISION_BITS};
 
     #[inline(always)]
-    pub fn forward_pass<const N: usize>(
-        own_nodes: &[i16], own_weights: &[i16], own_biases: &[i16], opp_nodes: &[i16], opp_weights: &[i16],
-        opp_biases: &[i16],
-    ) -> i32 {
+    pub fn forward_pass(own_nodes: &[i16], opp_nodes: &[i16]) -> i32 {
         unsafe {
-            let mut acc = _mm256_setzero_si256();
+            // H1 to ML
+            let zero = _mm256_setzero_si256();
+            let max_relu = _mm256_set1_epi16(FP_MAX_RELU);
 
-            for i in 0..(N / 16) {
-                acc = _mm256_add_epi32(acc, apply_weights(i, own_nodes, own_weights, own_biases));
-                acc = _mm256_add_epi32(acc, apply_weights(i, opp_nodes, opp_weights, opp_biases));
+            let mut out_accum = zero;
+            for i in 0..HL1_HALF_NODES / 16 {
+                let h1 = _mm256_load_si256(transmute(own_nodes.as_ptr().add(i * 16)));
+                let h1_bias = _mm256_load_si256(transmute(H1_BIASES.0.as_ptr().add(i * 16)));
+                let h1_relu = squared(_mm256_min_epu16(_mm256_max_epi16(_mm256_add_epi16(h1, h1_bias), zero), max_relu));
+                let w = _mm256_load_si256(transmute(H1_TO_OUT_WEIGHTS.0.as_ptr().add(i * 16)));
+                let h1_x_w = _mm256_madd_epi16(h1_relu, w);
+
+                out_accum = _mm256_add_epi32(out_accum, h1_x_w);
+
+                let h1 = _mm256_load_si256(transmute(opp_nodes.as_ptr().add(i * 16)));
+                let h1_bias = _mm256_load_si256(transmute(H1_BIASES.0.as_ptr().add(i * 16 + HL1_HALF_NODES)));
+                let h1_relu = squared(_mm256_min_epu16(_mm256_max_epi16(_mm256_add_epi16(h1, h1_bias), zero), max_relu));
+                let w = _mm256_load_si256(transmute(H1_TO_OUT_WEIGHTS.0.as_ptr().add(i * 16 + HL1_HALF_NODES)));
+                let h1_x_w = _mm256_madd_epi16(h1_relu, w);
+
+                out_accum = _mm256_add_epi32(out_accum, h1_x_w);
             }
 
             // Final horizontal sum of the lanes for the accumulator
-            let sum128 = _mm_add_epi32(_mm256_castsi256_si128(acc), _mm256_extracti128_si256::<1>(acc));
+            let sum128 = _mm_add_epi32(_mm256_castsi256_si128(out_accum), _mm256_extracti128_si256::<1>(out_accum));
             let hi64 = _mm_unpackhi_epi64(sum128, sum128);
             let sum64 = _mm_add_epi32(hi64, sum128);
             let hi32 = _mm_shuffle_epi32::<0b10110001>(sum64);
             let sum32 = _mm_add_epi32(sum64, hi32);
 
-            _mm_cvtsi128_si32(sum32)
+            _mm_cvtsi128_si32(sum32) >> FP_OUT_PRECISION_BITS as i32
         }
     }
 
@@ -394,45 +415,52 @@ mod avx2 {
     }
 
     #[inline(always)]
-    fn apply_weights(i: usize, nodes: &[i16], weights: &[i16], biases: &[i16]) -> __m256i {
-        unsafe {
-            let zero = _mm256_setzero_si256();
-
-            let n = _mm256_load_si256(transmute(nodes.as_ptr().add(i * 16)));
-            let bias = _mm256_load_si256(transmute(biases.as_ptr().add(i * 16)));
-            let n_relu = _mm256_max_epi16(_mm256_add_epi16(n, bias), zero);
-
-            let w = _mm256_load_si256(transmute(weights.as_ptr().add(i * 16)));
-            _mm256_madd_epi16(n_relu, w)
-        }
+    unsafe fn squared(v: __m256i) -> __m256i {
+        let v_scaled = _mm256_slli_epi16::<{13 - FP_IN_PRECISION_BITS as i32}>(v);
+        _mm256_mulhi_epu16(v_scaled, v_scaled)
     }
+
 }
 
 #[cfg(all(target_arch = "x86_64", target_feature = "sse2", not(target_feature = "avx2")))]
 mod sse2 {
     use core::arch::x86_64::*;
     use std::intrinsics::transmute;
+    use crate::nn::{FP_MAX_RELU, FP_IN_PRECISION_BITS, H1_BIASES, H1_TO_OUT_WEIGHTS, HL1_HALF_NODES, FP_OUT_PRECISION_BITS};
 
     #[inline(always)]
-    pub fn forward_pass<const N: usize>(
-        own_nodes: &[i16], own_weights: &[i16], own_biases: &[i16], opp_nodes: &[i16], opp_weights: &[i16],
-        opp_biases: &[i16],
-    ) -> i32 {
+    pub fn forward_pass(own_nodes: &[i16], opp_nodes: &[i16]) -> i32 {
         unsafe {
-            let mut acc = _mm_setzero_si128();
+            // H1 to ML
+            let zero = _mm_setzero_si128();
+            let max_relu = _mm_set1_epi16(FP_MAX_RELU);
 
-            for i in 0..(N / 8) {
-                acc = _mm_add_epi32(acc, apply_weights(i, own_nodes, own_weights, own_biases));
-                acc = _mm_add_epi32(acc, apply_weights(i, opp_nodes, opp_weights, opp_biases));
+            let mut out_accum = zero;
+            for i in 0..HL1_HALF_NODES / 8 {
+                let h1 = _mm_load_si128(transmute(own_nodes.as_ptr().add(i * 8)));
+                let h1_bias = _mm_load_si128(transmute(H1_BIASES.0.as_ptr().add(i * 8)));
+                let h1_relu = squared(_mm_min_epu16(_mm_max_epi16(_mm_add_epi16(h1, h1_bias), zero), max_relu));
+                let w = _mm_load_si128(transmute(H1_TO_OUT_WEIGHTS.0.as_ptr().add(i * 8)));
+                let h1_x_w = _mm_madd_epi16(h1_relu, w);
+
+                out_accum = _mm_add_epi32(out_accum, h1_x_w);
+
+                let h1 = _mm_load_si128(transmute(opp_nodes.as_ptr().add(i * 8)));
+                let h1_bias = _mm_load_si128(transmute(H1_BIASES.0.as_ptr().add(i * 8 + HL1_HALF_NODES)));
+                let h1_relu = squared(_mm_min_epu16(_mm_max_epi16(_mm_add_epi16(h1, h1_bias), zero), max_relu));
+                let w = _mm_load_si128(transmute(H1_TO_OUT_WEIGHTS.0.as_ptr().add(i * 8 + HL1_HALF_NODES)));
+                let h1_x_w = _mm_madd_epi16(h1_relu, w);
+
+                out_accum = _mm_add_epi32(out_accum, h1_x_w);
             }
 
             // Final horizontal sum of the lanes for the accumulator
-            let hi64 = _mm_shuffle_epi32::<0b01001110>(acc);
-            let sum64 = _mm_add_epi32(hi64, acc);
-            let hi32 = _mm_shufflelo_epi16::<0b01001110>(sum64);
+            let hi64 = _mm_unpackhi_epi64(out_accum, out_accum);
+            let sum64 = _mm_add_epi32(hi64, out_accum);
+            let hi32 = _mm_shuffle_epi32::<0b10110001>(sum64);
             let sum32 = _mm_add_epi32(sum64, hi32);
 
-            _mm_cvtsi128_si32(sum32)
+            _mm_cvtsi128_si32(sum32) >> FP_OUT_PRECISION_BITS as i32
         }
     }
 
@@ -461,56 +489,62 @@ mod sse2 {
     }
 
     #[inline(always)]
-    fn apply_weights(i: usize, nodes: &[i16], weights: &[i16], biases: &[i16]) -> __m128i {
-        unsafe {
-            let zero = _mm_setzero_si128();
-
-            let n = _mm_load_si128(transmute(nodes.as_ptr().add(i * 8)));
-            let bias = _mm_load_si128(transmute(biases.as_ptr().add(i * 8)));
-            let n_relu = _mm_max_epi16(_mm_add_epi16(n, bias), zero);
-            let w = _mm_load_si128(transmute(weights.as_ptr().add(i * 8)));
-            _mm_madd_epi16(n_relu, w)
-        }
+    unsafe fn squared(v: __m128i) -> __m128i {
+        let v_scaled = _mm_slli_epi16::<{13 - FP_IN_PRECISION_BITS as i32}>(v);
+        _mm_mulhi_epu16(v_scaled, v_scaled)
     }
 }
 
 #[cfg(not(any(target_feature = "sse2", target_feature = "avx2")))]
 mod fallback {
+    use crate::nn::{FP_IN_PRECISION_BITS, FP_MAX_RELU, FP_OUT_PRECISION_BITS, H1_BIASES, H1_TO_OUT_WEIGHTS, HL1_HALF_NODES};
+
     #[inline(always)]
-    pub fn forward_pass<const N: usize>(
-        own_nodes: &[i16], own_weights: &[i16], own_biases: &[i16], opp_nodes: &[i16], opp_weights: &[i16],
-        opp_biases: &[i16],
-    ) -> i32 {
-        apply_weights(own_nodes, own_weights, own_biases) + apply_weights(opp_nodes, opp_weights, opp_biases)
+    pub fn forward_pass(own_nodes: &[i16], opp_nodes: &[i16]) -> i32 {
+        // H1 to ML
+        let zero = 0;
+        let max_relu = FP_MAX_RELU;
+
+        let mut out_accum = zero as i32;
+        for i in 0..HL1_HALF_NODES {
+            unsafe {
+                let h1 = *own_nodes.get_unchecked(i);
+                let h1_bias = *H1_BIASES.0.get_unchecked(i);
+                let h1_relu = squared(max_relu.min(zero.max(h1 + h1_bias)));
+                let w = *H1_TO_OUT_WEIGHTS.0.get_unchecked(i);
+                let h1_x_w = h1_relu as i32 * w as i32;
+                out_accum += h1_x_w;
+
+                let h1 = *opp_nodes.get_unchecked(i);
+                let h1_bias = *H1_BIASES.0.get_unchecked(i + HL1_HALF_NODES);
+                let h1_relu = squared(max_relu.min(zero.max(h1 + h1_bias)));
+                let w = *H1_TO_OUT_WEIGHTS.0.get_unchecked(i + HL1_HALF_NODES);
+                let h1_x_w = h1_relu as i32 * w as i32;
+                out_accum += h1_x_w;
+            }
+        }
+
+        out_accum >> FP_OUT_PRECISION_BITS as i32
+    }
+
+    #[inline(always)]
+    fn squared(v: i16) -> i16 {
+        let v_scaled = (v as i32) << (13 - FP_IN_PRECISION_BITS);
+        ((v_scaled * v_scaled) >> 16) as i16
     }
 
     #[inline(always)]
     pub fn add_weights<const N: usize>(nodes: &mut [i16], weights: &[i16], weight_idx: usize) {
         for (nodes, weight) in nodes.iter_mut().zip(weights.chunks_exact(N).nth(weight_idx).unwrap()) {
-            *nodes += *weight as i16;
+            *nodes += *weight;
         }
     }
 
     #[inline(always)]
     pub fn sub_weights<const N: usize>(nodes: &mut [i16], weights: &[i16], weight_idx: usize) {
         for (nodes, weight) in nodes.iter_mut().zip(weights.chunks_exact(N).nth(weight_idx).unwrap()) {
-            *nodes -= *weight as i16;
+            *nodes -= *weight;
         }
-    }
-
-    #[inline(always)]
-    fn apply_weights(nodes: &[i16], weights: &[i16], biases: &[i16]) -> i32 {
-        nodes
-            .iter()
-            .zip(biases.iter())
-            .zip(weights.iter())
-            .map(|((&n, &b), &w)| (relu(n + b) as i32 * w as i32))
-            .sum::<i32>()
-    }
-
-    #[inline(always)]
-    fn relu(v: i16) -> i16 {
-        v.max(0)
     }
 }
 

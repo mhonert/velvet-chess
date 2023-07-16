@@ -167,6 +167,19 @@ impl Move {
                 | MoveType::Castling
         )
     }
+
+    #[inline]
+    pub fn is_capture(&self) -> bool {
+        matches!(
+            self.typ(),
+            MoveType::Capture | MoveType::KingCapture
+        )
+    }
+
+    #[inline]
+    pub fn to_u32(&self) -> u32 {
+        self.0
+    }
 }
 
 impl fmt::Debug for Move {

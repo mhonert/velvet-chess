@@ -16,9 +16,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::Tensor;
+use crate::{Tensor};
 use std::borrow::Borrow;
-use tch::nn::{Init, Path};
+use tch::nn::{Path};
 use tch::nn::init::DEFAULT_KAIMING_UNIFORM;
 
 pub struct InputLayer {
@@ -27,15 +27,14 @@ pub struct InputLayer {
     pub opp_biases: Tensor,
 }
 
-/// Creates a new linear layer.
 pub fn input_layer<'a, T: Borrow<Path<'a>>>(
     vs: T,
     input_count: i64,
     output_count: i64,
 ) -> InputLayer {
     let vs = vs.borrow();
-    let own_biases = vs.var("own_bias", &[output_count], Init::Const(0f64));
-    let opp_biases = vs.var("opp_bias", &[output_count], Init::Const(0f64));
+    let own_biases = vs.zeros("own_bias", &[output_count]);
+    let opp_biases = vs.zeros("opp_bias", &[output_count]);
     let weights = vs.var("weight", &[output_count, input_count], DEFAULT_KAIMING_UNIFORM);
 
     InputLayer { weights, own_biases, opp_biases }
@@ -47,6 +46,6 @@ impl InputLayer {
         let black = black_xs.matmul(&self.weights.tr());
 
         stms * Tensor::cat(&[&white + &self.own_biases, &black + &self.opp_biases], 1)
-            + (1.0f32 - stms) * Tensor::cat(&[&black + &self.own_biases, &white + &self.opp_biases], 1)
+            + (1i32 - stms) * Tensor::cat(&[&black + &self.own_biases, &white + &self.opp_biases], 1)
     }
 }

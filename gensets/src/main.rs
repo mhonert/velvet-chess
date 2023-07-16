@@ -16,23 +16,18 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::cmp::Ordering;
 use itertools::Itertools;
 use std::fs::File;
-use std::io::{BufWriter, Write};
+use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::Path;
 use std::process::exit;
-use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{mpsc, Arc};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use clap::App;
-use shakmaty::fen::Fen;
-use shakmaty::{CastlingMode, Chess, Setup};
-use shakmaty_syzygy::Tablebase;
+use clap::{Args, Parser, Subcommand};
 
 use crate::chess960::CHESS960_FENS;
 use velvet::board::Board;
@@ -43,62 +38,87 @@ use velvet::move_gen::MoveGenerator;
 use velvet::moves::{NO_MOVE};
 use velvet::nn::init_nn_params;
 use velvet::random::Random;
-use velvet::scores::{is_eval_score, MAX_SCORE, MIN_SCORE};
+use velvet::scores::{MAX_SCORE, MIN_SCORE};
 use velvet::search::{PrincipalVariation, Search};
+use velvet::syzygy;
 use velvet::time_management::SearchLimits;
 use velvet::transposition_table::{TranspositionTable};
+use crate::rescore::rescore;
 
 mod chess960;
+mod rescore;
 
 #[derive(Clone, Debug)]
-struct TestPos {
-    fen: String,
-    score: i32,
-    tb_result: Option<i32>,
-    tb_result_ply: i32,
-    tb_result_dtz: i32,
-    ply: i32,
-    game_result: i32,
-    game_result_ply: i32,
+enum Command {
+    AddTestPos(String, i32),
+    Terminate
+}
+
+#[derive(Parser, Debug)]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Args, Debug)]
+pub struct ExtractArgs {
+    input_dir: String
+}
+
+#[derive(Args, Debug)]
+pub struct RescoreArgs {
+    input_pattern: String,
+    tb_path: String,
+    concurrency: usize,
+}
+
+#[derive(Args, Debug)]
+struct GenerateArgs {
+    start_index: usize,
+    concurrency: usize,
+    frc: bool,
+    rnd_moves: u8,
+    opening_file: Option<String>,
+    tb_path: String
+}
+
+#[derive(Subcommand, Debug)]
+enum Commands {
+    Generate(GenerateArgs),
+    Rescore(RescoreArgs),
 }
 
 fn main() {
-    let matches = App::new("gensets")
-        .version("1.0.0")
-        .about("Generates labeled training sets of chess positions from self-play games")
-        .args_from_usage(
-            "-i, --start-index=<START>       'Sets the start index for the generated training sets'
-             -c, --concurrency=<CONCURRENCY>        'Sets the number of threads'
-             -f, --frc=<BOOL>                       'Generates training sets for Chess960'
-             -r, --rnd-moves=<NUM>                  'Sets the number of random moves'
-             -t  --table-base-path=<FILE>           'Sets the Syzygy tablebase path'",
-        )
-        .get_matches();
+    let args = Cli::parse();
+    match args.command {
+        Commands::Generate(args) => generate(args),
+        Commands::Rescore(args) => rescore(args),
+    }
+}
 
-    let start_index = i32::from_str(matches.value_of("start-index").unwrap()).expect("Start index must be an integer");
 
-    let tb_path = matches.value_of("table-base-path").unwrap();
+fn generate(args: GenerateArgs) {
+    let start_index = args.start_index;
 
-    let concurrency = match matches.value_of("concurrency") {
-        Some(v) => usize::from_str(v).expect("Concurrency must be an integer >= 1"),
-        None => {
-            eprintln!("Missing -c (concurrency) option");
-            exit(1);
+    let tb_path = args.tb_path;
+
+    if !syzygy::tb::init(tb_path.clone()) {
+        eprintln!("could not initialize tablebases using path: {}", tb_path.as_str());
+        exit(1);
+    } else {
+        let count = syzygy::tb::max_piece_count();
+        if count == 0 {
+            println!("debug no tablebases found");
+        } else {
+            println!("debug found {}-men tablebases", syzygy::tb::max_piece_count());
         }
-    };
+    }
 
-    let random_moves = match matches.value_of("rnd-moves") {
-        Some(v) => u8::from_str(v).expect("rnd-moves must be a positive integer >= 0"),
-        None => {
-            eprintln!("Missing -r (rnd-moves) option");
-            exit(1);
-        }
-    };
+    let concurrency = args.concurrency;
 
-    let chess960 = match matches.value_of("frc") {
-        Some(v) => bool::from_str(v).expect("frc must be a boolean"),
-        None => false,
-    };
+    let random_moves = args.rnd_moves;
+
+    let chess960 = args.frc;
 
     if concurrency == 0 {
         eprintln!("-c Concurrency must be >= 1");
@@ -106,14 +126,18 @@ fn main() {
     }
     println!("Running with {} concurrent threads", concurrency);
 
-    let openings = gen_openings(chess960);
+    let openings = if let Some(opening_file) = args.opening_file {
+        read_openings(&opening_file)
+    } else {
+        gen_openings(chess960)
+    };
 
-    let (tx, rx) = mpsc::channel::<TestPos>();
+    let (tx, rx) = mpsc::channel::<Command>();
 
     init_nn_params();
     println!("Starting worker threads ...");
     let mut start = Instant::now();
-    spawn_threads(&tx, concurrency, &openings, random_moves, String::from(tb_path));
+    spawn_threads(&tx, concurrency, Arc::new(openings), random_moves);
 
     let mut count = 0;
     println!("Waiting for generated test positions ...");
@@ -129,32 +153,60 @@ fn main() {
 
     let mut sub_count: u64 = 0;
 
-    for pos in rx {
-        writeln!(&mut writer, "{} {} {} {} {} {} {} {}", pos.fen, pos.ply, pos.tb_result.unwrap_or(0xFF),
-                 pos.tb_result_ply, pos.tb_result_dtz, pos.game_result, pos.game_result_ply, pos.score).expect("Could not write position to file");
-        count += 1;
-        sub_count += 1;
+    for cmd in rx {
+        match cmd {
+            Command::AddTestPos(fen, score) => {
+                writeln!(&mut writer, "{} {}", fen, score).expect("Could not write position to file");
+                count += 1;
+                sub_count += 1;
 
-        if count % 200_000 == 0 {
-            chunks += 1;
-            file = File::create(format!("./data/test_pos_{}.fen", chunks)).expect("Could not create output file");
-            writer = BufWriter::new(file);
-        }
+                if count % 200_000 == 0 {
+                    chunks += 1;
+                    file = File::create(format!("./data/test_pos_{}.fen", chunks)).expect("Could not create output file");
+                    writer = BufWriter::new(file);
+                }
 
-        if sub_count >= 10_000 {
-            let duration_secs = Instant::now().duration_since(start).as_millis() as f64 / 1000.0;
-            if duration_secs > 0.0 {
-                let per_minute = (sub_count as f64 / duration_secs) * 60.0;
+                if sub_count >= 10_000 {
+                    let duration_secs = Instant::now().duration_since(start).as_millis() as f64 / 1000.0;
+                    if duration_secs > 0.0 {
+                        let per_minute = (sub_count as f64 / duration_secs) * 60.0;
 
-                println!("- generated {} test positions ({:.2} per minute)", count, per_minute);
+                        println!("- generated {} test positions ({:.2} per minute)", count, per_minute);
+                    }
+                    start = Instant::now();
+                    sub_count = 0;
+                }
             }
-            start = Instant::now();
-            sub_count = 0;
+            Command::Terminate => {
+                break;
+            }
         }
     }
 
     println!("End");
 }
+
+fn read_openings(file_name: &str) -> Vec<String> {
+    let file = File::open(file_name).expect("Could not open book file");
+    let mut reader = BufReader::new(file);
+
+    let mut openings = Vec::new();
+
+    loop {
+        let mut line = String::new();
+
+        match reader.read_line(&mut line) {
+            Ok(read) => if read == 0 {
+                return openings;
+            },
+
+            Err(e) => panic!("could not read line from opening book: {}", e)
+        };
+
+        openings.push(line.trim().to_string());
+    }
+}
+
 
 fn gen_openings(chess960: bool) -> Vec<String> {
     let mut openings = Vec::with_capacity(500000);
@@ -190,24 +242,19 @@ fn mix(white: &str, black: &str) -> String {
     format!("{}/{} w {}{} - 0 1", black_pieces, white_pieces, white_castling, black_castling)
 }
 
-fn spawn_threads(tx: &Sender<TestPos>, concurrency: usize, openings: &[String], random_moves: u8, tb_path: String) {
+fn spawn_threads(tx: &Sender<Command>, concurrency: usize, openings: Arc<Vec<String>>, random_moves: u8) {
     for pos in 0..concurrency {
         thread::sleep(Duration::from_millis(pos as u64 * 10));
         let tx2 = tx.clone();
-        let openings2 = openings.to_owned();
-        let tb_path2 = tb_path.clone();
+        let openings2 = openings.clone();
         thread::spawn(move || {
-            find_test_positions(&tx2, &openings2, random_moves, tb_path2);
+            find_test_positions(&tx2, openings2, random_moves);
         });
     }
 }
 
-fn find_test_positions(tx: &Sender<TestPos>, openings: &[String], random_moves: u8, tb_path: String) {
+fn find_test_positions(tx: &Sender<Command>, openings: Arc<Vec<String>>, random_moves: u8) {
     let mut rnd = Random::new_with_seed(new_rnd_seed());
-
-    let mut tb = Tablebase::new();
-    println!("Setting tablebase path to: {}", tb_path);
-    tb.add_directory(tb_path).expect("Could not add tablebase path");
 
     let tt = TranspositionTable::new(64);
     let stop = Arc::new(AtomicBool::new(false));
@@ -216,22 +263,24 @@ fn find_test_positions(tx: &Sender<TestPos>, openings: &[String], random_moves: 
     let mut search =
         Search::new(stop, Arc::new(AtomicU64::new(0)), Arc::new(AtomicU64::new(0)), LogLevel::Error, limits, tt, create_from_fen(START_POS), false);
 
+    search.set_tb_probe_root(false);
+
     let (_tx, rx) = mpsc::channel::<Message>();
 
     loop {
         let opening = openings[rnd.rand32() as usize % openings.len()].clone();
 
-        collect_quiet_pos(Some(&rx), tx, opening.as_str(), random_moves, &tb, &mut search, &mut rnd);
+        collect_quiet_pos(Some(&rx), tx, opening.as_str(), random_moves, &mut search, &mut rnd);
     }
 }
 
 fn collect_quiet_pos(
-    rx: Option<&Receiver<Message>>, tx: &Sender<TestPos>, opening: &str, random_moves: u8, tb: &Tablebase<Chess>,
-    search: &mut Search, rnd: &mut Random,
+    rx: Option<&Receiver<Message>>, tx: &Sender<Command>, opening: &str, random_moves: u8,
+    search: &mut Search, rnd: &mut Random
 ) {
     read_fen(&mut search.board, opening).unwrap();
 
-    let mut ply = 0;
+    let mut ply = search.board.halfmove_count() as i32;
     for _ in 0..random_moves {
         if !play_random_move(rnd, &search.hh, &mut search.movegen, &mut search.board) {
             return;
@@ -239,48 +288,41 @@ fn collect_quiet_pos(
         ply += 1;
     }
 
-    let mut positions: Vec<TestPos> = Vec::new();
-
-    let mut game_result = 0;
-
-    let mut last_score = 0;
-
     loop {
         ply += 1;
+        if ply > 300 {
+            break;
+        }
 
         if search.board.is_draw() {
             break;
         }
 
-        let mut tb_result = None;
-        let mut tb_result_ply = 0;
-        let mut tb_result_dtz = 0;
-        if search.board.piece_count() <= 6 {
-            if let Some((result, dtz)) = tablebase_result(tb, write_fen(&search.board).as_str()) {
-                tb_result = Some(result);
-                tb_result_ply = ply;
-                tb_result_dtz = dtz;
-                for pos in positions.iter_mut().rev() {
-                    if pos.game_result != 0xFF {
-                        pos.game_result = result;
-                    }
-                }
-            }
-        }
-
-        // search.set_node_limit(5000);
-        let (selected_move, _) = search.find_best_move(rx, 8, &[]);
+        search.set_node_limit(10000);
+        let (mut selected_move, _) = search.find_best_move(rx, 8, &[]);
         if selected_move == NO_MOVE {
             break;
         }
 
-        let score = search.board.active_player().score(selected_move.score());
+        let mut score = search.board.active_player().score(selected_move.score());
 
-        if ply >= 12 && score.abs() <= 3000 && selected_move.is_quiet() && !search.board.is_in_check(search.board.active_player()) {
+        if selected_move.is_quiet() && ((ply <= 30 && rnd.rand32() & 3 == 0) || (ply <= 60 && rnd.rand32() & 7 == 0) || (ply <= 90 && rnd.rand32() & 15 == 0)) {
+            let (alt_selected_move, _) = search.find_best_move(rx, 8, &[selected_move.without_score()]);
+            let alt_score = search.board.active_player().score(alt_selected_move.score());
+            if alt_selected_move != NO_MOVE && alt_selected_move.score() >= selected_move.score() {
+                // println!("Used alternative move: {}", write_fen(&search.board));
+                // println!(" - {} = {}", UCIMove::from_move(&search.board, selected_move), score);
+                // println!(" - {} = {}", UCIMove::from_move(&search.board, alt_selected_move), alt_score);
+                score = alt_score;
+                selected_move = alt_selected_move;
+            }
+        }
+
+        if ply >= 10 && score.abs() <= 1000 && selected_move.is_quiet() && !search.board.is_in_check(search.board.active_player()) {
             let mut qs_pv = PrincipalVariation::default();
             search.set_stopped(false);
             search.quiescence_search::<true>(
-                rx,
+                None,
                 search.board.active_player(),
                 MIN_SCORE,
                 MAX_SCORE,
@@ -289,36 +331,13 @@ fn collect_quiet_pos(
                 &mut qs_pv,
             );
 
-            if qs_pv.is_empty() {
+            if qs_pv.is_empty() && search.board.halfmove_clock() < 42 {
                 let fen = write_fen(&search.board);
-                positions.push(TestPos { fen: fen.clone(), score, tb_result, tb_result_ply, tb_result_dtz, game_result: 0xFF, ply, game_result_ply: 0 });
+                tx.send(Command::AddTestPos(fen.clone(), score)).expect("Could not send position");
             }
-        }
-        last_score = score;
-        if last_score.abs() > 3000 {
-            break;
         }
 
         let _ = search.board.perform_move(selected_move);
-    }
-
-    if last_score < -3000 {
-        game_result = -1;
-    } else if last_score > 3000 {
-        game_result = 1;
-    }
-
-    for pos in positions.iter_mut().rev() {
-        if ply >= 160 && game_result == 0 {
-            break;
-        }
-
-        if pos.game_result == 0xFF {
-            pos.game_result = game_result;
-        }
-        pos.game_result_ply = ply;
-
-        tx.send(pos.clone()).expect("Could not send position");
     }
 }
 
@@ -334,14 +353,28 @@ fn play_random_move(
     let mut candidate_moves = Vec::new();
 
     while let Some(m) = move_gen.next_root_move(hh, board) {
-        let (previous_piece, move_state) = board.perform_move(m);
+        let captured_piece_id = board.get_item(m.end()).abs();
+        if captured_piece_id < m.piece_id()
+            && board.has_negative_see(
+            board.active_player().flip(),
+            m.start(),
+            m.end(),
+            m.piece_id(),
+            captured_piece_id,
+            0,
+            board.occupancy_bb(),
+        ) {
+            continue;
+        }
+
+        let (previous_piece, removed_piece_id) = board.perform_move(m);
         if board.is_in_check(board.active_player().flip()) || board.is_draw() {
-            board.undo_move(m, previous_piece, move_state);
+            board.undo_move(m, previous_piece, removed_piece_id);
             continue;
         }
         candidate_moves.push(m);
 
-        board.undo_move(m, previous_piece, move_state);
+        board.undo_move(m, previous_piece, removed_piece_id);
     }
     move_gen.leave_ply();
 
@@ -353,45 +386,6 @@ fn play_random_move(
     board.perform_move(m);
 
     true
-}
-
-fn tablebase_result(tb: &Tablebase<Chess>, fen: &str) -> Option<(i32, i32)> {
-    let pos: Chess = fen.parse::<Fen>().expect("Could not parse FEN").position(CastlingMode::Standard).unwrap();
-    if pos.board().pieces().count() > 6 {
-        return None;
-    }
-
-    let win_white_pov = if pos.turn().is_white() { 1 } else { -1 };
-
-    match tb.probe_dtz(&pos) {
-        Ok(result) => {
-            let r = result.ignore_rounding().0;
-            match r.cmp(&0) {
-                Ordering::Less => {
-                    if r < -100 {
-                        Some((0, 100))
-                    } else {
-                        Some((-win_white_pov, -r))
-                    }
-                },
-
-                Ordering::Greater => {
-                    if r > 100 {
-                        Some((0, 100))
-                    } else {
-                        Some((win_white_pov, r))
-                    }
-                },
-
-                Ordering::Equal => {
-                    Some((0, 0))
-                }
-            }
-        }
-        Err(_) => {
-            None
-        }
-    }
 }
 
 fn new_rnd_seed() -> u64 {

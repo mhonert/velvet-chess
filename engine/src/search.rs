@@ -51,7 +51,8 @@ const CANCEL_SEARCH: i32 = i32::MAX - 1;
 const LMR_THRESHOLD: i32 = 1;
 
 const FUTILE_MOVE_REDUCTIONS: i32 = 2;
-const LOSING_MOVE_REDUCTIONS: i32 = 2;
+const NEG_HISTORY_REDUCTIONS: i32 = 2;
+const NEG_SEE_REDUCTIONS: i32 = 2;
 
 const INITIAL_ASPIRATION_WINDOW_SIZE: i32 = 16;
 const INITIAL_ASPIRATION_WINDOW_STEP: i32 = 16;
@@ -163,6 +164,7 @@ pub struct Search {
     local_node_count: u64,
     multi_pv_count: usize,
     tb_probe_depth: i32,
+    tb_probe_root: bool,
 
     node_count: Arc<AtomicU64>,
     is_stopped: Arc<AtomicBool>,
@@ -211,6 +213,7 @@ impl Search {
             is_stopped,
             multi_pv_count: 1,
             tb_probe_depth: DEFAULT_TB_PROBE_DEPTH,
+            tb_probe_root: true,
 
             draw_score: 0,
             player_pov: WHITE,
@@ -309,29 +312,33 @@ impl Search {
 
         let mut analysis_result = AnalysisResult::new();
 
-        // Probe tablebases
-        let (draw_score, tb_result, mut tb_skip_moves) = if let Some((tb_result, tb_skip_moves)) = self.board.probe_root() { self.local_tb_hits += 1;
-            // Adjust draw score based upon the tablebase result to prevent
-            // accidental draws in winning TB positions when the eval is <= 0
-            let draw_score = match tb_result {
-                TBResult::Loss => MATE_SCORE,
-                TBResult::BlessedLoss => 1,
-                TBResult::Draw => 0,
-                TBResult::CursedWin => -1,
-                TBResult::Win => MATED_SCORE,
-            };
-            (draw_score, Some(tb_result), tb_skip_moves)
-        } else {
-            (0, None, Vec::new())
-        };
+        let mut skipped_moves = Vec::from(skipped_moves);
 
-        for m in skipped_moves {
-            tb_skip_moves.push(*m);
-        }
+        // Probe tablebases
+        let (draw_score, tb_result) = if self.tb_probe_root {
+            if let Some((tb_result, mut tb_skip_moves)) = self.board.probe_root() {
+                self.local_tb_hits += 1;
+                // Adjust draw score based upon the tablebase result to prevent
+                // accidental draws in winning TB positions when the eval is <= 0
+                let draw_score = match tb_result {
+                    TBResult::Loss => MATE_SCORE,
+                    TBResult::BlessedLoss => 1,
+                    TBResult::Draw => 0,
+                    TBResult::CursedWin => -1,
+                    TBResult::Win => MATED_SCORE,
+                };
+                skipped_moves.append(&mut tb_skip_moves);
+                (draw_score, Some(tb_result))
+            } else {
+                (0, None)
+            }
+        } else {
+            (0, None)
+        };
 
         self.player_pov = self.board.active_player();
         self.draw_score = draw_score;
-        self.threads.start_search(&self.board, &tb_skip_moves, self.multi_pv_count, self.tb_probe_depth, draw_score);
+        self.threads.start_search(&self.board, &skipped_moves, self.multi_pv_count, self.tb_probe_depth, draw_score);
 
         let mut multi_pv_state = vec![
             (
@@ -350,7 +357,7 @@ impl Search {
 
             let mut iteration_cancelled = false;
 
-            let mut local_skipped_moves = tb_skip_moves.clone();
+            let mut local_skipped_moves = skipped_moves.clone();
             for multi_pv_num in 1..=self.multi_pv_count {
                 let mut local_pv = PrincipalVariation::default();
                 let (score, mut window_step, mut window_size) = multi_pv_state[multi_pv_num - 1];
@@ -906,20 +913,14 @@ impl Search {
                             reductions -= 1;
                         }
 
-                    } else if curr_move.score() <= NEGATIVE_HISTORY_SCORE
-                            || (curr_move.score() <= QUIET_BASE_SCORE
-                                && self.board.has_negative_see(
-                                    active_player.flip(),
-                                    start,
-                                    end,
-                                    target_piece_id,
-                                    EMPTY,
-                                    0,
-                                    occupied_bb,
-                                ))
+                    } else if curr_move.score() <= NEGATIVE_HISTORY_SCORE {
+                        reductions += NEG_HISTORY_REDUCTIONS;
+
+                    } else if curr_move.score() <= QUIET_BASE_SCORE
+                        && self.board.has_negative_see( active_player.flip(), start, end, target_piece_id, EMPTY, 0, occupied_bb)
                     {
-                        // Reduce search depth for moves with negative history or negative SEE score
-                        reductions += LOSING_MOVE_REDUCTIONS;
+                        // Reduce search depth for moves with negative SEE score
+                        reductions += NEG_SEE_REDUCTIONS;
                         if evaluated_move_count > 0 && depth <= 3 && (!is_pv || !is_mate_search) {
                             skip = true;
                         }
@@ -1292,6 +1293,10 @@ impl Search {
 
     pub fn set_node_limit(&mut self, node_limit: u64) {
         self.limits.set_node_limit(node_limit);
+    }
+
+    pub fn set_tb_probe_root(&mut self, value: bool) {
+        self.tb_probe_root = value;
     }
 
     fn effective_draw_score(&self) -> i32 {

@@ -27,7 +27,7 @@ use std::thread;
 use lz4_flex::frame::FrameEncoder;
 use velvet::bitboard::{BitBoard};
 use velvet::fen::{parse_fen, FenParseResult};
-use velvet::nn::{piece_idx, KING_BUCKETS, SCORE_SCALE, board_8};
+use velvet::nn::{piece_idx, KING_BUCKETS, SCORE_SCALE, board_4};
 
 pub const SAMPLES_PER_SET: usize = 200_000;
 
@@ -44,6 +44,7 @@ pub fn convert_sets(thread_count: usize, caption: &str, in_path: &str, out_path:
     let mut max_converted_id = 0;
     let mut max_set_id = 0;
     let mut min_unconverted_id = usize::MAX;
+
     for id in min_id..usize::MAX {
         if Path::new(&format!("{}/{}.lz4", out_path, id)).exists() {
             max_set_id = max_set_id.max(id);
@@ -99,7 +100,7 @@ fn convert_test_pos(
     Ok(())
 }
 
-fn read_from_fen_file(file_name: &str, writer: &mut BufWriter<FrameEncoder<File>>, use_game_result: bool) {
+fn read_from_fen_file(file_name: &str, writer: &mut BufWriter<FrameEncoder<File>>, _use_game_result: bool) {
     let file = File::open(file_name).expect("Could not open test position file");
     let mut reader = BufReader::new(file);
 
@@ -117,35 +118,15 @@ fn read_from_fen_file(file_name: &str, writer: &mut BufWriter<FrameEncoder<File>
             Err(e) => panic!("Reading test position file failed: {}", e),
         };
 
-        // 0..5 | 6   | 7         | 8      | 9      | 10          | 11              | 12
-        // fen  | ply | tb_result | tb_ply | tb_dtz | game_result | game_result_ply | score
+        // 0..5 | 6
+        // fen  | score
         let parts = line.trim_end().split(' ').collect_vec();
 
-        let score = if parts.len() == 13 {
-            let ply = i32::from_str(parts[6]).expect("Could not parse ply");
-            let tb_result = i32::from_str(parts[7]).expect("Could not parse tb_result");
-            // let tb_ply = i32::from_str(parts[8]).expect("Could not parse tb_ply");
-            // let tb_dtz = i32::from_str(parts[9]).expect("Could not parse tb_dtz");
-            let game_result = i32::from_str(parts[10]).expect("Could not parse game_result");
-            let game_result_ply = i32::from_str(parts[11]).expect("Could not parse game_result_ply");
-            let score = i32::from_str(parts[12]).expect("Could not parse score");
-
-            if use_game_result && tb_result != 0xFF {
-                let result_distance = (game_result_ply - ply).max(0);
-                let target_score = tb_result as f32 * 3000.0;
-
-                (score as f32 + ((target_score - score as f32) / (result_distance + 1) as f32) * 0.5) / SCORE_SCALE as f32
-            } else if use_game_result && game_result != 0xFF {
-                let result_distance = (game_result_ply - ply).max(0);
-                let target_score = game_result as f32 * 3000.0;
-
-                (score as f32 + ((target_score - score as f32) / (result_distance + 1) as f32) * 0.5) / SCORE_SCALE as f32
-            } else {
-                score as f32 / SCORE_SCALE as f32
-            }
-
+        let score = if parts.len() == 7 {
+            let score = i32::from_str(parts[5]).expect("Could not parse score");
+            score as f32 / SCORE_SCALE as f32
         } else {
-            panic!("Invalid test position entry: {}", line);
+                panic!("Invalid test position entry: {}", line);
         };
 
         let fen: String = (parts[0..=5].join(" ") as String).replace('~', "");
@@ -225,7 +206,8 @@ pub fn read_samples<T: DataSamples>(samples: &mut T, start: usize, file_name: &s
         total_samples += 1;
 
         let score = reader.read_f32::<LittleEndian>().unwrap();
-        samples.init(idx, score, reader.read_u8().unwrap());
+        let stm = reader.read_u8().unwrap();
+        samples.init(idx, score, stm);
 
         let mut any_castling = false;
         if bb_map & (1 << 15) != 0 {
@@ -278,8 +260,8 @@ pub fn read_samples<T: DataSamples>(samples: &mut T, start: usize, file_name: &s
             v_mirror_u16
         };
 
-        let w_kingrel_bucket = board_8(transform_wpov(white_king));
-        let b_kingrel_bucket = board_8(transform_bpov(black_king));
+        let w_kingrel_bucket = board_4(transform_wpov(white_king));
+        let b_kingrel_bucket = board_4(transform_bpov(black_king));
 
         let piece_bucket = if white_no_queens && black_no_queens {
             if white_no_rooks && black_no_rooks { 2 } else { 1 }
