@@ -518,11 +518,11 @@ impl Board {
 
             MoveType::Castling => {
                 if self.castling_rules.is_ks_castling(color, move_end) {
-                    self.remove_piece_without_inc_update(CastlingRules::ks_king_end(color) as i32);
-                    self.remove_piece_without_inc_update(CastlingRules::ks_rook_end(color) as i32);
+                    self.remove_piece_without_inc_update(CastlingRules::ks_king_end(color));
+                    self.remove_piece_without_inc_update(CastlingRules::ks_rook_end(color));
                 } else {
-                    self.remove_piece_without_inc_update(CastlingRules::qs_king_end(color) as i32);
-                    self.remove_piece_without_inc_update(CastlingRules::qs_rook_end(color) as i32);
+                    self.remove_piece_without_inc_update(CastlingRules::qs_king_end(color));
+                    self.remove_piece_without_inc_update(CastlingRules::qs_rook_end(color));
                 }
 
                 self.add_piece_without_inc_update(color, color.piece(R), move_end);
@@ -552,7 +552,7 @@ impl Board {
         let piece = color.piece(piece_id);
 
         unsafe {
-            *self.items.get_unchecked_mut(pos as usize) = piece;
+            *self.items.get_unchecked_mut(pos) = piece;
         }
 
         self.state.hash ^= piece_zobrist_key(piece, pos);

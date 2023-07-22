@@ -17,7 +17,6 @@
  */
 
 use std::sync::Once;
-use std::time::Instant;
 
 use crate::align::A32;
 use crate::nn::io::{read_quantized, read_u8};
@@ -28,7 +27,8 @@ pub mod io;
 // NN layer size
 pub const KING_BUCKETS: usize = 8;
 pub const PIECE_BUCKETS: usize = 3;
-pub const INPUTS: usize = (6 * KING_BUCKETS * PIECE_BUCKETS * 64) * 2;
+pub const BUCKET_SIZE: usize = 6 * 64 * 2;
+pub const INPUTS: usize = BUCKET_SIZE * KING_BUCKETS * PIECE_BUCKETS;
 
 pub const HL1_NODES: usize = 2 * HL1_HALF_NODES;
 pub const HL1_HALF_NODES: usize = 512;
@@ -62,7 +62,6 @@ pub const fn piece_idx(piece_id: i8) -> u16 {
 
 pub fn init_nn_params() {
     INIT_NN_PARAMS.call_once(|| {
-        let start = Instant::now();
         let mut reader = &include_bytes!("../nets/velvet.qnn")[..];
 
         let in_precision_bits = read_u8(&mut reader).expect("Could not read input fixed point precision bits");
@@ -84,8 +83,6 @@ pub fn init_nn_params() {
 
         read_quantized(&mut reader, unsafe { &mut H1_TO_OUT_WEIGHTS.0 }).expect("Could not read weights");
         read_quantized(&mut reader, unsafe { &mut OUT_BIASES.0 }).expect("Could not read biases");
-
-        println!("Initialized in {:?}", start.elapsed());
     });
 }
 

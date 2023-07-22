@@ -17,7 +17,7 @@
  */
 
 use crate::align::A32;
-use crate::bitboard::{h_mirror, h_mirror_i8, v_mirror, v_mirror_i8, BitBoards};
+use crate::bitboard::{v_mirror, v_mirror_i8, BitBoards, h_mirror_i8, h_mirror};
 use crate::colors::Color;
 use crate::nn::{piece_idx, HL1_HALF_NODES, KING_BUCKETS, SCORE_SCALE, board_4, IN_TO_H1_WEIGHTS, OUT_BIASES, FP_OUT_MULTIPLIER};
 use crate::pieces::{Q, R};
@@ -39,6 +39,8 @@ pub struct NeuralNetEval {
 
     undo: bool,
     fast_undo: bool,
+
+    check_refresh: i32,
 }
 
 #[derive(Clone)]
@@ -65,6 +67,7 @@ impl NeuralNetEval {
 
             undo: false,
             fast_undo: false,
+            check_refresh: 0,
         })
     }
 
@@ -105,7 +108,7 @@ impl NeuralNetEval {
 
         // Remove all updates for the latest move
         let mut move_id: Option<usize> = None;
-        while let Some((was_undo, id, _)) = self.updates.last() {
+        while let Some((was_undo, id, action)) = self.updates.last() {
             if *was_undo {
                 return;
             }
@@ -119,6 +122,9 @@ impl NeuralNetEval {
                 self.fast_undo = true;
             }
 
+            if matches!(action, UpdateAction::CheckRefresh) {
+                self.check_refresh -= 1;
+            }
             self.updates.pop();
         }
     }
@@ -140,13 +146,6 @@ impl NeuralNetEval {
         if !self.fast_undo {
             self.updates.push((self.undo, self.move_id, UpdateAction::Remove(pos, piece)));
         }
-    }
-
-    fn remove_piece_now(&mut self, pos: usize, piece: i8) {
-        let (white_pov_idx, black_pov_idx) = self.calc_pov_weight_start(pos, piece);
-
-        sub_weights::<HL1_HALF_NODES>(&mut self.hidden_nodes_white.0, unsafe { &IN_TO_H1_WEIGHTS.0 }, white_pov_idx);
-        sub_weights::<HL1_HALF_NODES>(&mut self.hidden_nodes_black.0, unsafe { &IN_TO_H1_WEIGHTS.0 }, black_pov_idx);
     }
 
     fn calc_pov_weight_start(&self, pos: usize, piece: i8) -> (usize, usize) {
@@ -171,6 +170,7 @@ impl NeuralNetEval {
     pub fn check_refresh(&mut self) {
         if !self.fast_undo {
             self.updates.push((self.undo, self.move_id, UpdateAction::CheckRefresh));
+            self.check_refresh += 1;
         }
     }
 
@@ -194,32 +194,39 @@ impl NeuralNetEval {
     }
 
     fn apply_updates(&mut self, bitboards: &BitBoards, white_king: i8, black_king: i8) {
-        for i in 0..self.updates.len() {
-            let (_, _, update) = unsafe { self.updates.get_unchecked(i) };
+        if self.check_refresh > 0 {
+            self.check_refresh = 0;
+            let (mirror_white_pov, mirror_black_pov, white_offset, black_offset) =
+                calc_bucket_offsets(bitboards, white_king, black_king);
+            if mirror_white_pov != self.mirror_white_pov
+                || mirror_black_pov != self.mirror_black_pov
+                || white_offset != self.white_offset
+                || black_offset != self.black_offset
+            {
+                self.init_pos(bitboards, white_king, black_king);
+                return;
+            }
+        }
+        for (_, _, update) in self.updates.iter() {
             match *update {
-                UpdateAction::CheckRefresh => {
-                    let (mirror_white_pov, mirror_black_pov, white_offset, black_offset) =
-                        calc_bucket_offsets(bitboards, white_king, black_king);
-                    if mirror_white_pov != self.mirror_white_pov
-                        || mirror_black_pov != self.mirror_black_pov
-                        || white_offset != self.white_offset
-                        || black_offset != self.black_offset
-                    {
-                        self.init_pos(bitboards, white_king, black_king);
-                        self.updates.clear();
-                        return;
-                    }
-                }
-
                 UpdateAction::Add(pos, piece) => {
-                    self.add_piece_now(pos, piece);
+                    let (white_pov_idx, black_pov_idx) = self.calc_pov_weight_start(pos, piece);
+
+                    add_weights::<HL1_HALF_NODES>(&mut self.hidden_nodes_white.0, unsafe { &IN_TO_H1_WEIGHTS.0 }, white_pov_idx);
+                    add_weights::<HL1_HALF_NODES>(&mut self.hidden_nodes_black.0, unsafe { &IN_TO_H1_WEIGHTS.0 }, black_pov_idx);
                 }
 
                 UpdateAction::Remove(pos, piece) => {
-                    self.remove_piece_now(pos, piece);
+                    let (white_pov_idx, black_pov_idx) = self.calc_pov_weight_start(pos, piece);
+
+                    sub_weights::<HL1_HALF_NODES>(&mut self.hidden_nodes_white.0, unsafe { &IN_TO_H1_WEIGHTS.0 }, white_pov_idx);
+                    sub_weights::<HL1_HALF_NODES>(&mut self.hidden_nodes_black.0, unsafe { &IN_TO_H1_WEIGHTS.0 }, black_pov_idx);
                 }
+
+                _ => {}
             }
         }
+
         self.updates.clear();
     }
 }

@@ -118,13 +118,17 @@ fn read_from_fen_file(file_name: &str, writer: &mut BufWriter<FrameEncoder<File>
             Err(e) => panic!("Reading test position file failed: {}", e),
         };
 
-        // 0..5 | 6
-        // fen  | score
         let parts = line.trim_end().split(' ').collect_vec();
 
         let score = if parts.len() == 7 {
-            let score = i32::from_str(parts[5]).expect("Could not parse score");
+            // 0..5 | 6
+            // fen  | score
+            let score = i32::from_str(parts[6]).expect("Could not parse score");
             score as f32 / SCORE_SCALE as f32
+        } else if parts.len() == 12 {
+            let score = i32::from_str(parts[9]).expect("Could not parse score");
+            score as f32 / SCORE_SCALE as f32
+
         } else {
                 panic!("Invalid test position entry: {}", line);
         };

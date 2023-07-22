@@ -48,7 +48,7 @@ const BATCH_SIZE: i64 = 32000;
 const SETS_PER_BATCH: usize = 4;
 
 const INIT_LR: f64 = 0.001;
-const INITIAL_PATIENCE: usize = 12;
+const INITIAL_PATIENCE: usize = 8;
 
 const VALIDATION_STEP_SIZE: usize = 200_000_000;
 

@@ -39,7 +39,7 @@ impl Color {
 
     /// Returns 0 for white and 1 for black
     pub fn idx(self) -> usize {
-        self.0 as usize & 1
+        self.0 as usize
     }
 
     /// Flips the current color (WHITE -> BLACK and vice versa)

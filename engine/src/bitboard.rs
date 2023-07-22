@@ -17,7 +17,7 @@
  */
 
 use crate::bitboard::Direction::{AntiDiagonal, Diagonal, Horizontal, Vertical};
-use crate::colors::Color;
+use crate::colors::{BLACK, Color, WHITE};
 use std::ops::Not;
 
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -121,7 +121,6 @@ impl From<BitBoard> for u64 {
 #[derive(Copy, Clone, Default)]
 pub struct BitBoards([u64; 15]);
 
-const ALL: usize = 6;
 const BY_COLOR: usize = 13;
 
 impl BitBoards {
@@ -137,7 +136,7 @@ impl BitBoards {
 
     #[inline(always)]
     pub fn occupancy(&self) -> BitBoard {
-        BitBoard(unsafe { *self.0.get_unchecked(ALL) })
+        self.by_color(WHITE) | self.by_color(BLACK)
     }
 
     #[inline(always)]
@@ -145,7 +144,6 @@ impl BitBoards {
         let mask = 1u64 << pos;
         unsafe {
             *self.0.get_unchecked_mut((piece + 6) as usize) ^= mask;
-            *self.0.get_unchecked_mut(ALL) ^= mask;
             *self.0.get_unchecked_mut(BY_COLOR + color.idx()) ^= mask;
         }
     }
