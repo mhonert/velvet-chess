@@ -48,6 +48,8 @@ enum UpdateAction {
     Add(usize, i8),
     Remove(usize, i8),
     RemoveAdd(usize, i8, usize, i8),
+    RemoveRemoveAdd(usize, i8, usize, i8, usize, i8),
+    RemoveAddAdd(usize, i8, usize, i8, usize, i8),
     CheckRefresh,
 }
 
@@ -139,6 +141,18 @@ impl NeuralNetEval {
     pub fn remove_add_piece(&mut self, rem_pos: usize, rem_piece: i8, add_pos: usize, add_piece: i8) {
         if !self.fast_undo {
             self.updates.push((self.undo, self.move_id, UpdateAction::RemoveAdd(rem_pos, rem_piece, add_pos, add_piece)));
+        }
+    }
+
+    pub fn remove_remove_add_piece(&mut self, rem_pos1: usize, rem_piece1: i8, rem_pos2: usize, rem_piece2: i8, add_pos: usize, add_piece: i8) {
+        if !self.fast_undo {
+            self.updates.push((self.undo, self.move_id, UpdateAction::RemoveRemoveAdd(rem_pos1, rem_piece1, rem_pos2, rem_piece2, add_pos, add_piece)));
+        }
+    }
+
+    pub fn remove_add_add_piece(&mut self, rem_pos: usize, rem_piece: i8, add_pos1: usize, add_piece1: i8, add_pos2: usize, add_piece2: i8) {
+        if !self.fast_undo {
+            self.updates.push((self.undo, self.move_id, UpdateAction::RemoveAddAdd(rem_pos, rem_piece, add_pos1, add_piece1, add_pos2, add_piece2)));
         }
     }
 
@@ -237,6 +251,24 @@ impl NeuralNetEval {
 
                     sub_add_weights::<HL1_HALF_NODES>(&mut self.hidden_nodes_white.0, unsafe { &IN_TO_H1_WEIGHTS.0 }, rem_white_pov_idx, add_white_pov_idx);
                     sub_add_weights::<HL1_HALF_NODES>(&mut self.hidden_nodes_black.0, unsafe { &IN_TO_H1_WEIGHTS.0 }, rem_black_pov_idx, add_black_pov_idx);
+                }
+
+                UpdateAction::RemoveRemoveAdd(rem1_pos, rem1_piece, rem2_pos, rem2_piece, add_pos, add_piece) => {
+                    let (rem1_white_pov_idx, rem1_black_pov_idx) = self.calc_pov_weight_start(rem1_pos, rem1_piece);
+                    let (rem2_white_pov_idx, rem2_black_pov_idx) = self.calc_pov_weight_start(rem2_pos, rem2_piece);
+                    let (add_white_pov_idx, add_black_pov_idx) = self.calc_pov_weight_start(add_pos, add_piece);
+
+                    sub_sub_add_weights::<HL1_HALF_NODES>(&mut self.hidden_nodes_white.0, unsafe { &IN_TO_H1_WEIGHTS.0 }, rem1_white_pov_idx, rem2_white_pov_idx, add_white_pov_idx);
+                    sub_sub_add_weights::<HL1_HALF_NODES>(&mut self.hidden_nodes_black.0, unsafe { &IN_TO_H1_WEIGHTS.0 }, rem1_black_pov_idx, rem2_black_pov_idx, add_black_pov_idx);
+                }
+
+                UpdateAction::RemoveAddAdd(rem_pos, rem_piece, add1_pos, add1_piece, add2_pos, add2_piece) => {
+                    let (rem_white_pov_idx, rem_black_pov_idx) = self.calc_pov_weight_start(rem_pos, rem_piece);
+                    let (add1_white_pov_idx, add1_black_pov_idx) = self.calc_pov_weight_start(add1_pos, add1_piece);
+                    let (add2_white_pov_idx, add2_black_pov_idx) = self.calc_pov_weight_start(add2_pos, add2_piece);
+
+                    sub_add_add_weights::<HL1_HALF_NODES>(&mut self.hidden_nodes_white.0, unsafe { &IN_TO_H1_WEIGHTS.0 }, rem_white_pov_idx, add1_white_pov_idx, add2_white_pov_idx);
+                    sub_add_add_weights::<HL1_HALF_NODES>(&mut self.hidden_nodes_black.0, unsafe { &IN_TO_H1_WEIGHTS.0 }, rem_black_pov_idx, add1_black_pov_idx, add2_black_pov_idx);
                 }
 
                 _ => {}
@@ -352,12 +384,53 @@ pub fn sub_add_weights<const N: usize>(nodes: &mut [i16], weights: &[i16], sub_w
 
     #[cfg(all(target_feature = "sse2", not(target_feature = "avx2")))]
     {
-        sse2::add_weights::<N>(nodes, weights, weight_idx)
+        sse2::sub_add_weights::<N>(nodes, weights, sub_weight_idx, add_weight_idx)
     }
 
     #[cfg(not(any(target_feature = "sse2", target_feature = "avx2")))]
     {
-        fallback::add_weights::<N>(nodes, weights, weight_idx)
+        fallback::sub_weights::<N>(nodes, weights, sub_weight_idx);
+        fallback::add_weights::<N>(nodes, weights, add_weight_idx);
+    }
+}
+
+#[inline(always)]
+pub fn sub_sub_add_weights<const N: usize>(nodes: &mut [i16], weights: &[i16], sub1_weight_idx: usize, sub2_weight_idx: usize, add_weight_idx: usize) {
+    #[cfg(target_feature = "avx2")]
+    {
+        avx2::sub_sub_add_weights::<N>(nodes, weights, sub1_weight_idx, sub2_weight_idx, add_weight_idx)
+    }
+
+    #[cfg(all(target_feature = "sse2", not(target_feature = "avx2")))]
+    {
+        sse2::sub_sub_add_weights::<N>(nodes, weights, sub1_weight_idx, sub2_weight_idx, add_weight_idx)
+    }
+
+    #[cfg(not(any(target_feature = "sse2", target_feature = "avx2")))]
+    {
+        fallback::sub_weights::<N>(nodes, weights, sub1_weight_idx);
+        fallback::sub_weights::<N>(nodes, weights, sub2_weight_idx);
+        fallback::add_weights::<N>(nodes, weights, add_weight_idx);
+    }
+}
+
+#[inline(always)]
+pub fn sub_add_add_weights<const N: usize>(nodes: &mut [i16], weights: &[i16], sub_weight_idx: usize, add1_weight_idx: usize, add2_weight_idx: usize) {
+    #[cfg(target_feature = "avx2")]
+    {
+        avx2::sub_add_add_weights::<N>(nodes, weights, sub_weight_idx, add1_weight_idx, add2_weight_idx)
+    }
+
+    #[cfg(all(target_feature = "sse2", not(target_feature = "avx2")))]
+    {
+        sse2::sub_add_add_weights::<N>(nodes, weights, sub_weight_idx, add1_weight_idx, add2_weight_idx)
+    }
+
+    #[cfg(not(any(target_feature = "sse2", target_feature = "avx2")))]
+    {
+        fallback::sub_weights::<N>(nodes, weights, sub_weight_idx);
+        fallback::add_weights::<N>(nodes, weights, add1_weight_idx);
+        fallback::add_weights::<N>(nodes, weights, add2_weight_idx);
     }
 }
 
@@ -435,6 +508,18 @@ mod avx2 {
     }
 
     #[inline(always)]
+    pub fn sub_weights<const N: usize>(nodes: &mut [i16], weights: &[i16], weight_idx: usize) {
+        let w_start = weight_idx * N;
+        unsafe {
+            for i in 0..(N / 16) {
+                let w = _mm256_load_si256(transmute(weights.as_ptr().add(w_start + i * 16)));
+                let n = _mm256_load_si256(transmute(nodes.as_ptr().add(i * 16)));
+                _mm256_store_si256(transmute(nodes.as_ptr().add(i * 16)), _mm256_sub_epi16(n, w));
+            }
+        }
+    }
+
+    #[inline(always)]
     pub fn sub_add_weights<const N: usize>(nodes: &mut [i16], weights: &[i16], sub_weight_idx: usize, add_weight_idx: usize) {
         let sub_w_start = sub_weight_idx * N;
         let add_w_start = add_weight_idx * N;
@@ -449,13 +534,33 @@ mod avx2 {
     }
 
     #[inline(always)]
-    pub fn sub_weights<const N: usize>(nodes: &mut [i16], weights: &[i16], weight_idx: usize) {
-        let w_start = weight_idx * N;
+    pub fn sub_sub_add_weights<const N: usize>(nodes: &mut [i16], weights: &[i16], sub1_weight_idx: usize, sub2_weight_idx: usize, add_weight_idx: usize) {
+        let sub1_w_start = sub1_weight_idx * N;
+        let sub2_w_start = sub2_weight_idx * N;
+        let add_w_start = add_weight_idx * N;
         unsafe {
             for i in 0..(N / 16) {
-                let w = _mm256_load_si256(transmute(weights.as_ptr().add(w_start + i * 16)));
+                let sub1_w = _mm256_load_si256(transmute(weights.as_ptr().add(sub1_w_start + i * 16)));
+                let sub2_w = _mm256_load_si256(transmute(weights.as_ptr().add(sub2_w_start + i * 16)));
+                let add_w = _mm256_load_si256(transmute(weights.as_ptr().add(add_w_start + i * 16)));
                 let n = _mm256_load_si256(transmute(nodes.as_ptr().add(i * 16)));
-                _mm256_store_si256(transmute(nodes.as_ptr().add(i * 16)), _mm256_sub_epi16(n, w));
+                _mm256_store_si256(transmute(nodes.as_ptr().add(i * 16)), _mm256_add_epi16(_mm256_sub_epi16(_mm256_sub_epi16(n, sub1_w), sub2_w), add_w));
+            }
+        }
+    }
+
+    #[inline(always)]
+    pub fn sub_add_add_weights<const N: usize>(nodes: &mut [i16], weights: &[i16], sub_weight_idx: usize, add1_weight_idx: usize, add2_weight_idx: usize) {
+        let sub_w_start = sub_weight_idx * N;
+        let add1_w_start = add1_weight_idx * N;
+        let add2_w_start = add2_weight_idx * N;
+        unsafe {
+            for i in 0..(N / 16) {
+                let sub_w = _mm256_load_si256(transmute(weights.as_ptr().add(sub_w_start + i * 16)));
+                let add1_w = _mm256_load_si256(transmute(weights.as_ptr().add(add1_w_start + i * 16)));
+                let add2_w = _mm256_load_si256(transmute(weights.as_ptr().add(add2_w_start + i * 16)));
+                let n = _mm256_load_si256(transmute(nodes.as_ptr().add(i * 16)));
+                _mm256_store_si256(transmute(nodes.as_ptr().add(i * 16)), _mm256_add_epi16(_mm256_add_epi16(_mm256_sub_epi16(n, sub_w), add1_w), add2_w));
             }
         }
     }
@@ -530,6 +635,52 @@ mod sse2 {
                 let w = _mm_load_si128(transmute(weights.as_ptr().add(w_start + i * 8)));
                 let n = _mm_load_si128(transmute(nodes.as_ptr().add(i * 8)));
                 _mm_store_si128(transmute(nodes.as_ptr().add(i * 8)), _mm_sub_epi16(n, w));
+            }
+        }
+    }
+
+    #[inline(always)]
+    pub fn sub_add_weights<const N: usize>(nodes: &mut [i16], weights: &[i16], sub_weight_idx: usize, add_weight_idx: usize) {
+        let sub_w_start = sub_weight_idx * N;
+        let add_w_start = add_weight_idx * N;
+        unsafe {
+            for i in 0..(N / 8) {
+                let sub_w = _mm_load_si128(transmute(weights.as_ptr().add(sub_w_start + i * 8)));
+                let add_w = _mm_load_si128(transmute(weights.as_ptr().add(add_w_start + i * 8)));
+                let n = _mm_load_si128(transmute(nodes.as_ptr().add(i * 8)));
+                _mm_store_si128(transmute(nodes.as_ptr().add(i * 8)), _mm_add_epi16(_mm_sub_epi16(n, sub_w), add_w));
+            }
+        }
+    }
+
+    #[inline(always)]
+    pub fn sub_sub_add_weights<const N: usize>(nodes: &mut [i16], weights: &[i16], sub1_weight_idx: usize, sub2_weight_idx: usize, add_weight_idx: usize) {
+        let sub1_w_start = sub1_weight_idx * N;
+        let sub2_w_start = sub2_weight_idx * N;
+        let add_w_start = add_weight_idx * N;
+        unsafe {
+            for i in 0..(N / 8) {
+                let sub1_w = _mm_load_si128(transmute(weights.as_ptr().add(sub1_w_start + i * 8)));
+                let sub2_w = _mm_load_si128(transmute(weights.as_ptr().add(sub2_w_start + i * 8)));
+                let add_w = _mm_load_si128(transmute(weights.as_ptr().add(add_w_start + i * 8)));
+                let n = _mm_load_si128(transmute(nodes.as_ptr().add(i * 8)));
+                _mm_store_si128(transmute(nodes.as_ptr().add(i * 8)), _mm_add_epi16(_mm_sub_epi16(_mm_sub_epi16(n, sub1_w), sub2_w), add_w));
+            }
+        }
+    }
+
+    #[inline(always)]
+    pub fn sub_add_add_weights<const N: usize>(nodes: &mut [i16], weights: &[i16], sub_weight_idx: usize, add1_weight_idx: usize, add2_weight_idx: usize) {
+        let sub_w_start = sub_weight_idx * N;
+        let add1_w_start = add1_weight_idx * N;
+        let add2_w_start = add2_weight_idx * N;
+        unsafe {
+            for i in 0..(N / 8) {
+                let sub_w = _mm_load_si128(transmute(weights.as_ptr().add(sub_w_start + i * 8)));
+                let add1_w = _mm_load_si128(transmute(weights.as_ptr().add(add1_w_start + i * 8)));
+                let add2_w = _mm_load_si128(transmute(weights.as_ptr().add(add2_w_start + i * 8)));
+                let n = _mm_load_si128(transmute(nodes.as_ptr().add(i * 8)));
+                _mm_store_si128(transmute(nodes.as_ptr().add(i * 8)), _mm_add_epi16(_mm_add_epi16(_mm_sub_epi16(n, sub_w), add1_w), add2_w));
             }
         }
     }

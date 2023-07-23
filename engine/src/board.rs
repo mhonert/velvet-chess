@@ -348,8 +348,7 @@ impl Board {
                 if removed_piece.abs() >= R {
                     self.nn_eval.check_refresh();
                 }
-                self.nn_eval.remove_piece(move_end as usize, removed_piece);
-                self.nn_eval.remove_add_piece(move_start as usize, own_piece, move_end as usize, own_piece);
+                self.nn_eval.remove_remove_add_piece(move_end as usize, removed_piece, move_start as usize, own_piece, move_end as usize, own_piece);
                 self.add_piece(color, target_piece_id, move_end as usize);
 
                 self.reset_half_move_clock();
@@ -361,8 +360,7 @@ impl Board {
             MoveType::KingCapture => {
                 let removed_piece = self.remove_piece(move_end);
                 self.nn_eval.check_refresh();
-                self.nn_eval.remove_piece(move_end as usize, removed_piece);
-                self.nn_eval.remove_add_piece(move_start as usize, own_piece, move_end as usize, own_piece);
+                self.nn_eval.remove_remove_add_piece(move_end as usize, removed_piece, move_start as usize, own_piece, move_end as usize, own_piece);
                 self.add_piece(color, target_piece_id, move_end as usize);
 
                 self.reset_half_move_clock();
@@ -381,8 +379,7 @@ impl Board {
                     // Capture move with promotion
                     let removed_piece = self.remove_piece(move_end);
                     self.nn_eval.check_refresh();
-                    self.nn_eval.remove_piece(move_end as usize, removed_piece);
-                    self.nn_eval.remove_add_piece(move_start as usize, own_piece, move_end as usize, color.piece(target_piece_id));
+                    self.nn_eval.remove_remove_add_piece(move_end as usize, removed_piece, move_start as usize, own_piece, move_end as usize, color.piece(target_piece_id));
                     self.add_piece(color, target_piece_id, move_end as usize);
 
                     return (own_piece, removed_piece.abs());
@@ -392,26 +389,22 @@ impl Board {
                 if own_piece == P {
                     // Special en passant handling
                     if move_start - move_end == 7 {
-                        self.nn_eval.remove_piece(move_start as usize + 1, -P);
-                        self.nn_eval.remove_add_piece(move_start as usize, own_piece, move_end as usize, own_piece);
+                        self.nn_eval.remove_remove_add_piece(move_start as usize + 1, -P, move_start as usize, own_piece, move_end as usize, own_piece);
                         self.remove_piece(move_start + 1);
                         return (own_piece, P);
                     } else if move_start - move_end == 9 {
-                        self.nn_eval.remove_piece(move_start as usize - 1, -P);
-                        self.nn_eval.remove_add_piece(move_start as usize, own_piece, move_end as usize, own_piece);
+                        self.nn_eval.remove_remove_add_piece(move_start as usize - 1, -P, move_start as usize, own_piece, move_end as usize, own_piece);
                         self.remove_piece(move_start - 1);
                         return (own_piece, P);
                     }
                 } else if own_piece == -P {
                     // Special en passant handling
                     if move_start - move_end == -7 {
-                        self.nn_eval.remove_piece(move_start as usize - 1, P);
-                        self.nn_eval.remove_add_piece(move_start as usize, own_piece, move_end as usize, own_piece);
+                        self.nn_eval.remove_remove_add_piece(move_start as usize - 1, P, move_start as usize, own_piece, move_end as usize, own_piece);
                         self.remove_piece(move_start - 1);
                         return (own_piece, P);
                     } else if move_start - move_end == -9 {
-                        self.nn_eval.remove_piece(move_start as usize + 1, P);
-                        self.nn_eval.remove_add_piece(move_start as usize, own_piece, move_end as usize, own_piece);
+                        self.nn_eval.remove_remove_add_piece(move_start as usize + 1, P, move_start as usize, own_piece, move_end as usize, own_piece);
                         self.remove_piece(move_start + 1);
                         return (own_piece, P);
                     }
@@ -503,8 +496,7 @@ impl Board {
                 if removed_piece_id >= R {
                     self.nn_eval.check_refresh();
                 }
-                self.nn_eval.remove_add_piece(move_end as usize, piece, move_start as usize, piece);
-                self.nn_eval.add_piece(move_end as usize, color.flip().piece(removed_piece_id));
+                self.nn_eval.remove_add_add_piece(move_end as usize, piece, move_start as usize, piece, move_end as usize, color.flip().piece(removed_piece_id));
                 self.remove_piece_without_inc_update(move_end);
                 self.add_piece_without_inc_update(color, piece, move_start);
                 self.add_piece_without_inc_update(color.flip(), color.flip().piece(removed_piece_id), move_end);
@@ -512,8 +504,7 @@ impl Board {
 
             MoveType::KingCapture => {
                 self.nn_eval.check_refresh();
-                self.nn_eval.remove_add_piece(move_end as usize, piece, move_start as usize, piece);
-                self.nn_eval.add_piece(move_end as usize, color.flip().piece(removed_piece_id));
+                self.nn_eval.remove_add_add_piece(move_end as usize, piece, move_start as usize, piece, move_end as usize, color.flip().piece(removed_piece_id));
                 self.remove_piece_without_inc_update(move_end);
                 self.add_piece_without_inc_update(color, piece, move_start);
                 self.add_piece_without_inc_update(color.flip(), color.flip().piece(removed_piece_id), move_end);
@@ -527,19 +518,16 @@ impl Board {
                 if m.is_en_passant() {
                     let offset = if color.is_white() { 1 } else { -1 };
                     if (move_start - move_end).abs() == 7 {
-                        self.nn_eval.remove_add_piece(move_end as usize, piece, move_start as usize, piece);
-                        self.nn_eval.add_piece((move_start + offset) as usize, color.flip().piece(P));
+                        self.nn_eval.remove_add_add_piece(move_end as usize, piece, move_start as usize, piece, (move_start + offset) as usize, color.flip().piece(P));
 
                         self.add_piece_without_inc_update(color.flip(), color.flip().piece(P), move_start + offset);
                     } else if (move_start - move_end).abs() == 9 {
-                        self.nn_eval.remove_add_piece(move_end as usize, piece, move_start as usize, piece);
-                        self.nn_eval.add_piece((move_start - offset) as usize, color.flip().piece(P));
+                        self.nn_eval.remove_add_add_piece(move_end as usize, piece, move_start as usize, piece, (move_start - offset) as usize, color.flip().piece(P));
                         self.add_piece_without_inc_update(color.flip(), color.flip().piece(P), move_start - offset);
                     }
                 } else if removed_piece_id != EMPTY {
                     self.nn_eval.check_refresh();
-                    self.nn_eval.remove_add_piece(move_end as usize, color.piece(m.piece_id()), move_start as usize, piece);
-                    self.nn_eval.add_piece(move_end as usize, color.flip().piece(removed_piece_id));
+                    self.nn_eval.remove_add_add_piece(move_end as usize, color.piece(m.piece_id()), move_start as usize, piece, move_end as usize, color.flip().piece(removed_piece_id));
                     self.add_piece_without_inc_update(color.flip(), color.flip().piece(removed_piece_id), move_end);
                 } else if m.is_promotion() {
                     self.nn_eval.check_refresh();
@@ -587,8 +575,6 @@ impl Board {
         }
 
         self.bitboards.flip(color, piece, pos as u32);
-
-        // self.nn_eval.add_piece(pos as usize, piece);
     }
 
     pub fn add_piece(&mut self, color: Color, piece_id: i8, pos: usize) {
@@ -601,8 +587,6 @@ impl Board {
         self.state.hash ^= piece_zobrist_key(piece, pos);
 
         self.bitboards.flip(color, piece, pos as u32);
-
-        // self.nn_eval.add_piece(pos, piece);
     }
 
     fn clear_en_passant(&mut self) {
@@ -640,8 +624,6 @@ impl Board {
 
     #[inline]
     fn remove(&mut self, piece: i8, color: Color, pos: i32) -> i8 {
-        // self.nn_eval.remove_piece(pos as usize, piece);
-
         unsafe {
             self.bitboards.flip(color, piece, pos as u32);
             *self.items.get_unchecked_mut(pos as usize) = EMPTY;
