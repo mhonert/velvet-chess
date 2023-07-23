@@ -45,8 +45,6 @@ pub struct NeuralNetEval {
 
 #[derive(Clone)]
 enum UpdateAction {
-    Add(usize, i8),
-    Remove(usize, i8),
     RemoveAdd(usize, i8, usize, i8),
     RemoveRemoveAdd(usize, i8, usize, i8, usize, i8),
     RemoveAddAdd(usize, i8, usize, i8, usize, i8),
@@ -132,12 +130,6 @@ impl NeuralNetEval {
         }
     }
 
-    pub fn add_piece(&mut self, pos: usize, piece: i8) {
-        if !self.fast_undo {
-            self.updates.push((self.undo, self.move_id, UpdateAction::Add(pos, piece)));
-        }
-    }
-
     pub fn remove_add_piece(&mut self, rem_pos: usize, rem_piece: i8, add_pos: usize, add_piece: i8) {
         if !self.fast_undo {
             self.updates.push((self.undo, self.move_id, UpdateAction::RemoveAdd(rem_pos, rem_piece, add_pos, add_piece)));
@@ -153,12 +145,6 @@ impl NeuralNetEval {
     pub fn remove_add_add_piece(&mut self, rem_pos: usize, rem_piece: i8, add_pos1: usize, add_piece1: i8, add_pos2: usize, add_piece2: i8) {
         if !self.fast_undo {
             self.updates.push((self.undo, self.move_id, UpdateAction::RemoveAddAdd(rem_pos, rem_piece, add_pos1, add_piece1, add_pos2, add_piece2)));
-        }
-    }
-
-    pub fn remove_piece(&mut self, pos: usize, piece: i8) {
-        if !self.fast_undo {
-            self.updates.push((self.undo, self.move_id, UpdateAction::Remove(pos, piece)));
         }
     }
 
@@ -231,20 +217,6 @@ impl NeuralNetEval {
 
         for (_, _, update) in self.updates.iter() {
             match *update {
-                UpdateAction::Add(pos, piece) => {
-                    let (white_pov_idx, black_pov_idx) = self.calc_pov_weight_start(pos, piece);
-
-                    add_weights::<HL1_HALF_NODES>(&mut self.hidden_nodes_white.0, unsafe { &IN_TO_H1_WEIGHTS.0 }, white_pov_idx);
-                    add_weights::<HL1_HALF_NODES>(&mut self.hidden_nodes_black.0, unsafe { &IN_TO_H1_WEIGHTS.0 }, black_pov_idx);
-                }
-
-                UpdateAction::Remove(pos, piece) => {
-                    let (white_pov_idx, black_pov_idx) = self.calc_pov_weight_start(pos, piece);
-
-                    sub_weights::<HL1_HALF_NODES>(&mut self.hidden_nodes_white.0, unsafe { &IN_TO_H1_WEIGHTS.0 }, white_pov_idx);
-                    sub_weights::<HL1_HALF_NODES>(&mut self.hidden_nodes_black.0, unsafe { &IN_TO_H1_WEIGHTS.0 }, black_pov_idx);
-                }
-
                 UpdateAction::RemoveAdd(rem_pos, rem_piece, add_pos, add_piece) => {
                     let (rem_white_pov_idx, rem_black_pov_idx) = self.calc_pov_weight_start(rem_pos, rem_piece);
                     let (add_white_pov_idx, add_black_pov_idx) = self.calc_pov_weight_start(add_pos, add_piece);
