@@ -35,7 +35,7 @@ pub struct NeuralNetEval {
     mirror_black_pov: bool,
 
     move_id: usize,
-    updates: Vec<(bool, usize, UpdateAction)>,
+    updates: Vec<(bool, usize, bool, UpdateAction)>,
 
     undo: bool,
     fast_undo: bool,
@@ -48,7 +48,6 @@ enum UpdateAction {
     RemoveAdd(usize, i8, usize, i8),
     RemoveRemoveAdd(usize, i8, usize, i8, usize, i8),
     RemoveAddAdd(usize, i8, usize, i8, usize, i8),
-    CheckRefresh,
 }
 
 impl NeuralNetEval {
@@ -109,7 +108,7 @@ impl NeuralNetEval {
 
         // Remove all updates for the latest move
         let mut move_id: Option<usize> = None;
-        while let Some((was_undo, id, action)) = self.updates.last() {
+        while let Some((was_undo, id, was_check_refresh, _)) = self.updates.last() {
             if *was_undo {
                 return;
             }
@@ -123,28 +122,37 @@ impl NeuralNetEval {
                 self.fast_undo = true;
             }
 
-            if matches!(action, UpdateAction::CheckRefresh) {
+            if *was_check_refresh {
                 self.check_refresh -= 1;
             }
             self.updates.pop();
         }
     }
 
-    pub fn remove_add_piece(&mut self, rem_pos: usize, rem_piece: i8, add_pos: usize, add_piece: i8) {
+    pub fn remove_add_piece(&mut self, check_refresh: bool, rem_pos: usize, rem_piece: i8, add_pos: usize, add_piece: i8) {
         if !self.fast_undo {
-            self.updates.push((self.undo, self.move_id, UpdateAction::RemoveAdd(rem_pos, rem_piece, add_pos, add_piece)));
+            if check_refresh {
+                self.check_refresh += 1;
+            }
+            self.updates.push((self.undo, self.move_id, check_refresh, UpdateAction::RemoveAdd(rem_pos, rem_piece, add_pos, add_piece)));
         }
     }
 
-    pub fn remove_remove_add_piece(&mut self, rem_pos1: usize, rem_piece1: i8, rem_pos2: usize, rem_piece2: i8, add_pos: usize, add_piece: i8) {
+    pub fn remove_remove_add_piece(&mut self, check_refresh: bool, rem_pos1: usize, rem_piece1: i8, rem_pos2: usize, rem_piece2: i8, add_pos: usize, add_piece: i8) {
         if !self.fast_undo {
-            self.updates.push((self.undo, self.move_id, UpdateAction::RemoveRemoveAdd(rem_pos1, rem_piece1, rem_pos2, rem_piece2, add_pos, add_piece)));
+            if check_refresh {
+                self.check_refresh += 1;
+            }
+            self.updates.push((self.undo, self.move_id, check_refresh, UpdateAction::RemoveRemoveAdd(rem_pos1, rem_piece1, rem_pos2, rem_piece2, add_pos, add_piece)));
         }
     }
 
-    pub fn remove_add_add_piece(&mut self, rem_pos: usize, rem_piece: i8, add_pos1: usize, add_piece1: i8, add_pos2: usize, add_piece2: i8) {
+    pub fn remove_add_add_piece(&mut self, check_refresh: bool, rem_pos: usize, rem_piece: i8, add_pos1: usize, add_piece1: i8, add_pos2: usize, add_piece2: i8) {
         if !self.fast_undo {
-            self.updates.push((self.undo, self.move_id, UpdateAction::RemoveAddAdd(rem_pos, rem_piece, add_pos1, add_piece1, add_pos2, add_piece2)));
+            if check_refresh {
+                self.check_refresh += 1;
+            }
+            self.updates.push((self.undo, self.move_id, check_refresh, UpdateAction::RemoveAddAdd(rem_pos, rem_piece, add_pos1, add_piece1, add_pos2, add_piece2)));
         }
     }
 
@@ -171,13 +179,6 @@ impl NeuralNetEval {
                 self.white_offset as usize + base_index + OPP_OFFSET + h_mirror_if(self.mirror_white_pov, pos),
                 self.black_offset as usize + base_index + v_mirror(h_mirror_if(self.mirror_black_pov, pos)),
             )
-        }
-    }
-
-    pub fn check_refresh(&mut self) {
-        if !self.fast_undo {
-            self.updates.push((self.undo, self.move_id, UpdateAction::CheckRefresh));
-            self.check_refresh += 1;
         }
     }
 
@@ -215,7 +216,7 @@ impl NeuralNetEval {
             }
         }
 
-        for (_, _, update) in self.updates.iter() {
+        for (_, _, _, update) in self.updates.iter() {
             match *update {
                 UpdateAction::RemoveAdd(rem_pos, rem_piece, add_pos, add_piece) => {
                     let (rem_white_pov_idx, rem_black_pov_idx) = self.calc_pov_weight_start(rem_pos, rem_piece);
@@ -242,8 +243,6 @@ impl NeuralNetEval {
                     sub_add_add_weights::<HL1_HALF_NODES>(&mut self.hidden_nodes_white.0, unsafe { &IN_TO_H1_WEIGHTS.0 }, rem_white_pov_idx, add1_white_pov_idx, add2_white_pov_idx);
                     sub_add_add_weights::<HL1_HALF_NODES>(&mut self.hidden_nodes_black.0, unsafe { &IN_TO_H1_WEIGHTS.0 }, rem_black_pov_idx, add1_black_pov_idx, add2_black_pov_idx);
                 }
-
-                _ => {}
             }
         }
         self.updates.clear();
