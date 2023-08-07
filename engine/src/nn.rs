@@ -25,7 +25,7 @@ pub mod eval;
 pub mod io;
 
 // NN layer size
-pub const KING_BUCKETS: usize = 8;
+pub const KING_BUCKETS: usize = 5;
 pub const PIECE_BUCKETS: usize = 3;
 pub const BUCKET_SIZE: usize = 6 * 64 * 2;
 pub const INPUTS: usize = BUCKET_SIZE * KING_BUCKETS * PIECE_BUCKETS;
@@ -87,9 +87,13 @@ pub fn init_nn_params() {
 }
 
 #[inline(always)]
-pub fn board_4(pos: u16) -> u16 {
+pub fn king_bucket(pos: u16) -> u16 {
     let row = pos / 8;
     let col = pos & 3;
 
-    (row / 2) * 2 + col / 2
+    if col > 1 && row > 1 && row < 6 {
+        return 4;
+    }
+
+    (row / 4) * 2 + col / 2
 }

@@ -149,6 +149,7 @@ pub fn main() {
         FEN_TRAINING_SET_PATH,
         LZ4_TRAINING_SET_PATH,
         MIN_TRAINING_SET_ID,
+        true,
         true
     );
 
@@ -160,13 +161,13 @@ pub fn main() {
     );
 
     info!("Scanning available test sets ...");
-    let max_test_set_id = convert_sets(available_parallelism, "test", FEN_TEST_SET_PATH, LZ4_TEST_SET_PATH, 1, false);
+    let max_test_set_id = convert_sets(available_parallelism, "test", FEN_TEST_SET_PATH, LZ4_TEST_SET_PATH, 1, false, false);
 
     info!("Reading test sets ...");
     let mut test_set = GpuDataSamples(vec![DataSample::default(); SAMPLES_PER_SET * max_test_set_id]);
     let mut start = 0;
     for i in 1..=max_test_set_id {
-        read_samples(&mut test_set, start, format!("{}/{}.lz4", LZ4_TEST_SET_PATH, i).as_str(), false, &[]);
+        read_samples(&mut test_set, start, format!("{}/{}.lz4", LZ4_TEST_SET_PATH, i).as_str());
         start += SAMPLES_PER_SET;
     }
     let mut rng = ThreadRng::default();
@@ -454,13 +455,7 @@ fn spawn_data_reader_threads(
 
                     let mut start = 0;
                     for &id in sets.iter() {
-                        read_samples(
-                            &mut training_samples,
-                            start,
-                            format!("{}/{}.lz4", LZ4_TRAINING_SET_PATH, id).as_str(),
-                            true,
-                            &transform_rnd,
-                        );
+                        read_samples( &mut training_samples, start, format!("{}/{}.lz4", LZ4_TRAINING_SET_PATH, id).as_str());
                         start += SAMPLES_PER_SET;
                     }
 

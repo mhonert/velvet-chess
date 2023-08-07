@@ -34,14 +34,14 @@ pub enum Castling {
 #[derive(Default, Copy, Clone, PartialEq, Debug)]
 pub struct CastlingState(u8);
 
+static CLEAR_BY_COLOR: [u8; 2] =
+    [!(WhiteQueenSide as u8 | WhiteKingSide as u8), !(BlackQueenSide as u8 | BlackKingSide as u8)];
+
+pub static KING_SIDE_CASTLING: [Castling; 2] = [Castling::WhiteKingSide, Castling::BlackKingSide];
+
+pub static QUEEN_SIDE_CASTLING: [Castling; 2] = [Castling::WhiteQueenSide, Castling::BlackQueenSide];
+
 impl CastlingState {
-    const CLEAR_BY_COLOR: [u8; 2] =
-        [!(WhiteQueenSide as u8 | WhiteKingSide as u8), !(BlackQueenSide as u8 | BlackKingSide as u8)];
-
-    pub const KING_SIDE: [Castling; 2] = [Castling::WhiteKingSide, Castling::BlackKingSide];
-
-    pub const QUEEN_SIDE: [Castling; 2] = [Castling::WhiteQueenSide, Castling::BlackQueenSide];
-
     const ALL_CASTLING: u8 = Castling::WhiteKingSide as u8
         | Castling::WhiteQueenSide as u8
         | Castling::BlackKingSide as u8
@@ -72,7 +72,7 @@ impl CastlingState {
     #[inline]
     pub fn set_has_castled(&mut self, color: Color) {
         let idx = color.idx();
-        self.0 &= Self::CLEAR_BY_COLOR[idx];
+        self.0 &= CLEAR_BY_COLOR[idx];
     }
 
     #[inline]
@@ -82,7 +82,7 @@ impl CastlingState {
 
     #[inline]
     pub fn clear(&mut self, color: Color) {
-        self.0 &= Self::CLEAR_BY_COLOR[color.idx()];
+        self.0 &= CLEAR_BY_COLOR[color.idx()];
     }
 
     #[inline]
@@ -96,11 +96,11 @@ impl CastlingState {
     }
 
     fn king_side(color: Color) -> Castling {
-        Self::KING_SIDE[color.idx()]
+        KING_SIDE_CASTLING[color.idx()]
     }
 
     fn queen_side(color: Color) -> Castling {
-        Self::QUEEN_SIDE[color.idx()]
+        QUEEN_SIDE_CASTLING[color.idx()]
     }
 }
 
@@ -119,12 +119,13 @@ impl Default for CastlingRules {
     }
 }
 
-impl CastlingRules {
-    const KS_KING_END: [u8; 2] = [63 - 1, 7 - 1];
-    const KS_ROOK_END: [u8; 2] = [63 - 2, 7 - 2];
+static KS_KING_END: [u8; 2] = [63 - 1, 7 - 1];
+static KS_ROOK_END: [u8; 2] = [63 - 2, 7 - 2];
 
-    const QS_KING_END: [u8; 2] = [56 + 2, 2];
-    const QS_ROOK_END: [u8; 2] = [56 + 3, 3];
+static QS_KING_END: [u8; 2] = [56 + 2, 2];
+static QS_ROOK_END: [u8; 2] = [56 + 3, 3];
+
+impl CastlingRules {
 
     pub fn new(
         chess960: bool, w_king_start_col: i8, w_king_side_rook_col: i8, w_queen_side_rook_col: i8,
@@ -175,28 +176,28 @@ impl CastlingRules {
     }
 
     pub fn ks_king_end(color: Color) -> i32 {
-        Self::KS_KING_END[color.idx()] as i32
+        KS_KING_END[color.idx()] as i32
     }
 
     pub fn ks_rook_end(color: Color) -> i32 {
-        Self::KS_ROOK_END[color.idx()] as i32
+        KS_ROOK_END[color.idx()] as i32
     }
 
     pub fn qs_king_end(color: Color) -> i32 {
-        Self::QS_KING_END[color.idx()] as i32
+        QS_KING_END[color.idx()] as i32
     }
 
     pub fn qs_rook_end(color: Color) -> i32 {
-        Self::QS_ROOK_END[color.idx()] as i32
+        QS_ROOK_END[color.idx()] as i32
     }
 
     #[inline(always)]
     pub fn is_ks_castling_valid(&self, color: Color, board: &Board, empty_bb: BitBoard) -> bool {
         let idx = color.idx();
         let king_start = self.king_start[idx];
-        let king_end = Self::KS_KING_END[idx] as i8;
+        let king_end = KS_KING_END[idx] as i8;
         let rook_start = self.king_side_rook[idx];
-        let rook_end = Self::KS_ROOK_END[idx] as i8;
+        let rook_end = KS_ROOK_END[idx] as i8;
         Self::is_castling_valid(board, color.flip(), empty_bb, king_start, king_end, rook_start, rook_end)
     }
 
@@ -204,9 +205,9 @@ impl CastlingRules {
     pub fn is_qs_castling_valid(&self, color: Color, board: &Board, empty_bb: BitBoard) -> bool {
         let idx = color.idx();
         let king_start = self.king_start[idx];
-        let king_end = Self::QS_KING_END[idx] as i8;
+        let king_end = QS_KING_END[idx] as i8;
         let rook_start = self.queen_side_rook[idx];
-        let rook_end = Self::QS_ROOK_END[idx] as i8;
+        let rook_end = QS_ROOK_END[idx] as i8;
         Self::is_castling_valid(board, color.flip(), empty_bb, king_start, king_end, rook_start, rook_end)
     }
 

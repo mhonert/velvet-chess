@@ -1,6 +1,6 @@
 ## :chess_pawn: Velvet Chess Engine
 
-[<img src="logo/velvet_logo_square.png" align="middle" alt="Velvet Logo">](logo/velvet_logo_square.png?raw=true)
+[<img src="logo/velvet_logo.png" align="middle" alt="Velvet Logo">](logo/velvet_logo.png?raw=true)
 
 ![Release](https://img.shields.io/github/v/release/mhonert/velvet-chess)
 ![Test](https://img.shields.io/github/actions/workflow/status/mhonert/velvet-chess/test.yml?logo=github&branch=master&label=tests)

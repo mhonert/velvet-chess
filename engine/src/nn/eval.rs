@@ -19,7 +19,7 @@
 use crate::align::A32;
 use crate::bitboard::{v_mirror, v_mirror_i8, BitBoards, h_mirror_i8, h_mirror};
 use crate::colors::Color;
-use crate::nn::{piece_idx, HL1_HALF_NODES, KING_BUCKETS, SCORE_SCALE, board_4, IN_TO_H1_WEIGHTS, OUT_BIASES, FP_OUT_MULTIPLIER};
+use crate::nn::{piece_idx, HL1_HALF_NODES, KING_BUCKETS, SCORE_SCALE, king_bucket, IN_TO_H1_WEIGHTS, OUT_BIASES, FP_OUT_MULTIPLIER};
 use crate::pieces::{Q, R};
 use crate::scores::{MAX_EVAL, MIN_EVAL, sanitize_eval_score};
 
@@ -285,8 +285,8 @@ fn calc_bucket_offsets(
         black_king = h_mirror_i8(black_king);
     }
 
-    let w_kingrel_bucket = board_4(white_king as u16);
-    let b_kingrel_bucket = board_4(v_mirror_i8(black_king) as u16);
+    let w_kingrel_bucket = king_bucket(white_king as u16);
+    let b_kingrel_bucket = king_bucket(v_mirror_i8(black_king) as u16);
 
     let piece_bucket = if (bitboards.by_piece(Q) | bitboards.by_piece(-Q)).is_empty() {
         if (bitboards.by_piece(R) | bitboards.by_piece(-R)).is_empty() {

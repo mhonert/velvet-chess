@@ -16,15 +16,14 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::fs::{File, OpenOptions};
-use std::io::{BufRead, BufReader, BufWriter, Write};
+use std::fs::{File};
+use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::process::exit;
 use std::sync::{Arc, mpsc, Mutex};
 use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::mpsc::{Sender};
 use std::{fs, thread};
-use std::str::FromStr;
 use std::time::{Instant};
 use glob::{glob};
 use itertools::{Itertools};
@@ -39,6 +38,7 @@ use velvet::syzygy;
 use velvet::time_management::SearchLimits;
 use velvet::transposition_table::TranspositionTable;
 use crate::{RescoreArgs, Command};
+use crate::writer::OutputWriter;
 
 pub fn rescore(args: RescoreArgs) {
     let tb_path = args.tb_path;
@@ -96,8 +96,8 @@ pub fn rescore(args: RescoreArgs) {
         OutputWriter::new("4000"),
     ];
 
-    let mut count = 0;
-    let mut sub_count = 0;
+    let mut count: usize = 0;
+    let mut sub_count: usize = 0;
 
     println!("Setting CTRL-C handler");
 
@@ -192,7 +192,12 @@ fn rescore_test_positions(tx: &Sender<Command>, fen_source: Arc<Mutex<FenFileSou
 
             read_fen(&mut search.board, &fen).unwrap();
 
-            search.set_node_limit(1000);
+            let nodes = if search.board.occupancy_bb().count() <= 8 {
+                2000
+            } else {
+                1000
+            };
+            search.set_node_limit(nodes);
             let (selected_move, _) = search.find_best_move(Some(&rx), 8, &[]);
             if selected_move == NO_MOVE || selected_move.is_capture() {
                 continue;
@@ -261,91 +266,3 @@ impl FenFileSource {
     }
 }
 
-struct OutputWriter {
-    output_dir: String,
-    set_count: usize,
-    pos_count: usize,
-    writer: BufWriter<File>,
-}
-
-impl OutputWriter {
-    pub fn new(suffix: &str) -> Self {
-        println!("Creating output writer {} ...", suffix);
-        let output_dir = format!("./data/out/{}", suffix);
-        fs::create_dir_all(&output_dir).expect("could not create output folder");
-
-        let mut max_num = 0;
-        for entry in glob(&format!("{}/*.fen", &output_dir)).expect("could not glob fen files from output dir") {
-            match entry {
-                Ok(path) => {
-                    let file_name = path.file_name().unwrap().to_string_lossy().to_string();
-                    let num_str = file_name.strip_prefix("test_pos_").unwrap().strip_suffix(".fen").unwrap();
-                    let num = usize::from_str(num_str).expect("could not extract set count from file name");
-                    max_num = max_num.max(num);
-                }
-                Err(e) => {
-                    eprintln!("Error: {:?}", e)
-                }
-            }
-        }
-        let existing_pos_count = if max_num > 0 { Some(pos_count(&output_dir, max_num)) } else { None };
-        if existing_pos_count.filter(|&c| c < 200_000).is_some() {
-            println!("Continue {} - {}", suffix, max_num);
-            let writer = continue_file(&output_dir, max_num);
-            OutputWriter{output_dir, set_count: max_num, pos_count: existing_pos_count.unwrap(), writer}
-
-        } else {
-            println!("New {} - {}", suffix, max_num);
-            let writer = next_file(&output_dir, max_num + 1);
-            OutputWriter{output_dir, set_count: max_num + 1, pos_count: 0, writer}
-        }
-    }
-
-    pub fn add(&mut self, fen: String, score: i32) {
-        writeln!(&mut self.writer, "{} {}", fen, score).expect("Could not write position to file");
-        self.pos_count += 1;
-
-        if self.pos_count % 200_000 == 0 {
-            self.pos_count = 0;
-            self.set_count += 1;
-            self.writer = next_file(&self.output_dir, self.set_count);
-        }
-    }
-
-    pub fn terminate(&mut self) {
-        self.writer.flush().expect("could not flush output");
-    }
-}
-
-fn pos_count(path: &str, set_nr: usize) -> usize {
-    let file_name = format!("{}/test_pos_{}.fen", path, set_nr);
-    let file = File::open(file_name).expect("Could not open output file");
-    let mut reader = BufReader::new(file);
-    let mut buf = String::new();
-
-    let mut count = 0;
-    while let Ok(read) = reader.read_line(&mut buf) {
-        if read == 0 {
-            break;
-        }
-        count += 1;
-    }
-
-    count
-}
-
-fn next_file(path: &str, set_nr: usize) -> BufWriter<File> {
-    let file_name = format!("{}/test_pos_{}.fen", path, set_nr);
-    if Path::new(&file_name).exists() {
-        panic!("Output file already exists: {}", file_name);
-    }
-    let file = File::create(&file_name).expect("Could not create output file");
-    BufWriter::new(file)
-}
-
-fn continue_file(path: &str, set_nr: usize) -> BufWriter<File> {
-    let file_name = format!("{}/test_pos_{}.fen", path, set_nr);
-    println!("Continuing with output file {}", &file_name);
-    let file = OpenOptions::new().append(true).open(&file_name).expect("could not open existing output file in append mode");
-    BufWriter::new(file)
-}

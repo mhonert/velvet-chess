@@ -21,9 +21,9 @@ use crate::random::rand64;
 const SEED: u64 = 0x4d595df4d0f33173;
 
 const PLAYER_ZOBRIST_KEY: u64 = gen_key();
-const EN_PASSANT_ZOBRIST_KEYS: [u64; 16] = gen_keys::<16>(1);
-const CASTLING_ZOBRIST_KEYS: [u64; 16] = gen_keys::<16>(1 + 16);
-const PIECE_ZOBRIST_KEYS: [u64; 13 * 64] = gen_keys::<832>(1 + 16 + 16);
+static EN_PASSANT_ZOBRIST_KEYS: [u64; 16] = gen_keys::<16>(1);
+static CASTLING_ZOBRIST_KEYS: [u64; 16] = gen_keys::<16>(1 + 16);
+static PIECE_ZOBRIST_KEYS: [u64; 13 * 64] = gen_keys::<832>(1 + 16 + 16);
 
 #[inline]
 pub fn player_zobrist_key() -> u64 {

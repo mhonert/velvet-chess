@@ -119,7 +119,7 @@ macro_rules! tunable_array_params {
         #[allow(non_upper_case_globals)]
         mod adecl {
         $(
-            pub const $name: [i32; count_elems!($($value)+)] = [$($value),+];
+            pub static $name: [i32; count_elems!($($value)+)] = [$($value),+];
         )+
         }
 

@@ -24,7 +24,7 @@ use std::io::{BufReader, BufWriter, Error, ErrorKind, Write};
 use std::mem::MaybeUninit;
 use traincommon::sets::K;
 use velvet::nn::io::{BitWriter, CodeBook, read_f32, read_quantized, read_u16, read_u8, write_i16, write_u32, write_u8};
-use velvet::nn::{HL1_HALF_NODES, HL1_NODES, INPUT_WEIGHT_COUNT, SCORE_SCALE, piece_idx, board_4, PIECE_BUCKETS, KING_BUCKETS, MAX_RELU, FP_IN_PRECISION_BITS, FP_OUT_PRECISION_BITS, FP_IN_MULTIPLIER, FP_OUT_MULTIPLIER};
+use velvet::nn::{HL1_HALF_NODES, HL1_NODES, INPUT_WEIGHT_COUNT, SCORE_SCALE, piece_idx, king_bucket, PIECE_BUCKETS, KING_BUCKETS, MAX_RELU, FP_IN_PRECISION_BITS, FP_OUT_PRECISION_BITS, FP_IN_MULTIPLIER, FP_OUT_MULTIPLIER};
 use velvet::pieces::P;
 
 const K_DIV: f64 = K / (400.0 / SCORE_SCALE as f64);
@@ -295,13 +295,13 @@ impl Network {
 
         const BUCKET_SIZE: usize = 6 * 64 * 2;
 
-        for piece_bucket in 0..PIECE_BUCKETS {
-            for king_bucket in 0..KING_BUCKETS {
-                let bucket: usize = piece_bucket * KING_BUCKETS + king_bucket;
+        for pb in 0..PIECE_BUCKETS {
+            for kb in 0..KING_BUCKETS {
+                let bucket: usize = pb * KING_BUCKETS + kb;
                 let offset = BUCKET_SIZE * bucket;
 
                 for piece in 1..=5 {
-                    if piece != 1  && !PIECE_SKIP_MASK[piece_bucket][piece_idx(piece) as usize] {
+                    if piece != 1  && !PIECE_SKIP_MASK[pb][piece_idx(piece) as usize] {
                         continue;
                     }
                     for pos in 0..64 {
@@ -323,7 +323,7 @@ impl Network {
                 }
 
                 for pos in 0..64 {
-                    if board_4(pos) == king_bucket as u16 {
+                    if king_bucket(pos) == kb as u16 {
                         continue;
                     }
                     let base_index = piece_idx(6) as usize * 64 * 2;

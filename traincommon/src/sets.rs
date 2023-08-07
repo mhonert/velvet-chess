@@ -22,11 +22,14 @@ use std::fs::File;
 use std::io::{stdout, BufRead, BufReader, BufWriter, Error, Write};
 use std::path::Path;
 use std::str::FromStr;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 use lz4_flex::frame::FrameEncoder;
 use velvet::bitboard::{BitBoard};
+use velvet::colors::Color;
 use velvet::fen::{parse_fen, FenParseResult};
-use velvet::nn::{piece_idx, KING_BUCKETS, SCORE_SCALE, board_4};
+use velvet::nn::{piece_idx, KING_BUCKETS, SCORE_SCALE, king_bucket};
 use velvet::nn::io::{read_f32, read_u16, read_u64, read_u8, write_f32, write_u16, write_u64, write_u8};
 
 pub const SAMPLES_PER_SET: usize = 200_000;
@@ -40,7 +43,7 @@ pub trait DataSamples {
     fn finalize(&mut self, idx: usize);
 }
 
-pub fn convert_sets(thread_count: usize, caption: &str, in_path: &str, out_path: &str, min_id: usize, use_game_result: bool) -> usize {
+pub fn convert_sets(thread_count: usize, caption: &str, in_path: &str, out_path: &str, min_id: usize, use_game_result: bool, allow_transformations: bool) -> usize {
     let mut max_converted_id = 0;
     let mut max_set_id = 0;
     let mut min_unconverted_id = usize::MAX;
@@ -59,34 +62,146 @@ pub fn convert_sets(thread_count: usize, caption: &str, in_path: &str, out_path:
 
     if max_converted_id < max_set_id {
         println!("Converting {} added {} sets ...", (max_set_id - min_unconverted_id + 1), caption);
-        convert_test_pos(thread_count, in_path.to_string(), out_path.to_string(), min_unconverted_id, max_set_id, use_game_result)
+        max_set_id = convert_test_pos(thread_count, in_path.to_string(), out_path.to_string(), min_unconverted_id, max_set_id, use_game_result, allow_transformations)
             .expect("Could not convert test positions!");
     }
 
     max_set_id
 }
 
+
+struct OutputWriter {
+    output_dir: String,
+    next_set_id: Arc<AtomicUsize>,
+    entries: Vec<Entry>,
+    allow_transformations: bool,
+}
+
+struct Entry {
+    bb_map: u16,
+    score: f32,
+    active_player: Color,
+    white_king_pos: u8,
+    black_king_pos: u8,
+    bb: [u64; 13],
+}
+
+impl OutputWriter {
+    fn new(output_dir: String, next_set_id: &Arc<AtomicUsize>, allow_transformations: bool) -> Self {
+        OutputWriter{output_dir, next_set_id: next_set_id.clone(), entries: Vec::with_capacity(200000), allow_transformations}
+    }
+
+    pub fn write(&mut self, bb_map: u16, white_king_pos: u8, black_king_pos: u8, active_player: Color, score: f32, bb: [u64; 13]) {
+        self.add_entry(bb_map, white_king_pos, black_king_pos, active_player, score, bb);
+
+        if !self.allow_transformations {
+            return;
+        }
+
+        let any_castling_rights = bb_map & (1 << 15) != 0;
+        if any_castling_rights {
+            return;
+        }
+
+        let white_has_pawns = bb_map & (1 << 0) != 0;
+        let black_has_pawns = bb_map & (1 << 5) != 0;
+        if white_has_pawns || black_has_pawns {
+            return;
+        }
+
+        self.add_transformed_entry(rotate90_ccw_u16, bb_map, white_king_pos, black_king_pos, active_player, score, bb);
+        self.add_transformed_entry(v_mirror_u16, bb_map, white_king_pos, black_king_pos, active_player, score, bb);
+        self.add_transformed_entry(mirror_diagonal_u16, bb_map, white_king_pos, black_king_pos, active_player, score, bb);
+    }
+
+    fn add_entry(&mut self, bb_map: u16, white_king_pos: u8, black_king_pos: u8, active_player: Color, score: f32, bb: [u64; 13]) {
+        self.entries.push(Entry{bb_map, score, active_player, white_king_pos, black_king_pos,bb});
+        if self.entries.len() == 200000 {
+            self.flush_entries();
+        }
+    }
+
+    fn flush_entries(&mut self) {
+        let mut writer = next_file(&self.output_dir.clone(), self.next_set_id.clone().fetch_add(1, Ordering::Relaxed));
+        for entry in self.entries.drain(0..self.entries.len()) {
+            write_u16(&mut writer, entry.bb_map).unwrap();
+            write_f32(&mut writer, if entry.active_player.is_white() { entry.score } else { -entry.score }).unwrap();
+            write_u8(&mut writer, entry.active_player.0).unwrap();
+
+            let kings = entry.white_king_pos as u16 | ((entry.black_king_pos as u16) << 8);
+            write_u16(&mut writer, kings).unwrap();
+
+            for i in 1i8..=5i8 {
+                let bb_white = entry.bb[(i + 6) as usize];
+                if bb_white != 0 {
+                    write_u64(&mut writer, bb_white).unwrap();
+                }
+
+                let bb_black = entry.bb[(-i + 6) as usize];
+                if bb_black != 0 {
+                    write_u64(&mut writer, bb_black).unwrap();
+                }
+            }
+        }
+        write_u16(&mut writer, u16::MAX).unwrap();
+        writer.flush().unwrap();
+    }
+
+    fn add_transformed_entry(&mut self, transform: fn(u16) -> u16, bb_map: u16, mut white_king_pos: u8, mut black_king_pos: u8, active_player: Color, score: f32, bb: [u64; 13]) {
+        white_king_pos = transform(white_king_pos as u16) as u8;
+        black_king_pos = transform(black_king_pos as u16) as u8;
+
+        let mut bb_transformed = [0u64; 13];
+
+        for i in 1i8..=5i8 {
+            let bb_white = bb[(i + 6) as usize];
+            let bb_white_target = bb_transformed.get_mut((i + 6) as usize).unwrap();
+            for pos in BitBoard(bb_white) {
+                let pos_transformed = transform(pos as u16);
+                *bb_white_target |= 1 << pos_transformed;
+            }
+
+            let bb_black = bb[(-i + 6) as usize];
+            let bb_black_target = bb_transformed.get_mut((-i + 6) as usize).unwrap();
+            for pos in BitBoard(bb_black) {
+                let pos_transformed = transform(pos as u16);
+                *bb_black_target |= 1 << pos_transformed;
+            }
+        }
+
+        self.add_entry(bb_map, white_king_pos, black_king_pos, active_player, score, bb_transformed);
+    }
+}
+
+fn next_file(path: &str, set_nr: usize) -> BufWriter<FrameEncoder<File>> {
+    let file_name = format!("{}/{}.lz4", path, set_nr);
+    if Path::new(&file_name).exists() {
+        panic!("Output file already exists: {}", file_name);
+    }
+    let file = File::create(&file_name).expect("Could not create output file");
+    let encoder = FrameEncoder::new(file);
+    BufWriter::with_capacity(1024 * 1024, encoder)
+}
+
 fn convert_test_pos(
     thread_count: usize, in_path: String, out_path: String, min_unconverted_id: usize, max_training_set_id: usize,
-    use_game_result: bool,
-) -> Result<(), Error> {
+    use_game_result: bool, allow_transformations: bool,
+) -> Result<usize, Error> {
     let mut threads = Vec::new();
+    let next_set_id = Arc::new(AtomicUsize::new(1));
+
     for c in 1..=thread_count {
         let in_path2 = in_path.clone();
         let out_path2 = out_path.clone();
+        let next_set_id2 = next_set_id.clone();
         threads.push(thread::spawn(move || {
+            let mut output_writer = OutputWriter::new(out_path2, &next_set_id2, allow_transformations);
+
             for i in ((c + min_unconverted_id - 1)..=max_training_set_id).step_by(thread_count) {
                 print!("{} ", i);
                 stdout().flush().unwrap();
 
-                let file = File::create(format!("{}/{}.lz4", out_path2, i)).expect("Could not create tensor data file");
-                let encoder = FrameEncoder::new(file);
-                let mut writer = BufWriter::with_capacity(1024 * 1024, encoder);
-
-                read_from_fen_file(format!("{}/test_pos_{}.fen", in_path2, i).as_str(), &mut writer, use_game_result);
-                write_u16(&mut writer, u16::MAX).unwrap();
-
-                writer.flush().unwrap();
+                read_from_fen_file(format!("{}/test_pos_{}.fen", in_path2, i).as_str(), &mut output_writer, use_game_result);
             }
         }));
     }
@@ -97,10 +212,10 @@ fn convert_test_pos(
 
     println!("\nConversion finished");
 
-    Ok(())
+    Ok(next_set_id.load(Ordering::Relaxed).saturating_sub(1))
 }
 
-fn read_from_fen_file(file_name: &str, writer: &mut BufWriter<FrameEncoder<File>>, _use_game_result: bool) {
+fn read_from_fen_file(file_name: &str, writer: &mut OutputWriter, _use_game_result: bool) {
     let file = File::open(file_name).expect("Could not open test position file");
     let mut reader = BufReader::new(file);
 
@@ -125,8 +240,17 @@ fn read_from_fen_file(file_name: &str, writer: &mut BufWriter<FrameEncoder<File>
             // fen  | score
             let score = i32::from_str(parts[6]).expect("Could not parse score");
             score as f32 / SCORE_SCALE as f32
+
+        } else if parts.len() == 11 {
+            let score = i32::from_str(parts[10]).expect("Could not parse score");
+            score as f32 / SCORE_SCALE as f32
+
         } else if parts.len() == 12 {
             let score = i32::from_str(parts[9]).expect("Could not parse score");
+            score as f32 / SCORE_SCALE as f32
+
+        } else if parts.len() == 13 {
+            let score = i32::from_str(parts[12]).expect("Could not parse score");
             score as f32 / SCORE_SCALE as f32
 
         } else {
@@ -172,28 +296,11 @@ fn read_from_fen_file(file_name: &str, writer: &mut BufWriter<FrameEncoder<File>
             }
         }
 
-        write_u16(writer, bb_map).unwrap();
-        write_f32(writer, if active_player.is_white() { score } else { -score }).unwrap();
-        write_u8(writer, active_player.0).unwrap();
-
-        let kings = white_king_pos as u16 | ((black_king_pos as u16) << 8);
-        write_u16(writer, kings).unwrap();
-
-        for i in 1i8..=5i8 {
-            let bb_white = bb[(i + 6) as usize];
-            if bb_white != 0 {
-                write_u64(writer, bb_white).unwrap();
-            }
-
-            let bb_black = bb[(-i + 6) as usize];
-            if bb_black != 0 {
-                write_u64(writer, bb_black).unwrap();
-            }
-        }
+        writer.write(bb_map, white_king_pos as u8, black_king_pos as u8, active_player, score, bb);
     }
 }
 
-pub fn read_samples<T: DataSamples>(samples: &mut T, start: usize, file_name: &str, gen_mirror_pos: bool, rnd: &[u8]) {
+pub fn read_samples<T: DataSamples>(samples: &mut T, start: usize, file_name: &str) {
     let file = File::open(file_name).unwrap_or_else(|_| panic!("Could not open test position file: {}", file_name));
     let decoder = lz4_flex::frame::FrameDecoder::new(file);
     let mut reader = BufReader::new(decoder);
@@ -203,7 +310,7 @@ pub fn read_samples<T: DataSamples>(samples: &mut T, start: usize, file_name: &s
     let mut idx = start;
 
     loop {
-        let mut bb_map = read_u16(&mut reader).unwrap();
+        let bb_map = read_u16(&mut reader).unwrap();
         if bb_map == u16::MAX {
             break;
         }
@@ -213,15 +320,10 @@ pub fn read_samples<T: DataSamples>(samples: &mut T, start: usize, file_name: &s
         let stm = read_u8(&mut reader).unwrap();
         samples.init(idx, score, stm);
 
-        let mut any_castling = false;
-        if bb_map & (1 << 15) != 0 {
-            bb_map ^= 1 << 15;
-            any_castling = true;
-        }
 
         let kings = read_u16(&mut reader).unwrap();
-        let mut white_king = kings & 0b111111;
-        let mut black_king = kings >> 8;
+        let white_king = kings & 0b111111;
+        let black_king = kings >> 8;
 
         let white_no_queens = bb_map & (1 << 4) == 0;
         let black_no_queens = bb_map & (1 << 9) == 0;
@@ -229,23 +331,8 @@ pub fn read_samples<T: DataSamples>(samples: &mut T, start: usize, file_name: &s
         let black_no_rooks = bb_map & (1 << 8) == 0;
         // let white_no_bishops = bb_map & (1 << 2) == 0;
         // let black_no_bishops = bb_map & (1 << 7) == 0;
-        let white_no_pawns = bb_map & (1 << 0) == 0;
-        let black_no_pawns = bb_map & (1 << 5) == 0;
-
-        let r= if rnd.is_empty() { 0 } else { rnd[idx] };
-        let transform = if !any_castling && gen_mirror_pos && white_no_pawns && black_no_pawns {
-            match r {
-                0 => |pos| pos,
-                1 => rotate90_ccw_u16,
-                2 => h_mirror_u16,
-                _ => mirror_diagonal_u16,
-            }
-        } else {
-            |pos| pos
-        };
-
-        white_king = transform(white_king);
-        black_king = transform(black_king);
+        // let white_no_pawns = bb_map & (1 << 0) == 0;
+        // let black_no_pawns = bb_map & (1 << 5) == 0;
 
         let white_king_col = white_king & 7;
         let black_king_col = black_king & 7;
@@ -264,8 +351,8 @@ pub fn read_samples<T: DataSamples>(samples: &mut T, start: usize, file_name: &s
             v_mirror_u16
         };
 
-        let w_kingrel_bucket = board_4(transform_wpov(white_king));
-        let b_kingrel_bucket = board_4(transform_bpov(black_king));
+        let w_kingrel_bucket = king_bucket(transform_wpov(white_king));
+        let b_kingrel_bucket = king_bucket(transform_bpov(black_king));
 
         let piece_bucket = if white_no_queens && black_no_queens {
             if white_no_rooks && black_no_rooks { 2 } else { 1 }
@@ -297,10 +384,10 @@ pub fn read_samples<T: DataSamples>(samples: &mut T, start: usize, file_name: &s
                 let bb = read_u64(&mut reader).unwrap();
                 for pos in BitBoard(bb) {
                     samples.add_wpov(idx, piece_idx(i) * 64 * 2
-                        + transform_wpov(transform(pos as u16))
+                        + transform_wpov(pos as u16)
                         + white_offset);
                     samples.add_bpov(idx, piece_idx(i) * 64 * 2
-                        + transform_bpov(transform(pos as u16))
+                        + transform_bpov(pos as u16)
                         + black_offset + opp_offset);
                 }
             }
@@ -310,10 +397,10 @@ pub fn read_samples<T: DataSamples>(samples: &mut T, start: usize, file_name: &s
                 let bb = read_u64(&mut reader).unwrap();
                 for pos in BitBoard(bb) {
                     samples.add_bpov(idx, piece_idx(i) * 64 * 2
-                        + transform_bpov(transform(pos as u16))
+                        + transform_bpov(pos as u16)
                         + black_offset);
                     samples.add_wpov(idx, piece_idx(i) * 64 * 2
-                        + transform_wpov(transform(pos as u16))
+                        + transform_wpov(pos as u16)
                         + white_offset + opp_offset);
                 }
             }

@@ -34,7 +34,7 @@ const COUNTER_MOVE_SCORE: i32 = -2275;
 pub const QUIET_BASE_SCORE: i32 = -3600;
 pub const NEGATIVE_HISTORY_SCORE: i32 = QUIET_BASE_SCORE + MIN_HISTORY_SCORE;
 
-const CAPTURE_ORDER_SCORES: [i32; CAPTURE_ORDER_SIZE] = calc_capture_order_scores();
+static CAPTURE_ORDER_SCORES: [i32; CAPTURE_ORDER_SIZE] = calc_capture_order_scores();
 
 #[derive(Clone)]
 pub struct MoveGenerator {
@@ -831,6 +831,7 @@ const fn calc_capture_order_scores() -> [i32; CAPTURE_ORDER_SIZE] {
 mod tests {
     use super::*;
     use crate::board::castling::{CastlingRules, CastlingState};
+    use crate::magics::initialize_attack_tables;
 
     #[rustfmt::skip]
     const ONLY_KINGS: [i8; 64] = [
@@ -846,7 +847,7 @@ mod tests {
 
     #[test]
     pub fn white_pawn_moves_blocked() {
-        let mut board = board_with_one_piece(WHITE, P, 52);
+        let mut board = setup(WHITE, P, 52);
         board.add_piece(WHITE, P, 44);
 
         let moves = generate_moves_for_pos(&mut board, WHITE, 52);
@@ -855,7 +856,7 @@ mod tests {
 
     #[test]
     pub fn white_queen_moves() {
-        let mut board = board_with_one_piece(WHITE, Q, 28);
+        let mut board = setup(WHITE, Q, 28);
 
         let moves = generate_moves_for_pos(&mut board, WHITE, 28);
 
@@ -864,7 +865,7 @@ mod tests {
 
     #[test]
     pub fn exclude_illegal_moves() {
-        let mut board = board_with_one_piece(WHITE, Q, 52);
+        let mut board = setup(WHITE, Q, 52);
         board.perform_move(Move::new(MoveType::KingQuiet, K, board.king_pos(WHITE) as i32, 53));
         board.add_piece(BLACK, R, 51);
 
@@ -874,7 +875,9 @@ mod tests {
         assert_eq!(1, moves.len(), "There must be only one legal move for the white queen");
     }
 
-    fn board_with_one_piece(color: Color, piece_id: i8, pos: i32) -> Board {
+    fn setup(color: Color, piece_id: i8, pos: i32) -> Board {
+        initialize_attack_tables();
+
         let mut items = ONLY_KINGS;
         items[pos as usize] = color.piece(piece_id);
         Board::new(&items, color, CastlingState::default(), None, 0, 1, CastlingRules::default())

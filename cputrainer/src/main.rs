@@ -88,13 +88,13 @@ pub fn main() {
 
 pub fn main_quantize(thread_count: usize) {
     info!("Scanning available test sets ...");
-    let max_test_set_id = convert_sets(thread_count, "test", FEN_TEST_SET_PATH, LZ4_TEST_SET_PATH, 1, false);
+    let max_test_set_id = convert_sets(thread_count, "test", FEN_TEST_SET_PATH, LZ4_TEST_SET_PATH, 1, false, false);
 
     info!("Reading test sets ...");
     let mut test_set = CpuDataSamples(vec![DataSample::default(); SAMPLES_PER_SET * max_test_set_id]);
     let mut start = 0;
     for i in 1..=max_test_set_id {
-        read_samples(&mut test_set, start, format!("{}/{}.lz4", LZ4_TEST_SET_PATH, i).as_str(), false, &[]);
+        read_samples(&mut test_set, start, format!("{}/{}.lz4", LZ4_TEST_SET_PATH, i).as_str());
         start += SAMPLES_PER_SET;
     }
     let mut rng = ThreadRng::default();
@@ -119,7 +119,7 @@ pub fn main_quantize(thread_count: usize) {
         &full_test_set,
     );
 
-    net.write().unwrap().init_from_raw_file(&"./data/nets/velvet_base.nn".to_string());
+    net.write().unwrap().init_from_raw_file("./data/nets/velvet_base.nn");
 
 
     let (error_sum, error_count) = test_net(Command::Test(Scope::Full), thread_count, &to_tx, &from_rx);

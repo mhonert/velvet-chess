@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2022 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2023 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -17,56 +17,44 @@
  */
 
 use crate::bitboard::{create_blocker_permutations, gen_bishop_attacks, gen_rook_attacks, mask_without_outline};
-use std::sync::Once;
 
-static INIT: Once = Once::new();
-
-#[derive(Clone)]
-pub struct Magics {}
-
-impl Default for Magics {
-    fn default() -> Self {
-        INIT.call_once(initialize_magics);
-        Magics {}
+pub fn get_bishop_attacks(empty_bb: u64, pos: i32) -> u64 {
+    let magic = unsafe { MAGICS.get_unchecked(pos as usize) };
+    unsafe {
+        *ATTACKS.get_unchecked(magic.b_offset + ((empty_bb | magic.b_mask).wrapping_mul(magic.b_number) >> (64 - 9)) as usize)
     }
 }
 
-impl Magics {
-    #[inline]
-    pub fn get_bishop_attacks(&self, empty_bb: u64, pos: i32) -> u64 {
-        let magic = unsafe { BISHOP_MAGICS.get_unchecked(pos as usize) };
-        unsafe {
-            *ATTACKS
-                .get_unchecked(magic.offset + ((empty_bb | magic.mask).wrapping_mul(magic.number) >> (64 - 9)) as usize)
-        }
+#[inline]
+pub fn get_rook_attacks(empty_bb: u64, pos: i32) -> u64 {
+    let magic = unsafe { MAGICS.get_unchecked(pos as usize) };
+    unsafe {
+        *ATTACKS.get_unchecked(magic.r_offset + ((empty_bb | magic.r_mask).wrapping_mul(magic.r_number) >> (64 - 12)) as usize)
     }
+}
 
-    #[inline]
-    pub fn get_rook_attacks(&self, empty_bb: u64, pos: i32) -> u64 {
-        let magic = unsafe { ROOK_MAGICS.get_unchecked(pos as usize) };
-        unsafe {
-            *ATTACKS.get_unchecked(
-                magic.offset + ((empty_bb | magic.mask).wrapping_mul(magic.number) >> (64 - 12)) as usize,
-            )
-        }
-    }
-
-    #[inline]
-    pub fn get_queen_attacks(&self, empty_bb: u64, pos: i32) -> u64 {
-        self.get_bishop_attacks(empty_bb, pos) | self.get_rook_attacks(empty_bb, pos)
+#[inline]
+pub fn get_queen_attacks(empty_bb: u64, pos: i32) -> u64 {
+    let magic = unsafe { MAGICS.get_unchecked(pos as usize) };
+    unsafe {
+        *ATTACKS.get_unchecked(magic.b_offset + ((empty_bb | magic.b_mask).wrapping_mul(magic.b_number) >> (64 - 9)) as usize)
+            | *ATTACKS.get_unchecked(magic.r_offset + ((empty_bb | magic.r_mask).wrapping_mul(magic.r_number) >> (64 - 12)) as usize)
     }
 }
 
 struct Magic {
-    mask: u64,
-    number: u64,
-    offset: usize,
+    r_mask: u64,
+    r_number: u64,
+    r_offset: usize,
+    b_mask: u64,
+    b_number: u64,
+    b_offset: usize,
 }
 
-const EMPTY_MAGIC: Magic = Magic { mask: 0, number: 0, offset: 0 };
+const EMPTY_MAGIC: Magic = Magic { r_mask: 0, r_number: 0, r_offset: 0, b_mask: 0, b_number: 0, b_offset: 0 };
 
 #[rustfmt::skip]
-const ROOK_MAGIC_NUMS: [u64; 64] = [
+static ROOK_MAGIC_NUMS: [u64; 64] = [
     0x0380051082e14004, 0x0018000c00060018, 0x020004200a008010, 0x0040080004004002,
     0x0040020040040001, 0x0020008020010202, 0x0018007900002040, 0x0600040253002582,
     0x0002001042008020, 0x0000100008040010, 0x0000080401020008, 0x0000200400200200,
@@ -86,7 +74,7 @@ const ROOK_MAGIC_NUMS: [u64; 64] = [
 ];
 
 #[rustfmt::skip]
-const ROOK_MAGIC_OFFSETS: [u32; 64] = [
+static ROOK_MAGIC_OFFSETS: [u32; 64] = [
     0, 27478, 23381, 13144, 65447, 11094, 2022, 63395, 38375, 44182, 49063, 25430, 28501,
     4939, 78782, 73777, 40019, 77746, 19285, 15188, 3045, 87095, 17236, 46231, 86077, 5963,
     53160, 14164, 50087, 74801, 43031, 69681, 42011, 55208, 54184, 81331, 52135, 67633, 9036,
@@ -95,7 +83,7 @@ const ROOK_MAGIC_OFFSETS: [u32; 64] = [
 ];
 
 #[rustfmt::skip]
-const BISHOP_MAGIC_NUMS: [u64; 64] = [
+static BISHOP_MAGIC_NUMS: [u64; 64] = [
     0x407f40a0106003d2, 0x087fdfdfdfdc0001, 0x107f400818002000, 0x02007ff810000000,
     0x14603bfe54000000, 0x10401efeff700000, 0x0800101f3fff8000, 0x100020101e3fff80,
     0x1000023fdfbfeffe, 0x8040003f3fe7e801, 0x007f008048100020, 0x0482007fe0040000,
@@ -115,7 +103,7 @@ const BISHOP_MAGIC_NUMS: [u64; 64] = [
 ];
 
 #[rustfmt::skip]
-const BISHOP_MAGIC_OFFSETS: [u32; 64] = [
+static BISHOP_MAGIC_OFFSETS: [u32; 64] = [
     98493, 85776, 79931, 5024, 98308, 98894, 4349, 85759, 82124, 99300, 4890, 81457, 99198,
     4483, 5260, 99231, 3986, 5988, 79905, 98842, 98518, 98684, 4767, 4222, 4613, 3616, 46742,
     96807, 29526, 99343, 3739, 99364, 5416, 81585, 96295, 97398, 98132, 97525, 81970, 81883,
@@ -125,53 +113,57 @@ const BISHOP_MAGIC_OFFSETS: [u32; 64] = [
 
 static mut ATTACKS: [u64; 99947] = [0; 99947];
 
-static mut ROOK_MAGICS: [Magic; 64] = [EMPTY_MAGIC; 64];
-static mut BISHOP_MAGICS: [Magic; 64] = [EMPTY_MAGIC; 64];
+static mut MAGICS: [Magic; 64] = [EMPTY_MAGIC; 64];
 
-fn initialize_magics() {
-    initialize_attacks(
-        gen_rook_attacks,
-        &ROOK_MAGIC_NUMS,
-        &ROOK_MAGIC_OFFSETS[..],
-        unsafe { &mut ATTACKS },
-        unsafe { &mut ROOK_MAGICS },
-        12,
-    );
-    initialize_attacks(
-        gen_bishop_attacks,
-        &BISHOP_MAGIC_NUMS,
-        &BISHOP_MAGIC_OFFSETS[..],
-        unsafe { &mut ATTACKS },
-        unsafe { &mut BISHOP_MAGICS },
-        9,
-    );
-}
-
-fn initialize_attacks(
-    gen_attacks: fn(u64, i32) -> u64, magic_nums: &[u64], magic_offsets: &[u32], target: &mut [u64],
-    magics: &mut [Magic; 64], shift: u32,
-) {
+pub fn initialize_attack_tables() {
     for pos in 0..64 {
-        let move_mask = gen_attacks(0, pos);
-        let block_mask = mask_without_outline(move_mask, pos as u32);
+        // Rook
+        let r_move_mask = gen_rook_attacks(0, pos);
+        let r_block_mask = mask_without_outline(r_move_mask, pos as u32);
 
-        let blocker_count = block_mask.count_ones();
+        let r_blocker_count = r_block_mask.count_ones();
 
-        let mut permutations: Vec<u64> = Vec::with_capacity(1 << blocker_count);
-        create_blocker_permutations(&mut permutations, 0, block_mask);
+        let mut r_permutations: Vec<u64> = Vec::with_capacity(1 << r_blocker_count);
+        create_blocker_permutations(&mut r_permutations, 0, r_block_mask);
 
-        let magic_num = magic_nums[pos as usize];
+        let r_magic_num = ROOK_MAGIC_NUMS[pos as usize];
 
-        let magic_offset = magic_offsets[pos as usize];
+        let r_magic_offset = ROOK_MAGIC_OFFSETS[pos as usize];
 
-        for &p in permutations.iter() {
-            let move_targets = gen_attacks(p, pos);
+        for &p in r_permutations.iter() {
+            let move_targets = gen_rook_attacks(p, pos);
 
-            let index = ((!p).wrapping_mul(magic_num)) >> (64 - shift);
-            target[index as usize + magic_offset as usize] = move_targets;
+            let index = ((!p).wrapping_mul(r_magic_num)) >> (64 - 12);
+            unsafe { ATTACKS[index as usize + r_magic_offset as usize] = move_targets }
         }
 
-        let inv_block_mask = !block_mask;
-        magics[pos as usize] = Magic { mask: inv_block_mask, number: magic_num, offset: magic_offset as usize };
+        let r_inv_block_mask = !r_block_mask;
+
+        // Bishop
+        let b_move_mask = gen_bishop_attacks(0, pos);
+        let b_block_mask = mask_without_outline(b_move_mask, pos as u32);
+
+        let b_blocker_count = b_block_mask.count_ones();
+
+        let mut b_permutations: Vec<u64> = Vec::with_capacity(1 << b_blocker_count);
+        create_blocker_permutations(&mut b_permutations, 0, b_block_mask);
+
+        let b_magic_num = BISHOP_MAGIC_NUMS[pos as usize];
+
+        let b_magic_offset = BISHOP_MAGIC_OFFSETS[pos as usize];
+
+        for &p in b_permutations.iter() {
+            let move_targets = gen_bishop_attacks(p, pos);
+
+            let index = ((!p).wrapping_mul(b_magic_num)) >> (64 - 9);
+            unsafe { ATTACKS[index as usize + b_magic_offset as usize] = move_targets }
+        }
+
+        let b_inv_block_mask = !b_block_mask;
+
+        unsafe { MAGICS[pos as usize] = Magic {
+            r_mask: r_inv_block_mask, r_number: r_magic_num, r_offset: r_magic_offset as usize,
+            b_mask: b_inv_block_mask, b_number: b_magic_num, b_offset: b_magic_offset as usize,
+        } };
     }
 }

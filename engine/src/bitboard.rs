@@ -169,10 +169,10 @@ pub fn h_mirror(pos: usize) -> usize {
     pos ^ 7
 }
 
-const KNIGHT_ATTACKS: [u64; 64] = calculate_single_move_patterns([21, 19, 12, 8, -12, -21, -19, -8]);
-const KING_ATTACKS: [u64; 64] = calculate_single_move_patterns([1, 10, -1, -10, 9, 11, -9, -11]);
+static KNIGHT_ATTACKS: [u64; 64] = calculate_single_move_patterns([21, 19, 12, 8, -12, -21, -19, -8]);
+static KING_ATTACKS: [u64; 64] = calculate_single_move_patterns([1, 10, -1, -10, 9, 11, -9, -11]);
 
-const LINE_MASKS: [LinePatterns; 64 * 4] = calc_line_patterns();
+static LINE_MASKS: [LinePatterns; 64 * 4] = calc_line_patterns();
 
 #[inline]
 pub fn get_knight_attacks(pos: i32) -> BitBoard {
@@ -186,14 +186,14 @@ pub fn get_king_attacks(pos: i32) -> BitBoard {
 
 #[inline]
 pub fn gen_bishop_attacks(occupied: u64, pos: i32) -> u64 {
-    get_line_attacks(occupied, unsafe { LINE_MASKS.get_unchecked(pos as usize + (Diagonal as usize * 64)) })
-        | get_line_attacks(occupied, unsafe { LINE_MASKS.get_unchecked(pos as usize + (AntiDiagonal as usize * 64)) })
+    get_line_attacks(occupied, &LINE_MASKS[pos as usize + (Diagonal as usize * 64)])
+        | get_line_attacks(occupied, &LINE_MASKS[pos as usize + (AntiDiagonal as usize * 64)])
 }
 
 #[inline]
 pub fn gen_rook_attacks(occupied: u64, pos: i32) -> u64 {
-    get_line_attacks(occupied, unsafe { LINE_MASKS.get_unchecked(pos as usize + (Horizontal as usize * 64)) })
-        | get_line_attacks(occupied, unsafe { LINE_MASKS.get_unchecked(pos as usize + (Vertical as usize * 64)) })
+    get_line_attacks(occupied, &LINE_MASKS[pos as usize + (Horizontal as usize * 64)])
+        | get_line_attacks(occupied, &LINE_MASKS[pos as usize + (Vertical as usize * 64)])
 }
 
 #[inline]
@@ -304,7 +304,7 @@ const fn create_passed_pawn_mask(direction: i32) -> [u64; 64] {
     patterns
 }
 
-const PAWN_PATH_MASKS: [[u64; 64]; 2] = [create_passed_pawn_mask(1), create_passed_pawn_mask(-1)];
+static PAWN_PATH_MASKS: [[u64; 64]; 2] = [create_passed_pawn_mask(1), create_passed_pawn_mask(-1)];
 
 pub fn is_passed_pawn(pos: i32, own_color: Color, opp_pawns: BitBoard) -> bool {
     let mask = unsafe { *PAWN_PATH_MASKS.get_unchecked(own_color.idx()).get_unchecked(pos as usize) };
@@ -332,7 +332,7 @@ struct LinePatterns {
 }
 
 #[inline]
-fn get_line_attacks(occupied: u64, patterns: &LinePatterns) -> u64 {
+const fn get_line_attacks(occupied: u64, patterns: &LinePatterns) -> u64 {
     // Uses the obstruction difference algorithm to determine line attacks
     // see the chess programming Wiki for a detailed explanation: https://www.chessprogramming.org/Obstruction_Difference
     let lower = patterns.lower & occupied;
@@ -427,7 +427,7 @@ pub fn black_right_pawn_attacks(pawns: BitBoard) -> BitBoard {
 }
 
 // Positions where pawns may move two squares
-pub const PAWN_DOUBLE_MOVE_LINES: [u64; 2] = [
+pub static PAWN_DOUBLE_MOVE_LINES: [u64; 2] = [
     0b0000000000000000111111110000000000000000000000000000000000000000,
     0b0000000000000000000000000000000000000000111111110000000000000000,
 ];

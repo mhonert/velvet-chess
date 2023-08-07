@@ -16,7 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub const CHESS960_FENS: [&str; 960] = [
+pub static CHESS960_FENS: [&str; 960] = [
     "bbqnnrkr/pppppppp/8/8/8/8/PPPPPPPP/BBQNNRKR w HFhf - 0 1",
     "bqnbnrkr/pppppppp/8/8/8/8/PPPPPPPP/BQNBNRKR w HFhf - 0 1",
     "bqnnrbkr/pppppppp/8/8/8/8/PPPPPPPP/BQNNRBKR w HEhe - 0 1",

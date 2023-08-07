@@ -25,9 +25,9 @@ use crate::bitboard::{
     white_left_pawn_attacks, white_right_pawn_attacks, BitBoard, BitBoards, DARK_COLORED_FIELD_PATTERN,
     LIGHT_COLORED_FIELD_PATTERN,
 };
-use crate::board::castling::{Castling, CastlingRules, CastlingState};
+use crate::board::castling::{Castling, CastlingRules, CastlingState, KING_SIDE_CASTLING, QUEEN_SIDE_CASTLING};
 use crate::colors::{Color, BLACK, WHITE};
-use crate::magics::Magics;
+use crate::magics::{get_bishop_attacks, get_queen_attacks, get_rook_attacks};
 use crate::moves::{Move, MoveType};
 use crate::nn::eval::NeuralNetEval;
 use crate::params;
@@ -58,7 +58,6 @@ pub struct Board {
     pub halfmove_count: u16,
     pub castling_rules: CastlingRules,
 
-    magics: Magics,
     nn_eval: Box<NeuralNetEval>,
     items: [i8; 64],
     king_pos: [i8; 2],
@@ -83,7 +82,6 @@ impl Board {
         assert_eq!(items.len(), 64, "Expected a vector with 64 elements, but got {}", items.len());
 
         let mut board = Board {
-            magics: Magics::default(),
             pos_history: PositionHistory::default(),
             nn_eval: NeuralNetEval::new(),
             castling_rules,
@@ -591,9 +589,9 @@ impl Board {
 
         if piece.abs() == R {
             if self.castling_rules.is_ks_castling(color, pos) {
-                self.set_rook_moved(CastlingState::KING_SIDE[color.idx()]);
+                self.set_rook_moved(KING_SIDE_CASTLING[color.idx()]);
             } else if self.castling_rules.is_qs_castling(color, pos) {
-                self.set_rook_moved(CastlingState::QUEEN_SIDE[color.idx()]);
+                self.set_rook_moved(QUEEN_SIDE_CASTLING[color.idx()]);
             }
         }
 
@@ -690,17 +688,17 @@ impl Board {
 
     #[inline]
     pub fn get_bishop_attacks(&self, empty_bb: BitBoard, pos: i32) -> BitBoard {
-        BitBoard(self.magics.get_bishop_attacks(empty_bb.into(), pos))
+        BitBoard(get_bishop_attacks(empty_bb.into(), pos))
     }
 
     #[inline]
     pub fn get_rook_attacks(&self, empty_bb: BitBoard, pos: i32) -> BitBoard {
-        BitBoard(self.magics.get_rook_attacks(empty_bb.into(), pos))
+        BitBoard(get_rook_attacks(empty_bb.into(), pos))
     }
 
     #[inline]
     pub fn get_queen_attacks(&self, empty_bb: BitBoard, pos: i32) -> BitBoard {
-        BitBoard(self.magics.get_queen_attacks(empty_bb.into(), pos))
+        BitBoard(get_queen_attacks(empty_bb.into(), pos))
     }
 
     pub fn is_legal_move(&mut self, color: Color, m: Move) -> bool {
@@ -904,12 +902,23 @@ impl Board {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Once;
+    use crate::magics::initialize_attack_tables;
     use crate::moves::MoveType;
 
     use super::*;
 
+    static INIT: Once = Once::new();
+
+    pub fn initialize() {
+        INIT.call_once(|| {
+            initialize_attack_tables();
+        })
+    }
+
     #[test]
     fn update_hash_when_piece_moves() {
+        initialize();
         #[rustfmt::skip]
             let items: [i8; 64] = [
             0,  0,  0, -K,  0,  0,  0,  0,
@@ -939,6 +948,7 @@ mod tests {
 
     #[test]
     fn incrementally_updates_hash() {
+        initialize();
         #[rustfmt::skip]
         let items: [i8; 64] = [
             0,  0,  0, -K,  0,  0,  0,  0,
@@ -968,6 +978,7 @@ mod tests {
 
     #[test]
     fn performs_and_undos_white_castling_moves() {
+        initialize();
         #[rustfmt::skip]
         let items: [i8; 64] = [
             -R,  0,  0,  0, -K,  0,  0, -R,
@@ -1007,6 +1018,7 @@ mod tests {
 
     #[test]
     fn performs_and_undos_black_castling_moves() {
+        initialize();
         #[rustfmt::skip]
         let items: [i8; 64] = [
             -R,  0,  0,  0, -K,  0,  0, -R,
@@ -1047,6 +1059,7 @@ mod tests {
 
     #[test]
     fn find_white_pawn_left_attack() {
+        initialize();
         #[rustfmt::skip]
         let items: [i8; 64] = [
             0,  0,  0, -K,  0,  0,  0,  0,
@@ -1066,6 +1079,7 @@ mod tests {
 
     #[test]
     fn find_white_pawn_right_attack() {
+        initialize();
         #[rustfmt::skip]
         let items: [i8; 64] = [
             0,  0,  0, -K,  0,  0,  0,  0,
@@ -1085,6 +1099,7 @@ mod tests {
 
     #[test]
     fn find_black_pawn_left_attack() {
+        initialize();
         #[rustfmt::skip]
         let items: [i8; 64] = [
             0,  0,  0, -K,  0,  0,  0,  0,
@@ -1104,6 +1119,7 @@ mod tests {
 
     #[test]
     fn find_black_pawn_right_attack() {
+        initialize();
         #[rustfmt::skip]
         let items: [i8; 64] = [
             0,  0,  0, -K,  0,  0,  0,  0,
@@ -1123,6 +1139,7 @@ mod tests {
 
     #[test]
     fn find_knight_attack() {
+        initialize();
         #[rustfmt::skip]
         let items: [i8; 64] = [
             0,  0,  0, -K,  0,  0,  0,  0,
@@ -1142,6 +1159,7 @@ mod tests {
 
     #[test]
     fn find_bishop_attack() {
+        initialize();
         #[rustfmt::skip]
         let items: [i8; 64] = [
             0,  0,  0, -K,  0,  0,  0,  0,
@@ -1161,6 +1179,7 @@ mod tests {
 
     #[test]
     fn find_rook_attack() {
+        initialize();
         #[rustfmt::skip]
         let items: [i8; 64] = [
             0,  0,  0, -K,  0,  0,  0,  0,
@@ -1180,6 +1199,7 @@ mod tests {
 
     #[test]
     fn find_queen_attack() {
+        initialize();
         #[rustfmt::skip]
         let items: [i8; 64] = [
             0,  0,  0, -K,  0,  0,  0,  0,
@@ -1199,6 +1219,7 @@ mod tests {
 
     #[test]
     fn find_king_attack() {
+        initialize();
         #[rustfmt::skip]
         let items: [i8; 64] = [
             0,  0,  0, -K,  0,  0,  0,  0,
@@ -1218,6 +1239,7 @@ mod tests {
 
     #[test]
     fn recognizes_white_in_check() {
+        initialize();
         #[rustfmt::skip]
         let items: [i8; 64] = [
             0,  0,  0, -K,  0,  0,  0,  0,
@@ -1237,6 +1259,7 @@ mod tests {
 
     #[test]
     fn recognizes_black_in_check() {
+        initialize();
         #[rustfmt::skip]
         let items: [i8; 64] = [
             0,  0,  0, -K,  0,  0,  0,  0,
@@ -1256,6 +1279,7 @@ mod tests {
 
     #[test]
     fn see_white_discovered_attacks() {
+        initialize();
         #[rustfmt::skip]
         let items: [i8; 64] = [
             0,  0,  0,  0,  0,  0, -K,  0,
@@ -1274,6 +1298,7 @@ mod tests {
 
     #[test]
     fn see_black_discovered_attacks() {
+        initialize();
         #[rustfmt::skip]
         let items: [i8; 64] = [
             0,  0,  0,  0,  0,  0, -K,  0,
@@ -1292,6 +1317,7 @@ mod tests {
 
     #[test]
     fn updates_hash_for_piece_movements() {
+        initialize();
         #[rustfmt::skip]
             let items: [i8; 64] = [
             0,  0,  0, -K,  0,  0,  0,  0,
@@ -1318,6 +1344,7 @@ mod tests {
 
     #[test]
     fn updates_hash_for_en_passant_changes() {
+        initialize();
         #[rustfmt::skip]
             let items: [i8; 64] = [
             0,  0,  0, -K,  0,  0,  0,  0,

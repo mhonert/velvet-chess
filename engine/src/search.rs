@@ -1747,13 +1747,23 @@ const fn log2(i: u32) -> i32 {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Once;
     use super::*;
     use crate::board::castling::{CastlingRules, CastlingState};
     use crate::board::Board;
     use crate::colors::{BLACK, WHITE};
     use crate::fen::{create_from_fen, write_fen};
+    use crate::magics::initialize_attack_tables;
     use crate::moves::NO_MOVE;
     use crate::pieces::{K, R};
+
+    static INIT: Once = Once::new();
+
+    pub fn initialize() {
+        INIT.call_once(|| {
+            initialize_attack_tables();
+        })
+    }
 
     #[test]
     fn finds_mate_in_one() {
@@ -1818,6 +1828,8 @@ mod tests {
     }
 
     fn search(tt: Arc<TranspositionTable>, limits: SearchLimits, board: Board, min_depth: i32) -> Move {
+        initialize();
+
         let mut search = Search::new(
             Arc::new(AtomicBool::new(false)),
             Arc::new(AtomicU64::new(0)),

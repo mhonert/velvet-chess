@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2022 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2023 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -18,8 +18,10 @@
 extern crate velvet;
 
 use velvet::engine;
+use velvet::magics::initialize_attack_tables;
 use velvet::uci;
 
 fn main() {
+    initialize_attack_tables();
     uci::start_uci_loop(&engine::spawn_engine_thread());
 }
