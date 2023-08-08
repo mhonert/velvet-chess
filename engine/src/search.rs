@@ -843,6 +843,8 @@ impl Search {
 
         let allow_lmp = !is_pv && !in_check && depth <= 2 && self.current_depth >= 7;
 
+        self.hh.clear_killers(ply + 1);
+
         let mut a = -beta;
         while let Some(curr_move) = self.movegen.next_move(&self.hh, &mut self.board) {
             if excluded_singular_move.is_same_move(curr_move) {

@@ -49,6 +49,12 @@ impl HistoryHeuristics {
         self.counters.fill([NO_MOVE; 64]);
     }
 
+    pub fn clear_killers(&mut self, ply: usize) {
+        if let Some(k) = self.killers.get_mut(ply) {
+            *k = (NO_MOVE, NO_MOVE);
+        }
+    }
+
     #[inline]
     pub fn get_killer_moves(&self, ply: usize) -> (Move, Move) {
         self.killers[ply]
