@@ -554,7 +554,7 @@ impl MoveList {
             if end <= 7 || end >= 56 {
                 // Promotion
                 self.add_capture_move(board, MoveType::PawnSpecial, Q, start, end as i32);
-                if !MINOR_PROMOTIONS {
+                if MINOR_PROMOTIONS {
                     self.add_capture_move(board, MoveType::PawnSpecial, N, start, end as i32);
                     self.add_capture_move(board, MoveType::PawnSpecial, R, start, end as i32);
                     self.add_capture_move(board, MoveType::PawnSpecial, B, start, end as i32);
