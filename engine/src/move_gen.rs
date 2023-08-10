@@ -25,16 +25,12 @@ use crate::pieces::{B, EMPTY, K, N, P, Q, R};
 use crate::transposition_table::MAX_DEPTH;
 use std::cmp::Reverse;
 
-const CAPTURE_ORDER_SIZE: usize = 6 + 6 * 7 + 1;
-
 const PRIMARY_KILLER_SCORE: i32 = -2200;
 const SECONDARY_KILLER_SCORE: i32 = -2250;
 const COUNTER_MOVE_SCORE: i32 = -2275;
 
 pub const QUIET_BASE_SCORE: i32 = -3600;
 pub const NEGATIVE_HISTORY_SCORE: i32 = QUIET_BASE_SCORE + MIN_HISTORY_SCORE;
-
-static CAPTURE_ORDER_SCORES: [i32; CAPTURE_ORDER_SIZE] = calc_capture_order_scores();
 
 #[derive(Clone)]
 pub struct MoveGenerator {
@@ -337,7 +333,7 @@ impl MoveList {
     #[inline(always)]
     pub fn generate_qs_captures(&mut self, board: &mut Board) {
         self.gen_qs_capture_moves(board);
-        self.capture_moves.sort_unstable_by_key(Move::score);
+        self.capture_moves.sort_by_key(Move::score);
     }
 
     #[inline(always)]
@@ -789,42 +785,16 @@ pub fn evaluate_move_order(
 // Evaluate score for capture move ordering
 #[inline(always)]
 fn evaluate_capture_move_order(board: &Board, m: Move) -> i32 {
-    let captured_piece = board.get_item(m.end());
+    let captured_piece_id = board.get_item(m.end()).abs();
     let original_piece_id = m.piece_id();
-    let captured_piece_id = captured_piece.abs();
 
-    get_capture_order_score(original_piece_id as i32, captured_piece_id as i32)
+    captured_piece_id as i32 * 16 - original_piece_id as i32
 }
 
 #[inline]
 pub fn is_killer(m: Move) -> bool {
     let score = m.score();
     score == PRIMARY_KILLER_SCORE || score == SECONDARY_KILLER_SCORE
-}
-
-#[inline(always)]
-fn get_capture_order_score(attacker_id: i32, victim_id: i32) -> i32 {
-    unsafe { *CAPTURE_ORDER_SCORES.get_unchecked((attacker_id * 7 + victim_id) as usize) }
-}
-
-const fn calc_capture_order_scores() -> [i32; CAPTURE_ORDER_SIZE] {
-    let mut scores: [i32; CAPTURE_ORDER_SIZE] = [0; CAPTURE_ORDER_SIZE];
-    let mut score: i32 = 0;
-
-    let mut victim = 1;
-    while victim <= 6 {
-        let mut attacker = 6;
-        while attacker >= 0 {
-            scores[(attacker * 7 + victim) as usize] = score;
-            score += 1;
-
-            attacker -= 1;
-        }
-
-        victim += 1;
-    }
-
-    scores
 }
 
 #[cfg(test)]
