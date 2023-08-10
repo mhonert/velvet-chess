@@ -1,12 +1,30 @@
 
-This is just a small bug-fix release ...
+This releases comes with a new neural network, search improvements and some small fixes
 
 
-According to my tests, the fix has no or only a minimal Elo impact.
-Playing strength should be the same as v5.2.0.
+Estimated strength increase: ~ 25 Elo
 
 ## Changes
-- Fixes a draw by repetition detection bug as for example observed in [TCEC S24 - FRC6 League A - Game 2](https://tcec-chess.com/#div=frc6la&game=2&season=24)
+- New neural network trained from v5.2.0 training set + re-scored training sets from earlier Velvet versions
+- Updated training tools
+- Some minor search improvements and fixes
+- Some optimizations
+
+## Statistics
+
+- Elo change: v5.3.0 compared to v5.2.0 against the same set of opponents
+- Move range: grouped by games won in less than x moves (each game only belongs to one group, so a game that ended in 57 moves would belong to the group "60", but not "80", "100", etc.)
+
+
+| Move range | Elo change |
+|------------|------------|
+| 40         | +24        |
+| 60         | +32        |
+| 80         | +22        |
+| 100        | +31        |
+| 120        | +37        |
+| \>= 120    | +12        |
+
 
 ## Notes
 
