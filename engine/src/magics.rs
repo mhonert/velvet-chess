@@ -16,29 +16,29 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::bitboard::{create_blocker_permutations, gen_bishop_attacks, gen_rook_attacks, mask_without_outline};
+use crate::bitboard::{BitBoard, create_blocker_permutations, gen_bishop_attacks, gen_rook_attacks, mask_without_outline};
 
-pub fn get_bishop_attacks(empty_bb: u64, pos: i32) -> u64 {
-    let magic = unsafe { MAGICS.get_unchecked(pos as usize) };
+pub fn get_bishop_attacks(empty_bb: u64, pos: usize) -> BitBoard {
+    let magic = unsafe { MAGICS.get_unchecked(pos) };
     unsafe {
-        *ATTACKS.get_unchecked(magic.b_offset + ((empty_bb | magic.b_mask).wrapping_mul(magic.b_number) >> (64 - 9)) as usize)
+        BitBoard(*ATTACKS.get_unchecked(magic.b_offset + ((empty_bb | magic.b_mask).wrapping_mul(magic.b_number) >> (64 - 9)) as usize))
     }
 }
 
 #[inline]
-pub fn get_rook_attacks(empty_bb: u64, pos: i32) -> u64 {
-    let magic = unsafe { MAGICS.get_unchecked(pos as usize) };
+pub fn get_rook_attacks(empty_bb: u64, pos: usize) -> BitBoard {
+    let magic = unsafe { MAGICS.get_unchecked(pos) };
     unsafe {
-        *ATTACKS.get_unchecked(magic.r_offset + ((empty_bb | magic.r_mask).wrapping_mul(magic.r_number) >> (64 - 12)) as usize)
+        BitBoard(*ATTACKS.get_unchecked(magic.r_offset + ((empty_bb | magic.r_mask).wrapping_mul(magic.r_number) >> (64 - 12)) as usize))
     }
 }
 
 #[inline]
-pub fn get_queen_attacks(empty_bb: u64, pos: i32) -> u64 {
-    let magic = unsafe { MAGICS.get_unchecked(pos as usize) };
+pub fn get_queen_attacks(empty_bb: u64, pos: usize) -> BitBoard {
+    let magic = unsafe { MAGICS.get_unchecked(pos) };
     unsafe {
-        *ATTACKS.get_unchecked(magic.b_offset + ((empty_bb | magic.b_mask).wrapping_mul(magic.b_number) >> (64 - 9)) as usize)
-            | *ATTACKS.get_unchecked(magic.r_offset + ((empty_bb | magic.r_mask).wrapping_mul(magic.r_number) >> (64 - 12)) as usize)
+        BitBoard(*ATTACKS.get_unchecked(magic.b_offset + ((empty_bb | magic.b_mask).wrapping_mul(magic.b_number) >> (64 - 9)) as usize)
+            | *ATTACKS.get_unchecked(magic.r_offset + ((empty_bb | magic.r_mask).wrapping_mul(magic.r_number) >> (64 - 12)) as usize))
     }
 }
 

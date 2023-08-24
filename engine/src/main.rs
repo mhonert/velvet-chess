@@ -18,10 +18,10 @@
 extern crate velvet;
 
 use velvet::engine;
-use velvet::magics::initialize_attack_tables;
+use velvet::init::init;
 use velvet::uci;
 
 fn main() {
-    initialize_attack_tables();
+    init();
     uci::start_uci_loop(&engine::spawn_engine_thread());
 }

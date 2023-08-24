@@ -129,30 +129,30 @@ impl NeuralNetEval {
         }
     }
 
-    pub fn remove_add_piece(&mut self, check_refresh: bool, rem_pos: usize, rem_piece: i8, add_pos: usize, add_piece: i8) {
+    pub fn remove_add_piece<const CHECK_REFRESH: bool>(&mut self, rem_pos: usize, rem_piece: i8, add_pos: usize, add_piece: i8) {
         if !self.fast_undo {
-            if check_refresh {
+            if CHECK_REFRESH {
                 self.check_refresh += 1;
             }
-            self.updates.push((self.undo, self.move_id, check_refresh, UpdateAction::RemoveAdd(rem_pos, rem_piece, add_pos, add_piece)));
+            self.updates.push((self.undo, self.move_id, CHECK_REFRESH, UpdateAction::RemoveAdd(rem_pos, rem_piece, add_pos, add_piece)));
         }
     }
 
-    pub fn remove_remove_add_piece(&mut self, check_refresh: bool, rem_pos1: usize, rem_piece1: i8, rem_pos2: usize, rem_piece2: i8, add_pos: usize, add_piece: i8) {
+    pub fn remove_remove_add_piece<const CHECK_REFRESH: bool>(&mut self, rem_pos1: usize, rem_piece1: i8, rem_pos2: usize, rem_piece2: i8, add_pos: usize, add_piece: i8) {
         if !self.fast_undo {
-            if check_refresh {
+            if CHECK_REFRESH {
                 self.check_refresh += 1;
             }
-            self.updates.push((self.undo, self.move_id, check_refresh, UpdateAction::RemoveRemoveAdd(rem_pos1, rem_piece1, rem_pos2, rem_piece2, add_pos, add_piece)));
+            self.updates.push((self.undo, self.move_id, CHECK_REFRESH, UpdateAction::RemoveRemoveAdd(rem_pos1, rem_piece1, rem_pos2, rem_piece2, add_pos, add_piece)));
         }
     }
 
-    pub fn remove_add_add_piece(&mut self, check_refresh: bool, rem_pos: usize, rem_piece: i8, add_pos1: usize, add_piece1: i8, add_pos2: usize, add_piece2: i8) {
+    pub fn remove_add_add_piece<const CHECK_REFRESH: bool>(&mut self, rem_pos: usize, rem_piece: i8, add_pos1: usize, add_piece1: i8, add_pos2: usize, add_piece2: i8) {
         if !self.fast_undo {
-            if check_refresh {
+            if CHECK_REFRESH {
                 self.check_refresh += 1;
             }
-            self.updates.push((self.undo, self.move_id, check_refresh, UpdateAction::RemoveAddAdd(rem_pos, rem_piece, add_pos1, add_piece1, add_pos2, add_piece2)));
+            self.updates.push((self.undo, self.move_id, CHECK_REFRESH, UpdateAction::RemoveAddAdd(rem_pos, rem_piece, add_pos1, add_piece1, add_pos2, add_piece2)));
         }
     }
 
@@ -184,7 +184,7 @@ impl NeuralNetEval {
 
     pub fn eval(
         &mut self, active_player: Color, bitboards: &BitBoards, white_king: i8, black_king: i8,
-    ) -> i32 {
+    ) -> i16 {
         self.apply_updates(bitboards, white_king, black_king);
 
         let (own_hidden_nodes, opp_hidden_nodes) = if active_player.is_white() {
@@ -249,24 +249,24 @@ impl NeuralNetEval {
     }
 }
 
-fn scale_eval(mut score: i32) -> i32 {
-    if score > MAX_EVAL / 2  {
-        score = MAX_EVAL / 2 + ((score - MAX_EVAL / 2) / 2);
-        let bound = MAX_EVAL * 3 / 2;
+fn scale_eval(mut score: i32) -> i16 {
+    if score > (MAX_EVAL / 2) as i32  {
+        score = MAX_EVAL as i32 / 2 + ((score - MAX_EVAL as i32 / 2) / 2);
+        let bound = (MAX_EVAL * 3 / 2) as i32;
         if score > bound {
             score = bound + ((score - bound) / 2);
             score = sanitize_eval_score(score);
         }
-    } else if score < MIN_EVAL / 2 {
-        score = MIN_EVAL / 2 + ((score - MIN_EVAL / 2) / 2);
-        let bound = MIN_EVAL * 3 / 2;
+    } else if score < (MIN_EVAL / 2) as i32 {
+        score = MIN_EVAL as i32 / 2 + ((score - MIN_EVAL as i32 / 2) / 2);
+        let bound = (MIN_EVAL * 3 / 2) as i32;
         if score < bound {
             score = bound + ((score - bound) / 2);
             score = sanitize_eval_score(score);
         }
     }
 
-    score
+    score as i16
 }
 
 fn calc_bucket_offsets(

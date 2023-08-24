@@ -42,7 +42,7 @@ tunable_array_params!(
 );
 
 #[cfg(not(feature = "tune"))]
-pub fn set(name: String, _value: i32) {
+pub fn set(name: String, _value: i16) {
     println!("Unknown option: {}", name)
 }
 
@@ -50,7 +50,7 @@ pub fn set(name: String, _value: i32) {
 pub fn print_options() {}
 
 #[cfg(feature = "tune")]
-pub fn set(name: String, value: i32) {
+pub fn set(name: String, value: i16) {
     if !set_param(name.clone(), value) && !set_array_param(name.clone(), value) {
         println!("Unknown option: {}", name);
         return;

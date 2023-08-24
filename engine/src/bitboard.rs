@@ -60,6 +60,24 @@ impl BitBoard {
     pub fn first(&self) -> BitBoard {
         BitBoard(self.0 & (self.0 as i64).wrapping_neg() as u64)
     }
+
+    pub fn nth_pos(&self, mut n: usize) -> u32 {
+        let mut v = self.0;
+        while v != 0 {
+            let pos = v.trailing_zeros();
+            if n == 0 {
+                return pos;
+            }
+            n -= 1;
+            v ^= 1 << pos as u64;
+        }
+        0
+    }
+
+    #[inline]
+    pub fn is_set(&self, pos: usize) -> bool {
+        (self.0 & (1 << pos)) != 0
+    }
 }
 
 macro_rules! impl_binary_op {
@@ -175,13 +193,13 @@ static KING_ATTACKS: [u64; 64] = calculate_single_move_patterns([1, 10, -1, -10,
 static LINE_MASKS: [LinePatterns; 64 * 4] = calc_line_patterns();
 
 #[inline]
-pub fn get_knight_attacks(pos: i32) -> BitBoard {
-    BitBoard(unsafe { *KNIGHT_ATTACKS.get_unchecked(pos as usize) })
+pub fn get_knight_attacks(pos: usize) -> BitBoard {
+    BitBoard(unsafe { *KNIGHT_ATTACKS.get_unchecked(pos) })
 }
 
 #[inline]
-pub fn get_king_attacks(pos: i32) -> BitBoard {
-    BitBoard(unsafe { *KING_ATTACKS.get_unchecked(pos as usize) })
+pub fn get_king_attacks(pos: usize) -> BitBoard {
+    BitBoard(unsafe { *KING_ATTACKS.get_unchecked(pos) })
 }
 
 #[inline]
@@ -306,8 +324,8 @@ const fn create_passed_pawn_mask(direction: i32) -> [u64; 64] {
 
 static PAWN_PATH_MASKS: [[u64; 64]; 2] = [create_passed_pawn_mask(1), create_passed_pawn_mask(-1)];
 
-pub fn is_passed_pawn(pos: i32, own_color: Color, opp_pawns: BitBoard) -> bool {
-    let mask = unsafe { *PAWN_PATH_MASKS.get_unchecked(own_color.idx()).get_unchecked(pos as usize) };
+pub fn is_passed_pawn(pos: usize, own_color: Color, opp_pawns: BitBoard) -> bool {
+    let mask = unsafe { *PAWN_PATH_MASKS.get_unchecked(own_color.idx()).get_unchecked(pos) };
     (opp_pawns & mask).is_empty()
 }
 

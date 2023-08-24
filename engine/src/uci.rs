@@ -23,6 +23,7 @@ use crate::time_management::SearchLimits;
 use crate::transposition_table::{DEFAULT_SIZE_MB, MAX_DEPTH, MAX_HASH_SIZE_MB};
 use crate::uci_move::UCIMove;
 use std::collections::HashSet;
+use std::fmt::Display;
 use std::io;
 use std::str::FromStr;
 use std::sync::mpsc::Sender;
@@ -232,7 +233,7 @@ fn set_option(tx: &Sender<Message>, parts: &[&str]) {
         }
 
         _ => {
-            if let Some(value) = parse_int_option(value, i32::MIN, i32::MAX) {
+            if let Some(value) = parse_int_option(value, i16::MIN, i16::MAX) {
                 send_message(tx, Message::SetParam(name, value));
             } else {
                 println!("Invalid value for param {}: {}", name, value)
@@ -241,8 +242,8 @@ fn set_option(tx: &Sender<Message>, parts: &[&str]) {
     }
 }
 
-fn parse_int_option(value: &str, min_value: i32, max_value: i32) -> Option<i32> {
-    let value = match i32::from_str(value) {
+fn parse_int_option<T: FromStr + Ord + Display>(value: &str, min_value: T, max_value: T) -> Option<T> {
+    let value = match T::from_str(value) {
         Ok(v) => v,
         Err(_) => {
             return None;
@@ -300,7 +301,7 @@ fn go(tx: &Sender<Message>, valid_cmds: &HashSet<&str>, parts: Vec<&str>) {
     let mut search_moves: Option<Vec<String>> = None;
     let mut infinite = false;
     let mut ponder = false;
-    let mut mate_limit: Option<i32> = None;
+    let mut mate_limit: Option<i16> = None;
 
     let mut i = 0;
     while i < parts.len() {

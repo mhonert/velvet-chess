@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2022 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2023 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -76,7 +76,7 @@ impl Color {
     }
 
     /// Converts the given score (white perspective) to a score from the own perspective
-    pub fn score(self, score_white_pov: i32) -> i32 {
+    pub fn score(self, score_white_pov: i16) -> i16 {
         if self.0 == 0 {
             score_white_pov
         } else {

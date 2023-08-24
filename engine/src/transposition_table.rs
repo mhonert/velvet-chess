@@ -17,30 +17,30 @@
  */
 
 use crate::align::A64;
-use crate::moves::Move;
+use crate::moves::{TTPackedMove};
 use crate::scores::{is_mate_score, is_mated_score, sanitize_mate_score, sanitize_mated_score};
 use std::intrinsics::transmute;
 use std::mem::MaybeUninit;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-pub const MAX_HASH_SIZE_MB: i32 = 256 * 1024;
+pub const MAX_HASH_SIZE_MB: i32 = 512 * 1024;
 
 // Transposition table entry
-// Bits 63 - 41: 23 highest bits of the hash
-const HASHCHECK_MASK: u64 = 0b1111111111111111111111100000000000000000000000000000000000000000;
+// Bits 63 - 40: 24 highest bits of the hash
+const HASHCHECK_MASK: u64 = 0b1111111111111111111111110000000000000000000000000000000000000000;
 
-// Bits 40 - 39: Generation
+// Bits 39 - 38: Generation
 pub const MAX_GENERATION: u16 = 3;
-const GENERATION_BITSHIFT: u32 = 39;
+const GENERATION_BITSHIFT: u32 = 38;
 const GENERATION_MASK: u64 = 0b11;
 
-// Bits 38 - 32: Depth
+// Bits 37 - 31: Depth
 pub const MAX_DEPTH: usize = 127;
-const DEPTH_BITSHIFT: u32 = 32;
+const DEPTH_BITSHIFT: u32 = 31;
 const DEPTH_MASK: u64 = 0b1111111;
 
-// Bits 31 - 30: Score Type
+// Bits 30 - 29: Score Type
 #[repr(u8)]
 #[derive(Clone, Copy)]
 pub enum ScoreType {
@@ -56,7 +56,7 @@ impl ScoreType {
     }
 }
 
-const SCORE_TYPE_BITSHIFT: u32 = 30;
+const SCORE_TYPE_BITSHIFT: u32 = 29;
 const SCORE_TYPE_MASK: u64 = 0b11;
 
 const SLOTS_PER_SEGMENT: usize = 4;
@@ -98,7 +98,7 @@ impl TranspositionTable {
     }
 
     // Important: mate scores must be stored relative to the current node, not relative to the root node
-    pub fn write_entry(&self, hash: u64, generation: u16, new_depth: i32, scored_move: Move, typ: ScoreType) {
+    pub fn write_entry(&self, hash: u64, generation: u16, new_depth: i32, scored_move: TTPackedMove, typ: ScoreType) {
         let index = self.calc_index(hash);
         let segment = unsafe { self.segments.0.get_unchecked(index) };
         let hash_check = hash & HASHCHECK_MASK;
@@ -107,7 +107,7 @@ impl TranspositionTable {
         new_entry |= (generation as u64) << GENERATION_BITSHIFT;
         new_entry |= (new_depth as u64) << DEPTH_BITSHIFT;
         new_entry |= (typ as u64) << SCORE_TYPE_BITSHIFT;
-        new_entry |= scored_move.to_bit29() as u64;
+        new_entry |= scored_move.to_bits28() as u64;
 
         let mut target_slot = MaybeUninit::uninit();
         let mut lowest_sort_score = i16::MAX;
@@ -198,22 +198,22 @@ impl TranspositionTable {
 
 fn update_generation(slot: &AtomicU64, generation: u16) {
     let mut entry = slot.load(Ordering::Relaxed);
-    entry &= !(0b11 << GENERATION_BITSHIFT);
+    entry &= !((MAX_GENERATION as u64) << GENERATION_BITSHIFT);
     entry |= (generation as u64) << GENERATION_BITSHIFT;
     slot.store(entry, Ordering::Relaxed);
 }
 
-pub fn get_untyped_move(entry: u64) -> Move {
-    Move::from_bit29((entry & 0b00011111111111111111111111111111) as u32)
+pub fn get_hash_move(entry: u64) -> TTPackedMove {
+    TTPackedMove::new((entry & 0b00001111111111111111111111111111) as u32)
 }
 
 #[inline]
 // Convert current-node-relative mate scores to root-relative mate scores
-pub fn to_root_relative_score(ply: i32, score: i32) -> i32 {
+pub fn to_root_relative_score(ply: i32, score: i16) -> i16 {
     if is_mate_score(score) {
-        sanitize_mate_score(score - ply)
+        sanitize_mate_score(score - ply as i16)
     } else if is_mated_score(score) {
-        sanitize_mated_score(score + ply)
+        sanitize_mated_score(score + ply as i16)
     } else {
         score
     }
@@ -221,11 +221,11 @@ pub fn to_root_relative_score(ply: i32, score: i32) -> i32 {
 
 #[inline]
 // Convert root-relative mate scores to current-node-relative mate scores
-pub fn from_root_relative_score(ply: i32, score: i32) -> i32 {
+pub fn from_root_relative_score(ply: i32, score: i16) -> i16 {
     if is_mate_score(score) {
-        sanitize_mate_score(score + ply)
+        sanitize_mate_score(score + ply as i16)
     } else if is_mated_score(score) {
-        sanitize_mated_score(score - ply)
+        sanitize_mated_score(score - ply as i16)
     } else {
         score
     }
@@ -254,8 +254,11 @@ pub fn get_score_type(entry: u64) -> ScoreType {
 
 #[cfg(test)]
 mod tests {
+    use crate::bitboard::BitBoards;
+    use crate::colors::WHITE;
     use super::*;
-    use crate::moves::{MoveType, NO_MOVE};
+    use crate::moves::{Move, MoveType, NO_MOVE};
+    use crate::pieces::Q;
     use crate::scores::{MAX_SCORE, MIN_SCORE};
 
     #[test]
@@ -265,14 +268,18 @@ mod tests {
         let depth = MAX_DEPTH as i32;
         let score = -10;
 
-        let m = Move::new(MoveType::Quiet, 5, 32, 33).with_score(score);
+        let m = Move::new(MoveType::QueenQuiet, 32, 33).with_score(score);
         let typ = ScoreType::Exact;
 
-        tt.write_entry(hash, 0, depth, m, typ);
+        let mut bitboards = BitBoards::default();
+        bitboards.flip(WHITE, Q, 32);
+
+        let tpm = m.to_tt_packed_move(WHITE, &bitboards);
+        tt.write_entry(hash, 0, depth,  tpm, typ);
 
         let entry = tt.get_entry(hash, 0);
 
-        assert_eq!(m.to_bit29(), get_untyped_move(entry).to_bit29());
+        assert_eq!(tpm.to_bits28(), get_hash_move(entry).to_bits28());
         assert_eq!(depth, get_depth(entry));
         assert_eq!(typ as u8, get_score_type(entry) as u8);
     }
@@ -282,11 +289,12 @@ mod tests {
         let tt = TranspositionTable::new(1);
         let score = MIN_SCORE;
         let hash = u64::MAX;
-        let m = NO_MOVE.with_score(score);
-        tt.write_entry(hash, 0, 1, m, ScoreType::Exact);
+        let m = NO_MOVE.with_score(score as i16);
+        let tpm = TTPackedMove::new(m.to_u32());
+        tt.write_entry(hash, 0, 1, tpm, ScoreType::Exact);
 
         let entry = tt.get_entry(hash, 0);
-        assert_eq!(score, get_untyped_move(entry).score());
+        assert_eq!(tpm.to_bits28(), get_hash_move(entry).to_bits28());
     }
 
     #[test]
@@ -294,11 +302,12 @@ mod tests {
         let tt = TranspositionTable::new(1);
         let score = MAX_SCORE;
         let hash = u64::MAX;
-        let m = NO_MOVE.with_score(score);
-        tt.write_entry(hash, 0, 1, m, ScoreType::Exact);
+        let m = NO_MOVE.with_score(score as i16);
+        let tpm = TTPackedMove::new(m.to_u32());
+        tt.write_entry(hash, 0, 1, tpm, ScoreType::Exact);
 
         let entry = tt.get_entry(hash, 0);
-        assert_eq!(score, get_untyped_move(entry).score());
+        assert_eq!(tpm.to_bits28(), get_hash_move(entry).to_bits28());
     }
 
 

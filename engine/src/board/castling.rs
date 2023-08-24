@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2022 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2023 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -151,63 +151,63 @@ impl CastlingRules {
         self.chess960
     }
 
-    pub fn is_ks_castling(&self, color: Color, move_to: i32) -> bool {
+    pub fn is_ks_castling(&self, color: Color, move_to: i8) -> bool {
         self.ks_rook_start(color) == move_to
     }
 
-    pub fn is_qs_castling(&self, color: Color, move_to: i32) -> bool {
+    pub fn is_qs_castling(&self, color: Color, move_to: i8) -> bool {
         self.qs_rook_start(color) == move_to
     }
 
-    pub fn is_king_start(&self, color: Color, pos: i32) -> bool {
+    pub fn is_king_start(&self, color: Color, pos: i8) -> bool {
         self.king_start(color) == pos
     }
 
-    pub fn king_start(&self, color: Color) -> i32 {
-        self.king_start[color.idx()] as i32
+    pub fn king_start(&self, color: Color) -> i8 {
+        unsafe { *self.king_start.get_unchecked(color.idx()) }
     }
 
-    pub fn ks_rook_start(&self, color: Color) -> i32 {
-        self.king_side_rook[color.idx()] as i32
+    pub fn ks_rook_start(&self, color: Color) -> i8 {
+        unsafe { *self.king_side_rook.get_unchecked(color.idx()) }
     }
 
-    pub fn qs_rook_start(&self, color: Color) -> i32 {
-        self.queen_side_rook[color.idx()] as i32
+    pub fn qs_rook_start(&self, color: Color) -> i8 {
+        unsafe { *self.queen_side_rook.get_unchecked(color.idx()) }
     }
 
-    pub fn ks_king_end(color: Color) -> i32 {
-        KS_KING_END[color.idx()] as i32
+    pub fn ks_king_end(color: Color) -> i8 {
+        *unsafe { KS_KING_END.get_unchecked(color.idx()) } as i8
     }
 
     pub fn ks_rook_end(color: Color) -> i32 {
-        KS_ROOK_END[color.idx()] as i32
+        *unsafe { KS_ROOK_END.get_unchecked(color.idx()) } as i32
     }
 
-    pub fn qs_king_end(color: Color) -> i32 {
-        QS_KING_END[color.idx()] as i32
+    pub fn qs_king_end(color: Color) -> i8 {
+        *unsafe { QS_KING_END.get_unchecked(color.idx()) } as i8
     }
 
     pub fn qs_rook_end(color: Color) -> i32 {
-        QS_ROOK_END[color.idx()] as i32
+        *unsafe { QS_ROOK_END.get_unchecked(color.idx()) } as i32
     }
 
     #[inline(always)]
     pub fn is_ks_castling_valid(&self, color: Color, board: &Board, empty_bb: BitBoard) -> bool {
         let idx = color.idx();
-        let king_start = self.king_start[idx];
-        let king_end = KS_KING_END[idx] as i8;
-        let rook_start = self.king_side_rook[idx];
-        let rook_end = KS_ROOK_END[idx] as i8;
+        let king_start = *unsafe { self.king_start.get_unchecked(idx) };
+        let king_end = *unsafe { KS_KING_END.get_unchecked(idx) } as i8;
+        let rook_start = *unsafe { self.king_side_rook.get_unchecked(idx) };
+        let rook_end = *unsafe { KS_ROOK_END.get_unchecked(idx) } as i8;
         Self::is_castling_valid(board, color.flip(), empty_bb, king_start, king_end, rook_start, rook_end)
     }
 
     #[inline(always)]
     pub fn is_qs_castling_valid(&self, color: Color, board: &Board, empty_bb: BitBoard) -> bool {
         let idx = color.idx();
-        let king_start = self.king_start[idx];
-        let king_end = QS_KING_END[idx] as i8;
-        let rook_start = self.queen_side_rook[idx];
-        let rook_end = QS_ROOK_END[idx] as i8;
+        let king_start = *unsafe { self.king_start.get_unchecked(idx) };
+        let king_end = *unsafe { QS_KING_END.get_unchecked(idx) } as i8;
+        let rook_start = *unsafe { self.queen_side_rook.get_unchecked(idx) };
+        let rook_end = *unsafe { QS_ROOK_END.get_unchecked(idx) } as i8;
         Self::is_castling_valid(board, color.flip(), empty_bb, king_start, king_end, rook_start, rook_end)
     }
 
@@ -228,7 +228,7 @@ impl CastlingRules {
         }
 
         for pos in king_route_bb {
-            if board.is_attacked(opp_color, pos as i32) {
+            if board.is_attacked(opp_color, pos as usize) {
                 return false;
             }
         }

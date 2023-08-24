@@ -199,12 +199,12 @@ fn rescore_test_positions(tx: &Sender<Command>, fen_source: Arc<Mutex<FenFileSou
             };
             search.set_node_limit(nodes);
             let (selected_move, _) = search.find_best_move(Some(&rx), 8, &[]);
-            if selected_move == NO_MOVE || selected_move.is_capture() {
+            if selected_move == NO_MOVE || selected_move.is_quiet() {
                 continue;
             }
 
             let score = search.board.active_player().score(selected_move.score());
-            let (_, removed_piece_id) = search.board.perform_move(selected_move);
+            let (_, removed_piece_id) = search.board.perform_move(selected_move.unpack());
             if removed_piece_id != EMPTY {
                 continue;
             }

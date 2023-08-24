@@ -22,15 +22,15 @@ macro_rules! tunable_params {
         #[allow(non_upper_case_globals)]
         mod sdecl {
         $(
-            pub static mut $name: i32 = $value;
+            pub static mut $name: i16 = $value;
         )+
         }
 
         $(
-        pub fn $name() -> i32 { unsafe { sdecl::$name } }
+        pub fn $name() -> i16 { unsafe { sdecl::$name } }
         )+
 
-        fn set_param(name: String, value: i32) -> bool {
+        fn set_param(name: String, value: i16) -> bool {
             match name.as_str() {
                 $(
                 stringify!($name) => {
@@ -45,7 +45,7 @@ macro_rules! tunable_params {
 
         fn print_single_options() {
             $(
-                println!("option name {} type spin default {} min {} max {}", stringify!($name), $name(), i32::MIN, i32::MAX);
+                println!("option name {} type spin default {} min {} max {}", stringify!($name), $name(), i16::MIN, i16::MAX);
             )+
         }
     }
@@ -57,12 +57,12 @@ macro_rules! tunable_params {
         #[allow(non_upper_case_globals)]
         mod sdecl {
         $(
-            pub const $name: i32 = $value;
+            pub const $name: i16 = $value;
         )+
         }
 
         $(
-        pub const fn $name() -> i32 { sdecl::$name }
+        pub const fn $name() -> i16 { sdecl::$name }
         )+
     }
 }
@@ -78,15 +78,15 @@ macro_rules! tunable_array_params {
         #[allow(non_upper_case_globals)]
         mod adecl {
         $(
-            pub static mut $name: [i32; count_elems!($($value)+)] = [$($value),+];
+            pub static mut $name: [i16; count_elems!($($value)+)] = [$($value),+];
         )+
         }
 
         $(
-        pub fn $name(i: usize) -> i32 { unsafe { *adecl::$name.get_unchecked(i) } }
+        pub fn $name(i: usize) -> i16 { unsafe { *adecl::$name.get_unchecked(i) } }
         )+
 
-        fn set_array_param(name: String, value: i32) -> bool {
+        fn set_array_param(name: String, value: i16) -> bool {
             if let Some((base_name, idx_str)) = name.rsplit_once('_') {
                 if let Ok(idx) = usize::from_str(idx_str) {
                     match base_name {
@@ -106,7 +106,7 @@ macro_rules! tunable_array_params {
         fn print_array_options() {
             $(
             for i in 0..count_elems!($($value)+) {
-                println!("option name {}_{} type spin default {} min {} max {}", stringify!($name), i, $name(i), i32::MIN, i32::MAX);
+                println!("option name {}_{} type spin default {} min {} max {}", stringify!($name), i, $name(i), i16::MIN, i16::MAX);
             }
             )+
         }
@@ -119,13 +119,13 @@ macro_rules! tunable_array_params {
         #[allow(non_upper_case_globals)]
         mod adecl {
         $(
-            pub static $name: [i32; count_elems!($($value)+)] = [$($value),+];
+            pub static $name: [i16; count_elems!($($value)+)] = [$($value),+];
         )+
         }
 
         $(
         #[inline(always)]
-        pub fn $name(i: usize) -> i32 { unsafe { *adecl::$name.get_unchecked(i) } }
+        pub fn $name(i: usize) -> i16 { unsafe { *adecl::$name.get_unchecked(i) } }
         )+
     }
 }

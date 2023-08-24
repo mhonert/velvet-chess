@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2022 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2023 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -108,7 +108,7 @@ impl TimeManager {
                 if count == 0 {
                     (0, 1, score)
                 } else {
-                    (highest_drop.max((prev_score - score).max(0)), count + 1, score)
+                    (highest_drop.max((prev_score as i32 - score as i32).max(0)), count + 1, score)
                 }
             })
             .0;
@@ -134,7 +134,7 @@ pub struct SearchLimits {
 
     node_limit: u64,
     depth_limit: i32,
-    mate_limit: i32,
+    mate_limit: i16,
     time_limit_ms: i32,
     strict_time_limit: bool,
 
@@ -181,7 +181,7 @@ impl SearchLimits {
 
     pub fn new(
         depth_limit: Option<i32>, node_limit: Option<u64>, wtime: Option<i32>, btime: Option<i32>, winc: Option<i32>,
-        binc: Option<i32>, move_time: Option<i32>, moves_to_go: Option<i32>, mate_limit: Option<i32>,
+        binc: Option<i32>, move_time: Option<i32>, moves_to_go: Option<i32>, mate_limit: Option<i16>,
     ) -> Result<Self, &'static str> {
         let depth_limit = depth_limit.unwrap_or(MAX_DEPTH as i32);
         if depth_limit <= 0 {
@@ -231,7 +231,7 @@ impl SearchLimits {
         self.depth_limit
     }
 
-    pub fn mate_limit(&self) -> i32 {
+    pub fn mate_limit(&self) -> i16 {
         self.mate_limit
     }
 

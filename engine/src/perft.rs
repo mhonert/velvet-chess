@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2022 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2023 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -34,16 +34,17 @@ pub fn perft(movegen: &mut MoveGenerator, hh: &HistoryHeuristics, board: &mut Bo
     let mut nodes: u64 = 0;
 
     let active_player = board.active_player();
-    movegen.enter_ply(active_player, NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE);
+    movegen.enter_ply(active_player, NO_MOVE, NO_MOVE, NO_MOVE);
 
-    while let Some(m) = movegen.next_move(hh, board) {
-        let (previous_piece, removed_piece_id) = board.perform_move(m);
+    while let Some(m) = movegen.next_move(0, hh, board) {
+        let upm = m.unpack();
+        let (previous_piece, removed_piece_id) = board.perform_move(upm);
 
         if !board.is_in_check(active_player) {
             nodes += perft(movegen, hh, board, depth - 1);
         }
 
-        board.undo_move(m, previous_piece, removed_piece_id);
+        board.undo_move(upm, previous_piece, removed_piece_id);
     }
 
     movegen.leave_ply();

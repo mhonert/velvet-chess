@@ -52,7 +52,7 @@ mod writer;
 
 #[derive(Clone, Debug)]
 enum Command {
-    AddTestPos(String, i32),
+    AddTestPos(String, i16),
     Terminate
 }
 
@@ -347,7 +347,7 @@ fn collect_quiet_pos(
             }
         }
 
-        let (_, removed_piece_id) = search.board.perform_move(selected_move);
+        let (_, removed_piece_id) = search.board.perform_move(selected_move.unpack());
         if removed_piece_id != EMPTY {
             prev_capture_pos = selected_move.end();
         } else {
@@ -370,20 +370,22 @@ fn is_quiet(board: &mut Board, m: Move) -> bool {
         return false;
     }
 
-    let (own_piece, removed_piece_id) = board.perform_move(m);
+    let upm = m.unpack();
+
+    let (own_piece, removed_piece_id) = board.perform_move(upm);
     let mut quiet = removed_piece_id == EMPTY;
 
     quiet &= !board.is_in_check(board.active_player());
 
-    board.undo_move(m, own_piece, removed_piece_id);
+    board.undo_move(upm, own_piece, removed_piece_id);
 
     quiet
 }
 
-fn find_candidate_moves(search: &mut Search, rx: Option<&Receiver<Message>>, min_depth: i32, max_candidate_count: usize, prev_capture_pos: i32) -> (i32, Vec<Move>) {
+fn find_candidate_moves(search: &mut Search, rx: Option<&Receiver<Message>>, min_depth: i32, max_candidate_count: usize, prev_capture_pos: i32) -> (i16, Vec<Move>) {
     let mut candidates = Vec::with_capacity(max_candidate_count);
     let mut found_recapture = false;
-    let mut max_score = i32::MIN;
+    let mut max_score = i16::MIN;
     search.set_node_limit(100);
     for _ in 0..max_candidate_count {
         let (selected_move, _) = search.find_best_move(rx, min_depth, &candidates);
@@ -430,14 +432,15 @@ fn play_random_move(
             continue;
         }
 
-        let (previous_piece, removed_piece_id) = board.perform_move(m);
+        let upm = m.unpack();
+        let (previous_piece, removed_piece_id) = board.perform_move(upm);
         if board.is_in_check(board.active_player().flip()) || board.is_draw() {
-            board.undo_move(m, previous_piece, removed_piece_id);
+            board.undo_move(upm, previous_piece, removed_piece_id);
             continue;
         }
         candidate_moves.push(m);
 
-        board.undo_move(m, previous_piece, removed_piece_id);
+        board.undo_move(upm, previous_piece, removed_piece_id);
     }
     move_gen.leave_ply();
 
@@ -446,7 +449,7 @@ fn play_random_move(
     }
 
     let m = candidate_moves[rnd.rand32() as usize % candidate_moves.len()];
-    board.perform_move(m);
+    board.perform_move(m.unpack());
 
     true
 }

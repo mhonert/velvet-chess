@@ -20,7 +20,7 @@ use crate::board::Board;
 use crate::fen::{create_from_fen, read_fen, write_fen, START_POS};
 use crate::history_heuristics::HistoryHeuristics;
 use crate::move_gen::MoveGenerator;
-use crate::moves::{Move, NO_MOVE};
+use crate::moves::{Move, NO_MOVE, UnpackedMove};
 use crate::nn::init_nn_params;
 use crate::perft::perft;
 use crate::search::{Search, DEFAULT_SEARCH_THREADS};
@@ -44,7 +44,7 @@ pub enum Message {
     Profile,
     Quit,
     SetPosition(String, Vec<UCIMove>),
-    SetParam(String, i32),
+    SetParam(String, i16),
     SetThreadCount(i32),
     SetTableBasePath(String),
     SetTableBaseProbeDepth(i32),
@@ -217,16 +217,17 @@ impl Engine {
             return;
         }
 
-        let move_info = UCIMove::from_move(&self.board, m);
+        let upm = m.unpack();
+        let move_info = UCIMove::from_move(&self.board, upm);
 
         if ponder_m != NO_MOVE {
-            println!("bestmove {} ponder {}", move_info, self.encode_ponder_move(m, ponder_m));
+            println!("bestmove {} ponder {}", move_info, self.encode_ponder_move(upm, ponder_m.unpack()));
         } else {
             println!("bestmove {}", move_info);
         };
     }
 
-    fn encode_ponder_move(&mut self, own_move: Move, ponder_move: Move) -> String {
+    fn encode_ponder_move(&mut self, own_move: UnpackedMove, ponder_move: UnpackedMove) -> String {
         let (own_piece, removed_piece) = self.board.perform_move(own_move);
         let ponder_move_uci = UCIMove::from_move(&self.board, ponder_move);
         self.board.undo_move(own_move, own_piece, removed_piece);
@@ -302,7 +303,7 @@ impl Engine {
         }
 
         for m in moves {
-            self.board.perform_move(m.to_move(&self.board));
+            self.board.perform_move(m.to_move(&self.board).unpack());
         }
 
         self.board.reset_nn_eval();
@@ -334,11 +335,6 @@ impl Engine {
             println!("Nodes per second: {}", nodes_per_sec);
         }
     }
-
-    pub fn perform_move(&mut self, m: Move) {
-        self.board.perform_move(m);
-    }
-
     pub fn profile(&mut self) {
         println!("Profiling ...");
         self.go(SearchLimits::nodes(100_000), false, None);

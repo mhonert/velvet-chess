@@ -63,7 +63,7 @@ impl OutputWriter {
         }
     }
 
-    pub fn add(&mut self, fen: String, score: i32) {
+    pub fn add(&mut self, fen: String, score: i16) {
         writeln!(&mut self.writer, "{} {}", fen, score).expect("Could not write position to file");
         self.pos_count += 1;
 

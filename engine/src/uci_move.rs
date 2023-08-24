@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2022 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2023 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -18,7 +18,7 @@
 
 use crate::board::castling::CastlingRules;
 use crate::board::Board;
-use crate::moves::{Move, MoveType};
+use crate::moves::{Move, MoveType, UnpackedMove};
 use crate::pieces::{B, EMPTY, K, N, P, Q, R};
 
 pub struct UCIMove {
@@ -32,26 +32,26 @@ impl UCIMove {
         UCIMove { start, end, promotion }
     }
 
-    pub fn from_move(board: &Board, m: Move) -> String {
-        let mut end = m.end() as i8;
+    pub fn from_move(board: &Board, upm: UnpackedMove) -> String {
+        let mut end = upm.end;
         let color = board.active_player();
 
-        if matches!(m.typ(), MoveType::Castling) && !board.castling_rules.is_chess960() {
-            if board.castling_rules.is_ks_castling(color, end as i32) {
+        if !board.castling_rules.is_chess960() {
+            if matches!(upm.move_type, MoveType::KingKSCastling) {
                 end = CastlingRules::ks_king_end(color) as i8;
-            } else {
+            } else if matches!(upm.move_type, MoveType::KingQSCastling) {
                 end = CastlingRules::qs_king_end(color) as i8;
             }
         }
 
         let mut result = String::with_capacity(5);
-        result.push(uci_col(m.start() as i8 & 7));
-        result.push(uci_row(m.start() as i8 / 8));
+        result.push(uci_col(upm.start as i8 & 7));
+        result.push(uci_row(upm.start as i8 / 8));
         result.push(uci_col(end & 7));
         result.push(uci_row(end / 8));
 
-        if m.is_promotion() {
-            result.push(uci_promotion(m.piece_id()));
+        if upm.move_type.is_promotion() {
+            result.push(uci_promotion(upm.move_type.piece_id()));
         };
 
         result
@@ -91,22 +91,27 @@ impl UCIMove {
     }
 
     pub fn to_move(&self, board: &Board) -> Move {
-        let start = self.start as i32;
-        let end = self.end as i32;
+        let start = self.start;
+        let end = self.end;
+        let is_capture = board.get_item(end as usize) != EMPTY;
 
-        let start_piece_id = board.get_item(start).abs();
+        let start_piece_id = board.get_item(start as usize).abs();
         match start_piece_id {
             P => {
                 if (start - end).abs() == 16 {
-                    Move::new(MoveType::PawnDoubleQuiet, P, start, end)
+                    Move::new(MoveType::PawnDoubleQuiet, start, end)
                 } else if self.promotion != EMPTY && self.promotion != start_piece_id {
-                    Move::new(MoveType::PawnSpecial, self.promotion, start, end)
+                    if is_capture {
+                        Move::new(MoveType::new_capture_promotion(self.promotion), start, end)
+                    } else {
+                        Move::new(MoveType::new_quiet_promotion(self.promotion), start, end)
+                    }
                 } else if (start - end).abs() == 8 {
-                    Move::new(MoveType::PawnQuiet, P, start, end)
-                } else if board.get_item(end) == EMPTY {
-                    Move::new(MoveType::PawnSpecial, P, start, end)
+                    Move::new(MoveType::PawnQuiet, start, end)
+                } else if !is_capture {
+                    Move::new(MoveType::PawnEnPassant, start, end)
                 } else {
-                    Move::new(MoveType::Capture, P, start, end)
+                    Move::new(MoveType::PawnCapture, start, end)
                 }
             }
 
@@ -114,34 +119,34 @@ impl UCIMove {
                 let color = board.active_player();
                 if board.castling_rules.is_king_start(color, start) {
                     if board.castling_rules.is_chess960() {
-                        if board.can_castle_king_side(color) && board.castling_rules.is_ks_castling(color, end as i32) {
-                            return Move::new(MoveType::Castling, K, start, board.castling_rules.ks_rook_start(color));
+                        if board.can_castle_king_side(color) && board.castling_rules.is_ks_castling(color, end) {
+                            return Move::new(MoveType::KingKSCastling, start, board.castling_rules.ks_rook_start(color));
                         } else if board.can_castle_queen_side(color)
-                            && board.castling_rules.is_qs_castling(color, end as i32)
+                            && board.castling_rules.is_qs_castling(color, end)
                         {
-                            return Move::new(MoveType::Castling, K, start, board.castling_rules.qs_rook_start(color));
+                            return Move::new(MoveType::KingQSCastling, start, board.castling_rules.qs_rook_start(color));
                         }
                     } else {
                         if board.can_castle_king_side(color) && end == CastlingRules::ks_king_end(color) {
-                            return Move::new(MoveType::Castling, K, start, board.castling_rules.ks_rook_start(color));
+                            return Move::new(MoveType::KingKSCastling, start, board.castling_rules.ks_rook_start(color));
                         } else if board.can_castle_queen_side(color) && end == CastlingRules::qs_king_end(color) {
-                            return Move::new(MoveType::Castling, K, start, board.castling_rules.qs_rook_start(color));
+                            return Move::new(MoveType::KingQSCastling, start, board.castling_rules.qs_rook_start(color));
                         }
                     }
                 }
 
-                if board.get_item(end) == EMPTY {
-                    Move::new(MoveType::KingQuiet, K, start, end)
+                if is_capture {
+                    Move::new(MoveType::KingCapture, start, end)
                 } else {
-                    Move::new(MoveType::KingCapture, K, start, end)
+                    Move::new(MoveType::KingQuiet, start, end)
                 }
             }
 
             _ => {
-                if board.get_item(end) == EMPTY {
-                    Move::new(MoveType::Quiet, start_piece_id, start, end)
+                if is_capture {
+                    Move::new(MoveType::new_capture(start_piece_id), start, end)
                 } else {
-                    Move::new(MoveType::Capture, start_piece_id, start, end)
+                    Move::new(MoveType::new_quiet(start_piece_id), start, end)
                 }
             }
         }
@@ -199,7 +204,7 @@ mod tests {
         let board = create_from_fen(START_POS);
         let m = UCIMove::new(52, 36, EMPTY);
 
-        assert_eq!("e2e4", UCIMove::from_move(&board, m.to_move(&board)));
+        assert_eq!("e2e4", UCIMove::from_move(&board, m.to_move(&board).unpack()));
     }
 
     #[test]
@@ -219,7 +224,7 @@ mod tests {
         let board = Board::new(&items, WHITE, CastlingState::default(), None, 0, 1, CastlingRules::default());
 
         let m = UCIMove::new(8, 0, Q);
-        assert_eq!("a7a8q", UCIMove::from_move(&board, m.to_move(&board)));
+        assert_eq!("a7a8q", UCIMove::from_move(&board, m.to_move(&board).unpack()));
     }
 
     #[test]
@@ -238,7 +243,7 @@ mod tests {
 
         let board = Board::new(&items, WHITE, CastlingState::ALL, None, 0, 1, CastlingRules::default());
 
-        let uci_move = UCIMove::from_move(&board, Move::new(MoveType::Castling, K, 60, 63));
+        let uci_move = UCIMove::from_move(&board, Move::new(MoveType::KingKSCastling, 60, 63).unpack());
         assert_eq!("e1g1", uci_move);
     }
 
@@ -259,7 +264,7 @@ mod tests {
         let board =
             Board::new(&items, WHITE, CastlingState::ALL, None, 0, 1, CastlingRules::new(true, 4, 7, 0, 4, 7, 0));
 
-        let uci_move = UCIMove::from_move(&board, Move::new(MoveType::Castling, K, 60, 63));
+        let uci_move = UCIMove::from_move(&board, Move::new(MoveType::KingKSCastling, 60, 63).unpack());
         assert_eq!("e1h1", uci_move);
     }
 
@@ -281,8 +286,9 @@ mod tests {
             Board::new(&items, WHITE, CastlingState::ALL, None, 0, 1, CastlingRules::new(true, 4, 7, 0, 4, 7, 0));
 
         let m = UCIMove::from_uci("e1h1").unwrap().to_move(&board);
-        assert_eq!(m.end(), board.castling_rules.ks_rook_start(WHITE));
-        assert!(matches!(m.typ(), MoveType::Castling));
+        let upm = m.unpack();
+        assert_eq!(upm.end, board.castling_rules.ks_rook_start(WHITE));
+        assert!(matches!(upm.move_type, MoveType::KingKSCastling));
     }
 
     #[test]
