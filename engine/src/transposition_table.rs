@@ -30,17 +30,17 @@ pub const MAX_HASH_SIZE_MB: i32 = 512 * 1024;
 // Bits 63 - 40: 24 highest bits of the hash
 const HASHCHECK_MASK: u64 = 0b1111111111111111111111110000000000000000000000000000000000000000;
 
-// Bits 39 - 38: Generation
-pub const MAX_GENERATION: u16 = 3;
-const GENERATION_BITSHIFT: u32 = 38;
-const GENERATION_MASK: u64 = 0b11;
+// Bits 39 - 12: Move + Score
+const MOVE_BITSHIFT: u32 = 12;
+const MOVE_MASK: u64 = 0b1111111111111111111111111111;
 
-// Bits 37 - 31: Depth
+
+// Bits 11 - 5: Depth
 pub const MAX_DEPTH: usize = 127;
-const DEPTH_BITSHIFT: u32 = 31;
+const DEPTH_BITSHIFT: u32 = 5;
 const DEPTH_MASK: u64 = 0b1111111;
 
-// Bits 30 - 29: Score Type
+// Bits 4 - 3: Score Type
 #[repr(u8)]
 #[derive(Clone, Copy)]
 pub enum ScoreType {
@@ -56,8 +56,12 @@ impl ScoreType {
     }
 }
 
-const SCORE_TYPE_BITSHIFT: u32 = 29;
+const SCORE_TYPE_BITSHIFT: u32 = 3;
 const SCORE_TYPE_MASK: u64 = 0b11;
+
+// Bits 2 - 0: Generation
+pub const MAX_GENERATION: u16 = 7;
+const GENERATION_MASK: u64 = 0b111;
 
 const SLOTS_PER_SEGMENT: usize = 4;
 
@@ -104,10 +108,10 @@ impl TranspositionTable {
         let hash_check = hash & HASHCHECK_MASK;
 
         let mut new_entry = hash_check;
-        new_entry |= (generation as u64) << GENERATION_BITSHIFT;
+        new_entry |= generation as u64;
         new_entry |= (new_depth as u64) << DEPTH_BITSHIFT;
         new_entry |= (typ as u64) << SCORE_TYPE_BITSHIFT;
-        new_entry |= scored_move.to_bits28() as u64;
+        new_entry |= (scored_move.to_bits28() as u64) << MOVE_BITSHIFT;
 
         let mut target_slot = MaybeUninit::uninit();
         let mut lowest_sort_score = i16::MAX;
@@ -135,7 +139,7 @@ impl TranspositionTable {
         unsafe { target_slot.assume_init() }.store(new_entry, Ordering::Relaxed);
     }
 
-    pub fn get_entry(&self, hash: u64, generation: u16) -> u64 {
+    pub fn get_entry(&self, hash: u64) -> (u64, Option<&AtomicU64>) {
         let index = self.calc_index(hash);
         let slots = unsafe { self.segments.0.get_unchecked(index) };
         let hash_check = hash & HASHCHECK_MASK;
@@ -143,12 +147,12 @@ impl TranspositionTable {
         for value_slot in slots.iter() {
             let value_entry = value_slot.load(Ordering::Relaxed);
             if value_entry & HASHCHECK_MASK == hash_check {
-                update_generation(value_slot, generation);
-                return value_entry
+                // update_generation(value_slot, generation);
+                return (value_entry, Some(value_slot.clone()));
             }
         }
 
-        0
+        (0, None)
     }
 
     fn calc_index(&self, hash: u64) -> usize {
@@ -196,15 +200,14 @@ impl TranspositionTable {
     }
 }
 
-fn update_generation(slot: &AtomicU64, generation: u16) {
-    let mut entry = slot.load(Ordering::Relaxed);
-    entry &= !((MAX_GENERATION as u64) << GENERATION_BITSHIFT);
-    entry |= (generation as u64) << GENERATION_BITSHIFT;
+pub fn update_generation(mut entry: u64, slot: &AtomicU64, generation: u16) {
+    entry &= !(MAX_GENERATION as u64);
+    entry |= generation as u64;
     slot.store(entry, Ordering::Relaxed);
 }
 
 pub fn get_hash_move(entry: u64) -> TTPackedMove {
-    TTPackedMove::new((entry & 0b00001111111111111111111111111111) as u32)
+    TTPackedMove::new(((entry >> MOVE_BITSHIFT) & MOVE_MASK) as u32)
 }
 
 #[inline]
@@ -240,7 +243,7 @@ pub fn is_lower_bound(entry: u64) -> bool {
 }
 
 pub fn get_age(entry: u64, curr_generation: u16) -> u16 {
-    let entry_generation = ((entry >> GENERATION_BITSHIFT) & GENERATION_MASK) as u16;
+    let entry_generation = (entry & GENERATION_MASK) as u16;
     calc_age(curr_generation, entry_generation)
 }
 
@@ -277,7 +280,7 @@ mod tests {
         let tpm = m.to_tt_packed_move(WHITE, &bitboards);
         tt.write_entry(hash, 0, depth,  tpm, typ);
 
-        let entry = tt.get_entry(hash, 0);
+        let (entry, _) = tt.get_entry(hash);
 
         assert_eq!(tpm.to_bits28(), get_hash_move(entry).to_bits28());
         assert_eq!(depth, get_depth(entry));
@@ -293,7 +296,7 @@ mod tests {
         let tpm = TTPackedMove::new(m.to_u32());
         tt.write_entry(hash, 0, 1, tpm, ScoreType::Exact);
 
-        let entry = tt.get_entry(hash, 0);
+        let (entry, _) = tt.get_entry(hash);
         assert_eq!(tpm.to_bits28(), get_hash_move(entry).to_bits28());
     }
 
@@ -306,7 +309,7 @@ mod tests {
         let tpm = TTPackedMove::new(m.to_u32());
         tt.write_entry(hash, 0, 1, tpm, ScoreType::Exact);
 
-        let entry = tt.get_entry(hash, 0);
+        let (entry, _) = tt.get_entry(hash);
         assert_eq!(tpm.to_bits28(), get_hash_move(entry).to_bits28());
     }
 

@@ -28,7 +28,7 @@ use crate::pieces::{EMPTY, P};
 use crate::pos_history::PositionHistory;
 use crate::scores::{mate_in, sanitize_score, MATED_SCORE, MATE_SCORE, MAX_SCORE, MIN_SCORE, is_mate_or_mated_score, is_eval_score, MAX_EVAL, MIN_EVAL};
 use crate::time_management::{SearchLimits, TimeManager};
-use crate::transposition_table::{from_root_relative_score, ScoreType, TranspositionTable, MAX_DEPTH, get_hash_move, to_root_relative_score, get_depth, get_score_type, MAX_GENERATION};
+use crate::transposition_table::{from_root_relative_score, ScoreType, TranspositionTable, MAX_DEPTH, get_hash_move, to_root_relative_score, get_depth, get_score_type, MAX_GENERATION, update_generation};
 use crate::uci_move::UCIMove;
 use std::cmp::Reverse;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -498,7 +498,6 @@ impl Search {
 
         let active_player = self.board.active_player();
 
-        let mut reduction = 0;
         let mut tree_scale = 0;
 
         self.movegen.reset_root_moves();
@@ -536,7 +535,7 @@ impl Search {
                 .set_in_singular_move_search(false)
                 .set_in_check(gives_check);
 
-            let mut result = self.rec_find_best_move(rx, a, -alpha, 1, depth - reduction - 1, &mut local_pv, NO_MOVE);
+            let mut result = self.rec_find_best_move(rx, a, -alpha, 1, depth - 1, &mut local_pv, NO_MOVE);
             if result == CANCEL_SEARCH {
                 iteration_cancelled = true;
             } else if -result > alpha && a != -beta {
@@ -569,15 +568,10 @@ impl Search {
 
                 self.time_mgr.update_best_move(best_move, depth);
 
-                if depth >= 7 && reduction == 0 {
-                    reduction = 1;
-                } else {
-                    reduction = 0;
-                }
                 a = -(alpha + 1);
             }
 
-            tree_size = (self.local_total_node_count - tree_size) << reduction;
+            tree_size = self.local_total_node_count - tree_size;
             if move_num == 1 {
                 tree_scale = 13.max(64 - tree_size.leading_zeros()) - 13;
             }
@@ -666,7 +660,7 @@ impl Search {
 
         if excluded_singular_move == NO_MOVE {
             // Check transposition table
-            let tt_entry = self.tt.get_entry(hash, self.tt_gen);
+            let (tt_entry, tt_slot) = self.tt.get_entry(hash);
             if tt_entry != 0 {
                 let packed_tt_move = get_hash_move(tt_entry);
                 hash_move = packed_tt_move.unpack(active_player, &self.board.bitboards);
@@ -690,6 +684,7 @@ impl Search {
                     match get_score_type(tt_entry) {
                         ScoreType::Exact => {
                             if !is_pv && tt_depth >= depth {
+                                if let Some(slot) = tt_slot { update_generation(tt_entry, slot, self.tt_gen) }
                                 return hash_score;
                             }
                             pos_score = Some(hash_score);
@@ -698,6 +693,7 @@ impl Search {
 
                         ScoreType::UpperBound => {
                             if !is_pv && hash_score <= alpha && tt_depth >= depth {
+                                if let Some(slot) = tt_slot { update_generation(tt_entry, slot, self.tt_gen) }
                                 return hash_score;
                             }
                             skip_null_move = tt_depth >= depth - null_move_reduction(depth);
@@ -709,6 +705,7 @@ impl Search {
                                     self.hh.update_killer_moves(ply, hash_move);
                                     self.hh.update_counter_move(self.infos[ply].opp_move, hash_move);
                                 }
+                                if let Some(slot) = tt_slot { update_generation(tt_entry, slot, self.tt_gen) }
                                 return hash_score;
                             }
                             pos_score = Some(hash_score);
@@ -1044,6 +1041,7 @@ impl Search {
 
         if excluded_singular_move == NO_MOVE {
             let tt_move = best_move.with_score(from_root_relative_score(ply as i32, best_score)).to_tt_packed_move(active_player, &self.board.bitboards);
+
             self.tt.write_entry(
                 hash,
                 self.tt_gen,
@@ -1221,7 +1219,7 @@ impl Search {
             return String::new();
         }
 
-        let entry = self.tt.get_entry(self.board.get_hash(), self.tt_gen);
+        let (entry, _) = self.tt.get_entry(self.board.get_hash());
         let active_player = self.board.active_player();
         let packed_tt_move = get_hash_move(entry);
         if packed_tt_move.is_no_move() {

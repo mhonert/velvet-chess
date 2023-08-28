@@ -620,101 +620,148 @@ pub fn is_valid_move(board: &Board, active_player: Color, upm: UnpackedMove) -> 
     match upm.move_type {
         MoveType::TableBaseMarker => { false }
         MoveType::PawnQuiet => {
-            let direction = end - start;
-            if direction.signum() != active_player.piece(-1) {
-                return false;
-            }
-            if direction.abs() != 8 {
-                return false;
-            }
-
             if !(8..=55).contains(&end) {
                 return false;
             }
 
-            if occupied.is_set(end as usize) {
+            let pawns = board.get_bitboard(active_player.piece(P)) & 1 << start;
+            if pawns.is_empty() {
                 return false;
             }
 
-            if !board.get_bitboard(active_player.piece(P)).is_set(start as usize) {
-                return false;
-            }
+            if active_player.is_white() {
+                let target_bb = (pawns >> 8) & empty_bb;
+                target_bb.is_set(end as usize)
 
-            true
+            } else {
+                let target_bb = (pawns << 8) & empty_bb;
+                target_bb.is_set(end as usize)
+            }
         }
         MoveType::PawnCapture => {
-            let direction = end - start;
-            if direction.signum() != active_player.piece(-1) {
-                return false;
-            }
-            if direction.abs() != 9 && direction.abs() != 7 {
+            let pawns = board.get_bitboard(active_player.piece(P)) & 1 << start;
+            if pawns.is_empty() {
                 return false;
             }
 
-            if !(8..=55).contains(&end) {
-                return false;
-            }
+            if active_player.is_white() {
+                let mut left_attacks = pawns & 0xfefefefefefefefe;
+                left_attacks >>= BitBoard(9);
+                left_attacks &= opponent_bb;
+                if left_attacks.is_set(end as usize) {
+                    return true;
+                }
 
-            if !opponent_bb.is_set(end as usize) {
-                return false;
-            }
+                let mut right_attacks = pawns & 0x7f7f7f7f7f7f7f7f; // mask left column
+                right_attacks >>= BitBoard(7);
+                right_attacks &= opponent_bb;
+                if right_attacks.is_set(end as usize) {
+                    return true;
+                }
 
-            if !board.get_bitboard(active_player.piece(P)).is_set(start as usize) {
-                return false;
-            }
+                false
+            } else {
+                let mut left_attacks = pawns & 0xfefefefefefefefe; // mask right column
+                left_attacks <<= BitBoard(7);
+                left_attacks &= opponent_bb;
+                if left_attacks.is_set(end as usize) {
+                    return true;
+                }
 
-            true
+                let mut right_attacks = pawns & 0x7f7f7f7f7f7f7f7f; // mask left column
+                right_attacks <<= BitBoard(9);
+                right_attacks &= opponent_bb;
+                if right_attacks.is_set(end as usize) {
+                    return true;
+                }
+
+                false
+            }
         }
         MoveType::PawnDoubleQuiet => {
-            let direction = end - start;
-            if direction.signum() != active_player.piece(-1) {
-                return false;
-            }
-            if direction.abs() != 16 {
-                return false;
-            }
-
             if !(8..=55).contains(&end) {
                 return false;
             }
 
-            if occupied.is_set(end as usize) || occupied.is_set((start + direction / 2) as usize) {
+            let pawns = board.get_bitboard(active_player.piece(P)) & 1 << start;
+            if pawns.is_empty() {
                 return false;
             }
 
-            if !board.get_bitboard(active_player.piece(P)).is_set(start as usize) {
-                return false;
-            }
+            if active_player.is_white() {
+                let mut target_bb = (pawns >> 8) & empty_bb;
+                target_bb &= BitBoard(unsafe { *PAWN_DOUBLE_MOVE_LINES.get_unchecked(WHITE.idx()) });
+                target_bb >>= BitBoard(8);
+                target_bb &= empty_bb;
 
-            true
+                target_bb.is_set(end as usize)
+
+            } else {
+                let mut target_bb = (pawns << 8) & empty_bb;
+                target_bb &= BitBoard(unsafe { *PAWN_DOUBLE_MOVE_LINES.get_unchecked(BLACK.idx()) });
+                target_bb <<= BitBoard(8);
+                target_bb &= empty_bb;
+                target_bb.is_set(end as usize)
+            }
         }
         MoveType::PawnEnPassant => {
-            if !board.get_bitboard(active_player.piece(P)).is_set(start as usize) {
+            let pawns = board.get_bitboard(active_player.piece(P)) & 1 << start;
+            if pawns.is_empty() {
                 return false;
             }
 
-            let mut en_passant = board.get_enpassant_state();
-            if active_player.is_black() {
-                en_passant >>= 8;
-            }
-            if en_passant == 0 {
-                return false;
-            }
+            if active_player.is_white() {
+                let en_passant = board.get_enpassant_state();
+                if en_passant == 0 {
+                    return false;
+                }
 
-            let end = if active_player.is_white() { 16 } else { 40 } + en_passant.trailing_zeros() as i8;
-            if en_passant != 0b10000000 {
-                let direction = if active_player.is_white() { 9 } else { -7 };
-                if start == end + direction {
-                    return true;
+                let calc_end = 16 + en_passant.trailing_zeros();
+                if calc_end as i8 != end {
+                    return false;
                 }
-            }
-            if en_passant != 0b00000001 {
-                let direction = if active_player.is_white() { 7 } else { -9 };
-                if start == end + direction {
-                    return true;
+
+                if en_passant != 0b10000000 {
+                    let start = calc_end + 9;
+                    if (pawns & (1 << start)).is_occupied() {
+                        return true;
+                    }
                 }
+
+                if en_passant != 0b00000001 {
+                    let start = calc_end + 7;
+                    if (pawns & (1 << start)).is_occupied() {
+                        return true;
+                    }
+                }
+
+                false
+            } else {
+                let en_passant = board.get_enpassant_state() >> 8;
+                if en_passant == 0 {
+                    return false;
+                }
+
+                let calc_end = 40 + en_passant.trailing_zeros();
+                if calc_end as i8 != end {
+                    return false;
+                }
+                if en_passant != 0b00000001 {
+                    let start = calc_end - 9;
+                    if (pawns & (1 << start)).is_occupied() {
+                        return true;
+                    }
+                }
+
+                if en_passant != 0b10000000 {
+                    let start = calc_end - 7;
+                    if (pawns & (1 << start)).is_occupied() {
+                        return true;
+                    }
+                }
+
+                false
             }
-            false
         }
         MoveType::KnightQuiet => {
             if !board.get_bitboard(active_player.piece(N)).is_set(start as usize) {

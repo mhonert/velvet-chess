@@ -16,7 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::pieces::{Q};
+use crate::pieces::{N, P, Q};
 use std::fmt;
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
@@ -134,6 +134,11 @@ impl UnpackedMove {
     }
 
     #[inline]
+    pub fn is_promotion(self) -> bool {
+        self.move_type.is_promotion()
+    }
+
+    #[inline]
     pub fn is_capture(self) -> bool {
         self.move_type.is_capture()
     }
@@ -229,7 +234,8 @@ impl Move {
 
     #[inline]
     pub fn to_tt_packed_move(&self, active_player: Color, boards: &BitBoards) -> TTPackedMove {
-        let piece_id = (self.0 >> TYPE_SHIFT) & 0b111;
+        let piece_id = if self.is_promotion() { P as u32 } else { (self.0 >> TYPE_SHIFT) & 0b111 };
+
         let start = (self.0 >> START_SHIFT) & START_MASK;
         let bb = boards.by_piece(active_player.piece(piece_id as i8));
 
@@ -247,7 +253,7 @@ impl Move {
 
             (self.0 & 0b00000001100011111111111111111111) | (0b111 << TYPE_SHIFT)
         } else {
-            self.0 &  0b00000001111111111111111111111111
+            self.0 & 0b00000001111111111111111111111111
         };
 
         TTPackedMove(packed_move | piece_num << PIECE_NUM_SHIFT)
@@ -268,6 +274,12 @@ impl Move {
     pub fn is_quiet(&self) -> bool {
         let move_type: MoveType = unsafe { transmute(((self.0 >> TYPE_SHIFT) & TYPE_MASK) as u8) };
         move_type.is_quiet()
+    }
+
+    #[inline]
+    pub fn is_promotion(&self) -> bool {
+        let move_type: MoveType = unsafe { transmute(((self.0 >> TYPE_SHIFT) & TYPE_MASK) as u8) };
+        move_type.is_promotion()
     }
 
     /// Checks, whether the two moves are the same (except for the score)
@@ -316,21 +328,27 @@ impl TTPackedMove {
 
     #[inline]
     pub fn unpack(&self, active_player: Color, boards: &BitBoards) -> Move {
-        let mut piece_id = (self.0 >> TYPE_SHIFT) & 0b111;
-        if piece_id == 0 {
+        let mut src_piece_id = (self.0 >> TYPE_SHIFT) & 0b111;
+        if src_piece_id == 0 {
             return Move(self.0 & 0b00000001111111111111111111111111)
         }
 
+        let mut target_piece_id = src_piece_id;
+        if src_piece_id >= N as u32 && src_piece_id <= Q as u32 && (self.0 & (1 << (TYPE_SHIFT + 3)) != 0) {
+            target_piece_id = src_piece_id;
+            src_piece_id = P as u32;
+        };
+
         let mut piece_num = (self.0 >> PIECE_NUM_SHIFT) & PIECE_NUM_MASK;
-        if piece_id == 0b111 {
-            piece_id = 0b101; // Queen
+        if src_piece_id == 0b111 {
+            src_piece_id = 0b101; // Queen
             piece_num += 8;
         }
 
-        let bb = boards.by_piece(active_player.piece(piece_id as i8));
+        let bb = boards.by_piece(active_player.piece(src_piece_id as i8));
         let start = bb.nth_pos(piece_num as usize);
 
-        Move((self.0 & 0b00000001100011111111111111111111) | piece_id << TYPE_SHIFT | start << START_SHIFT)
+        Move((self.0 & 0b00000001100011111111111111111111) | target_piece_id << TYPE_SHIFT | start << START_SHIFT)
     }
 
     #[inline]
@@ -348,6 +366,7 @@ impl TTPackedMove {
 mod tests {
     use crate::colors::{BLACK, WHITE};
     use crate::moves::MoveType::*;
+    use crate::pieces::P;
     use super::*;
     use crate::scores::{MAX_SCORE, MIN_SCORE};
 
@@ -447,5 +466,28 @@ mod tests {
         assert_eq!(upm.start, 8);
         assert_eq!(upm.end, 16);
         assert_eq!(upm.score, MIN_SCORE);
+    }
+
+    #[test]
+    fn tt_packed_promotions() {
+        for start in 8..=15 {
+            let end = (start as i8) - 8;
+            let active_player = WHITE;
+            for piece_id in 2..=5 {
+                let mut bitboards = BitBoards::default();
+                bitboards.flip(active_player, active_player.piece(P), start);
+                let move_type = MoveType::new_quiet_promotion(piece_id);
+                let m = Move::new(move_type, start as i8, end).with_score(MIN_SCORE);
+                let tt = m.to_tt_packed_move(active_player, &bitboards);
+
+                let upm = tt.unpack(active_player, &bitboards).unpack();
+
+                assert_eq!(upm.move_type.piece_id(), piece_id);
+                assert_eq!(upm.move_type as u8, move_type as u8);
+                assert_eq!(upm.start, start as i8);
+                assert_eq!(upm.end, end);
+                assert_eq!(upm.score, MIN_SCORE);
+            }
+        }
     }
 }
