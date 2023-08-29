@@ -165,6 +165,15 @@ impl BitBoards {
             *self.0.get_unchecked_mut(BY_COLOR + color.idx()) ^= mask;
         }
     }
+
+    #[inline(always)]
+    pub fn flip2(&mut self, color: Color, piece: i8, start: u32, end: u32) {
+        let mask = (1u64 << start) | (1u64 << end);
+        unsafe {
+            *self.0.get_unchecked_mut((piece + 6) as usize) ^= mask;
+            *self.0.get_unchecked_mut(BY_COLOR + color.idx()) ^= mask;
+        }
+    }
 }
 
 /// Mirrors the given bitboard position index vertically

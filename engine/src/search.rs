@@ -657,6 +657,7 @@ impl Search {
         let mut best_score = worst_possible_score;
         let mut best_move = NO_MOVE;
         let mut score_type = ScoreType::UpperBound;
+        let mut is_tb_move = false;
 
         if excluded_singular_move == NO_MOVE {
             // Check transposition table
@@ -667,7 +668,7 @@ impl Search {
                 let upm = hash_move.unpack();
                 hash_score = upm.score;
 
-                let is_tb_move = if self.is_tb_move(upm) {
+                is_tb_move = if self.is_tb_move(upm) {
                     hash_move = NO_MOVE;
                     true
                 } else if is_valid_move(&self.board, active_player, upm) {
@@ -678,7 +679,6 @@ impl Search {
                 };
 
                 if hash_move != NO_MOVE || is_tb_move {
-
                     hash_score = to_root_relative_score(ply as i32, sanitize_score(hash_score));
                     let tt_depth = get_depth(tt_entry);
                     match get_score_type(tt_entry) {
@@ -721,34 +721,38 @@ impl Search {
                         && depth > 7
                         && !self.infos[ply].is_recapture(upm.end);
                 }
-            } else if depth > 7 {
-                // Reduce nodes without hash move from transposition table
-                depth -= 1;
             }
 
-            // Probe tablebases
-            if depth.max(0) >= self.tb_probe_depth {
-                if let Some(tb_result) = self.board.probe_wdl() {
-                    self.local_tb_hits += 1;
+            if !is_tb_move {
+                if hash_move == NO_MOVE && depth > 7 {
+                    // Reduce nodes without hash move from transposition table
+                    depth -= 1;
+                }
 
-                    match tb_result {
-                        TBResult::Draw => {
-                            self.tt.write_entry(hash, self.tt_gen, depth, self.tb_move(0), ScoreType::Exact);
-                            return 0;
-                        },
-                        TBResult::Win => {
-                            worst_possible_score = 400;
-                        }
-                        TBResult::Loss => {
-                            best_possible_score = -400;
-                        },
-                        TBResult::CursedWin => {
-                            self.tt.write_entry(hash, self.tt_gen, depth, self.tb_move(1), ScoreType::Exact);
-                            return 1;
-                        },
-                        TBResult::BlessedLoss => {
-                            self.tt.write_entry(hash, self.tt_gen, depth, self.tb_move(-1), ScoreType::Exact);
-                            return -1;
+                // Probe tablebases
+                if depth.max(0) >= self.tb_probe_depth {
+                    if let Some(tb_result) = self.board.probe_wdl() {
+                        self.local_tb_hits += 1;
+
+                        match tb_result {
+                            TBResult::Draw => {
+                                self.tt.write_entry(hash, self.tt_gen, depth, self.tb_move(0), ScoreType::Exact);
+                                return 0;
+                            },
+                            TBResult::Win => {
+                                worst_possible_score = 400;
+                            }
+                            TBResult::Loss => {
+                                best_possible_score = -400;
+                            },
+                            TBResult::CursedWin => {
+                                self.tt.write_entry(hash, self.tt_gen, depth, self.tb_move(1), ScoreType::Exact);
+                                return 1;
+                            },
+                            TBResult::BlessedLoss => {
+                                self.tt.write_entry(hash, self.tt_gen, depth, self.tb_move(-1), ScoreType::Exact);
+                                return -1;
+                            }
                         }
                     }
                 }
@@ -920,7 +924,7 @@ impl Search {
                     {
                         // Reduce search depth for moves with negative SEE score
                         reductions += NEG_SEE_REDUCTIONS;
-                        if evaluated_move_count > 0 && depth <= 3 && (!is_pv || !is_mate_search) {
+                        if curr_move.score < QUIET_BASE_SCORE && evaluated_move_count > 0 && depth <= 3 && (!is_pv || !is_mate_search) {
                             skip = true;
                         }
                     }
@@ -1826,7 +1830,7 @@ mod tests {
     #[test]
     fn encode_tb_move() {
         #[rustfmt::skip]
-            let items: [i8; 64] = [
+        let items: [i8; 64] = [
             0,  0,  0,  0,  K,  0,  0,  0,
             -R,  0,  0,  0,  0,  0,  0,  0,
             0,  0,  0,  0,  0,  0,  0,  0,

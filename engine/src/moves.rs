@@ -28,7 +28,9 @@ use crate::colors::Color;
 #[derive(Clone, Copy, Default, Debug, Eq, PartialEq)]
 pub enum MoveType {
     #[default]
-    TableBaseMarker = 0b00_000,
+    TableBaseMarker  = 0b00_000,
+    Unused = 0b01_000,
+    Unused2 = 0b11_000,
 
     PawnQuiet   = 0b00_001,
     PawnCapture = 0b10_001,
@@ -63,6 +65,9 @@ pub enum MoveType {
     // Only relevant for TTPackedMove:
     QueenQuiet8 = 0b00_111,
     QueenCapture8 = 0b10_111,
+
+    Unused3 = 0b01_111,
+    Unused4 = 0b11_111,
 }
 
 impl MoveType {
@@ -342,6 +347,7 @@ impl TTPackedMove {
         let mut piece_num = (self.0 >> PIECE_NUM_SHIFT) & PIECE_NUM_MASK;
         if src_piece_id == 0b111 {
             src_piece_id = 0b101; // Queen
+            target_piece_id = 0b101;
             piece_num += 8;
         }
 
@@ -461,11 +467,11 @@ mod tests {
 
         let upm = tt.unpack(WHITE, &bitboards).unpack();
 
-        assert_eq!(upm.move_type as u8, move_type as u8);
         assert_eq!(upm.move_type.piece_id(), Q);
         assert_eq!(upm.start, 8);
         assert_eq!(upm.end, 16);
         assert_eq!(upm.score, MIN_SCORE);
+        assert_eq!(upm.move_type as u8, move_type as u8);
     }
 
     #[test]

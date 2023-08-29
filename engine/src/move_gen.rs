@@ -618,7 +618,6 @@ pub fn is_valid_move(board: &Board, active_player: Color, upm: UnpackedMove) -> 
     let end = upm.end;
 
     match upm.move_type {
-        MoveType::TableBaseMarker => { false }
         MoveType::PawnQuiet => {
             if !(8..=55).contains(&end) {
                 return false;
@@ -967,6 +966,8 @@ pub fn is_valid_move(board: &Board, active_player: Color, upm: UnpackedMove) -> 
         MoveType::QueenCapture8 => {
             false
         }
+
+        _ => false
     }
 }
 
