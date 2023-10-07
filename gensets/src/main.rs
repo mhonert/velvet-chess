@@ -20,7 +20,7 @@ use itertools::Itertools;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::process::exit;
-use std::sync::atomic::{AtomicBool, AtomicU64};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{mpsc, Arc};
 use std::thread;
@@ -33,27 +33,25 @@ use velvet::board::Board;
 use velvet::engine::{LogLevel, Message};
 use velvet::fen::{create_from_fen, read_fen, write_fen, START_POS};
 use velvet::history_heuristics::HistoryHeuristics;
+use velvet::init::init;
 use velvet::move_gen::MoveGenerator;
 use velvet::moves::{Move, NO_MOVE};
 use velvet::nn::init_nn_params;
-use velvet::pieces::EMPTY;
 use velvet::random::Random;
-use velvet::scores::{MAX_SCORE, MIN_SCORE};
-use velvet::search::{PrincipalVariation, Search};
+use velvet::search::{Search};
 use velvet::syzygy;
 use velvet::time_management::SearchLimits;
 use velvet::transposition_table::{TranspositionTable};
-use crate::rescore::rescore;
-use crate::writer::OutputWriter;
+use crate::writer::{NextIDSource, OutputWriter};
 
 mod chess960;
-mod rescore;
 mod writer;
 
 #[derive(Clone, Debug)]
 enum Command {
-    AddTestPos(String, i16),
-    Terminate
+    UpdateCount(usize),
+    RequestTermination,
+    ThreadTerminated
 }
 
 #[derive(Parser, Debug)]
@@ -68,15 +66,12 @@ pub struct ExtractArgs {
 }
 
 #[derive(Args, Debug)]
-pub struct RescoreArgs {
-    input_pattern: String,
-    tb_path: String,
-    concurrency: usize,
+pub struct ConvertArgs {
+    input_file: String,
 }
 
 #[derive(Args, Debug)]
 struct GenerateArgs {
-    start_index: usize,
     concurrency: usize,
     // frc: bool,
     rnd_moves: u8,
@@ -87,14 +82,12 @@ struct GenerateArgs {
 #[derive(Subcommand, Debug)]
 enum Commands {
     Generate(GenerateArgs),
-    Rescore(RescoreArgs),
 }
 
 fn main() {
     let args = Cli::parse();
     match args.command {
         Commands::Generate(args) => generate(args),
-        Commands::Rescore(args) => rescore(args),
     }
 }
 
@@ -134,24 +127,20 @@ fn generate(args: GenerateArgs) {
 
     let (tx, rx) = mpsc::channel::<Command>();
 
+    init();
     init_nn_params();
     println!("Starting worker threads ...");
-    spawn_threads(&tx, concurrency, Arc::new(openings), random_moves);
+    let stop = Arc::new(AtomicBool::default());
+    let id_source = Arc::new(NextIDSource::new());
+    spawn_threads(&tx, concurrency, Arc::new(openings), random_moves, id_source, stop.clone());
 
-    println!("Creating output writers");
-    let mut writers = vec![
-        OutputWriter::new("1000"),
-        OutputWriter::new("2000"),
-        OutputWriter::new("3000"),
-        OutputWriter::new("4000"),
-    ];
-
-    let mut count: usize = 0;
-    let mut sub_count: usize = 0;
+    let mut count = 0;
+    let mut sub_count = 0;
+    let mut running = concurrency;
 
     println!("Setting CTRL-C handler");
 
-    ctrlc::set_handler(move || tx.send(Command::Terminate).expect("Could not send signal on channel."))
+    ctrlc::set_handler(move || tx.send(Command::RequestTermination).expect("Could not send signal on channel."))
         .expect("Error setting Ctrl-C handler");
 
     let start = Instant::now();
@@ -160,30 +149,32 @@ fn generate(args: GenerateArgs) {
     println!("Waiting for generated test positions ...");
     for cmd in rx {
         match cmd {
-            Command::AddTestPos(fen, score) => {
-                writers[score.unsigned_abs() as usize / 1000].add(fen, score);
-                sub_count += 1;
-                count += 1;
-                if sub_count >= 10_000 {
-                    let batch_duration_secs = Instant::now().duration_since(start_batch).as_millis() as f64 / 1000.0;
-                    if batch_duration_secs > 0.0 {
-                        let batch_per_minute = (sub_count as f64 / batch_duration_secs) * 60.0;
-                        let duration_secs = Instant::now().duration_since(start).as_millis() as f64 / 1000.0;
-                        let per_minute = (count as f64 / duration_secs) * 60.0;
+            Command::UpdateCount(update_count) => {
+                sub_count += update_count;
+                count += update_count;
+                let batch_duration_secs = Instant::now().duration_since(start_batch).as_millis() as f64 / 1000.0;
+                if batch_duration_secs >= 10.0 {
+                    let batch_per_minute = (sub_count as f64 / batch_duration_secs) * 60.0;
+                    let duration_secs = Instant::now().duration_since(start).as_millis() as f64 / 1000.0;
+                    let per_minute = (count as f64 / duration_secs) * 60.0;
 
-                        println!("- generated {} test positions (curr. {:.2} per minute / avg. {:.2} per minute)", count, batch_per_minute, per_minute);
-                    }
+                    println!("- generated {} test positions (curr. {:.2} per minute / avg. {:.2} per minute)", count, batch_per_minute, per_minute);
                     start_batch = Instant::now();
                     sub_count = 0;
                 }
             }
 
-            Command::Terminate => {
-                println!("Stopping training set generation ...");
-                for writer in writers.iter_mut() {
-                    writer.terminate();
+            Command::RequestTermination => {
+                println!("Stopping training set generation ... ");
+                stop.store(true, Ordering::Relaxed);
+            }
+
+            Command::ThreadTerminated => {
+                running -= 1;
+                if running == 0 {
+                    break;
                 }
-                break;
+                println!(" - {} thread(s) remaining", running);
             }
         }
     }
@@ -247,163 +238,125 @@ fn mix(white: &str, black: &str) -> String {
     format!("{}/{} w {}{} - 0 1", black_pieces, white_pieces, white_castling, black_castling)
 }
 
-fn spawn_threads(tx: &Sender<Command>, concurrency: usize, openings: Arc<Vec<String>>, random_moves: u8) {
+fn spawn_threads(tx: &Sender<Command>, concurrency: usize, openings: Arc<Vec<String>>, random_moves: u8, id_source: Arc<NextIDSource>, stop: Arc<AtomicBool>) {
     for pos in 0..concurrency {
         thread::sleep(Duration::from_millis(pos as u64 * 10));
         let tx2 = tx.clone();
         let openings2 = openings.clone();
+        let id_source2 = id_source.clone();
+        let stop2 = stop.clone();
         thread::spawn(move || {
-            find_test_positions(&tx2, openings2, random_moves);
+            find_test_positions(&tx2, openings2, random_moves, id_source2, stop2);
         });
     }
 }
 
-fn find_test_positions(tx: &Sender<Command>, openings: Arc<Vec<String>>, random_moves: u8) {
+fn find_test_positions(tx: &Sender<Command>, openings: Arc<Vec<String>>, random_moves: u8, id_source: Arc<NextIDSource>, stop: Arc<AtomicBool>) {
     let mut rnd = Random::new_with_seed(new_rnd_seed());
 
-    let tt = TranspositionTable::new(64);
-    let stop = Arc::new(AtomicBool::new(false));
+    let tt = TranspositionTable::new(32);
 
     let limits = SearchLimits::new(None, Some(10), None, None, None, None, None, None, None).unwrap();
     let mut search =
-        Search::new(stop, Arc::new(AtomicU64::new(0)), Arc::new(AtomicU64::new(0)), LogLevel::Error, limits, tt, create_from_fen(START_POS), false);
+        Search::new(Arc::new(AtomicBool::new(false)), Arc::new(AtomicU64::new(0)), Arc::new(AtomicU64::new(0)), LogLevel::Error, limits, tt, create_from_fen(START_POS), false);
 
-    search.set_tb_probe_root(false);
+    let mut writer = OutputWriter::new(id_source);
 
     let (_tx, rx) = mpsc::channel::<Message>();
 
     loop {
         let opening = openings[rnd.rand32() as usize % openings.len()].clone();
 
-        collect_quiet_pos(Some(&rx), tx, opening.as_str(), random_moves, &mut search, &mut rnd);
+        let update_count = collect_quiet_pos(Some(&rx), opening.as_str(), random_moves, &mut search, &mut rnd, &mut writer);
+        tx.send(Command::UpdateCount(update_count)).expect("could not send update count");
+
+        if stop.load(Ordering::Relaxed) {
+            break;
+        }
     }
+
+    tx.send(Command::ThreadTerminated).expect("could not send thread terminated command");
 }
 
 fn collect_quiet_pos(
-    rx: Option<&Receiver<Message>>, tx: &Sender<Command>, opening: &str, random_moves: u8,
-    search: &mut Search, rnd: &mut Random
-) {
+    rx: Option<&Receiver<Message>>, opening: &str, random_moves: u8,
+    search: &mut Search, rnd: &mut Random, writer: &mut OutputWriter
+) -> usize {
     read_fen(&mut search.board, opening).unwrap();
 
     let mut ply = search.board.halfmove_count() as i32;
     for _ in 0..random_moves {
         if !play_random_move(rnd, &search.hh, &mut search.movegen, &mut search.board) {
-            return;
+            return 0;
         }
         ply += 1;
     }
 
-    let mut prev_capture_pos: i32 = -1;
+    search.set_tb_probe_root(true);
 
-    let mut random_moves = 0;
-    let mut random_prob = 1;
-    let mut allow_random_moves = true;
+    let mut positions = Vec::new();
+
+    let start_fen = write_fen(&search.board);
+
+    let mut game_result = 0;
 
     loop {
         ply += 1;
-        if ply > 400 {
-            break;
-        }
 
         if search.board.is_draw() {
             break;
         }
 
-        let max_candidate_count = if ply <= 80 { 2 } else { 1 };
-        let (max_score, candidate_moves) = find_candidate_moves(search, rx, 4, max_candidate_count, prev_capture_pos);
+        let candidate_moves = find_candidate_moves(search, rx, 8, ply <= 80 && rnd.rand32() & 1 == 0);
         if candidate_moves.is_empty() {
+            let active_player = search.board.active_player();
+            if search.board.is_in_check(active_player) {
+                game_result = active_player.score(-1);
+            }
             break;
         }
 
-        let selected_move = candidate_moves[rnd.rand32() as usize % candidate_moves.len()];
+        let best_move = candidate_moves[rnd.rand32() as usize % candidate_moves.len()];
+        let score = search.board.active_player().score(best_move.score());
 
-        if max_score < 4000 && ply >= 10 && is_quiet(&mut search.board, selected_move) && search.board.halfmove_clock() < 42 {
-            let mut qs_pv = PrincipalVariation::default();
-            search.set_stopped(false);
-            search.quiescence_search::<true>(
-                None,
-                search.board.active_player(),
-                MIN_SCORE,
-                MAX_SCORE,
-                0,
-                None,
-                &mut qs_pv,
-            );
+        positions.push(best_move.with_score(score).to_u32());
 
-            if qs_pv.is_empty() {
-                let nodes = if search.board.occupancy_bb().count() <= 8 {
-                    allow_random_moves = false;
-                    2000
-                } else {
-                    1000
-                };
-                search.set_node_limit(nodes);
-                let (scored_move, _) = search.find_best_move(rx, 8, &[]);
-                let score = search.board.active_player().score(scored_move.score());
-                if score.abs() < 4000 && is_quiet(&mut search.board, scored_move) {
-                    let fen = write_fen(&search.board);
-                    tx.send(Command::AddTestPos(fen.clone(), score)).expect("Could not send position");
-                }
-            }
-        }
-
-        let (_, removed_piece_id) = search.board.perform_move(selected_move.unpack());
-        if removed_piece_id != EMPTY {
-            prev_capture_pos = selected_move.end();
-        } else {
-            prev_capture_pos = -1;
-            if allow_random_moves && ply >= 25 && random_moves < 2 && !search.board.is_in_check(search.board.active_player()) && (rnd.rand32() % random_prob) == 0 {
-                random_moves += 1;
-                play_random_move(rnd, &search.hh, &mut search.movegen, &mut search.board);
-            }
-        }
-
-        random_prob += 1;
+        search.board.perform_move(best_move.unpack());
     }
+
+    let count = positions.len();
+    writer.add(start_fen, game_result, positions);
+    count
 }
 
-fn is_quiet(board: &mut Board, m: Move) -> bool {
-    if !m.is_quiet() {
-        return false;
-    }
-    if board.is_in_check(board.active_player()) {
-        return false;
-    }
-
-    let upm = m.unpack();
-
-    let (own_piece, removed_piece_id) = board.perform_move(upm);
-    let mut quiet = removed_piece_id == EMPTY;
-
-    quiet &= !board.is_in_check(board.active_player());
-
-    board.undo_move(upm, own_piece, removed_piece_id);
-
-    quiet
-}
-
-fn find_candidate_moves(search: &mut Search, rx: Option<&Receiver<Message>>, min_depth: i32, max_candidate_count: usize, prev_capture_pos: i32) -> (i16, Vec<Move>) {
-    let mut candidates = Vec::with_capacity(max_candidate_count);
-    let mut found_recapture = false;
+fn find_candidate_moves(search: &mut Search, rx: Option<&Receiver<Message>>, min_depth: i32, consider_alternative: bool) -> Vec<Move> {
+    let mut skip = Vec::with_capacity(2);
+    let mut candidates = Vec::with_capacity(2);
     let mut max_score = i16::MIN;
-    search.set_node_limit(100);
-    for _ in 0..max_candidate_count {
-        let (selected_move, _) = search.find_best_move(rx, min_depth, &candidates);
+    let mut limit = 10000;
+    for _ in 0..2 {
+        search.set_node_limit(limit);
+        let (selected_move, _) = search.find_best_move(rx, min_depth, &skip);
         if selected_move == NO_MOVE {
             break;
         }
-        let score = search.board.active_player().score(selected_move.score());
+
+        let score = selected_move.score();
         max_score = max_score.max(score);
-        let is_recapture = selected_move.end() == prev_capture_pos;
 
-        if found_recapture && !is_recapture {
-            continue;
+        if candidates.is_empty() && score < max_score - 5 {
+            break;
         }
-        candidates.push(selected_move.without_score());
 
-        found_recapture |= is_recapture;
+        candidates.push(selected_move);
+        if !consider_alternative {
+            break;
+        }
+
+        skip.push(selected_move.without_score());
+        limit /= 2;
     }
-    (max_score, candidates)
+    candidates
 }
 
 fn play_random_move(
@@ -413,18 +366,19 @@ fn play_random_move(
         return false;
     }
 
-    move_gen.enter_ply(board.active_player(), NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE, NO_MOVE);
+    move_gen.enter_ply(board.active_player(), NO_MOVE, NO_MOVE, NO_MOVE);
 
     let mut candidate_moves = Vec::new();
 
     while let Some(m) = move_gen.next_root_move(hh, board) {
-        let captured_piece_id = board.get_item(m.end()).abs();
-        if captured_piece_id < m.piece_id()
+        let upm = m.unpack();
+        let captured_piece_id = board.get_item(upm.end as usize).abs();
+        if captured_piece_id < upm.move_type.piece_id()
             && board.has_negative_see(
             board.active_player().flip(),
-            m.start(),
-            m.end(),
-            m.piece_id(),
+            upm.start as usize,
+            upm.end as usize,
+            upm.move_type.piece_id(),
             captured_piece_id,
             0,
             board.occupancy_bb(),
@@ -432,7 +386,6 @@ fn play_random_move(
             continue;
         }
 
-        let upm = m.unpack();
         let (previous_piece, removed_piece_id) = board.perform_move(upm);
         if board.is_in_check(board.active_player().flip()) || board.is_draw() {
             board.undo_move(upm, previous_piece, removed_piece_id);

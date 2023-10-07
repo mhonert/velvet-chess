@@ -836,11 +836,6 @@ impl Search {
 
         let mut is_singular = false;
 
-        let alpha_is_mate_score = is_mate_or_mated_score(alpha);
-        let beta_is_mate_score = is_mate_or_mated_score(beta);
-
-        let is_mate_search = alpha_is_mate_score || beta_is_mate_score;
-
         let allow_lmp = !is_pv && !in_check && depth <= 2 && self.current_depth >= 7;
 
         self.hh.clear_killers(ply + 1);
@@ -924,7 +919,7 @@ impl Search {
                     {
                         // Reduce search depth for moves with negative SEE score
                         reductions += NEG_SEE_REDUCTIONS;
-                        if curr_move.score < QUIET_BASE_SCORE && evaluated_move_count > 0 && depth <= 3 && (!is_pv || !is_mate_search) {
+                        if curr_move.score < QUIET_BASE_SCORE && evaluated_move_count > 0 && depth <= 3 {
                             skip = true;
                         }
                     }
@@ -1847,18 +1842,18 @@ mod tests {
         let limits = SearchLimits::default();
         let board = create_from_fen(fen.as_str());
 
-        let search = new_search(tt, limits, board, 1);
+        let search = new_search(tt, limits, board);
         let tb_move = search.tb_move(123);
         assert!(search.is_tb_move(tb_move.unpack(search.board.active_player(), &search.board.bitboards).unpack()));
     }
 
     fn search(tt: Arc<TranspositionTable>, limits: SearchLimits, board: Board, min_depth: i32) -> Move {
-        let mut search = new_search(tt, limits, board, min_depth);
+        let mut search = new_search(tt, limits, board);
         let (m, _) = search.find_best_move(None, min_depth, &[]);
         m
     }
 
-    fn new_search(tt: Arc<TranspositionTable>, limits: SearchLimits, board: Board, min_depth: i32) -> Search {
+    fn new_search(tt: Arc<TranspositionTable>, limits: SearchLimits, board: Board) -> Search {
         initialize();
 
         Search::new(

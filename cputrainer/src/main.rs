@@ -88,7 +88,7 @@ pub fn main() {
 
 pub fn main_quantize(thread_count: usize) {
     info!("Scanning available test sets ...");
-    let max_test_set_id = convert_sets(thread_count, "test", FEN_TEST_SET_PATH, LZ4_TEST_SET_PATH, 1, false, false);
+    let max_test_set_id = convert_sets(thread_count, "test", FEN_TEST_SET_PATH, LZ4_TEST_SET_PATH, false, true);
 
     info!("Reading test sets ...");
     let mut test_set = CpuDataSamples(vec![DataSample::default(); SAMPLES_PER_SET * max_test_set_id]);

@@ -38,15 +38,15 @@ impl UCIMove {
 
         if !board.castling_rules.is_chess960() {
             if matches!(upm.move_type, MoveType::KingKSCastling) {
-                end = CastlingRules::ks_king_end(color) as i8;
+                end = CastlingRules::ks_king_end(color);
             } else if matches!(upm.move_type, MoveType::KingQSCastling) {
-                end = CastlingRules::qs_king_end(color) as i8;
+                end = CastlingRules::qs_king_end(color);
             }
         }
 
         let mut result = String::with_capacity(5);
-        result.push(uci_col(upm.start as i8 & 7));
-        result.push(uci_row(upm.start as i8 / 8));
+        result.push(uci_col(upm.start & 7));
+        result.push(uci_row(upm.start / 8));
         result.push(uci_col(end & 7));
         result.push(uci_row(end / 8));
 
@@ -79,7 +79,7 @@ impl UCIMove {
                 b'b' => B,
                 b'n' => N,
                 _ => {
-                    eprintln!("Invalid promotion piece in UCI notation: {}", uci);
+                    eprintln!("Invalid promotion piece in UCI notation: '{}'", uci);
                     return None;
                 }
             }

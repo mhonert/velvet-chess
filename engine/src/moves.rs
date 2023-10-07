@@ -197,6 +197,10 @@ impl Move {
         Move((typ as u32) << TYPE_SHIFT | (end as u32) << END_SHIFT | (start as u32) << START_SHIFT)
     }
 
+    pub const fn from_u32(value: u32) -> Self {
+        Move(value)
+    }
+
     #[inline]
     pub fn unpack(&self) -> UnpackedMove {
         UnpackedMove{

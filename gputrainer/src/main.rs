@@ -54,7 +54,6 @@ const VALIDATION_STEP_SIZE: usize = 200_000_000;
 
 const K_DIV: f64 = K / (400.0 / SCORE_SCALE as f64);
 
-const MIN_TRAINING_SET_ID: usize = 1;
 const FEN_TRAINING_SET_PATH: &str = "./data/train_fen/";
 const LZ4_TRAINING_SET_PATH: &str = "./data/train_lz4";
 const FEN_TEST_SET_PATH: &str = "./data/test_fen";
@@ -142,18 +141,17 @@ pub fn main() {
 
 
     let available_parallelism = thread::available_parallelism().unwrap().get();
+    let start = Instant::now();
     info!("Scanning available training sets ...");
-    let max_training_set_id = convert_sets(
+    let training_set_count = convert_sets(
         available_parallelism,
         "training",
         FEN_TRAINING_SET_PATH,
         LZ4_TRAINING_SET_PATH,
-        MIN_TRAINING_SET_ID,
         true,
         true
     );
 
-    let training_set_count = (max_training_set_id - MIN_TRAINING_SET_ID) + 1;
     info!(
         "Using {} training sets with a total of {} positions",
         training_set_count,
@@ -161,19 +159,22 @@ pub fn main() {
     );
 
     info!("Scanning available test sets ...");
-    let max_test_set_id = convert_sets(available_parallelism, "test", FEN_TEST_SET_PATH, LZ4_TEST_SET_PATH, 1, false, false);
+    let test_set_count = convert_sets(available_parallelism, "test", FEN_TEST_SET_PATH, LZ4_TEST_SET_PATH, false, true);
+    println!("Using {} test sets with a total of {} positions", test_set_count, test_set_count * 200_000);
+
+    println!("Duration: {:?} / {} per second", start.elapsed(), (training_set_count + (test_set_count * SAMPLES_PER_SET)) as f64 / start.elapsed().as_secs_f64());
 
     info!("Reading test sets ...");
-    let mut test_set = GpuDataSamples(vec![DataSample::default(); SAMPLES_PER_SET * max_test_set_id]);
+    let mut test_set = GpuDataSamples(vec![DataSample::default(); SAMPLES_PER_SET * test_set_count]);
     let mut start = 0;
-    for i in 1..=max_test_set_id {
+    for i in 1..=test_set_count {
         read_samples(&mut test_set, start, format!("{}/{}.lz4", LZ4_TEST_SET_PATH, i).as_str());
         start += SAMPLES_PER_SET;
     }
     let mut rng = ThreadRng::default();
 
     let id_source =
-        Arc::new(RwLock::new(IDSource::new(&mut rng, MIN_TRAINING_SET_ID, max_training_set_id, SETS_PER_BATCH)));
+        Arc::new(RwLock::new(IDSource::new(&mut rng, 1, training_set_count, SETS_PER_BATCH)));
 
     info!("Using validation set with {} samples", test_set.0.len());
 

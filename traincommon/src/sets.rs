@@ -17,20 +17,24 @@
  */
 
 use itertools::{Itertools};
+use std::cell::RefCell;
 use std::cmp::{min};
 use std::fs::File;
-use std::io::{stdout, BufRead, BufReader, BufWriter, Error, Write};
+use std::io::{stdout, BufRead, BufReader, BufWriter, Error, Write, Read};
 use std::path::Path;
 use std::str::FromStr;
-use std::sync::Arc;
+use std::sync::{Arc, mpsc};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::mpsc::{SyncSender};
 use std::thread;
 use lz4_flex::frame::FrameEncoder;
 use velvet::bitboard::{BitBoard};
 use velvet::colors::Color;
-use velvet::fen::{parse_fen, FenParseResult};
+use velvet::fen::{parse_fen, FenParseResult, create_from_fen};
+use velvet::moves::Move;
 use velvet::nn::{piece_idx, KING_BUCKETS, SCORE_SCALE, king_bucket};
-use velvet::nn::io::{read_f32, read_u16, read_u64, read_u8, write_f32, write_u16, write_u64, write_u8};
+use velvet::nn::io::{read_f32, read_i16, read_u16, read_u32, read_u64, read_u8, write_f32, write_u16, write_u64, write_u8};
+use velvet::scores::{is_mate_or_mated_score, MAX_EVAL};
 
 pub const SAMPLES_PER_SET: usize = 200_000;
 
@@ -43,27 +47,31 @@ pub trait DataSamples {
     fn finalize(&mut self, idx: usize);
 }
 
-pub fn convert_sets(thread_count: usize, caption: &str, in_path: &str, out_path: &str, min_id: usize, use_game_result: bool, allow_transformations: bool) -> usize {
-    let mut max_converted_id = 0;
+pub fn convert_sets(thread_count: usize, caption: &str, in_path: &str, out_path: &str, use_game_result: bool, allow_transformations: bool) -> usize {
+    let mut already_converted = false;
     let mut max_set_id = 0;
-    let mut min_unconverted_id = usize::MAX;
+    let mut min_set_id = usize::MAX;
+    let mut max_converted_set_id = 0;
 
-    for id in min_id..usize::MAX {
+    for id in 1..usize::MAX {
         if Path::new(&format!("{}/{}.lz4", out_path, id)).exists() {
-            max_set_id = max_set_id.max(id);
-            max_converted_id = id;
+            max_converted_set_id = max_converted_set_id.max(id);
+            already_converted = true;
         } else if Path::new(&format!("{}/test_pos_{}.fen", in_path, id)).exists() {
             max_set_id = max_set_id.max(id);
-            min_unconverted_id = min(id, min_unconverted_id);
+            min_set_id = min(id, min_set_id);
         } else {
             break;
         }
     }
 
-    if max_converted_id < max_set_id {
-        println!("Converting {} added {} sets ...", (max_set_id - min_unconverted_id + 1), caption);
-        max_set_id = convert_test_pos(thread_count, in_path.to_string(), out_path.to_string(), min_unconverted_id, max_set_id, use_game_result, allow_transformations)
+    if !already_converted {
+        println!("Converting {} {} sets ...", (max_set_id - min_set_id + 1), caption);
+        max_set_id = convert_test_pos(thread_count, in_path.to_string(), out_path.to_string(), min_set_id, max_set_id, use_game_result, allow_transformations)
             .expect("Could not convert test positions!");
+    } else {
+        println!("Skipping conversion, because target folder is not empty");
+        max_set_id = max_converted_set_id;
     }
 
     max_set_id
@@ -73,7 +81,6 @@ pub fn convert_sets(thread_count: usize, caption: &str, in_path: &str, out_path:
 struct OutputWriter {
     output_dir: String,
     next_set_id: Arc<AtomicUsize>,
-    entries: Vec<Entry>,
     allow_transformations: bool,
 }
 
@@ -87,11 +94,21 @@ struct Entry {
 }
 
 impl OutputWriter {
-    fn new(output_dir: String, next_set_id: &Arc<AtomicUsize>, allow_transformations: bool) -> Self {
-        OutputWriter{output_dir, next_set_id: next_set_id.clone(), entries: Vec::with_capacity(200000), allow_transformations}
+    thread_local! {
+        static ENTRIES: RefCell<Vec<Entry>> = RefCell::new(Vec::with_capacity(200_000));
     }
 
-    pub fn write(&mut self, bb_map: u16, white_king_pos: u8, black_king_pos: u8, active_player: Color, score: f32, bb: [u64; 13]) {
+    fn new(output_dir: String, next_set_id: &Arc<AtomicUsize>, allow_transformations: bool) -> Self {
+        OutputWriter{output_dir, next_set_id: next_set_id.clone(), allow_transformations}
+    }
+
+    pub fn count(&self) -> usize {
+        OutputWriter::ENTRIES.with(|cell| {
+            cell.borrow().len()
+        })
+    }
+
+    pub fn write(&self, bb_map: u16, white_king_pos: u8, black_king_pos: u8, active_player: Color, score: f32, bb: [u64; 13]) {
         self.add_entry(bb_map, white_king_pos, black_king_pos, active_player, score, bb);
 
         if !self.allow_transformations {
@@ -114,16 +131,19 @@ impl OutputWriter {
         self.add_transformed_entry(mirror_diagonal_u16, bb_map, white_king_pos, black_king_pos, active_player, score, bb);
     }
 
-    fn add_entry(&mut self, bb_map: u16, white_king_pos: u8, black_king_pos: u8, active_player: Color, score: f32, bb: [u64; 13]) {
-        self.entries.push(Entry{bb_map, score, active_player, white_king_pos, black_king_pos,bb});
-        if self.entries.len() == 200000 {
-            self.flush_entries();
-        }
+    fn add_entry(&self, bb_map: u16, white_king_pos: u8, black_king_pos: u8, active_player: Color, score: f32, bb: [u64; 13]) {
+        OutputWriter::ENTRIES.with(|cell| {
+            let mut entries = cell.borrow_mut();
+            entries.push(Entry{bb_map, score, active_player, white_king_pos, black_king_pos,bb});
+            if entries.len() == 200000 {
+                self.flush_entries(&mut entries);
+            }
+        });
     }
 
-    fn flush_entries(&mut self) {
+    fn flush_entries(&self, entries: &mut Vec<Entry>) {
         let mut writer = next_file(&self.output_dir.clone(), self.next_set_id.clone().fetch_add(1, Ordering::Relaxed));
-        for entry in self.entries.drain(0..self.entries.len()) {
+        for entry in entries.drain(0..entries.len()) {
             write_u16(&mut writer, entry.bb_map).unwrap();
             write_f32(&mut writer, if entry.active_player.is_white() { entry.score } else { -entry.score }).unwrap();
             write_u8(&mut writer, entry.active_player.0).unwrap();
@@ -147,7 +167,7 @@ impl OutputWriter {
         writer.flush().unwrap();
     }
 
-    fn add_transformed_entry(&mut self, transform: fn(u16) -> u16, bb_map: u16, mut white_king_pos: u8, mut black_king_pos: u8, active_player: Color, score: f32, bb: [u64; 13]) {
+    fn add_transformed_entry(&self, transform: fn(u16) -> u16, bb_map: u16, mut white_king_pos: u8, mut black_king_pos: u8, active_player: Color, score: f32, bb: [u64; 13]) {
         white_king_pos = transform(white_king_pos as u16) as u8;
         black_king_pos = transform(black_king_pos as u16) as u8;
 
@@ -171,6 +191,17 @@ impl OutputWriter {
 
         self.add_entry(bb_map, white_king_pos, black_king_pos, active_player, score, bb_transformed);
     }
+
+    pub fn flush_send_entries(&self, tx: &SyncSender<Option<Entry>>) {
+        OutputWriter::ENTRIES.with(|cell| {
+            let mut entries = cell.borrow_mut();
+
+            let len = entries.len();
+            for entry in entries.drain(0..len) {
+                tx.send(Some(entry)).expect("could not send entry");
+            }
+        });
+    }
 }
 
 fn next_file(path: &str, set_nr: usize) -> BufWriter<FrameEncoder<File>> {
@@ -189,21 +220,48 @@ fn convert_test_pos(
 ) -> Result<usize, Error> {
     let mut threads = Vec::new();
     let next_set_id = Arc::new(AtomicUsize::new(1));
+    let next_input_set_id = Arc::new(AtomicUsize::new(min_unconverted_id));
 
-    for c in 1..=thread_count {
+    let (tx, rx) = mpsc::sync_channel::<Option<Entry>>(16*1024*1024);
+
+    let output_writer = Arc::new(OutputWriter::new(out_path, &next_set_id, allow_transformations));
+
+    println!("Starting {} threads", thread_count);
+    for _ in 1..=thread_count {
         let in_path2 = in_path.clone();
-        let out_path2 = out_path.clone();
-        let next_set_id2 = next_set_id.clone();
-        threads.push(thread::spawn(move || {
-            let mut output_writer = OutputWriter::new(out_path2, &next_set_id2, allow_transformations);
+        let tx2 = tx.clone();
+        let output_writer2 = output_writer.clone();
+        let next_input_set_id2 = next_input_set_id.clone();
 
-            for i in ((c + min_unconverted_id - 1)..=max_training_set_id).step_by(thread_count) {
+        threads.push(thread::spawn(move || {
+            loop {
+                let i = next_input_set_id2.fetch_add(1, Ordering::Relaxed);
+                if i > max_training_set_id {
+                    break;
+                }
+
+                read_from_bin_fen_file(&tx2, &output_writer2, format!("{}/test_pos_{}.fen", in_path2, i).as_str(), use_game_result);
+
                 print!("{} ", i);
                 stdout().flush().unwrap();
-
-                read_from_fen_file(format!("{}/test_pos_{}.fen", in_path2, i).as_str(), &mut output_writer, use_game_result);
             }
+            output_writer2.flush_send_entries(&tx2);
+
+            tx2.send(None).expect("could not send stop entry");
         }));
+    }
+
+    let mut remaining = thread_count;
+
+    while remaining > 0 {
+        match rx.recv().expect("could not receive entry") {
+            Some(entry) => {
+                output_writer.add_entry(entry.bb_map, entry.white_king_pos , entry.black_king_pos, entry.active_player, entry.score, entry.bb);
+            }
+            None => {
+                remaining -= 1;
+            }
+        }
     }
 
     for t in threads {
@@ -213,6 +271,86 @@ fn convert_test_pos(
     println!("\nConversion finished");
 
     Ok(next_set_id.load(Ordering::Relaxed).saturating_sub(1))
+}
+
+fn read_from_bin_fen_file(tx: &SyncSender<Option<Entry>>, output_writer: &Arc<OutputWriter>, file_name: &str, use_game_result: bool) {
+    let file = File::open(file_name).expect("Could not open test position file");
+    let mut reader = BufReader::new(file);
+
+    loop {
+        let fen_len = match read_u8(&mut reader) {
+            Ok(len) => len as usize,
+            Err(_) => {
+                return;
+            }
+        };
+
+        assert!(fen_len < 256, "fen_len exceeded safety limit");
+
+        let mut fen_bytes = vec![0; fen_len];
+        reader.read_exact(&mut fen_bytes).expect("could not read FEN");
+
+        let fen = String::from_utf8(fen_bytes).expect("could not convert FEN");
+
+        let mut board = create_from_fen(&fen);
+        let _game_result = read_i16(&mut reader).expect("could not read game result");
+        let move_count = read_u16(&mut reader).expect("could not read move count") as usize;
+
+        let mut gives_check = false;
+        for _ply in 1..=move_count {
+            let m = Move::from_u32(read_u32(&mut reader).expect("could not read move"));
+            if is_mate_or_mated_score(m.score()) || !m.is_quiet() || gives_check {
+                board.perform_move(m.unpack());
+                gives_check = board.is_in_check(board.active_player());
+                continue;
+            }
+
+            let score = m.score() as f32 / SCORE_SCALE as f32;
+
+            let active_player = board.active_player();
+            let any_castling = board.any_castling();
+
+            let mut black_king_pos = 0;
+            let mut white_king_pos = 0;
+            let mut bb: [u64; 13] = [0; 13];
+
+            for pos in 0..64 {
+                let piece = board.get_item(pos);
+                if piece == 0 {
+                    continue;
+                }
+
+                if piece == -6 {
+                    black_king_pos = pos;
+                } else if piece == 6 {
+                    white_king_pos = pos;
+                } else {
+                    bb[(piece + 6) as usize] |= 1 << pos;
+                }
+            }
+
+            let mut bb_map = 0;
+            if any_castling {
+                bb_map |= 1 << 15;
+            }
+
+            for i in 1i8..=5i8 {
+                if bb[(i + 6) as usize] != 0 {
+                    bb_map |= 1 << (i - 1);
+                }
+                if bb[(-i + 6) as usize] != 0 {
+                    bb_map |= 1 << (i + 4);
+                }
+            }
+
+            board.perform_move(m.unpack());
+            gives_check = board.is_in_check(board.active_player());
+
+            if !gives_check {
+                output_writer.write(bb_map, white_king_pos as u8, black_king_pos as u8, active_player, score, bb);
+            }
+        }
+    }
 }
 
 fn read_from_fen_file(file_name: &str, writer: &mut OutputWriter, _use_game_result: bool) {
@@ -239,22 +377,18 @@ fn read_from_fen_file(file_name: &str, writer: &mut OutputWriter, _use_game_resu
             // 0..5 | 6
             // fen  | score
             let score = i32::from_str(parts[6]).expect("Could not parse score");
-            score as f32 / SCORE_SCALE as f32
+            score.clamp(-2000, 2000) as f32 / SCORE_SCALE as f32
 
-        } else if parts.len() == 11 {
-            let score = i32::from_str(parts[10]).expect("Could not parse score");
-            score as f32 / SCORE_SCALE as f32
+        } else if parts.len() == 8 {
+            let score = i32::from_str(parts[6]).expect("Could not parse score");
+            if score.abs() > MAX_EVAL as i32 {
+                continue;
+            }
 
-        } else if parts.len() == 12 {
-            let score = i32::from_str(parts[9]).expect("Could not parse score");
-            score as f32 / SCORE_SCALE as f32
-
-        } else if parts.len() == 13 {
-            let score = i32::from_str(parts[12]).expect("Could not parse score");
             score as f32 / SCORE_SCALE as f32
 
         } else {
-                panic!("Invalid test position entry: {}", line);
+            panic!("Invalid test position entry: {}", line);
         };
 
         let fen: String = (parts[0..=5].join(" ") as String).replace('~', "");
@@ -268,17 +402,18 @@ fn read_from_fen_file(file_name: &str, writer: &mut OutputWriter, _use_game_resu
         let mut white_king_pos = 0;
         let mut bb: [u64; 13] = [0; 13];
 
-        for (pos, piece) in pieces.iter().enumerate() {
-            if *piece == 0 {
+        for pos in 0..64 {
+            let piece = pieces[pos];
+            if piece == 0 {
                 continue;
             }
 
-            if *piece == -6 {
+            if piece == -6 {
                 black_king_pos = pos;
-            } else if *piece == 6 {
+            } else if piece == 6 {
                 white_king_pos = pos;
             } else {
-                bb[(*piece + 6) as usize] |= 1 << pos;
+                bb[(piece + 6) as usize] |= 1 << pos;
             }
         }
 
