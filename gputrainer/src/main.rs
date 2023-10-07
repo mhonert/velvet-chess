@@ -229,10 +229,10 @@ pub fn main() {
                     let (test_wpov_xs, test_bpov_xs, test_stms, mut test_ys) = to_sparse_tensors(batch, device);
 
                     test_ys = test_ys.multiply_scalar_(K_DIV).sigmoid();
-                    err += f64::from(
+                    err += f64::try_from(
                         &net.forward_t(&test_wpov_xs, &test_bpov_xs, &test_stms, false)
                             .mse_loss(&test_ys, Reduction::Mean),
-                    );
+                    ).unwrap();
                     count += 1;
                 }
 
@@ -255,7 +255,7 @@ pub fn main() {
             }
 
             if missed_improvements >= patience {
-                if patience > 6 {
+                if patience > 1 {
                     patience /= 2;
                 } else if patience > 2 {
                     patience -= 1;
@@ -301,7 +301,7 @@ pub fn main() {
 
             opt.backward_step(&loss);
 
-            train_loss += f64::from(&loss);
+            train_loss += f64::try_from(&loss).unwrap();
 
             batch_count += 1;
         }
@@ -369,40 +369,41 @@ fn to_sparse_tensors(samples: &[DataSample], device: Device) -> (Tensor, Tensor,
         wpov_indices.resize(wpov_indices.len() + sample.wpov_inputs.len(), j as i64);
         bpov_indices.resize(bpov_indices.len() + sample.bpov_inputs.len(), j as i64);
     }
-
     for sample in samples.iter() {
         wpov_indices.extend_from_slice(&sample.wpov_inputs);
         bpov_indices.extend_from_slice(&sample.bpov_inputs);
     }
 
+
     let wpov_value_count = wpov_indices.len() as i64 / 2;
     let bpov_value_count = bpov_indices.len() as i64 / 2;
 
-    let wpov_indices = Tensor::of_slice(&wpov_indices).to(device).view((2, wpov_value_count));
-    let bpov_indices = Tensor::of_slice(&bpov_indices).to(device).view((2, bpov_value_count));
+    let wpov_indices = Tensor::from_slice(&wpov_indices).to(device).view((2, wpov_value_count));
+    let bpov_indices = Tensor::from_slice(&bpov_indices).to(device).view((2, bpov_value_count));
     let wpov_values = Tensor::ones(&[wpov_value_count], (Kind::Float, device));
     let bpov_values = Tensor::ones(&[bpov_value_count], (Kind::Float, device));
+
 
     let wpov_xs = Tensor::sparse_coo_tensor_indices_size(
         &wpov_indices,
         &wpov_values,
         &[samples.len() as i64, INPUTS as i64],
         (Kind::Float, device),
-    )
-    .coalesce();
+        true
+    );
 
     let bpov_xs = Tensor::sparse_coo_tensor_indices_size(
         &bpov_indices,
         &bpov_values,
         &[samples.len() as i64, INPUTS as i64],
         (Kind::Float, device),
-    )
-        .coalesce();
+        true
+    );
 
     (wpov_xs,
      bpov_xs,
-     Tensor::of_slice(&stms).to(device).view((samples.len() as i64, 1)),
-     Tensor::of_slice(&ys).to(device).view((samples.len() as i64, 1)))
+     Tensor::from_slice(&stms).to(device).view((samples.len() as i64, 1)),
+     Tensor::from_slice(&ys).to(device).view((samples.len() as i64, 1)))
 }
 
 fn write_raw(writer: &mut BufWriter<File>, weights: &Tensor, scale: f32) -> Result<(), Error> {
@@ -410,7 +411,7 @@ fn write_raw(writer: &mut BufWriter<File>, weights: &Tensor, scale: f32) -> Resu
         write_u16(writer, size as u16)?;
     }
 
-    let ws: Vec<f32> = weights.into();
+    let ws: Vec<f32> = weights.flatten(0, -1).try_into().unwrap();
     for &weight in ws.iter() {
         write_f32(writer, weight * scale)?;
     }
