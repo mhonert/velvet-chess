@@ -761,7 +761,7 @@ impl Search {
 
         // Quiescence search
         if depth <= 0 || ply >= (MAX_DEPTH - 16) {
-            return clamp_score(self.quiescence_search::<false>(rx, active_player, alpha, beta, ply, pos_score, pv), worst_possible_score, best_possible_score);
+            return clamp_score(self.quiescence_search(active_player, alpha, beta, ply, pos_score), worst_possible_score, best_possible_score);
         }
 
         self.infos[ply].set_eval(self.board.eval());
@@ -779,7 +779,7 @@ impl Search {
                     (params::rfp_margin_multiplier_not_improving() << depth) + params::rfp_base_margin_not_improving()
                 };
                 if !is_mate_or_mated_score(score) && score - margin >= beta {
-                    return clamp_score(self.quiescence_search::<false>(rx, active_player, alpha, beta, ply, pos_score, pv), worst_possible_score, best_possible_score);
+                    return clamp_score(self.quiescence_search(active_player, alpha, beta, ply, pos_score), worst_possible_score, best_possible_score);
                 }
             } else if !skip_null_move {
                 // Null move pruning
@@ -823,7 +823,7 @@ impl Search {
             allow_futile_move_pruning = !is_mate_or_mated_score(static_score) && static_score + margin <= alpha;
 
             if depth == 1 && static_score + params::razor_margin_multiplier() <= alpha {
-                let score = clamp_score(self.quiescence_search::<false>(rx, active_player, alpha, beta, ply, pos_score, pv), worst_possible_score, best_possible_score);
+                let score = clamp_score(self.quiescence_search(active_player, alpha, beta, ply, pos_score), worst_possible_score, best_possible_score);
                 if score <= alpha {
                     return score;
                 }
@@ -1083,30 +1083,18 @@ impl Search {
         }
     }
 
-    pub fn quiescence_search<const CPV: bool>(
-        &mut self, rx: Option<&Receiver<Message>>, active_player: Color, mut alpha: i16, beta: i16, ply: usize,
-        pos_score: Option<i16>, pv: &mut PrincipalVariation,
-    ) -> i16 {
-        if self.is_stopped() {
-            return CANCEL_SEARCH;
-        }
-
+    pub fn quiescence_search(&mut self, active_player: Color, mut alpha: i16, beta: i16, ply: usize, pos_score: Option<i16>) -> i16 {
         self.max_reached_depth = ply.max(self.max_reached_depth);
 
-        if self.board.is_insufficient_material_draw() {
-            return self.effective_draw_score();
+        if ply >= MAX_DEPTH {
+            return beta;
         }
 
         let position_score = pos_score.unwrap_or_else(|| { self.board.eval() });
-        if ply >= MAX_DEPTH {
-            return position_score;
-        }
-
-        if position_score >= beta {
-            return position_score;
-        }
-
-        if alpha < position_score {
+        if position_score > alpha {
+            if position_score >= beta {
+                return position_score;
+            }
             alpha = position_score;
         }
 
@@ -1114,50 +1102,41 @@ impl Search {
         self.movegen.generate_qs_captures(&mut self.board);
 
         let mut threshold = alpha - position_score - params::qs_see_threshold();
-
         let mut best_score = position_score;
 
+        let opp_player = active_player.flip();
         while let Some(m) = self.movegen.next_good_capture_move(&mut self.board, threshold) {
             let upm = m.unpack();
-
             let (previous_piece, captured_piece_id) = self.board.perform_move(upm);
-
             if self.board.is_in_check(active_player) {
-                // Invalid move
                 self.board.undo_move(upm, previous_piece, captured_piece_id);
                 continue;
             }
-
-            let mut local_pv = PrincipalVariation::default();
-
             self.inc_node_count();
-            let score =
-                -self.quiescence_search::<CPV>(rx, active_player.flip(), -beta, -alpha, ply + 1, None, &mut local_pv);
+
+            let score = if self.board.is_insufficient_material_draw() {
+                -self.effective_draw_score()
+            } else {
+                -self.quiescence_search(opp_player, -beta, -alpha, ply + 1, None)
+            };
             self.board.undo_move(upm, previous_piece, captured_piece_id);
 
-            if score <= best_score {
-                // No improvement
-                continue;
-            }
-            if CPV {
-                pv.update(m, &mut local_pv);
-            }
+            if score > best_score {
+                best_score = score;
+                if best_score > alpha {
+                    if best_score >= beta {
+                        break;
+                    }
 
-            best_score = score;
-            if best_score > alpha {
-                if best_score >= beta {
-                    break;
+                    alpha = best_score;
+                    threshold = alpha - position_score - params::qs_see_threshold();
                 }
-
-                alpha = best_score;
-                threshold = alpha - position_score - params::qs_see_threshold();
             }
         }
 
         self.movegen.leave_ply();
         best_score
     }
-
 
     pub fn determine_skipped_moves(&mut self, search_moves: Vec<String>) -> Vec<Move> {
         let mut search_moves_set = MoveSet::default();
@@ -1244,11 +1223,11 @@ impl Search {
     }
 
     fn is_stopped(&self) -> bool {
-        self.is_stopped.load(Ordering::Acquire)
+        self.is_stopped.load(Ordering::Relaxed)
     }
 
     pub fn set_stopped(&mut self, value: bool) {
-        self.is_stopped.store(value, Ordering::Release);
+        self.is_stopped.store(value, Ordering::Relaxed);
     }
 
     fn check_messages(&mut self, rx: &Receiver<Message>, blocking: bool) {
