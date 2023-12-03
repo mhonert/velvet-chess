@@ -31,7 +31,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{mpsc, Arc};
 use std::thread;
-use std::time::SystemTime;
+use std::time::{Instant};
 use crate::{params, syzygy};
 
 pub enum Message {
@@ -260,7 +260,7 @@ impl Engine {
         self.update_tb();
 
         self.initialized = true;
-        println!("readyok")
+        println!("readyok");
     }
 
     fn update_thread_count(&mut self) {
@@ -315,16 +315,13 @@ impl Engine {
     }
 
     fn perft(&mut self, depth: i32) {
-        let start = SystemTime::now();
+        let start = Instant::now();
 
         let mut movegen = MoveGenerator::new();
         let hh = HistoryHeuristics::new();
         let nodes = perft(&mut movegen, &hh, &mut self.board, depth);
 
-        let duration = match SystemTime::now().duration_since(start) {
-            Ok(v) => v,
-            Err(e) => panic!("error calculating duration: {:?}", e),
-        };
+        let duration = start.elapsed();
 
         println!("Nodes: {}", nodes);
         println!("Duration: {:?}", duration);

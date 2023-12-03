@@ -25,10 +25,9 @@ pub mod eval;
 pub mod io;
 
 // NN layer size
-pub const KING_BUCKETS: usize = 5;
-pub const PIECE_BUCKETS: usize = 3;
+pub const BUCKETS: usize = 32;
 pub const BUCKET_SIZE: usize = 6 * 64 * 2;
-pub const INPUTS: usize = BUCKET_SIZE * KING_BUCKETS * PIECE_BUCKETS;
+pub const INPUTS: usize = BUCKET_SIZE * BUCKETS;
 
 pub const HL1_NODES: usize = 2 * HL1_HALF_NODES;
 pub const HL1_HALF_NODES: usize = 512;
@@ -39,10 +38,10 @@ pub const FP_MAX_RELU: i16 = (MAX_RELU * FP_IN_MULTIPLIER as f32) as i16;
 pub const INPUT_WEIGHT_COUNT: usize = INPUTS * HL1_HALF_NODES;
 
 // Fixed point number precision
-pub const FP_IN_PRECISION_BITS: u8 = 9;
+pub const FP_IN_PRECISION_BITS: u8 = 10;
 pub const FP_IN_MULTIPLIER: i64 = 1 << FP_IN_PRECISION_BITS;
 
-pub const FP_OUT_PRECISION_BITS: u8 = 10;
+pub const FP_OUT_PRECISION_BITS: u8 = 10; // must be an even number
 pub const FP_OUT_MULTIPLIER: i64 = 1 << FP_OUT_PRECISION_BITS;
 
 pub const SCORE_SCALE: i16 = 1024;
@@ -91,9 +90,5 @@ pub fn king_bucket(pos: u16) -> u16 {
     let row = pos / 8;
     let col = pos & 3;
 
-    if col > 1 && row > 1 && row < 6 {
-        return 4;
-    }
-
-    (row / 4) * 2 + col / 2
+    row * 4 + col
 }

@@ -24,14 +24,12 @@ use crossbeam_channel::{bounded, Receiver, Sender};
 use env_logger::{Env, Target};
 use itertools::Itertools;
 use log::{error, info};
-use rand::prelude::{SliceRandom};
-use rand::rngs::ThreadRng;
 use std::env;
 use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 use std::thread;
+use std::time::Duration;
 use traincommon::sets::{convert_sets, read_samples, SAMPLES_PER_SET};
-pub use velvet::nn::INPUTS;
 use velvet::nn::{HL1_HALF_NODES};
 use crate::sets::{CpuDataSamples, DataSample};
 
@@ -46,6 +44,7 @@ const USAGE: &str = "Usage: cputrainer [quantize] [thread count]";
 enum Command {
     Test(Scope),
     Stats,
+    Quit,
 }
 
 #[derive(Debug)]
@@ -94,11 +93,9 @@ pub fn main_quantize(thread_count: usize) {
     let mut test_set = CpuDataSamples(vec![DataSample::default(); SAMPLES_PER_SET * max_test_set_id]);
     let mut start = 0;
     for i in 1..=max_test_set_id {
-        read_samples(&mut test_set, start, format!("{}/{}.lz4", LZ4_TEST_SET_PATH, i).as_str());
+        read_samples(&mut test_set, start, format!("{}/{}.lz4", LZ4_TEST_SET_PATH, i).as_str(), false);
         start += SAMPLES_PER_SET;
     }
-    let mut rng = ThreadRng::default();
-    test_set.0.shuffle(&mut rng);
     let full_test_set = Arc::new(test_set);
 
     let (to_tx, to_rx) = bounded(thread_count);
@@ -110,7 +107,7 @@ pub fn main_quantize(thread_count: usize) {
     let samples_per_thread = batch_size / thread_count;
     info!("Samples per thread: {}", samples_per_thread);
 
-    spawn_training_threads(
+    spawn_threads(
         thread_count,
         max_test_set_id,
         &from_tx,
@@ -120,7 +117,6 @@ pub fn main_quantize(thread_count: usize) {
     );
 
     net.write().unwrap().init_from_raw_file("./data/nets/velvet_base.nn");
-
 
     let (error_sum, error_count) = test_net(Command::Test(Scope::Full), thread_count, &to_tx, &from_rx);
     let error = error_sum / error_count as f64;
@@ -136,10 +132,13 @@ pub fn main_quantize(thread_count: usize) {
     let qnn_file = "./data/nets/velvet_final.qnn";
     net.write().map(|n| n.save_quantized(&stats, qnn_file)).expect("could not quantize net");
 
-    net.write().unwrap().init_from_qnn_file(&qnn_file);
+    net.write().unwrap().init_from_qnn_file(qnn_file);
     let (error_sum, error_count) = test_net(Command::Test(Scope::Full), thread_count, &to_tx, &from_rx);
     let error = error_sum / error_count as f64;
     info!("Error of quantized net: {:1.10}", error);
+
+    (0..thread_count).for_each(|_| to_tx.send(Command::Quit).expect("could not send Quit command"));
+    thread::sleep(Duration::from_millis(50));
 }
 
 fn test_net(command: Command, thread_count: usize, to_tx: &Sender<Command>, from_rx: &Receiver<Result>) -> (f64, u32) {
@@ -170,7 +169,7 @@ fn stats_net(thread_count: usize, to_tx: &Sender<Command>, from_rx: &Receiver<Re
     stats
 }
 
-fn spawn_training_threads(
+fn spawn_threads(
     threads: usize, max_test_set_id: usize, tx: &Sender<Result>, rx: &Receiver<Command>,
     base_net: &Arc<RwLock<Box<Network>>> , full_test_set: &Arc<CpuDataSamples>,
 ) {
@@ -183,7 +182,7 @@ fn spawn_training_threads(
         thread::Builder::new()
             .stack_size(1048576 * 32)
             .spawn(move || {
-                train(
+                run(
                     i,
                     threads,
                     max_test_set_id,
@@ -197,7 +196,7 @@ fn spawn_training_threads(
     }
 }
 
-fn train(
+fn run(
     thread_id: usize, thread_count: usize, max_test_set_id: usize, tx: Sender<Result>, rx: Receiver<Command>,
     base_net: Arc<RwLock<Box<Network>>>, full_test_set: Arc<CpuDataSamples>,
 ) {
@@ -215,7 +214,7 @@ fn train(
         match rx.recv().expect("Could not read training command") {
             Command::Test(scope) => {
                 let set_ids = match scope {
-                    Scope::Full => (0..max_test_set_id).into_iter().collect_vec(),
+                    Scope::Full => (0..max_test_set_id).collect_vec(),
                 };
 
                 let (curr_error, count) = base_net
@@ -240,7 +239,7 @@ fn train(
             }
 
             Command::Stats => {
-                let set_ids = (0..max_test_set_id).into_iter().collect_vec();
+                let set_ids = (0..max_test_set_id).collect_vec();
 
                 let stats = base_net
                     .read()
@@ -264,6 +263,8 @@ fn train(
                 tx.send(Result::Stats(stats)).expect("Could not send Stats result");
                 continue;
             }
+
+            Command::Quit => break
         };
     }
 }

@@ -18,8 +18,10 @@
 
 use crate::{Tensor};
 use std::borrow::Borrow;
+use tch::{IndexOp};
 use tch::nn::{Path};
 use tch::nn::init::DEFAULT_KAIMING_UNIFORM;
+use velvet::nn::{INPUTS};
 
 pub struct InputLayer {
     pub weights: Tensor,
@@ -36,6 +38,10 @@ pub fn input_layer<'a, T: Borrow<Path<'a>>>(
     let own_biases = vs.zeros("own_bias", &[output_count]);
     let opp_biases = vs.zeros("opp_bias", &[output_count]);
     let weights = vs.var("weight", &[output_count, input_count], DEFAULT_KAIMING_UNIFORM);
+
+    tch::no_grad(|| {
+        let _ = weights.i((.., INPUTS as i64..)).zero_();
+    });
 
     InputLayer { weights, own_biases, opp_biases }
 }

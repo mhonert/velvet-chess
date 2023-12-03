@@ -778,7 +778,7 @@ impl Search {
                 } else {
                     (params::rfp_margin_multiplier_not_improving() << depth) + params::rfp_base_margin_not_improving()
                 };
-                if !is_mate_or_mated_score(score) && score - margin >= beta {
+                if self.current_depth > 7 && !is_mate_or_mated_score(score) && score - margin >= beta {
                     return clamp_score(self.quiescence_search(active_player, alpha, beta, ply, pos_score), worst_possible_score, best_possible_score);
                 }
             } else if !skip_null_move {

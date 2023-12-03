@@ -39,6 +39,7 @@ use crate::zobrist::{enpassant_zobrist_key, piece_zobrist_key, player_zobrist_ke
 #[repr(u8)]
 pub enum WhiteBoardPos {
     PawnLineStart = 48,
+    PawnLineEnd = 55,
     EnPassantLineStart = 16,
     EnPassantLineEnd = 23,
 }
@@ -46,6 +47,7 @@ pub enum WhiteBoardPos {
 #[repr(u8)]
 pub enum BlackBoardPos {
     PawnLineStart = 8,
+    PawnLineEnd = 15,
     EnPassantLineStart = 40,
     EnPassantLineEnd = 47,
 }
@@ -385,7 +387,7 @@ impl Board {
                 let own_piece = self.remove_piece(move_start);
                 let removed_piece = self.remove_piece(move_end);
                 self.update_rook_castling_state(color.flip(), removed_piece.abs(), move_end as i8);
-                self.nn_eval.remove_remove_add_piece::<false>(move_end, removed_piece, move_start, own_piece, move_end, own_piece);
+                self.nn_eval.remove_remove_add_piece::<true>(move_end, removed_piece, move_start, own_piece, move_end, own_piece);
                 self.add_piece(color, target_piece_id, move_end);
 
                 self.reset_half_move_clock();
@@ -534,11 +536,7 @@ impl Board {
                 self.move_piece_without_state(color, piece, move_end , move_start );
             }
             MoveType::PawnCapture | MoveType::KnightCapture | MoveType::BishopCapture | MoveType::RookCapture | MoveType::QueenCapture | MoveType::QueenCapture8 => {
-                if removed_piece_id >= R {
-                    self.nn_eval.remove_add_add_piece::<true>(move_end , piece, move_start , piece, move_end , color.flip().piece(removed_piece_id));
-                } else {
-                    self.nn_eval.remove_add_add_piece::<false>(move_end , piece, move_start , piece, move_end , color.flip().piece(removed_piece_id));
-                }
+                self.nn_eval.remove_add_add_piece::<true>(move_end , piece, move_start , piece, move_end , color.flip().piece(removed_piece_id));
 
                 self.remove_piece_without_inc_update(move_end );
                 self.add_piece_without_inc_update(color, piece, move_start);

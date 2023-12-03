@@ -1,10 +1,10 @@
 [package]
 name = "velvet"
 license = "GPL-3.0-or-later"
-version = "5.3.0"
+version = "5.4.0-dev1"
 authors = ["mhonert"]
 description = "Velvet is a UCI chess engine"
-readme = "README.md"
+readme = "../README.md"
 publish = false
 categories = ["chess", "uci"]
 repository = "https://github.com/mhonert/velvet-chess"
@@ -18,7 +18,6 @@ name = "velvet"
 path = "src/main.rs"
 
 [dependencies]
-itertools = "0.11.0"
 fathomrs = { path = "../fathomrs", optional = true }
 
 [features]

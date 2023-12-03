@@ -259,6 +259,7 @@ fn find_test_positions(tx: &Sender<Command>, openings: Arc<Vec<String>>, random_
     let limits = SearchLimits::new(None, Some(10), None, None, None, None, None, None, None).unwrap();
     let mut search =
         Search::new(Arc::new(AtomicBool::new(false)), Arc::new(AtomicU64::new(0)), Arc::new(AtomicU64::new(0)), LogLevel::Error, limits, tt, create_from_fen(START_POS), false);
+    search.set_tb_probe_root(false);
 
     let mut writer = OutputWriter::new(id_source);
 
@@ -275,6 +276,7 @@ fn find_test_positions(tx: &Sender<Command>, openings: Arc<Vec<String>>, random_
         }
     }
 
+    writer.terminate();
     tx.send(Command::ThreadTerminated).expect("could not send thread terminated command");
 }
 
@@ -285,14 +287,13 @@ fn collect_quiet_pos(
     read_fen(&mut search.board, opening).unwrap();
 
     let mut ply = search.board.halfmove_count() as i32;
+    let start_ply = ply;
     for _ in 0..random_moves {
         if !play_random_move(rnd, &search.hh, &mut search.movegen, &mut search.board) {
             return 0;
         }
         ply += 1;
     }
-
-    search.set_tb_probe_root(true);
 
     let mut positions = Vec::new();
 
@@ -307,7 +308,7 @@ fn collect_quiet_pos(
             break;
         }
 
-        let candidate_moves = find_candidate_moves(search, rx, 8, ply <= 80 && rnd.rand32() & 1 == 0);
+        let (best_score, candidate_moves) = find_candidate_moves(search, rx, 9, (ply - start_ply) <= 16 && rnd.rand32() & 1 == 0);
         if candidate_moves.is_empty() {
             let active_player = search.board.active_player();
             if search.board.is_in_check(active_player) {
@@ -317,7 +318,7 @@ fn collect_quiet_pos(
         }
 
         let best_move = candidate_moves[rnd.rand32() as usize % candidate_moves.len()];
-        let score = search.board.active_player().score(best_move.score());
+        let score = search.board.active_player().score(best_score);
 
         positions.push(best_move.with_score(score).to_u32());
 
@@ -329,24 +330,24 @@ fn collect_quiet_pos(
     count
 }
 
-fn find_candidate_moves(search: &mut Search, rx: Option<&Receiver<Message>>, min_depth: i32, consider_alternative: bool) -> Vec<Move> {
+fn find_candidate_moves(search: &mut Search, rx: Option<&Receiver<Message>>, min_depth: i32, consider_alternative: bool) -> (i16, Vec<Move>) {
     let mut skip = Vec::with_capacity(2);
     let mut candidates = Vec::with_capacity(2);
-    let mut max_score = i16::MIN;
-    let mut limit = 10000;
+    let mut best_score = i16::MIN;
+    search.set_node_limit(5000);
     for _ in 0..2 {
-        search.set_node_limit(limit);
         let (selected_move, _) = search.find_best_move(rx, min_depth, &skip);
         if selected_move == NO_MOVE {
             break;
         }
 
         let score = selected_move.score();
-        max_score = max_score.max(score);
 
-        if candidates.is_empty() && score < max_score - 5 {
+        if !candidates.is_empty() && score < best_score {
             break;
         }
+
+        best_score = best_score.max(score);
 
         candidates.push(selected_move);
         if !consider_alternative {
@@ -354,9 +355,8 @@ fn find_candidate_moves(search: &mut Search, rx: Option<&Receiver<Message>>, min
         }
 
         skip.push(selected_move.without_score());
-        limit /= 2;
     }
-    candidates
+    (best_score, candidates)
 }
 
 fn play_random_move(

@@ -23,7 +23,8 @@ use log::{info};
 use rand::prelude::{Distribution, SliceRandom, ThreadRng};
 use std::env;
 use std::fs::File;
-use std::io::{BufWriter, Error};
+use std::io::{BufReader, BufWriter, Error};
+use std::process::exit;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::SyncSender;
@@ -33,32 +34,42 @@ use std::time::{Duration, Instant};
 use env_logger::{Env, Target};
 use rand::distributions::Uniform;
 use tch::nn::{Linear, ModuleT, Optimizer, VarStore};
-use tch::{nn, nn::OptimizerConfig, Device, Kind, Reduction, Tensor};
+use tch::{nn, nn::OptimizerConfig, Device, Kind, Tensor, IndexOp};
 use traincommon::idsource::IDSource;
 use traincommon::sets::{convert_sets, K, read_samples};
-use velvet::nn::{HL1_HALF_NODES, HL1_NODES, MAX_RELU, SCORE_SCALE};
+use velvet::nn::{BUCKET_SIZE, BUCKETS, HL1_HALF_NODES, HL1_NODES, MAX_RELU, SCORE_SCALE};
 pub use velvet::nn::INPUTS;
-use velvet::nn::io::{write_f32, write_u16, write_u8};
+use velvet::nn::io::{read_f32, read_u16, write_f32, write_u16, write_u8};
+use velvet::syzygy;
 use crate::layer::{InputLayer, input_layer};
 use crate::sets::{DataSample, GpuDataSamples};
 
 const TEST_BATCH_SIZE: usize = 200_000;
 
 const BATCH_SIZE: i64 = 32000;
-const SETS_PER_BATCH: usize = 4;
+const SETS_PER_BATCH: usize = 8;
 
 const INIT_LR: f64 = 0.001;
 const INITIAL_PATIENCE: usize = 8;
 
-const VALIDATION_STEP_SIZE: usize = 200_000_000;
+const NORM_EPOCH_SIZE: usize = 200_000_000;
 
 const K_DIV: f64 = K / (400.0 / SCORE_SCALE as f64);
+
+const ERR_EXP: f64 = 2.6;
 
 const FEN_TRAINING_SET_PATH: &str = "./data/train_fen/";
 const LZ4_TRAINING_SET_PATH: &str = "./data/train_lz4";
 const FEN_TEST_SET_PATH: &str = "./data/test_fen";
 const LZ4_TEST_SET_PATH: &str = "./data/test_lz4";
 const SAMPLES_PER_SET: usize = 200_000;
+
+// const INPUT_FEATURES: i64 = INPUTS as i64 + BUCKET_SIZE as i64 * PIECE_BUCKETS as i64;
+// const INPUT_FEATURES: i64 = INPUTS as i64;
+const INPUT_FEATURES: i64 = INPUTS as i64 + BUCKET_SIZE as i64;
+
+const TRAINING_STATE_FILE: &str = "./data/nets/training.state";
+const TRAINING_STORE_FILE: &str = "./data/nets/training.net";
 
 trait Mode {
     fn print_info(&self);
@@ -74,7 +85,7 @@ struct EvalNet {
 impl EvalNet {
     fn new(vs: &nn::Path) -> Self {
         EvalNet{
-            inputs: input_layer(vs / "input", INPUTS as i64, HL1_HALF_NODES as i64),
+            inputs: input_layer(vs / "input", INPUT_FEATURES, HL1_HALF_NODES as i64),
             output: nn::linear(vs / "output", HL1_NODES as i64, 1, Default::default()),
         }
     }
@@ -105,12 +116,21 @@ impl Mode for EvalNet {
         write_u8(&mut writer, hidden_layers).unwrap(); // Number of hidden layers
 
         let input_bias = Tensor::cat(&[vars.get("input.own_bias").unwrap(), vars.get("input.opp_bias").unwrap()], 0);
-        write_raw(&mut writer, vars.get("input.weight").unwrap(), 1.0).expect("Could not write layer");
-        write_raw(&mut writer, &input_bias, 1.0).expect("Could not write layer");
+        let inputs = vars.get("input.weight").unwrap();
+        write_raw(&mut writer, &merge_abstract_features(inputs)).expect("Could not write layer");
+        write_raw(&mut writer, &input_bias).expect("Could not write layer");
 
-        write_raw(&mut writer, vars.get("output.weight").unwrap(), 1.0).expect("Could not write layer");
-        write_raw(&mut writer, vars.get("output.bias").unwrap(), 1.0).expect("Could not write layer");
+        write_raw(&mut writer, vars.get("output.weight").unwrap()).expect("Could not write layer");
+        write_raw(&mut writer, vars.get("output.bias").unwrap()).expect("Could not write layer");
     }
+}
+
+fn merge_abstract_features(all_features: &Tensor) -> Tensor {
+    let real_features = all_features.i((.., ..INPUTS as i64));
+    let abstracted_features = all_features.i((.., INPUTS as i64..));
+
+    let abstracted_features_repeated = abstracted_features.i((.., (0..BUCKET_SIZE as i64))).repeat([1, BUCKETS as i64]);
+    real_features + abstracted_features_repeated
 }
 
 fn config_optimizer(vs: &VarStore, initial_lr: f64) -> Optimizer {
@@ -126,6 +146,18 @@ pub fn main() {
     if env::args().len() <= 2 {
         info!("Usage: trainer [psq|eval] [reader thread count]");
         return;
+    }
+
+    if !syzygy::tb::init(String::from("/mnt/tb")) {
+        eprintln!("could not initialize tablebases");
+        exit(1);
+    } else {
+        let count = syzygy::tb::max_piece_count();
+        if count == 0 {
+            println!("debug no tablebases found");
+        } else {
+            println!("debug found {}-men tablebases", syzygy::tb::max_piece_count());
+        }
     }
 
     let device = Device::cuda_if_available();
@@ -159,6 +191,7 @@ pub fn main() {
     );
 
     info!("Scanning available test sets ...");
+    // let test_set_count = convert_sets(available_parallelism, "test", FEN_TEST_SET_PATH, LZ4_TEST_SET_PATH, false, true);
     let test_set_count = convert_sets(available_parallelism, "test", FEN_TEST_SET_PATH, LZ4_TEST_SET_PATH, false, true);
     println!("Using {} test sets with a total of {} positions", test_set_count, test_set_count * 200_000);
 
@@ -168,7 +201,7 @@ pub fn main() {
     let mut test_set = GpuDataSamples(vec![DataSample::default(); SAMPLES_PER_SET * test_set_count]);
     let mut start = 0;
     for i in 1..=test_set_count {
-        read_samples(&mut test_set, start, format!("{}/{}.lz4", LZ4_TEST_SET_PATH, i).as_str());
+        read_samples(&mut test_set, start, format!("{}/{}.lz4", LZ4_TEST_SET_PATH, i).as_str(), true);
         start += SAMPLES_PER_SET;
     }
     let mut rng = ThreadRng::default();
@@ -183,40 +216,33 @@ pub fn main() {
     let (tx, rx) = mpsc::sync_channel::<(Tensor, Tensor, Tensor, Tensor)>(data_reader_threads * 2);
     spawn_data_reader_threads(data_reader_threads, device, &tx, &id_source, &stop_readers);
 
-    let mut best_error = f64::MAX;
-
-    let mut epoch = 1;
-
     let net = Box::new(EvalNet::new(&vs.root()));
+    let (mut epoch, mut lr, mut patience, mut best_error) = if let Some((epoch, lr, patience, best_error)) = load_training_state() {
+        println!("Continue training from existing training state ...");
+        vs.load(TRAINING_STORE_FILE).expect("Could not load training store");
+        (epoch, lr, patience, best_error)
+    } else {
+        println!("Start new training ...");
+        (1, INIT_LR, INITIAL_PATIENCE, f64::MAX)
+    };
 
     net.print_info();
 
-    let mut epoch_changed = false;
-    let mut epoch_start = Instant::now();
-
-    let samples_per_epoch = training_set_count * SAMPLES_PER_SET;
-    let mut curr_epoch_samples = 0;
-
     let mut calc_validation_error = true;
+    let mut curr_epoch_samples = 0;
 
     let start_time = Instant::now();
 
     let train_start = Instant::now();
 
-
-    let mut lr = INIT_LR;
     let mut opt = config_optimizer(&vs, lr);
 
     let mut accum = 0.;
 
-    let mut epoch_validation_threshold = VALIDATION_STEP_SIZE;
+    let mut epoch_validation_threshold = NORM_EPOCH_SIZE;
 
     let mut missed_improvements = 0;
-    let mut best_net_epoch_id = 0;
     let mut total_samples = 0;
-    let mut norm_epoch = 1;
-
-    let mut patience = INITIAL_PATIENCE;
 
     loop {
         if calc_validation_error {
@@ -229,10 +255,9 @@ pub fn main() {
                     let (test_wpov_xs, test_bpov_xs, test_stms, mut test_ys) = to_sparse_tensors(batch, device);
 
                     test_ys = test_ys.multiply_scalar_(K_DIV).sigmoid();
-                    err += f64::try_from(
-                        &net.forward_t(&test_wpov_xs, &test_bpov_xs, &test_stms, false)
-                            .mse_loss(&test_ys, Reduction::Mean),
-                    ).unwrap();
+                    let result = &net.forward_t(&test_wpov_xs, &test_bpov_xs, &test_stms, false);
+                    let mean = (result - test_ys).abs().float_power_tensor_scalar(ERR_EXP).mean(Kind::Float);
+                    err += f64::try_from(mean).unwrap();
                     count += 1;
                 }
 
@@ -241,25 +266,21 @@ pub fn main() {
 
             calc_validation_error = false;
 
-            if validation_error <= best_error || norm_epoch <= 2 {
-                best_net_epoch_id = epoch;
+            if validation_error <= best_error || epoch <= 2 {
                 if best_error != f64::MAX {
                     accum += best_error - validation_error;
                 }
                 best_error = validation_error;
                 net.save_raw(&format!("{}", epoch), &vs);
-                vs.save(&format!("data/nets/{}.vs", epoch)).expect("could not save net variables");
+                vs.save(TRAINING_STORE_FILE).expect("could not save net variables");
+                save_training_state(epoch, lr, patience, best_error);
                 missed_improvements = 0;
             } else {
                 missed_improvements += 1;
             }
 
             if missed_improvements >= patience {
-                if patience > 1 {
-                    patience /= 2;
-                } else if patience > 2 {
-                    patience -= 1;
-                }
+                patience = (patience / 2).max(2);
                 missed_improvements = 0;
                 lr *= 0.4;
                 opt.set_lr(lr);
@@ -268,12 +289,10 @@ pub fn main() {
                     break;
                 }
 
-                if best_net_epoch_id != 0 {
-                    match vs.load(&format!("data/nets/{}.vs", best_net_epoch_id)) {
-                        Ok(_) => {}
-                        Err(e) => {
-                            info!("Could not load previous best net: {}", e);
-                        }
+                match vs.load(TRAINING_STORE_FILE) {
+                    Ok(_) => {}
+                    Err(e) => {
+                        info!("Could not load previous best net: {}", e);
                     }
                 }
             }
@@ -293,11 +312,15 @@ pub fn main() {
             let sample_count = label_batch.numel();
             train_count += sample_count;
 
-            curr_epoch_samples += sample_count;
             total_samples += sample_count;
+            curr_epoch_samples += sample_count;
 
-            let loss = net.forward_t(&wpov_data_batch, &bpov_data_batch, &stm_data_batch, true)
-                .mse_loss(&(label_batch.multiply_scalar(K_DIV).sigmoid()), Reduction::Mean);
+            // let loss = net.forward_t(&wpov_data_batch, &bpov_data_batch, &stm_data_batch, true)
+            //     .mse_loss(&(label_batch.multiply_scalar(K_DIV).sigmoid()), Reduction::Mean);
+
+            let result = net.forward_t(&wpov_data_batch, &bpov_data_batch, &stm_data_batch, true);
+            let loss = (result - &(label_batch.multiply_scalar(K_DIV).sigmoid())).abs().float_power_tensor_scalar(ERR_EXP).mean(Kind::Float);
+
 
             opt.backward_step(&loss);
 
@@ -306,14 +329,11 @@ pub fn main() {
             batch_count += 1;
         }
 
-        if curr_epoch_samples >= samples_per_epoch {
-            epoch_changed = true;
-        }
-
         if total_samples >= epoch_validation_threshold {
-            epoch_validation_threshold = total_samples + VALIDATION_STEP_SIZE;
+            epoch_validation_threshold = total_samples + NORM_EPOCH_SIZE;
+            curr_epoch_samples = 0;
             calc_validation_error = true;
-            norm_epoch += 1;
+            epoch += 1;
         }
 
         train_loss /= batch_count as f64;
@@ -322,28 +342,10 @@ pub fn main() {
             (train_count as f64 * 1000.0) / Instant::now().duration_since(iter_start).as_millis() as f64;
 
         info!(
-            "Norm. Epoch: {:02} / Set Epoch: {:02} [ {:2}% ] / LR: {:1.8}, BS: {} - Best err: {:1.10} / Train err: {:1.10} / Acc.: {:1.10} / {:.0} samples/sec / Elapsed: {:3.1}m",
-            norm_epoch, epoch, (curr_epoch_samples * 100 / samples_per_epoch).min(100), lr, BATCH_SIZE, best_error, train_loss, accum, samples_per_sec,
+            "Norm. Epoch: {:02} [ {:2}% ] / LR: {:1.8}, BS: {} - Best err: {:1.10} / Train err: {:1.10} / Acc.: {:1.10} / {:.0} samples/sec / Elapsed: {:3.1}m",
+            epoch, (curr_epoch_samples * 100 / NORM_EPOCH_SIZE).min(100), lr, BATCH_SIZE, best_error, train_loss, accum, samples_per_sec,
             train_start.elapsed().as_secs_f64() / 60.0
         );
-
-        if epoch_changed {
-            let epoch_duration = Instant::now().duration_since(epoch_start);
-            let samples_per_sec = (curr_epoch_samples as f64 * 1000.0) / epoch_duration.as_millis() as f64;
-            info!(
-                "- Epoch finished: {:.2} samples/s (epoch duration: {} seconds)",
-                samples_per_sec,
-                epoch_duration.as_secs()
-            );
-
-            epoch += 1;
-
-            epoch_changed = false;
-            curr_epoch_samples = 0;
-            epoch_start = Instant::now();
-
-            accum = 0.;
-        }
     }
 
     info!("- Stopping reader threads ...");
@@ -354,6 +356,35 @@ pub fn main() {
     }
 
     info!("- Training finished in {:.1} minutes", Instant::now().duration_since(start_time).as_secs() as f64 / 60.0);
+}
+
+fn save_training_state(epoch: usize, lr: f64, patience: usize, best_error: f64) {
+    let file = File::create(TRAINING_STATE_FILE).expect("Could not create output file");
+    let mut writer = BufWriter::new(file);
+
+    write_u16(&mut writer, epoch as u16).expect("Could not write epoch");
+    write_f32(&mut writer, lr as f32).expect("Could not write learning rate");
+    write_u16(&mut writer, patience as u16).expect("Could not write learning rate");
+    write_f32(&mut writer, best_error as f32).expect("Could not write learning rate");
+}
+
+fn load_training_state() -> Option<(usize, f64, usize, f64)> {
+    match File::open(TRAINING_STATE_FILE) {
+        Ok(file) => {
+            let mut reader = BufReader::new(file);
+
+            let epoch = read_u16(&mut reader).expect("Could not read epoch");
+            let lr = read_f32(&mut reader).expect("Could not read learning rate");
+            let patience = read_u16(&mut reader).expect("Could not read patience");
+            let best_error = read_f32(&mut reader).expect("Could not read best error");
+
+            Some((epoch as usize, lr as f64, patience as usize, best_error as f64))
+        }
+
+        Err(_) => {
+            None
+        }
+    }
 }
 
 fn to_sparse_tensors(samples: &[DataSample], device: Device) -> (Tensor, Tensor, Tensor, Tensor) {
@@ -374,7 +405,6 @@ fn to_sparse_tensors(samples: &[DataSample], device: Device) -> (Tensor, Tensor,
         bpov_indices.extend_from_slice(&sample.bpov_inputs);
     }
 
-
     let wpov_value_count = wpov_indices.len() as i64 / 2;
     let bpov_value_count = bpov_indices.len() as i64 / 2;
 
@@ -387,7 +417,7 @@ fn to_sparse_tensors(samples: &[DataSample], device: Device) -> (Tensor, Tensor,
     let wpov_xs = Tensor::sparse_coo_tensor_indices_size(
         &wpov_indices,
         &wpov_values,
-        &[samples.len() as i64, INPUTS as i64],
+        &[samples.len() as i64, INPUT_FEATURES],
         (Kind::Float, device),
         true
     );
@@ -395,7 +425,7 @@ fn to_sparse_tensors(samples: &[DataSample], device: Device) -> (Tensor, Tensor,
     let bpov_xs = Tensor::sparse_coo_tensor_indices_size(
         &bpov_indices,
         &bpov_values,
-        &[samples.len() as i64, INPUTS as i64],
+        &[samples.len() as i64, INPUT_FEATURES],
         (Kind::Float, device),
         true
     );
@@ -406,14 +436,14 @@ fn to_sparse_tensors(samples: &[DataSample], device: Device) -> (Tensor, Tensor,
      Tensor::from_slice(&ys).to(device).view((samples.len() as i64, 1)))
 }
 
-fn write_raw(writer: &mut BufWriter<File>, weights: &Tensor, scale: f32) -> Result<(), Error> {
+fn write_raw(writer: &mut BufWriter<File>, weights: &Tensor) -> Result<(), Error> {
     for size in weights.size() {
         write_u16(writer, size as u16)?;
     }
 
     let ws: Vec<f32> = weights.flatten(0, -1).try_into().unwrap();
     for &weight in ws.iter() {
-        write_f32(writer, weight * scale)?;
+        write_f32(writer, weight)?;
     }
 
     Ok(())
@@ -457,7 +487,7 @@ fn spawn_data_reader_threads(
 
                     let mut start = 0;
                     for &id in sets.iter() {
-                        read_samples( &mut training_samples, start, format!("{}/{}.lz4", LZ4_TRAINING_SET_PATH, id).as_str());
+                        read_samples( &mut training_samples, start, format!("{}/{}.lz4", LZ4_TRAINING_SET_PATH, id).as_str(), true);
                         start += SAMPLES_PER_SET;
                     }
 

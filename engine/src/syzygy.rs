@@ -62,7 +62,6 @@ pub mod tb {
 #[cfg(feature = "fathomrs")]
 pub mod tb {
     use fathomrs::tb::{extract_move, Promotion};
-    use itertools::Itertools;
     use crate::bitboard::{v_mirror_i8};
     use crate::board::Board;
     use crate::colors::{BLACK, WHITE};
@@ -141,7 +140,7 @@ pub mod tb {
                     };
 
                     UCIMove::new(v_mirror_i8(from), v_mirror_i8(to), promotion_piece).to_move(self)
-                }).collect_vec()))
+                }).collect()))
         }
     }
 }

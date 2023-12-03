@@ -18,14 +18,12 @@
 
 use crate::sets::DataSample;
 use itertools::Itertools;
-use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Error, ErrorKind, Write};
 use std::mem::MaybeUninit;
 use traincommon::sets::K;
-use velvet::nn::io::{BitWriter, CodeBook, read_f32, read_quantized, read_u16, read_u8, write_i16, write_u32, write_u8};
-use velvet::nn::{HL1_HALF_NODES, HL1_NODES, INPUT_WEIGHT_COUNT, SCORE_SCALE, piece_idx, king_bucket, PIECE_BUCKETS, KING_BUCKETS, MAX_RELU, FP_IN_PRECISION_BITS, FP_OUT_PRECISION_BITS, FP_IN_MULTIPLIER, FP_OUT_MULTIPLIER};
-use velvet::pieces::P;
+use velvet::nn::io::{BitWriter, read_f32, read_quantized, read_u16, read_u8, write_u32, write_u8};
+use velvet::nn::{HL1_HALF_NODES, HL1_NODES, INPUT_WEIGHT_COUNT, SCORE_SCALE, piece_idx, king_bucket, MAX_RELU, FP_IN_PRECISION_BITS, FP_OUT_PRECISION_BITS, FP_IN_MULTIPLIER, FP_OUT_MULTIPLIER, BUCKETS};
 
 const K_DIV: f64 = K / (400.0 / SCORE_SCALE as f64);
 
@@ -37,7 +35,6 @@ pub struct A32<T>(pub T); // Wrapper to ensure 32 Byte alignment of the wrapped 
 pub struct NetworkStats {
     i_max: f32,
     h_max: f32,
-    // o_max: f32,
 }
 
 impl NetworkStats {
@@ -45,7 +42,6 @@ impl NetworkStats {
         NetworkStats {
             i_max: self.i_max.max(other.i_max),
             h_max: self.h_max.max(other.h_max),
-            // o_max: self.o_max.max(other.o_max),
         }
     }
 }
@@ -59,13 +55,6 @@ pub struct Network {
 struct NetWeights {
     in_to_h1_weights: A32<[f32; INPUT_WEIGHT_COUNT]>,
     h1_biases: A32<[f32; HL1_NODES]>,
-
-    // h1_to_ml_own_weights: A32<[f32; HL1_ML_CHUNKS * ML_NODES]>,
-    // h1_to_ml_opp_weights: A32<[f32; HL1_ML_CHUNKS * ML_NODES]>,
-    // ml_biases: A32<[f32; ML_NODES]>,
-
-    // ml_to_h2_weights: A32<[f32; ML_NODES * HL2_NODES]>,
-    // h2_biases: A32<[f32; HL2_NODES]>,
 
     h1_to_out_weights: A32<[f32; HL1_NODES]>,
     out_bias: f32,
@@ -82,7 +71,7 @@ impl Network {
     ) -> f64 {
         // Error calculation
         let out = self.forward(sample, white_hidden_values, black_hidden_values);
-        ((sigmoid(sample.result, K_DIV) - sigmoid(out, K_DIV)) as f64).powi(2)
+        ((sigmoid(sample.result, K_DIV) - sigmoid(out, K_DIV)) as f64).abs().powf(2.6)
     }
 
     pub fn stats(
@@ -140,7 +129,6 @@ impl Network {
             acc += w * requ_n;
             stats.h_max = stats.h_max.max(acc);
         }
-        // stats.o_max = stats.o_max.max(out);
 
         stats
     }
@@ -253,18 +241,6 @@ impl Network {
         let mut h1_biases = Vec::with_capacity(HL1_NODES);
         fill_to_capacity(&mut h1_biases);
 
-        // let mut h1_to_ml_own_weights= Vec::with_capacity(HL1_ML_CHUNKS * ML_NODES);
-        // fill_to_capacity(&mut h1_to_ml_own_weights);
-        // let mut h1_to_ml_opp_weights= Vec::with_capacity(HL1_ML_CHUNKS * ML_NODES);
-        // fill_to_capacity(&mut h1_to_ml_opp_weights);
-        // let mut ml_biases= Vec::with_capacity(ML_NODES);
-        // fill_to_capacity(&mut ml_biases);
-
-        // let mut ml_to_h2_weights= Vec::with_capacity(ML_NODES * HL2_NODES);
-        // fill_to_capacity(&mut ml_to_h2_weights);
-        // let mut h2_biases = Vec::with_capacity(HL2_NODES);
-        // fill_to_capacity(&mut h2_biases);
-
         let mut h1_to_out_weights= Vec::with_capacity(HL1_NODES);
         fill_to_capacity(&mut h1_to_out_weights);
         let mut out_biases = Vec::with_capacity(1);
@@ -284,56 +260,22 @@ impl Network {
     }
 
     pub fn zero_unused_weights(&mut self) {
-        const PIECE_SKIP_MASK: [[bool; 6]; PIECE_BUCKETS] = [
-            // 0 -> all pieces presents
-            [false, false, false, false, false, false],
-            // 1 -> no queens
-            [false, false, false, false, true, false],
-            // 2 -> no queens, no rooks
-            [false, false, false, true, true, false],
-        ];
-
         const BUCKET_SIZE: usize = 6 * 64 * 2;
+        const BASE_OFFSET: usize = 0;
 
-        for pb in 0..PIECE_BUCKETS {
-            for kb in 0..KING_BUCKETS {
-                let bucket: usize = pb * KING_BUCKETS + kb;
-                let offset = BUCKET_SIZE * bucket;
+        for bucket in 0..BUCKETS {
+            let offset = BASE_OFFSET + BUCKET_SIZE * bucket;
 
-                for piece in 1..=5 {
-                    if piece != 1  && !PIECE_SKIP_MASK[pb][piece_idx(piece) as usize] {
-                        continue;
-                    }
-                    for pos in 0..64 {
-                        if piece == P && (pos >= 8 || pos <= 55) {
-                            continue;
-                        }
-                        let base_index = piece_idx(piece) as usize * 64 * 2;
-
-                        let idx = (offset + base_index + pos) * HL1_HALF_NODES;
-                        for i in idx..(idx + HL1_HALF_NODES) {
-                            self.w.in_to_h1_weights.0[i] = 0.0;
-                        }
-                        const OPP_OFFSET: usize = 64;
-                        let idx = (offset + base_index + pos + OPP_OFFSET) * HL1_HALF_NODES;
-                        for i in idx..(idx + HL1_HALF_NODES) {
-                            self.w.in_to_h1_weights.0[i] = 0.0;
-                        }
-                    }
+            for pos in 0..64 {
+                if king_bucket(pos) == bucket as u16 {
+                    continue;
                 }
+                let base_index = piece_idx(6) as usize * 64 * 2;
 
-                for pos in 0..64 {
-                    if king_bucket(pos) == kb as u16 {
-                        continue;
-                    }
-                    let base_index = piece_idx(6) as usize * 64 * 2;
-
-                    let idx = (offset + base_index + pos as usize) * HL1_HALF_NODES;
-                    for i in idx..(idx + HL1_HALF_NODES) {
-                        self.w.in_to_h1_weights.0[i] = 0.0;
-                    }
+                let idx = (offset + base_index + pos as usize) * HL1_HALF_NODES;
+                for i in idx..(idx + HL1_HALF_NODES) {
+                    self.w.in_to_h1_weights.0[i] = 0.0;
                 }
-
             }
         }
     }
@@ -433,44 +375,75 @@ fn read_layer(reader: &mut BufReader<File>) -> Result<Layer, Error> {
 fn write_quantized(writer: &mut dyn Write, multiplier: i16, values: &[f32]) -> Result<(), Error> {
     write_u32(writer, values.len() as u32)?;
 
-    let ivalues = values.iter().map(|v| (v * multiplier as f32) as i32).collect_vec();
-    let mut values = Vec::with_capacity(ivalues.len());
+    let quant_values = values.iter().map(|v| ((*v as f64) * multiplier as f64) as i32).collect_vec();
+    let mut values = Vec::with_capacity(quant_values.len());
 
-    let mut unused_values = HashSet::<i16>::from_iter(i16::MIN..=i16::MAX);
-    for &v in ivalues.iter() {
+    let mut counts = [0usize; 256];
+    for &v in quant_values.iter() {
         assert!(v >= i16::MIN as i32, "quantized value below i16 min bound");
         assert!(v <= i16::MAX as i32, "quantized value above i16 max bound");
 
         values.push(v as i16);
-        unused_values.remove(&(v as i16));
+
+        let idx = (v as u16 >> 8) as usize;
+        counts[idx] += 1;
     }
 
-    let rep_zero_marker = unused_values.iter().copied().next().expect("No free value as marker available!");
-    write_i16(writer, rep_zero_marker)?;
+    let mut entries = counts.iter().copied().enumerate().filter(|(_, count)| *count > 0).collect_vec();
 
-    let mut outputs = Vec::with_capacity(values.len());
+    entries.sort_by_key(|e| e.1);
+    entries.reverse();
+
+    let mut code_book = [0; 256];
+    let mut max_code: u8 = 0;
+
+    write_u8(writer, entries.len() as u8)?;
+    for (next_code_idx, &(idx, _)) in (0_u8..).zip(entries.iter()) {
+        max_code = next_code_idx;
+        write_u8(writer, idx as u8)?;
+        write_u8(writer, next_code_idx)?;
+        code_book[idx] = next_code_idx;
+    }
+
+    max_code = (max_code as i8 - (1 + 3)).max(3) as u8;
+    let max_bits = 8 - (max_code | 1).leading_zeros();
+    println!("Max code: {}, max bits: {}", max_code, max_bits);
+
     let mut index = 0;
 
+    let mut bit_writer = BitWriter::default();
     while index < values.len() {
-        let value = values[index] as i16;
+        let value = values[index];
         if let Some(repetitions) = find_zero_repetitions(value, &values[index..]) {
             index += repetitions as usize;
-            outputs.push(rep_zero_marker);
-            outputs.push((repetitions as i32 - 32768) as i16);
+
+            bit_writer.write(writer, 1, 1)?;
+            bit_writer.write(writer, 1, 1)?;
+            bit_writer.write(writer, 1, 1)?;
+            bit_writer.write(writer, 6, repetitions - 1)?;
+
             continue;
         }
 
-        outputs.push(value);
+        let hi_code = code_book[(value as u16 >> 8) as usize];
+        if hi_code <= 1 {
+            bit_writer.write(writer, 1, 0)?;
+            bit_writer.write(writer, 1, hi_code as u32)?;
+        } else if (hi_code - 1) <= 3 {
+            bit_writer.write(writer, 1, 1)?;
+            bit_writer.write(writer, 1, 0)?;
+            bit_writer.write(writer, 2, hi_code as u32 - 1)?;
+        } else {
+            bit_writer.write(writer, 1, 1)?;
+            bit_writer.write(writer, 1, 1)?;
+            bit_writer.write(writer, 1, 0)?;
+            bit_writer.write(writer, max_bits as usize, hi_code as u32 - (1 + 3))?;
+        }
+
+        let lo_value = value as u16 & 0xFF;
+        bit_writer.write(writer, 8, lo_value as u32)?;
+
         index += 1;
-    }
-
-    let codes = CodeBook::from_values(&mut outputs);
-    codes.write(writer)?;
-
-    let mut bit_writer = BitWriter::new();
-    for v in outputs.iter() {
-        let code = codes.get_code(*v);
-        bit_writer.write(writer, code)?;
     }
 
     bit_writer.flush(writer)?;
@@ -478,18 +451,13 @@ fn write_quantized(writer: &mut dyn Write, multiplier: i16, values: &[f32]) -> R
     Ok(())
 }
 
-fn find_zero_repetitions(curr_value: i16, values: &[i16]) -> Option<u16> {
+fn find_zero_repetitions(curr_value: i16, values: &[i16]) -> Option<u32> {
     if curr_value != 0 {
         return None;
     }
 
-    let reps = values.iter().take(65535).take_while(|&v| *v == 0).count() as u16;
-
-    if reps > 2 {
-        Some(reps)
-    } else {
-        None
-    }
+    let reps = values.iter().take(64).take_while(|&v| *v == 0).count() as u32;
+    Some(reps)
 }
 
 #[inline(always)]

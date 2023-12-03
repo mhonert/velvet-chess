@@ -84,12 +84,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3b13c32d80ecc7ab747b80c3784bce54ee8a7a0cc4fbda9bf4cda2cf6fe90854"
 
 [[package]]
-name = "arrayvec"
-version = "0.7.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "96d30a06541fbafbc7f82ed10c06164cfbd2c401138f6addd8404629c4b16711"
-
-[[package]]
 name = "autocfg"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -143,15 +137,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3078c7629b62d3f0439517fa394996acacc5cbc91c5a20d8c658e77abd503a71"
 dependencies = [
  "generic-array",
-]
-
-[[package]]
-name = "btoi"
-version = "0.4.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9dd6407f73a9b8b6162d8a2ef999fe6afd7cc15902ebf42c5cd296addf17e0ad"
-dependencies = [
- "num-traits",
 ]
 
 [[package]]
@@ -214,12 +199,6 @@ dependencies = [
  "crypto-common",
  "inout",
 ]
-
-[[package]]
-name = "circular"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b0fc239e0f6cb375d2402d48afb92f76f5404fd1df208a41930ec81eda078bea"
 
 [[package]]
 name = "clang-sys"
@@ -300,6 +279,7 @@ version = "3.0.0"
 dependencies = [
  "crossbeam-channel",
  "env_logger",
+ "fathomrs",
  "itertools",
  "log",
  "rand",
@@ -482,9 +462,7 @@ dependencies = [
  "fathomrs",
  "glob",
  "itertools",
- "pgn-reader",
  "rand",
- "shakmaty",
  "uuid",
  "velvet",
 ]
@@ -511,6 +489,7 @@ name = "gputrainer"
 version = "3.0.0"
 dependencies = [
  "env_logger",
+ "fathomrs",
  "itertools",
  "log",
  "rand",
@@ -798,18 +777,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "19b17cddbe7ec3f8bc800887bab5e717348c95ea2ca0b1bf0837fb964dc67099"
 
 [[package]]
-name = "pgn-reader"
-version = "0.24.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "15653dd80064f41e672f94292cc4f31bbf93b74d5ea041340af279ff1e422720"
-dependencies = [
- "btoi",
- "circular",
- "memchr",
- "shakmaty",
-]
-
-[[package]]
 name = "pkg-config"
 version = "0.3.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1031,17 +998,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "shakmaty"
-version = "0.25.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3423f7235d679251bb3a4014ab286d3a724efa130a3ac00d4e85916231f5ed30"
-dependencies = [
- "arrayvec",
- "bitflags 2.3.3",
- "btoi",
-]
-
-[[package]]
 name = "shlex"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1154,6 +1110,7 @@ dependencies = [
 name = "traincommon"
 version = "2.0.0"
 dependencies = [
+ "fathomrs",
  "itertools",
  "lz4_flex",
  "rand",
@@ -1200,10 +1157,9 @@ dependencies = [
 
 [[package]]
 name = "velvet"
-version = "5.3.0"
+version = "5.4.0-dev1"
 dependencies = [
  "fathomrs",
- "itertools",
 ]
 
 [[package]]

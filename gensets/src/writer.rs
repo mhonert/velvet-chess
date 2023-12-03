@@ -26,6 +26,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use glob::glob;
 use velvet::nn::io::{write_i16, write_u16, write_u32, write_u8};
 
+const VERSION: u8 = 1;
 
 pub struct NextIDSource(AtomicUsize);
 
@@ -35,11 +36,11 @@ impl NextIDSource {
         fs::create_dir_all(output_dir).expect("could not create output folder");
 
         let mut max_num = 0;
-        for entry in glob(&format!("{}/*.fen", &output_dir)).expect("could not glob fen files from output dir") {
+        for entry in glob(&format!("{}/*.bin", &output_dir)).expect("could not glob fen files from output dir") {
             match entry {
                 Ok(path) => {
                     let file_name = path.file_name().unwrap().to_string_lossy().to_string();
-                    let num_str = file_name.strip_prefix("test_pos_").unwrap().strip_suffix(".fen").unwrap();
+                    let num_str = file_name.strip_prefix("test_pos_").unwrap().strip_suffix(".bin").unwrap();
                     let num = usize::from_str(num_str).expect("could not extract set count from file name");
                     max_num = max_num.max(num);
                 }
@@ -94,10 +95,13 @@ impl OutputWriter {
 }
 
 fn next_file(path: &str, set_nr: usize) -> BufWriter<File> {
-    let file_name = format!("{}/test_pos_{}.fen", path, set_nr);
+    let file_name = format!("{}/test_pos_{}.bin", path, set_nr);
     if Path::new(&file_name).exists() {
         panic!("Output file already exists: {}", file_name);
     }
     let file = File::create(&file_name).expect("Could not create output file");
-    BufWriter::new(file)
+    let mut w = BufWriter::new(file);
+    write_u8(&mut w, VERSION).expect("could not write version");
+
+    w
 }
