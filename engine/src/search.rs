@@ -764,7 +764,7 @@ impl Search {
             return clamp_score(self.quiescence_search(active_player, alpha, beta, ply, pos_score), worst_possible_score, best_possible_score);
         }
 
-        self.infos[ply].set_eval(self.board.eval());
+        self.infos[ply].set_eval(if in_check { MIN_SCORE } else { self.board.eval() });
         let improving = self.is_improving(ply);
 
         if !is_pv && !in_check {
@@ -1300,13 +1300,15 @@ impl Search {
     }
 
     fn is_improving(&self, ply: usize) -> bool {
-        if ply <= 1 || self.infos[ply].in_check {
-            return false;
+        if self.infos[ply].in_check {
+            false
+        } else if ply >= 2 && !self.infos[ply - 2].in_check {
+            self.infos[ply - 2].eval() < self.infos[ply].eval()
+        } else if ply >= 4 && !self.infos[ply - 4].in_check {
+            self.infos[ply - 4].eval() < self.infos[ply].eval()
+        } else {
+            true
         }
-        let prev_eval = self.infos[ply - 2].eval();
-        let curr_eval = self.infos[ply].eval();
-
-        curr_eval > prev_eval
     }
 
     fn tb_move(&self, score: i16) -> TTPackedMove {
