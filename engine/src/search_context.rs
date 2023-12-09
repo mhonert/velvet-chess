@@ -19,21 +19,27 @@
 use crate::board::Board;
 use crate::colors::Color;
 use crate::history_heuristics::HistoryHeuristics;
-use crate::move_gen::MoveGenerator;
+use crate::move_gen::{MoveList};
 use crate::moves::Move;
+use crate::transposition_table::MAX_DEPTH;
 
 pub struct SearchContext {
     ply: usize,
     idx: usize,
-    movegen: MoveGenerator,
+    movelists: Vec<MoveList>,
 }
 
 impl Default for SearchContext {
     fn default() -> Self {
+        let mut movelists = Vec::with_capacity(MAX_DEPTH + 2);
+        for _ in 0..MAX_DEPTH + 2 {
+            movelists.push(MoveList::new());
+        }
+
         SearchContext{
             ply: 0,
             idx: 3, // start with 3 to remove the need for bounds checks when accessing the ply infos
-            movegen: MoveGenerator::new(),
+            movelists,
         }
     }
 }
@@ -43,45 +49,47 @@ impl SearchContext {
     pub fn enter_ply(&mut self) {
         self.ply += 1;
         self.idx += 1;
-        self.movegen.enter_ply();
     }
 
     pub fn leave_ply(&mut self) {
-        self.ply += 1;
-        self.idx += 1;
-        self.movegen.leave_ply();
+        self.ply -= 1;
+        self.idx -= 1;
+    }
+
+    fn movelist_mut(&mut self) -> &mut MoveList {
+        unsafe { self.movelists.get_unchecked_mut(self.ply) }
     }
 
     pub fn next_move(&mut self, ply: usize, hh: &HistoryHeuristics, board: &mut Board) -> Option<Move> {
-        self.movegen.next_move(ply, hh, board)
+        self.movelist_mut().next_move(ply, hh, board)
     }
 
     pub fn generate_qs_captures(&mut self, board: &mut Board) {
-        self.movegen.generate_qs_captures(board);
+        self.movelist_mut().generate_qs_captures(board);
     }
 
     pub fn next_good_capture_move(&mut self, board: &mut Board, threshold: i16) -> Option<Move> {
-        self.movegen.next_good_capture_move(board, threshold)
+        self.movelist_mut().next_good_capture_move(board, threshold)
     }
 
     pub fn reset_root_moves(&mut self) {
-        self.movegen.reset_root_moves();
+        self.movelist_mut().reset_root_moves();
     }
 
     pub fn next_root_move(&mut self, hh: &HistoryHeuristics, board: &mut Board) -> Option<Move> {
-        self.movegen.next_root_move(hh, board)
+        self.movelist_mut().next_root_move(hh, board)
     }
 
     pub fn update_root_move(&mut self, m: Move) {
-        self.movegen.update_root_move(m);
+        self.movelist_mut().update_root_move(m);
     }
 
     pub fn reorder_root_moves(&mut self, best_move: Move, sort_other_moves: bool) {
-        self.movegen.reorder_root_moves(best_move, sort_other_moves);
+        self.movelist_mut().reorder_root_moves(best_move, sort_other_moves);
     }
 
     pub fn prepare_moves(&mut self, active_player: Color, hash_move: Move, prev_own_move: Move, opp_move: Move) {
-        self.movegen.init(active_player, hash_move, prev_own_move, opp_move);
+        self.movelist_mut().init(active_player, hash_move, prev_own_move, opp_move);
     }
 }
 

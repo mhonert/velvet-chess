@@ -22,7 +22,6 @@ use crate::colors::{Color, BLACK, WHITE};
 use crate::history_heuristics::{HistoryHeuristics, MIN_HISTORY_SCORE};
 use crate::moves::{Move, MoveType, NO_MOVE, UnpackedMove};
 use crate::pieces::{B, N, P, Q, R};
-use crate::transposition_table::MAX_DEPTH;
 use std::cmp::Reverse;
 use std::collections::HashSet;
 use std::hash::BuildHasherDefault;
@@ -36,67 +35,6 @@ const COUNTER_MOVE_SCORE: i16 = -2275;
 
 pub const QUIET_BASE_SCORE: i16 = -3600;
 pub const NEGATIVE_HISTORY_SCORE: i16 = QUIET_BASE_SCORE + MIN_HISTORY_SCORE;
-
-#[derive(Clone)]
-pub struct MoveGenerator {
-    entries: Vec<MoveList>,
-    ply: usize,
-}
-
-impl MoveGenerator {
-    pub fn new() -> Self {
-        let mut entries = Vec::with_capacity(MAX_DEPTH + 2);
-        for _ in 0..MAX_DEPTH + 2 {
-            entries.push(MoveList::new());
-        }
-
-        MoveGenerator { entries, ply: 0 }
-    }
-
-    pub fn enter_ply(&mut self) {
-        self.ply += 1;
-    }
-
-    pub fn init(
-        &mut self, active_player: Color, scored_hash_move: Move, prev_own_move: Move, opp_move: Move,
-    ) {
-        unsafe { self.entries.get_unchecked_mut(self.ply) }.init(active_player, scored_hash_move, prev_own_move, opp_move);
-    }
-
-    pub fn generate_qs_captures(&mut self, board: &mut Board) {
-        unsafe { self.entries.get_unchecked_mut(self.ply) }.generate_qs_captures(board);
-    }
-
-    pub fn leave_ply(&mut self) {
-        self.ply -= 1;
-    }
-
-    pub fn next_root_move(&mut self, hh: &HistoryHeuristics, board: &mut Board) -> Option<Move> {
-        self.entries[self.ply].next_root_move(hh, board)
-    }
-
-    pub fn reset_root_moves(&mut self) {
-        self.entries[self.ply].reset_root_moves();
-    }
-
-    pub fn reorder_root_moves(&mut self, best_move: Move, sort_other_moves: bool) {
-        self.entries[self.ply].reorder_root_moves(best_move, sort_other_moves);
-    }
-
-    #[inline(always)]
-    pub fn next_move(&mut self, ply: usize, hh: &HistoryHeuristics, board: &mut Board) -> Option<Move> {
-        unsafe { self.entries.get_unchecked_mut(self.ply) }.next_move(ply, hh, board)
-    }
-
-    #[inline(always)]
-    pub fn next_good_capture_move(&mut self, board: &mut Board, see_threshold: i16) -> Option<Move> {
-        unsafe { self.entries.get_unchecked_mut(self.ply) }.next_good_capture_move(board, see_threshold)
-    }
-
-    pub fn update_root_move(&mut self, m: Move) {
-        self.entries[self.ply].update_root_move(m);
-    }
-}
 
 #[derive(Clone)]
 enum Stage {
