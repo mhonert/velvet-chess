@@ -33,6 +33,7 @@ pub mod pieces;
 pub mod random;
 pub mod scores;
 pub mod search;
+pub mod search_context;
 pub mod syzygy;
 pub mod time_management;
 pub mod transposition_table;

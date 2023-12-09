@@ -19,7 +19,6 @@
 use crate::board::Board;
 use crate::fen::{create_from_fen, read_fen, write_fen, START_POS};
 use crate::history_heuristics::HistoryHeuristics;
-use crate::move_gen::MoveGenerator;
 use crate::moves::{Move, NO_MOVE, UnpackedMove};
 use crate::nn::init_nn_params;
 use crate::perft::perft;
@@ -33,6 +32,7 @@ use std::sync::{mpsc, Arc};
 use std::thread;
 use std::time::{Instant};
 use crate::{params, syzygy};
+use crate::search_context::SearchContext;
 
 pub enum Message {
     ClearHash,
@@ -317,9 +317,9 @@ impl Engine {
     fn perft(&mut self, depth: i32) {
         let start = Instant::now();
 
-        let mut movegen = MoveGenerator::new();
+        let mut ctx = SearchContext::default();
         let hh = HistoryHeuristics::new();
-        let nodes = perft(&mut movegen, &hh, &mut self.board, depth);
+        let nodes = perft(&mut ctx, &hh, &mut self.board, depth);
 
         let duration = start.elapsed();
 

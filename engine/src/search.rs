@@ -22,7 +22,7 @@ use crate::board::{Board, StateEntry};
 use crate::colors::{Color, WHITE};
 use crate::engine::{LogLevel, Message};
 use crate::history_heuristics::{HistoryHeuristics};
-use crate::move_gen::{is_killer, MoveGenerator, NEGATIVE_HISTORY_SCORE, QUIET_BASE_SCORE, is_valid_move, MoveSet};
+use crate::move_gen::{is_killer, NEGATIVE_HISTORY_SCORE, QUIET_BASE_SCORE, is_valid_move, MoveSet};
 use crate::moves::{Move, MoveType, NO_MOVE, TTPackedMove, UnpackedMove};
 use crate::pieces::{EMPTY, P};
 use crate::pos_history::PositionHistory;
@@ -38,9 +38,11 @@ use std::thread;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 use LogLevel::Info;
-use crate::params;
+use crate::{next_ply, params};
+use crate::search_context::{SearchContext};
 use crate::syzygy::{DEFAULT_TB_PROBE_DEPTH, ProbeTB};
 use crate::syzygy::tb::{TBResult};
+
 
 pub const DEFAULT_SEARCH_THREADS: usize = 1;
 pub const MAX_SEARCH_THREADS: usize = 512;
@@ -144,9 +146,9 @@ impl SearchInfo {
 
 pub struct Search {
     pub board: Board,
-    pub movegen: MoveGenerator,
     pub hh: HistoryHeuristics,
     pub tt: Arc<TranspositionTable>,
+    ctx: SearchContext,
 
     log_level: LogLevel,
     limits: SearchLimits,
@@ -195,10 +197,10 @@ impl Search {
             log_level,
             limits,
             tt,
+            ctx: SearchContext::default(),
             board,
             hh,
             time_mgr,
-            movegen: MoveGenerator::new(),
             cancel_possible: false,
             local_total_node_count: 0,
             local_node_count: 0,
@@ -303,7 +305,7 @@ impl Search {
 
         let active_player = self.board.active_player();
 
-        self.movegen.enter_ply(active_player, NO_MOVE, NO_MOVE, NO_MOVE);
+        self.ctx.prepare_moves(active_player, NO_MOVE, NO_MOVE, NO_MOVE);
 
         self.set_stopped(false);
 
@@ -427,8 +429,6 @@ impl Search {
             }
         }
 
-        self.movegen.leave_ply();
-
         if let Some(r) = rx {
             while (self.limits.is_infinite() || self.pondering) && !self.is_stopped() {
                 self.check_messages(r, true);
@@ -500,8 +500,8 @@ impl Search {
 
         let mut tree_scale = 0;
 
-        self.movegen.reset_root_moves();
-        while let Some(m) = self.movegen.next_root_move(&self.hh, &mut self.board) {
+        self.ctx.reset_root_moves();
+        while let Some(m) = self.ctx.next_root_move(&self.hh, &mut self.board) {
             if skipped_moves.contains(&m.without_score()) {
                 continue;
             }
@@ -535,12 +535,12 @@ impl Search {
                 .set_in_singular_move_search(false)
                 .set_in_check(gives_check);
 
-            let mut result = self.rec_find_best_move(rx, a, -alpha, 1, depth - 1, &mut local_pv, NO_MOVE);
+            let mut result = next_ply!(self.ctx, self.rec_find_best_move(rx, a, -alpha, 1, depth - 1, &mut local_pv, NO_MOVE));
             if result == CANCEL_SEARCH {
                 iteration_cancelled = true;
             } else if -result > alpha && a != -beta {
                 // Repeat search if it falls outside the search window
-                result = self.rec_find_best_move(rx, -beta, -alpha, 1, depth - 1, &mut local_pv, NO_MOVE);
+                result = next_ply!(self.ctx, self.rec_find_best_move(rx, -beta, -alpha, 1, depth - 1, &mut local_pv, NO_MOVE));
                 if result == CANCEL_SEARCH {
                     iteration_cancelled = true;
                 }
@@ -575,10 +575,10 @@ impl Search {
             if move_num == 1 {
                 tree_scale = 13.max(64 - tree_size.leading_zeros()) - 13;
             }
-            self.movegen.update_root_move(m.with_score((MAX_SCORE as i32).min((tree_size >> tree_scale) as i32) as i16));
+            self.ctx.update_root_move(m.with_score((MAX_SCORE as i32).min((tree_size >> tree_scale) as i32) as i16));
         }
 
-        self.movegen.reorder_root_moves(best_move, self.is_helper_thread);
+        self.ctx.reorder_root_moves(best_move, self.is_helper_thread);
 
         (iteration_cancelled, move_num, best_move, current_pv)
     }
@@ -761,7 +761,7 @@ impl Search {
 
         // Quiescence search
         if depth <= 0 || ply >= (MAX_DEPTH - 16) {
-            return clamp_score(self.quiescence_search(active_player, alpha, beta, ply, pos_score), worst_possible_score, best_possible_score);
+            return clamp_score(next_ply!(self.ctx, self.quiescence_search(active_player, alpha, beta, ply, pos_score)), worst_possible_score, best_possible_score);
         }
 
         self.infos[ply].set_eval(if in_check { MIN_SCORE } else { self.board.eval() });
@@ -779,7 +779,7 @@ impl Search {
                     (params::rfp_margin_multiplier_not_improving() << depth) + params::rfp_base_margin_not_improving()
                 };
                 if self.current_depth > 7 && !is_mate_or_mated_score(score) && score - margin >= beta {
-                    return clamp_score(self.quiescence_search(active_player, alpha, beta, ply, pos_score), worst_possible_score, best_possible_score);
+                    return clamp_score(next_ply!(self.ctx, self.quiescence_search(active_player, alpha, beta, ply, pos_score)), worst_possible_score, best_possible_score);
                 }
             } else if !skip_null_move {
                 // Null move pruning
@@ -795,7 +795,7 @@ impl Search {
                         .set_in_check(false)
                         .set_capture_pos(-1);
 
-                    let result = self.rec_find_best_move(rx, -beta, -beta + 1, ply + 1, depth - null_move_reduction(depth), &mut PrincipalVariation::default(), NO_MOVE);
+                    let result = next_ply!(self.ctx, self.rec_find_best_move(rx, -beta, -beta + 1, ply + 1, depth - null_move_reduction(depth), &mut PrincipalVariation::default(), NO_MOVE));
                     self.board.undo_null_move();
                     if result == CANCEL_SEARCH {
                         return CANCEL_SEARCH;
@@ -823,14 +823,14 @@ impl Search {
             allow_futile_move_pruning = !is_mate_or_mated_score(static_score) && static_score + margin <= alpha;
 
             if depth == 1 && static_score + params::razor_margin_multiplier() <= alpha {
-                let score = clamp_score(self.quiescence_search(active_player, alpha, beta, ply, pos_score), worst_possible_score, best_possible_score);
+                let score = clamp_score(next_ply!(self.ctx, self.quiescence_search(active_player, alpha, beta, ply, pos_score)), worst_possible_score, best_possible_score);
                 if score <= alpha {
                     return score;
                 }
             }
         }
 
-        self.movegen.enter_ply(active_player, hash_move, self.infos[ply - 1].opp_move(), self.infos[ply].opp_move());
+        self.ctx.prepare_moves(active_player, hash_move, self.infos[ply - 1].opp_move(), self.infos[ply].opp_move());
 
         let occupied_bb = self.board.occupancy_bb();
 
@@ -841,7 +841,7 @@ impl Search {
         self.hh.clear_killers(ply + 1);
 
         let mut a = -beta;
-        while let Some(packed_curr_move) = self.movegen.next_move(ply, &self.hh, &mut self.board) {
+        while let Some(packed_curr_move) = self.ctx.next_move(ply, &self.hh, &mut self.board) {
             if excluded_singular_move == packed_curr_move {
                 continue;
             }
@@ -862,10 +862,9 @@ impl Search {
             if check_se && !gives_check && packed_curr_move == hash_move {
                 self.board.undo_move(curr_move, previous_piece, removed_piece_id);
                 let se_beta = sanitize_score(hash_score - (5 + depth as i16 / 2));
-                let result = self.rec_find_best_move(rx, se_beta - 1, se_beta, ply, depth / 2, &mut PrincipalVariation::default(), packed_curr_move);
+                let result = next_ply!(self.ctx, self.rec_find_best_move(rx, se_beta - 1, se_beta, ply, depth / 2, &mut PrincipalVariation::default(), packed_curr_move));
 
                 if result == CANCEL_SEARCH {
-                    self.movegen.leave_ply();
                     return CANCEL_SEARCH;
                 }
 
@@ -874,7 +873,6 @@ impl Search {
                     is_singular = true;
                 } else if se_beta >= beta {
                     // Multi-Cut Pruning
-                    self.movegen.leave_ply();
                     return clamp_score(se_beta, worst_possible_score, best_possible_score);
                 }
 
@@ -964,19 +962,17 @@ impl Search {
                     .set_in_check(gives_check)
                     .set_in_singular_move_search(in_se_search);
 
-                let mut result = self.rec_find_best_move(rx, a, -alpha, ply + 1, depth + se_extension - reductions - 1, &mut local_pv, NO_MOVE);
+                let mut result = next_ply!(self.ctx, self.rec_find_best_move(rx, a, -alpha, ply + 1, depth + se_extension - reductions - 1, &mut local_pv, NO_MOVE));
                 if result == CANCEL_SEARCH {
                     self.board.undo_move(curr_move, previous_piece, removed_piece_id);
-                    self.movegen.leave_ply();
                     return CANCEL_SEARCH;
                 }
 
                 if -result > alpha && (reductions > 0 || (-result < beta && a != -beta)) {
                     // Repeat search without reduction and with full window
-                    result = self.rec_find_best_move(rx, -beta, -alpha, ply + 1, depth + se_extension - 1, &mut local_pv, NO_MOVE);
+                    result = next_ply!(self.ctx, self.rec_find_best_move(rx, -beta, -alpha, ply + 1, depth + se_extension - 1, &mut local_pv, NO_MOVE));
                     if result == CANCEL_SEARCH {
                         self.board.undo_move(curr_move, previous_piece, removed_piece_id);
-                        self.movegen.leave_ply();
                         return CANCEL_SEARCH;
                     }
                 }
@@ -1005,7 +1001,6 @@ impl Search {
                             self.hh.update(ply, active_player, self.infos[ply - 1].opp_move(), self.infos[ply].opp_move(), best_move);
                         }
 
-                        self.movegen.leave_ply();
                         return best_score;
                     }
 
@@ -1023,8 +1018,6 @@ impl Search {
                 a = -(alpha + 1);
             }
         }
-
-        self.movegen.leave_ply();
 
         if !has_valid_moves {
             return if excluded_singular_move != NO_MOVE {
@@ -1098,14 +1091,14 @@ impl Search {
             alpha = position_score;
         }
 
-        self.movegen.enter_ply(active_player, NO_MOVE, NO_MOVE, NO_MOVE);
-        self.movegen.generate_qs_captures(&mut self.board);
+        self.ctx.prepare_moves(active_player, NO_MOVE, NO_MOVE, NO_MOVE);
+        self.ctx.generate_qs_captures(&mut self.board);
 
         let mut threshold = alpha - position_score - params::qs_see_threshold();
         let mut best_score = position_score;
 
         let opp_player = active_player.flip();
-        while let Some(m) = self.movegen.next_good_capture_move(&mut self.board, threshold) {
+        while let Some(m) = self.ctx.next_good_capture_move(&mut self.board, threshold) {
             let upm = m.unpack();
             let (previous_piece, captured_piece_id) = self.board.perform_move(upm);
             if self.board.is_in_check(active_player) {
@@ -1117,7 +1110,7 @@ impl Search {
             let score = if self.board.is_insufficient_material_draw() {
                 -self.effective_draw_score()
             } else {
-                -self.quiescence_search(opp_player, -beta, -alpha, ply + 1, None)
+                -next_ply!(self.ctx, self.quiescence_search(opp_player, -beta, -alpha, ply + 1, None))
             };
             self.board.undo_move(upm, previous_piece, captured_piece_id);
 
@@ -1134,7 +1127,6 @@ impl Search {
             }
         }
 
-        self.movegen.leave_ply();
         best_score
     }
 
@@ -1146,9 +1138,9 @@ impl Search {
             }
         }
 
-        self.movegen.reset_root_moves();
+        self.ctx.reset_root_moves();
         let mut skipped_moves = Vec::new();
-        while let Some(m) = self.movegen.next_root_move(&self.hh, &mut self.board) {
+        while let Some(m) = self.ctx.next_root_move(&self.hh, &mut self.board) {
             if !search_moves_set.contains(&m) {
                 skipped_moves.push(m.without_score());
             }
@@ -1542,6 +1534,7 @@ fn adjust_score(halfmove_clock: u8, tb_result: Option<TBResult>, score: i16) -> 
     }
 }
 
+
 #[derive(Clone)]
 struct AnalysisEntry {
     depth: i32,
@@ -1630,7 +1623,7 @@ impl HelperThread {
                     sub_search.player_pov = sub_search.board.active_player();
                     sub_search.tt_gen = sub_search.board.fullmove_count() % (MAX_GENERATION + 1);
 
-                    sub_search.movegen.enter_ply(sub_search.board.active_player(), NO_MOVE, NO_MOVE, NO_MOVE);
+                    sub_search.ctx.prepare_moves(sub_search.board.active_player(), NO_MOVE, NO_MOVE, NO_MOVE);
 
                     let mut multi_pv_state = vec![
                         (
@@ -1682,8 +1675,6 @@ impl HelperThread {
                             break;
                         }
                     }
-
-                    sub_search.movegen.leave_ply();
 
                     tx.send(()).unwrap();
                 }

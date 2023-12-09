@@ -53,10 +53,13 @@ impl MoveGenerator {
         MoveGenerator { entries, ply: 0 }
     }
 
-    pub fn enter_ply(
+    pub fn enter_ply(&mut self) {
+        self.ply += 1;
+    }
+
+    pub fn init(
         &mut self, active_player: Color, scored_hash_move: Move, prev_own_move: Move, opp_move: Move,
     ) {
-        self.ply += 1;
         unsafe { self.entries.get_unchecked_mut(self.ply) }.init(active_player, scored_hash_move, prev_own_move, opp_move);
     }
 
