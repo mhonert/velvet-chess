@@ -318,7 +318,7 @@ impl Engine {
         let start = Instant::now();
 
         let mut ctx = SearchContext::default();
-        let hh = HistoryHeuristics::new();
+        let hh = HistoryHeuristics::default();
         let nodes = perft(&mut ctx, &hh, &mut self.board, depth);
 
         let duration = start.elapsed();

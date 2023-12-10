@@ -107,12 +107,10 @@ impl SearchContext {
     pub fn move_history(&self) -> MoveHistory {
         let curr = self.ply_entry(self.pe_idx);
         let prev_opp = self.ply_entry(self.pe_idx - 1);
-        let second_last_opp = self.ply_entry(self.pe_idx - 3);
 
         MoveHistory {
             last_opp: curr.opp_move,
             prev_own: prev_opp.opp_move,
-            second_last_own: second_last_opp.opp_move,
         }
     }
 

@@ -129,7 +129,7 @@ impl Search {
         is_stopped: Arc<AtomicBool>, node_count: Arc<AtomicU64>, tb_hits: Arc<AtomicU64>, log_level: LogLevel, limits: SearchLimits,
         tt: Arc<TranspositionTable>, board: Board, is_helper_thread: bool,
     ) -> Self {
-        let hh = HistoryHeuristics::new();
+        let hh = HistoryHeuristics::default();
 
         let time_mgr = TimeManager::new();
 

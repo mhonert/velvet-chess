@@ -120,7 +120,7 @@ impl MoveList {
     #[inline]
     pub fn add_move(&mut self, hh: &HistoryHeuristics, typ: MoveType, start: i8, end: i8) {
         let m = Move::new(typ, start, end);
-        let score = QUIET_BASE_SCORE + hh.get_history_score(self.active_player, self.move_history, m);
+        let score = QUIET_BASE_SCORE + hh.score(self.active_player, self.move_history, m);
         self.moves.push(m.with_initial_score(score));
     }
 
