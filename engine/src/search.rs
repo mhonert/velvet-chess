@@ -38,7 +38,7 @@ use std::thread;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 use LogLevel::Info;
-use crate::{next_ply, params};
+use crate::{next_ply, same_ply, params};
 use crate::search_context::{SearchContext};
 use crate::syzygy::{DEFAULT_TB_PROBE_DEPTH, ProbeTB};
 use crate::syzygy::tb::{TBResult};
@@ -81,68 +81,6 @@ fn lmp_threshold(improving: bool, depth: i32) -> i16 {
     }
 }
 
-#[derive(Copy, Clone, Default)]
-struct SearchInfo {
-    eval: i16,
-    in_check: bool,
-    capture_pos: i8,
-    opp_move: Move,
-    in_singular_move_search: bool,
-}
-
-impl SearchInfo {
-    pub fn set_eval(&mut self, eval: i16) {
-        self.eval = eval;
-    }
-
-    pub fn set_capture_pos(&mut self, pos: i8) -> &mut Self {
-        self.capture_pos = pos;
-        self
-    }
-
-    pub fn set_opp_move(&mut self, m: Move) -> &mut Self {
-        self.opp_move = m;
-        self
-    }
-
-    pub fn set_in_singular_move_search(&mut self, in_singular_move_search: bool) -> &mut Self {
-        self.in_singular_move_search = in_singular_move_search;
-        self
-    }
-
-    pub fn set_in_check(&mut self, gives_check: bool) -> &mut Self {
-        self.in_check = gives_check;
-        self
-    }
-
-    pub fn eval(&self) -> i16 {
-        self.eval
-    }
-
-    pub fn in_check(&self) -> bool {
-        self.in_check
-    }
-
-    pub fn is_recapture(&self, target: i8) -> bool {
-        self.capture_pos == target
-    }
-
-    pub fn opp_played_capture(&self) -> bool {
-        self.capture_pos != -1
-    }
-
-    pub fn opp_move(&self) -> Move {
-        self.opp_move
-    }
-
-    pub fn opp_played_null_move(&self) -> bool {
-        self.opp_move == NO_MOVE
-    }
-
-    pub fn in_singular_move_search(&self, excluded_singular_move: Move) -> bool {
-        self.in_singular_move_search || excluded_singular_move != NO_MOVE
-    }
-}
 
 pub struct Search {
     pub board: Board,
@@ -180,8 +118,6 @@ pub struct Search {
     pondering: bool,
 
     tt_gen: u16,
-
-    infos: [SearchInfo; MAX_DEPTH + 1],
 }
 
 impl Search {
@@ -225,8 +161,6 @@ impl Search {
             pondering: false,
 
             tt_gen: 0,
-
-            infos: [SearchInfo::default(); MAX_DEPTH + 1],
         }
     }
 
@@ -448,7 +382,7 @@ impl Search {
         let mut alpha = if depth > 7 { score - window_size } else { MIN_SCORE };
         let mut beta = if depth > 7 { score + window_size } else { MAX_SCORE };
 
-        self.infos[0].set_eval(self.board.eval());
+        self.ctx.set_eval(if self.board.is_in_check(self.board.active_player()) { MIN_SCORE } else { self.board.eval() });
 
         let mut step = window_step;
         loop {
@@ -519,8 +453,6 @@ impl Search {
             let upm = m.unpack();
             let (previous_piece, removed_piece_id) = self.board.perform_move(upm);
 
-            let capture_pos = if removed_piece_id != EMPTY { upm.end } else { -1 };
-
             let gives_check = self.board.is_in_check(active_player.flip());
 
             let mut local_pv = PrincipalVariation::default();
@@ -529,18 +461,14 @@ impl Search {
 
             // Use principal variation search
             self.inc_node_count();
-            self.infos[1]
-                .set_capture_pos(capture_pos)
-                .set_opp_move(m)
-                .set_in_singular_move_search(false)
-                .set_in_check(gives_check);
+            self.ctx.update_next_ply_entry(m, gives_check);
 
-            let mut result = next_ply!(self.ctx, self.rec_find_best_move(rx, a, -alpha, 1, depth - 1, &mut local_pv, NO_MOVE));
+            let mut result = next_ply!(self.ctx, self.rec_find_best_move(rx, a, -alpha, 1, depth - 1, &mut local_pv, false, false, NO_MOVE));
             if result == CANCEL_SEARCH {
                 iteration_cancelled = true;
             } else if -result > alpha && a != -beta {
                 // Repeat search if it falls outside the search window
-                result = next_ply!(self.ctx, self.rec_find_best_move(rx, -beta, -alpha, 1, depth - 1, &mut local_pv, NO_MOVE));
+                result = next_ply!(self.ctx, self.rec_find_best_move(rx, -beta, -alpha, 1, depth - 1, &mut local_pv, false, false, NO_MOVE));
                 if result == CANCEL_SEARCH {
                     iteration_cancelled = true;
                 }
@@ -600,7 +528,7 @@ impl Search {
     // find the best possible move in response to the current board position.
     fn rec_find_best_move(
         &mut self, rx: Option<&Receiver<Message>>, mut alpha: i16, beta: i16, ply: usize, mut depth: i32,
-        pv: &mut PrincipalVariation, excluded_singular_move: Move,
+        pv: &mut PrincipalVariation, played_null_move: bool, in_se_search: bool, se_move: Move
     ) -> i16 {
         self.max_reached_depth = ply.max(self.max_reached_depth);
 
@@ -630,7 +558,7 @@ impl Search {
             return best_possible_score;
         }
 
-        let in_check = self.infos[ply].in_check();
+        let in_check = self.ctx.in_check();
         // Prune, if worst possible score is already sufficient to reach beta
         let mut worst_possible_score = MATED_SCORE + ply as i16 + if in_check { 0 } else { 1 };
         if worst_possible_score >= beta {
@@ -638,7 +566,7 @@ impl Search {
         }
 
         let active_player = self.board.active_player();
-        if in_check {
+        if in_check && se_move == NO_MOVE {
             // Extend search when in check
             depth = (depth + 1).max(1);
         }
@@ -659,7 +587,7 @@ impl Search {
         let mut score_type = ScoreType::UpperBound;
         let mut is_tb_move = false;
 
-        if excluded_singular_move == NO_MOVE {
+        if se_move == NO_MOVE {
             // Check transposition table
             let (tt_entry, tt_slot) = self.tt.get_entry(hash);
             if tt_entry != 0 {
@@ -703,7 +631,7 @@ impl Search {
                             if !is_pv && tt_depth >= depth && hash_score.max(alpha) >= beta {
                                 if hash_move != NO_MOVE && !hash_move.is_capture() {
                                     self.hh.update_killer_moves(ply, hash_move);
-                                    self.hh.update_counter_move(self.infos[ply].opp_move, hash_move);
+                                    self.hh.update_counter_move(self.ctx.opp_move(), hash_move);
                                 }
                                 if let Some(slot) = tt_slot { update_generation(tt_entry, slot, self.tt_gen) }
                                 return hash_score;
@@ -714,12 +642,12 @@ impl Search {
                     };
 
                     check_se = check_se
+                        && !played_null_move
+                        && !in_se_search
                         && hash_move != NO_MOVE
-                        && !self.infos[ply].in_singular_move_search(excluded_singular_move)
-                        && !self.in_null_move_search(ply)
                         && !in_check
                         && depth > 7
-                        && !self.infos[ply].is_recapture(upm.end);
+                        && !self.ctx.is_recapture(upm.end);
                 }
             }
 
@@ -761,16 +689,16 @@ impl Search {
 
         // Quiescence search
         if depth <= 0 || ply >= (MAX_DEPTH - 16) {
-            return clamp_score(next_ply!(self.ctx, self.quiescence_search(active_player, alpha, beta, ply, pos_score)), worst_possible_score, best_possible_score);
+            return clamp_score(same_ply!(self.ctx, self.quiescence_search(active_player, alpha, beta, ply, pos_score)), worst_possible_score, best_possible_score);
         }
 
-        self.infos[ply].set_eval(if in_check { MIN_SCORE } else { self.board.eval() });
-        let improving = self.is_improving(ply);
+        self.ctx.set_eval(if in_check { MIN_SCORE } else { self.board.eval() });
+        let improving = self.ctx.is_improving();
 
         if !is_pv && !in_check {
             if depth <= 2 {
                 // Jump directly to QS, if position is already so good, that it is unlikely for the opponent to counter it within the remaining search depth
-                pos_score = pos_score.or_else(|| Some(self.infos[ply].eval()));
+                pos_score = pos_score.or_else(|| Some(self.ctx.eval()));
                 let score = pos_score.unwrap();
 
                 let margin = if improving {
@@ -779,23 +707,18 @@ impl Search {
                     (params::rfp_margin_multiplier_not_improving() << depth) + params::rfp_base_margin_not_improving()
                 };
                 if self.current_depth > 7 && !is_mate_or_mated_score(score) && score - margin >= beta {
-                    return clamp_score(next_ply!(self.ctx, self.quiescence_search(active_player, alpha, beta, ply, pos_score)), worst_possible_score, best_possible_score);
+                    return clamp_score(same_ply!(self.ctx, self.quiescence_search(active_player, alpha, beta, ply, pos_score)), worst_possible_score, best_possible_score);
                 }
             } else if !skip_null_move {
                 // Null move pruning
-                pos_score = pos_score.or_else(|| Some(self.infos[ply].eval()));
+                pos_score = pos_score.or_else(|| Some(self.ctx.eval()));
                 if pos_score.unwrap() >= beta && self.board.has_non_pawns(active_player) {
                     self.board.perform_null_move();
                     self.tt.prefetch(self.board.get_hash());
 
-                    let in_se_search = self.infos[ply].in_singular_move_search(excluded_singular_move);
-                    self.infos[ply + 1]
-                        .set_opp_move(NO_MOVE)
-                        .set_in_singular_move_search(in_se_search)
-                        .set_in_check(false)
-                        .set_capture_pos(-1);
+                    self.ctx.update_next_ply_entry(NO_MOVE, false);
 
-                    let result = next_ply!(self.ctx, self.rec_find_best_move(rx, -beta, -beta + 1, ply + 1, depth - null_move_reduction(depth), &mut PrincipalVariation::default(), NO_MOVE));
+                    let result = next_ply!(self.ctx, self.rec_find_best_move(rx, -beta, -beta + 1, ply + 1, depth - null_move_reduction(depth), &mut PrincipalVariation::default(), true, in_se_search, NO_MOVE));
                     self.board.undo_null_move();
                     if result == CANCEL_SEARCH {
                         return CANCEL_SEARCH;
@@ -818,19 +741,19 @@ impl Search {
         let mut allow_futile_move_pruning = false;
         if !is_pv && depth <= 6 && !in_check && self.current_depth >= 8 {
             let margin = (params::fp_margin_multiplier() << depth) + params::fp_base_margin();
-            pos_score = pos_score.or_else(|| Some(self.infos[ply].eval()));
+            pos_score = pos_score.or_else(|| Some(self.ctx.eval()));
             let static_score = pos_score.unwrap();
             allow_futile_move_pruning = !is_mate_or_mated_score(static_score) && static_score + margin <= alpha;
 
             if depth == 1 && static_score + params::razor_margin_multiplier() <= alpha {
-                let score = clamp_score(next_ply!(self.ctx, self.quiescence_search(active_player, alpha, beta, ply, pos_score)), worst_possible_score, best_possible_score);
+                let score = clamp_score(same_ply!(self.ctx, self.quiescence_search(active_player, alpha, beta, ply, pos_score)), worst_possible_score, best_possible_score);
                 if score <= alpha {
                     return score;
                 }
             }
         }
 
-        self.ctx.prepare_moves(active_player, hash_move, self.infos[ply - 1].opp_move(), self.infos[ply].opp_move());
+        self.ctx.prepare_moves(active_player, hash_move, self.ctx.prev_own_move(), self.ctx.opp_move());
 
         let occupied_bb = self.board.occupancy_bb();
 
@@ -842,7 +765,7 @@ impl Search {
 
         let mut a = -beta;
         while let Some(packed_curr_move) = self.ctx.next_move(ply, &self.hh, &mut self.board) {
-            if excluded_singular_move == packed_curr_move {
+            if se_move == packed_curr_move {
                 continue;
             }
 
@@ -862,7 +785,7 @@ impl Search {
             if check_se && !gives_check && packed_curr_move == hash_move {
                 self.board.undo_move(curr_move, previous_piece, removed_piece_id);
                 let se_beta = sanitize_score(hash_score - (5 + depth as i16 / 2));
-                let result = next_ply!(self.ctx, self.rec_find_best_move(rx, se_beta - 1, se_beta, ply, depth / 2, &mut PrincipalVariation::default(), packed_curr_move));
+                let result = same_ply!(self.ctx, self.rec_find_best_move(rx, se_beta - 1, se_beta, ply, depth / 2, &mut PrincipalVariation::default(), false, true, packed_curr_move));
 
                 if result == CANCEL_SEARCH {
                     return CANCEL_SEARCH;
@@ -890,7 +813,7 @@ impl Search {
                 let target_piece_id = curr_move.move_type.piece_id();
                 has_valid_moves = true;
 
-                if !is_pv && self.infos[ply].opp_played_capture() && !self.infos[ply].is_recapture(curr_move.end) && evaluated_move_count > 0 && !curr_move.is_queen_promotion() {
+                if !is_pv && self.ctx.opp_move().is_capture() && !self.ctx.is_recapture(curr_move.end) && evaluated_move_count > 0 && !curr_move.is_queen_promotion() {
                     reductions += 1;
                 }
 
@@ -948,21 +871,14 @@ impl Search {
             } else {
                 self.tt.prefetch(self.board.get_hash());
 
-                let new_capture_pos = if removed_piece_id != EMPTY { end } else { -1 };
-
                 evaluated_move_count += 1;
 
                 let mut local_pv = PrincipalVariation::default();
 
                 self.inc_node_count();
-                let in_se_search = self.infos[ply].in_singular_move_search(excluded_singular_move);
-                self.infos[ply + 1]
-                    .set_opp_move(packed_curr_move)
-                    .set_capture_pos(new_capture_pos)
-                    .set_in_check(gives_check)
-                    .set_in_singular_move_search(in_se_search);
+                self.ctx.update_next_ply_entry(packed_curr_move, gives_check);
 
-                let mut result = next_ply!(self.ctx, self.rec_find_best_move(rx, a, -alpha, ply + 1, depth + se_extension - reductions - 1, &mut local_pv, NO_MOVE));
+                let mut result = next_ply!(self.ctx, self.rec_find_best_move(rx, a, -alpha, ply + 1, depth + se_extension - reductions - 1, &mut local_pv, played_null_move, in_se_search, NO_MOVE));
                 if result == CANCEL_SEARCH {
                     self.board.undo_move(curr_move, previous_piece, removed_piece_id);
                     return CANCEL_SEARCH;
@@ -970,7 +886,7 @@ impl Search {
 
                 if -result > alpha && (reductions > 0 || (-result < beta && a != -beta)) {
                     // Repeat search without reduction and with full window
-                    result = next_ply!(self.ctx, self.rec_find_best_move(rx, -beta, -alpha, ply + 1, depth + se_extension - 1, &mut local_pv, NO_MOVE));
+                    result = next_ply!(self.ctx, self.rec_find_best_move(rx, -beta, -alpha, ply + 1, depth + se_extension - 1, &mut local_pv, played_null_move, in_se_search, NO_MOVE));
                     if result == CANCEL_SEARCH {
                         self.board.undo_move(curr_move, previous_piece, removed_piece_id);
                         return CANCEL_SEARCH;
@@ -986,7 +902,7 @@ impl Search {
 
                     // Alpha-beta pruning
                     if best_score >= beta {
-                        if excluded_singular_move == NO_MOVE {
+                        if se_move == NO_MOVE {
                             let tt_move = best_move.with_score(from_root_relative_score(ply as i32, best_score)).to_tt_packed_move(active_player, &self.board.bitboards);
                             self.tt.write_entry(
                                 hash,
@@ -998,7 +914,7 @@ impl Search {
                         }
 
                         if removed_piece_id == EMPTY {
-                            self.hh.update(ply, active_player, self.infos[ply - 1].opp_move(), self.infos[ply].opp_move(), best_move);
+                            self.hh.update(ply, active_player, self.ctx.prev_own_move(), self.ctx.opp_move(), best_move);
                         }
 
                         return best_score;
@@ -1012,7 +928,7 @@ impl Search {
                         }
                     }
                 } else if removed_piece_id == EMPTY {
-                    self.hh.update_played_moves(active_player, self.infos[ply - 1].opp_move(), self.infos[ply].opp_move(), packed_curr_move);
+                    self.hh.update_played_moves(active_player, self.ctx.prev_own_move(), self.ctx.opp_move(), packed_curr_move);
                 }
 
                 a = -(alpha + 1);
@@ -1020,7 +936,7 @@ impl Search {
         }
 
         if !has_valid_moves {
-            return if excluded_singular_move != NO_MOVE {
+            return if se_move != NO_MOVE {
                 alpha
             } else if in_check {
                 MATED_SCORE + ply as i16 // Check mate
@@ -1031,7 +947,7 @@ impl Search {
 
         best_score = best_score.min(best_possible_score);
 
-        if excluded_singular_move == NO_MOVE {
+        if se_move == NO_MOVE {
             let tt_move = best_move.with_score(from_root_relative_score(ply as i32, best_score)).to_tt_packed_move(active_player, &self.board.bitboards);
 
             self.tt.write_entry(
@@ -1284,22 +1200,6 @@ impl Search {
             self.draw_score
         } else {
             -self.draw_score
-        }
-    }
-
-    fn in_null_move_search(&self, ply: usize) -> bool {
-        self.infos.iter().skip(1).take(ply).any(|s| s.opp_played_null_move())
-    }
-
-    fn is_improving(&self, ply: usize) -> bool {
-        if self.infos[ply].in_check {
-            false
-        } else if ply >= 2 && !self.infos[ply - 2].in_check {
-            self.infos[ply - 2].eval() < self.infos[ply].eval()
-        } else if ply >= 4 && !self.infos[ply - 4].in_check {
-            self.infos[ply - 4].eval() < self.infos[ply].eval()
-        } else {
-            true
         }
     }
 

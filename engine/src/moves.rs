@@ -241,6 +241,10 @@ impl Move {
         ((self.0 >> START_SHIFT) & START_MASK) as i8
     }
 
+    pub fn end(&self) -> i8 {
+        ((self.0 >> END_SHIFT) & END_MASK) as i8
+    }
+
     #[inline]
     pub fn to_tt_packed_move(&self, active_player: Color, boards: &BitBoards) -> TTPackedMove {
         let piece_id = if self.is_promotion() { P as u32 } else { (self.0 >> TYPE_SHIFT) & 0b111 };

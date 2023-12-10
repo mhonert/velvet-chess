@@ -103,6 +103,7 @@ impl MoveList {
     pub fn reset_root_moves(&mut self) {
         self.stage = Stage::HashMove;
         self.root_move_index = 0;
+        self.checked_priority_moves.clear();
     }
 
     pub fn reorder_root_moves(&mut self, best_move: Move, sort_other_moves: bool) {
