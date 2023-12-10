@@ -823,7 +823,7 @@ impl Search {
                     reductions += 1;
                 }
 
-                if se_extension == 0 && removed_piece_id == EMPTY {
+                if se_extension == 0 && !curr_move.is_capture() {
 
                     if allow_lmr && quiet_move_count > LMR_THRESHOLD && !curr_move.is_queen_promotion()  {
                         reductions += unsafe { *LMR.get_unchecked((quiet_move_count as usize).min(MAX_LMR_MOVES - 1)) } + i32::from(!is_pv);
@@ -919,7 +919,7 @@ impl Search {
                             );
                         }
 
-                        if removed_piece_id == EMPTY {
+                        if !curr_move.is_capture() {
                             self.hh.update(ply, active_player, move_history, best_move);
                         }
 
@@ -933,7 +933,7 @@ impl Search {
                             pv.update(best_move, &mut local_pv);
                         }
                     }
-                } else if removed_piece_id == EMPTY {
+                } else if !curr_move.is_capture() {
                     self.hh.update_played_moves(active_player, move_history, packed_curr_move);
                 }
 

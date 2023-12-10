@@ -20,7 +20,12 @@ use crate::colors::Color;
 use crate::moves::{Move, NO_MOVE};
 use crate::transposition_table::MAX_DEPTH;
 
-const HISTORY_SIZE: usize = 2 * 4 * 8 * 64 * 8 * 64;
+const HISTORY_SIZE: usize =
+    2 *      // side to move
+    2 *      // is own or opponent previous move
+    2 *      // previous move type (capture or quiet)
+    8 * 64 * // previous move piece and target
+    8 * 64;  // follow up move piece and target
 
 pub const MIN_HISTORY_SCORE: i16 = -128;
 
@@ -70,17 +75,17 @@ impl HistoryHeuristics {
 
     #[inline]
     pub fn update(&mut self, ply: usize, active_player: Color, move_history: MoveHistory, m: Move) {
-        let color_offset = if active_player.is_white() { HISTORY_SIZE / 2 } else { 0 };
-        self.update_history(color_offset, false, move_history.prev_own, m, 1);
-        self.update_history(color_offset, true, move_history.last_opp, m, 1);
+        let offset = base_offset(active_player, m);
+        self.update_history(offset, false, move_history.prev_own, 1);
+        self.update_history(offset, true, move_history.last_opp, 1);
 
         self.update_killer_moves(ply, m);
         self.update_counter_move(move_history.last_opp, m);
     }
 
     #[inline]
-    fn update_history(&mut self, color_offset: usize, prev_is_opp: bool, prev_m: Move, m: Move, counter_scale: i8) {
-        let idx = history_idx(color_offset, prev_is_opp, prev_m, m.calc_piece_end_index());
+    fn update_history(&mut self, base_offset: usize, prev_is_opp: bool, prev_m: Move, counter_scale: i8) {
+        let idx = history_idx(base_offset, prev_is_opp, prev_m);
         let entry = unsafe { self.follow_up_history.get_unchecked_mut(idx) };
         *entry = entry.saturating_add(counter_scale * 4 - *entry / 32);
     }
@@ -101,31 +106,36 @@ impl HistoryHeuristics {
 
     #[inline]
     pub fn update_played_moves(&mut self, active_player: Color, move_history: MoveHistory, m: Move) {
-        let color_offset = if active_player.is_white() { HISTORY_SIZE / 2 } else { 0 };
-        self.update_history(color_offset, false, move_history.prev_own, m, -1);
-        self.update_history(color_offset, true, move_history.last_opp, m, -1);
+        let offset = base_offset(active_player, m);
+        self.update_history(offset, false, move_history.prev_own, -1);
+        self.update_history(offset, true, move_history.last_opp, -1);
     }
 
     #[inline]
     pub fn score(&self, active_player: Color, move_history: MoveHistory, m: Move) -> i16 {
-        let color_offset = if active_player.is_white() { HISTORY_SIZE / 2 } else { 0 };
-        let m_idx = m.calc_piece_end_index();
+        let offset = base_offset(active_player, m);
 
-        self.history_score(color_offset, false, move_history.prev_own, m_idx)
-            + self.history_score(color_offset, true, move_history.last_opp, m_idx)
+        self.history_score(offset, false, move_history.prev_own)
+            + self.history_score(offset, true, move_history.last_opp)
     }
 
     #[inline]
-    fn history_score(&self, color_offset: usize, prev_is_opp: bool, prev_m: Move, m_idx: usize) -> i16 {
-        unsafe { *self.follow_up_history.get_unchecked(history_idx(color_offset, prev_is_opp, prev_m, m_idx) ) as i16 }
+    fn history_score(&self, offset: usize, prev_is_opp: bool, prev_m: Move) -> i16 {
+        unsafe { *self.follow_up_history.get_unchecked(history_idx(offset, prev_is_opp, prev_m) ) as i16 }
     }
 }
 
 #[inline]
-fn history_idx(color_offset: usize, prev_is_opp: bool, prev_m: Move, m_idx: usize) -> usize {
+fn base_offset(active_player: Color, m: Move) -> usize {
+    let color_offset = if active_player.is_white() { HISTORY_SIZE / 2 } else { 0 };
+    color_offset + m.calc_piece_end_index()
+}
+
+#[inline]
+fn history_idx(base_offset: usize, prev_is_opp: bool, prev_m: Move) -> usize {
     let opp_offset = if prev_is_opp { HISTORY_SIZE / 4 } else { 0 };
     let type_offset = if prev_m.is_capture() { HISTORY_SIZE / 8 } else { 0 };
-    color_offset + opp_offset + type_offset + prev_m.calc_piece_end_index() * 64 * 8 + m_idx
+    base_offset + opp_offset + type_offset + prev_m.calc_piece_end_index() * 64 * 8
 }
 
 #[derive(Copy, Clone, Default)]

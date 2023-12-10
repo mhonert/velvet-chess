@@ -936,6 +936,7 @@ pub fn is_killer(m: UnpackedMove) -> bool {
 mod tests {
     use super::*;
     use crate::board::castling::{CastlingRules, CastlingState};
+    use crate::history_heuristics::EMPTY_HISTORY;
     use crate::init::init;
     use crate::pieces::K;
 
@@ -990,9 +991,9 @@ mod tests {
     }
 
     fn generate_moves_for_pos(board: &mut Board, color: Color, pos: i32) -> Vec<Move> {
-        let hh = HistoryHeuristics::new();
-        let mut ml = MoveList::new();
-        ml.init(color, NO_MOVE, NO_MOVE, NO_MOVE);
+        let hh = HistoryHeuristics::default();
+        let mut ml = MoveList::default();
+        ml.init(color, NO_MOVE, EMPTY_HISTORY);
 
         let mut moves = Vec::new();
 
