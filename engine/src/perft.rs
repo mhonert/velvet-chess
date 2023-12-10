@@ -16,7 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 use crate::board::Board;
-use crate::history_heuristics::HistoryHeuristics;
+use crate::history_heuristics::{EMPTY_HISTORY, HistoryHeuristics};
 use crate::moves::NO_MOVE;
 use crate::next_ply;
 use crate::search_context::SearchContext;
@@ -35,7 +35,7 @@ pub fn perft(ctx: &mut SearchContext, hh: &HistoryHeuristics, board: &mut Board,
     let mut nodes: u64 = 0;
 
     let active_player = board.active_player();
-    ctx.prepare_moves(active_player, NO_MOVE, NO_MOVE, NO_MOVE);
+    ctx.prepare_moves(active_player, NO_MOVE, EMPTY_HISTORY);
 
     while let Some(m) = ctx.next_move(0, hh, board) {
         let upm = m.unpack();

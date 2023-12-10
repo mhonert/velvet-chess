@@ -21,7 +21,7 @@ use crate::board::castling::CastlingRules;
 use crate::board::{Board, StateEntry};
 use crate::colors::{Color, WHITE};
 use crate::engine::{LogLevel, Message};
-use crate::history_heuristics::{HistoryHeuristics};
+use crate::history_heuristics::{EMPTY_HISTORY, HistoryHeuristics};
 use crate::move_gen::{is_killer, NEGATIVE_HISTORY_SCORE, QUIET_BASE_SCORE, is_valid_move};
 use crate::moves::{Move, MoveType, NO_MOVE, TTPackedMove, UnpackedMove};
 use crate::pieces::{EMPTY, P};
@@ -243,7 +243,7 @@ impl Search {
 
         let active_player = self.board.active_player();
 
-        self.ctx.prepare_moves(active_player, NO_MOVE, NO_MOVE, NO_MOVE);
+        self.ctx.prepare_moves(active_player, NO_MOVE, EMPTY_HISTORY);
 
         self.set_stopped(false);
 
@@ -591,6 +591,8 @@ impl Search {
         let mut score_type = ScoreType::UpperBound;
         let mut is_tb_move = false;
 
+        let move_history = self.ctx.move_history();
+
         if se_move == NO_MOVE {
             // Check transposition table
             let (tt_entry, tt_slot) = self.tt.get_entry(hash);
@@ -635,7 +637,7 @@ impl Search {
                             if !is_pv && tt_depth >= depth && hash_score.max(alpha) >= beta {
                                 if hash_move != NO_MOVE && !hash_move.is_capture() {
                                     self.hh.update_killer_moves(ply, hash_move);
-                                    self.hh.update_counter_move(self.ctx.opp_move(), hash_move);
+                                    self.hh.update_counter_move(move_history.last_opp, hash_move);
                                 }
                                 if let Some(slot) = tt_slot { update_generation(tt_entry, slot, self.tt_gen) }
                                 return hash_score;
@@ -651,7 +653,7 @@ impl Search {
                         && hash_move != NO_MOVE
                         && !in_check
                         && depth > 7
-                        && !self.ctx.is_recapture(upm.end);
+                        && !self.ctx.is_recapture(move_history.last_opp, upm.end);
                 }
             }
 
@@ -757,7 +759,7 @@ impl Search {
             }
         }
 
-        self.ctx.prepare_moves(active_player, hash_move, self.ctx.prev_own_move(), self.ctx.opp_move());
+        self.ctx.prepare_moves(active_player, hash_move, move_history);
 
         let occupied_bb = self.board.occupancy_bb();
 
@@ -817,7 +819,7 @@ impl Search {
                 let target_piece_id = curr_move.move_type.piece_id();
                 has_valid_moves = true;
 
-                if !is_pv && self.ctx.opp_move().is_capture() && !self.ctx.is_recapture(curr_move.end) && evaluated_move_count > 0 && !curr_move.is_queen_promotion() {
+                if !is_pv && move_history.last_opp.is_capture() && !self.ctx.is_recapture(move_history.last_opp, curr_move.end) && evaluated_move_count > 0 && !curr_move.is_queen_promotion() {
                     reductions += 1;
                 }
 
@@ -918,7 +920,7 @@ impl Search {
                         }
 
                         if removed_piece_id == EMPTY {
-                            self.hh.update(ply, active_player, self.ctx.prev_own_move(), self.ctx.opp_move(), best_move);
+                            self.hh.update(ply, active_player, move_history, best_move);
                         }
 
                         return best_score;
@@ -932,7 +934,7 @@ impl Search {
                         }
                     }
                 } else if removed_piece_id == EMPTY {
-                    self.hh.update_played_moves(active_player, self.ctx.prev_own_move(), self.ctx.opp_move(), packed_curr_move);
+                    self.hh.update_played_moves(active_player, move_history, packed_curr_move);
                 }
 
                 a = -(alpha + 1);
@@ -1011,7 +1013,7 @@ impl Search {
             alpha = position_score;
         }
 
-        self.ctx.prepare_moves(active_player, NO_MOVE, NO_MOVE, NO_MOVE);
+        self.ctx.prepare_moves(active_player, NO_MOVE, EMPTY_HISTORY);
         self.ctx.generate_qs_captures(&mut self.board);
 
         let mut threshold = alpha - position_score - params::qs_see_threshold();
@@ -1527,7 +1529,7 @@ impl HelperThread {
                     sub_search.player_pov = sub_search.board.active_player();
                     sub_search.tt_gen = sub_search.board.fullmove_count() % (MAX_GENERATION + 1);
 
-                    sub_search.ctx.prepare_moves(sub_search.board.active_player(), NO_MOVE, NO_MOVE, NO_MOVE);
+                    sub_search.ctx.prepare_moves(sub_search.board.active_player(), NO_MOVE, EMPTY_HISTORY);
 
                     let mut multi_pv_state = vec![
                         (

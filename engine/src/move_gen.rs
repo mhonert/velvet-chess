@@ -19,7 +19,7 @@
 use crate::bitboard::{get_king_attacks, get_knight_attacks, BitBoard, PAWN_DOUBLE_MOVE_LINES};
 use crate::board::Board;
 use crate::colors::{Color, BLACK, WHITE};
-use crate::history_heuristics::{HistoryHeuristics, MIN_HISTORY_SCORE};
+use crate::history_heuristics::{HistoryHeuristics, MIN_HISTORY_SCORE, MoveHistory};
 use crate::moves::{Move, MoveType, NO_MOVE, UnpackedMove};
 use crate::pieces::{B, N, P, Q, R};
 use std::cmp::Reverse;
@@ -49,8 +49,7 @@ enum Stage {
 #[derive(Clone)]
 pub struct MoveList {
     scored_hash_move: Move,
-    prev_own_move: Move,
-    opp_move: Move,
+    move_history: MoveHistory,
     moves: Vec<Move>, // contains all moves on root level, but only quiet moves in all other cases
     capture_moves: Vec<Move>, // not used on root level
     bad_capture_moves: Vec<Move>, // not used on root level
@@ -65,8 +64,7 @@ impl Default for MoveList {
     fn default() -> Self {
         MoveList {
             scored_hash_move: NO_MOVE,
-            prev_own_move: NO_MOVE,
-            opp_move: NO_MOVE,
+            move_history: MoveHistory::default(),
             moves: Vec::with_capacity(64),
             capture_moves: Vec::with_capacity(16),
             bad_capture_moves: Vec::with_capacity(16),
@@ -81,11 +79,10 @@ impl Default for MoveList {
 
 impl MoveList {
     pub fn init(
-        &mut self, active_player: Color, scored_hash_move: Move, prev_own_move: Move, opp_move: Move,
+        &mut self, active_player: Color, scored_hash_move: Move, move_history: MoveHistory
     ) {
         self.scored_hash_move = scored_hash_move;
-        self.prev_own_move = prev_own_move;
-        self.opp_move = opp_move;
+        self.move_history = move_history;
 
         self.moves.clear();
         self.capture_moves.clear();
@@ -123,7 +120,7 @@ impl MoveList {
     #[inline]
     pub fn add_move(&mut self, hh: &HistoryHeuristics, typ: MoveType, start: i8, end: i8) {
         let m = Move::new(typ, start, end);
-        let score = QUIET_BASE_SCORE + hh.get_history_score(self.active_player, self.prev_own_move, self.opp_move, m);
+        let score = QUIET_BASE_SCORE + hh.get_history_score(self.active_player, self.move_history, m);
         self.moves.push(m.with_initial_score(score));
     }
 
@@ -212,7 +209,7 @@ impl MoveList {
 
                 Stage::CounterMove => {
                     self.stage = Stage::PostponedBadCaptureMoves;
-                    let counter = hh.get_counter_move(self.opp_move);
+                    let counter = hh.get_counter_move(self.move_history.last_opp);
 
                     if counter != NO_MOVE && !self.checked_priority_moves.contains(&counter) && is_valid_move(board, board.active_player(), counter.unpack()) {
                         self.add_checked_priority_move(counter);

@@ -19,7 +19,7 @@
 use std::array;
 use crate::board::Board;
 use crate::colors::Color;
-use crate::history_heuristics::HistoryHeuristics;
+use crate::history_heuristics::{HistoryHeuristics, MoveHistory};
 use crate::move_gen::{MoveList};
 use crate::moves::{Move};
 use crate::transposition_table::MAX_DEPTH;
@@ -45,7 +45,6 @@ impl Default for SearchContext {
         }
     }
 }
-
 
 impl SearchContext {
 
@@ -101,16 +100,24 @@ impl SearchContext {
         self.movelist_mut().reorder_root_moves(best_move, sort_other_moves);
     }
 
-    pub fn prepare_moves(&mut self, active_player: Color, hash_move: Move, prev_own_move: Move, opp_move: Move) {
-        self.movelist_mut().init(active_player, hash_move, prev_own_move, opp_move);
+    pub fn prepare_moves(&mut self, active_player: Color, hash_move: Move, move_history: MoveHistory) {
+        self.movelist_mut().init(active_player, hash_move, move_history);
+    }
+
+    pub fn move_history(&self) -> MoveHistory {
+        let curr = self.ply_entry(self.pe_idx);
+        let prev_opp = self.ply_entry(self.pe_idx - 1);
+        let second_last_opp = self.ply_entry(self.pe_idx - 3);
+
+        MoveHistory {
+            last_opp: curr.opp_move,
+            prev_own: prev_opp.opp_move,
+            second_last_own: second_last_opp.opp_move,
+        }
     }
 
     fn ply_entry(&self, idx: usize) -> &PlyEntry {
         unsafe { self.ply_entries.get_unchecked(idx) }
-    }
-
-    pub fn prev_own_move(&self) -> Move {
-        self.ply_entry(self.pe_idx - 1).opp_move
     }
 
     pub fn is_improving(&self) -> bool {
@@ -136,13 +143,8 @@ impl SearchContext {
         self.ply_entry(self.pe_idx).eval
     }
 
-    pub fn is_recapture(&self, end: i8) -> bool {
-        let opp_m = self.opp_move();
+    pub fn is_recapture(&self, opp_m: Move, end: i8) -> bool {
         opp_m.is_capture() && end == opp_m.end()
-    }
-
-    pub fn opp_move(&self) -> Move {
-        self.ply_entry(self.pe_idx).opp_move
     }
 
     pub fn in_check(&self) -> bool {
