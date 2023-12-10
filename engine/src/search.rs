@@ -22,7 +22,7 @@ use crate::board::{Board, StateEntry};
 use crate::colors::{Color, WHITE};
 use crate::engine::{LogLevel, Message};
 use crate::history_heuristics::{HistoryHeuristics};
-use crate::move_gen::{is_killer, NEGATIVE_HISTORY_SCORE, QUIET_BASE_SCORE, is_valid_move, MoveSet};
+use crate::move_gen::{is_killer, NEGATIVE_HISTORY_SCORE, QUIET_BASE_SCORE, is_valid_move};
 use crate::moves::{Move, MoveType, NO_MOVE, TTPackedMove, UnpackedMove};
 use crate::pieces::{EMPTY, P};
 use crate::pos_history::PositionHistory;
@@ -31,6 +31,8 @@ use crate::time_management::{SearchLimits, TimeManager};
 use crate::transposition_table::{from_root_relative_score, ScoreType, TranspositionTable, MAX_DEPTH, get_hash_move, to_root_relative_score, get_depth, get_score_type, MAX_GENERATION, update_generation};
 use crate::uci_move::UCIMove;
 use std::cmp::Reverse;
+use std::collections::HashSet;
+use std::hash::BuildHasherDefault;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::sync::Arc;
@@ -39,6 +41,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 use LogLevel::Info;
 use crate::{next_ply, same_ply, params};
+use crate::nn::io::FastHasher;
 use crate::search_context::{SearchContext};
 use crate::syzygy::{DEFAULT_TB_PROBE_DEPTH, ProbeTB};
 use crate::syzygy::tb::{TBResult};
@@ -81,6 +84,7 @@ fn lmp_threshold(improving: bool, depth: i32) -> i16 {
     }
 }
 
+type MoveSet = HashSet<Move, BuildHasherDefault<FastHasher>>;
 
 pub struct Search {
     pub board: Board,

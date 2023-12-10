@@ -16,6 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+use std::array;
 use crate::board::Board;
 use crate::colors::Color;
 use crate::history_heuristics::HistoryHeuristics;
@@ -27,7 +28,7 @@ pub struct SearchContext {
     ply: usize,
 
     ml_idx: usize,
-    movelists: Vec<MoveList>,
+    movelists: [MoveList; MAX_DEPTH + 2],
 
     pe_idx: usize,
     ply_entries: [PlyEntry; MAX_DEPTH + 4],
@@ -35,16 +36,11 @@ pub struct SearchContext {
 
 impl Default for SearchContext {
     fn default() -> Self {
-        let mut movelists = Vec::with_capacity(MAX_DEPTH + 2);
-        for _ in 0..MAX_DEPTH + 2 {
-            movelists.push(MoveList::new());
-        }
-
         SearchContext{
             ply: 0,
             ml_idx: 0,
             pe_idx: 4, // start with 4 to remove the need for bounds checks when accessing the ply entries
-            movelists,
+            movelists: array::from_fn(|_| MoveList::default()),
             ply_entries: [PlyEntry::default(); MAX_DEPTH + 4],
         }
     }

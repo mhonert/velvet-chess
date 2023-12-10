@@ -23,11 +23,8 @@ use crate::history_heuristics::{HistoryHeuristics, MIN_HISTORY_SCORE};
 use crate::moves::{Move, MoveType, NO_MOVE, UnpackedMove};
 use crate::pieces::{B, N, P, Q, R};
 use std::cmp::Reverse;
-use std::collections::HashSet;
-use std::hash::BuildHasherDefault;
 use std::mem::swap;
 use crate::magics::{get_bishop_attacks, get_queen_attacks, get_rook_attacks};
-use crate::nn::io::FastHasher;
 
 const PRIMARY_KILLER_SCORE: i16 = -2200;
 const SECONDARY_KILLER_SCORE: i16 = -2250;
@@ -49,8 +46,6 @@ enum Stage {
     QuietMoves,
 }
 
-pub type MoveSet = HashSet<Move, BuildHasherDefault<FastHasher>>;
-
 #[derive(Clone)]
 pub struct MoveList {
     scored_hash_move: Move,
@@ -59,15 +54,15 @@ pub struct MoveList {
     moves: Vec<Move>, // contains all moves on root level, but only quiet moves in all other cases
     capture_moves: Vec<Move>, // not used on root level
     bad_capture_moves: Vec<Move>, // not used on root level
-    checked_priority_moves: MoveSet,
+    checked_priority_moves: [Move; 4],
     stage: Stage,
     root_move_index: usize,
     moves_generated: bool,
     active_player: Color,
 }
 
-impl MoveList {
-    pub fn new() -> Self {
+impl Default for MoveList {
+    fn default() -> Self {
         MoveList {
             scored_hash_move: NO_MOVE,
             prev_own_move: NO_MOVE,
@@ -75,14 +70,16 @@ impl MoveList {
             moves: Vec::with_capacity(64),
             capture_moves: Vec::with_capacity(16),
             bad_capture_moves: Vec::with_capacity(16),
-            checked_priority_moves: MoveSet::default(),
+            checked_priority_moves: [NO_MOVE; 4],
             stage: Stage::HashMove,
             root_move_index: 0,
             moves_generated: false,
             active_player: WHITE,
         }
     }
+}
 
+impl MoveList {
     pub fn init(
         &mut self, active_player: Color, scored_hash_move: Move, prev_own_move: Move, opp_move: Move,
     ) {
@@ -93,7 +90,7 @@ impl MoveList {
         self.moves.clear();
         self.capture_moves.clear();
         self.bad_capture_moves.clear();
-        self.checked_priority_moves.clear();
+        self.checked_priority_moves.fill(NO_MOVE);
         self.moves_generated = false;
         self.active_player = active_player;
         self.root_move_index = 0;
@@ -103,7 +100,7 @@ impl MoveList {
     pub fn reset_root_moves(&mut self) {
         self.stage = Stage::HashMove;
         self.root_move_index = 0;
-        self.checked_priority_moves.clear();
+        self.checked_priority_moves.fill(NO_MOVE);
     }
 
     pub fn reorder_root_moves(&mut self, best_move: Move, sort_other_moves: bool) {
@@ -149,6 +146,17 @@ impl MoveList {
     }
 
     #[inline(always)]
+    fn add_checked_priority_move(&mut self, m: Move) {
+        for entry in self.checked_priority_moves.iter_mut() {
+            if *entry == NO_MOVE {
+                *entry = m;
+                return;
+            }
+        }
+
+    }
+
+    #[inline(always)]
     pub fn next_move(&mut self, ply: usize, hh: &HistoryHeuristics, board: &mut Board) -> Option<Move> {
         loop {
             match self.stage {
@@ -156,7 +164,7 @@ impl MoveList {
                     self.stage = Stage::GenerateMoves;
 
                     if self.scored_hash_move != NO_MOVE {
-                        self.checked_priority_moves.insert(self.scored_hash_move);
+                        self.add_checked_priority_move(self.scored_hash_move);
                         return Some(self.scored_hash_move);
                     }
                 }
@@ -187,7 +195,7 @@ impl MoveList {
 
                     let killer = hh.get_killer_moves(ply).0;
                     if killer != NO_MOVE && !self.checked_priority_moves.contains(&killer) && is_valid_move(board, board.active_player(), killer.unpack()) {
-                        self.checked_priority_moves.insert(killer);
+                        self.add_checked_priority_move(killer);
                         return Some(killer.with_score(PRIMARY_KILLER_SCORE));
                     }
                 }
@@ -197,7 +205,7 @@ impl MoveList {
 
                     let killer = hh.get_killer_moves(ply).1;
                     if killer != NO_MOVE && !self.checked_priority_moves.contains(&killer) && is_valid_move(board, board.active_player(), killer.unpack()) {
-                        self.checked_priority_moves.insert(killer);
+                        self.add_checked_priority_move(killer);
                         return Some(killer.with_score(SECONDARY_KILLER_SCORE));
                     }
                 }
@@ -207,7 +215,7 @@ impl MoveList {
                     let counter = hh.get_counter_move(self.opp_move);
 
                     if counter != NO_MOVE && !self.checked_priority_moves.contains(&counter) && is_valid_move(board, board.active_player(), counter.unpack()) {
-                        self.checked_priority_moves.insert(counter);
+                        self.add_checked_priority_move(counter);
                         return Some(counter.with_score(COUNTER_MOVE_SCORE));
                     }
                 }
