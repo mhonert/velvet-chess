@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2022 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2023 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -19,10 +19,9 @@
 extern crate velvet;
 
 use velvet::fen::create_from_fen;
-use velvet::history_heuristics::HistoryHeuristics;
 use velvet::init::init;
-use velvet::move_gen::MoveGenerator;
 use velvet::perft::perft;
+use velvet::search_context::SearchContext;
 
 #[test]
 fn test_perft_startpos() {
@@ -95,8 +94,7 @@ fn test_perft_chess960() {
 
 fn perft_for_fen(fen: &str, depth: i32) -> u64 {
     init();
-    let mut movegen = MoveGenerator::new();
-    let hh = HistoryHeuristics::new();
+    let mut ctx = SearchContext::default();
     let mut board = create_from_fen(fen);
-    perft(&mut movegen, &hh, &mut board, depth)
+    perft(&mut ctx, &mut board, depth)
 }
