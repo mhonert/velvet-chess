@@ -54,4 +54,43 @@ impl InputLayer {
         stms * Tensor::cat(&[&white + &self.own_biases, &black + &self.opp_biases], 1)
             + (1i32 - stms) * Tensor::cat(&[&black + &self.own_biases, &white + &self.opp_biases], 1)
     }
+
+    pub fn copy_from(&mut self, weights: &Tensor, own_biases: &Tensor, opp_biases: &Tensor) {
+        tch::no_grad(|| {
+            self.weights.copy_(weights);
+            self.own_biases.copy_(own_biases);
+            self.opp_biases.copy_(opp_biases);
+        });
+    }
+}
+
+pub struct OutputLayer {
+    weights: Tensor,
+    biases: Tensor,
+}
+
+/// Creates a new output layer.
+pub fn output_layer<'a, T: Borrow<Path<'a>>>(
+    vs: T,
+    input_count: i64,
+) -> OutputLayer {
+    let vs = vs.borrow();
+
+    let weights = vs.var("weight", &[1, input_count], DEFAULT_KAIMING_UNIFORM);
+    let biases = vs.zeros("bias", &[1]);
+
+    OutputLayer { weights, biases }
+}
+
+impl OutputLayer {
+    pub fn forward(&self, xs: &Tensor) -> Tensor {
+        xs.linear(&self.weights, Some(&self.biases))
+    }
+
+    pub fn copy_from(&mut self, weights: &Tensor, biases: &Tensor) {
+        tch::no_grad(|| {
+            self.weights.copy_(weights);
+            self.biases.copy_(biases);
+        });
+    }
 }
