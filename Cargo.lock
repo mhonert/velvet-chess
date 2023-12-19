@@ -1156,7 +1156,7 @@ dependencies = [
 
 [[package]]
 name = "velvet"
-version = "5.4.0-dev1"
+version = "6.0.0"
 dependencies = [
  "fathomrs",
 ]

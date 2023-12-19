@@ -1,30 +1,27 @@
 
-This releases comes with a new neural network, search improvements and some small fixes
+This releases comes with a new neural network architecture and some small search improvements :christmas_tree:
 
-
-Estimated strength increase: ~ 25 Elo
+Estimated strength increase: ~ 20 Elo
 
 ## Changes
-- New neural network trained from v5.2.0 training set + re-scored training sets from earlier Velvet versions
+- Change neural network architecture from 3x5x768->2x512->1 to 32x768->2x512->1
+- New neural network trained from v5.3.0 (and v6.0.0 dev) self-play games
 - Updated training tools
-- Some minor search improvements and fixes
-- Some optimizations
+- Some refactorings and optimizations
 
 ## Statistics
 
-- Elo change: v5.3.0 compared to v5.2.0 against the same set of opponents
+- Elo change: v6.0.0 compared to v5.3.0 against the same set of opponents
 - Move range: grouped by games won in less than x moves (each game only belongs to one group, so a game that ended in 57 moves would belong to the group "60", but not "80", "100", etc.)
-
 
 | Move range | Elo change |
 |------------|------------|
-| 40         | +24        |
-| 60         | +32        |
-| 80         | +22        |
-| 100        | +31        |
-| 120        | +37        |
-| \>= 120    | +12        |
-
+| 40         | +26        |
+| 60         | +7         |
+| 80         | +21        |
+| 100        | +52        |
+| 120        | +46        |
+| \>= 120    | +40        |
 
 ## Notes
 
