@@ -1,12 +1,11 @@
 [package]
 name = "velvet"
 license = "GPL-3.0-or-later"
-version = "6.0.0"
+version = "6.1.0-dev1"
 authors = ["mhonert"]
 description = "Velvet is a UCI chess engine"
 readme = "../README.md"
 publish = false
-categories = ["chess", "uci"]
 repository = "https://github.com/mhonert/velvet-chess"
 edition = "2021"
 default-run = "velvet"

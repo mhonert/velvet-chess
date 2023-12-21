@@ -16,7 +16,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use itertools::Itertools;
 use rand::prelude::SliceRandom;
 use rand::RngCore;
 
@@ -38,7 +37,7 @@ impl IDSource {
             self.ids.append(&mut shuffled_ids(rng, self.min_id, self.max_id));
             self.epoch += 1;
         }
-        (self.epoch, self.ids.drain(self.ids.len() - self.batch_id_count..).collect_vec())
+        (self.epoch, self.ids.drain(self.ids.len() - self.batch_id_count..).collect())
     }
 
     pub fn per_batch_count(&self) -> usize {
@@ -47,7 +46,7 @@ impl IDSource {
 }
 
 fn shuffled_ids(rng: &mut dyn RngCore, min: usize, max: usize) -> Vec<usize> {
-    let mut ids = (min..=max).collect_vec();
+    let mut ids: Vec<usize> = (min..=max).collect();
     ids.shuffle(rng);
     ids
 }

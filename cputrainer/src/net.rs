@@ -17,7 +17,6 @@
  */
 
 use crate::sets::DataSample;
-use itertools::Itertools;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Error, ErrorKind, Write};
 use std::mem::MaybeUninit;
@@ -375,7 +374,7 @@ fn read_layer(reader: &mut BufReader<File>) -> Result<Layer, Error> {
 fn write_quantized(writer: &mut dyn Write, multiplier: i16, values: &[f32]) -> Result<(), Error> {
     write_u32(writer, values.len() as u32)?;
 
-    let quant_values = values.iter().map(|v| ((*v as f64) * multiplier as f64) as i32).collect_vec();
+    let quant_values: Vec<i32> = values.iter().map(|v| ((*v as f64) * multiplier as f64) as i32).collect();
     let mut values = Vec::with_capacity(quant_values.len());
 
     let mut counts = [0usize; 256];
@@ -389,7 +388,7 @@ fn write_quantized(writer: &mut dyn Write, multiplier: i16, values: &[f32]) -> R
         counts[idx] += 1;
     }
 
-    let mut entries = counts.iter().copied().enumerate().filter(|(_, count)| *count > 0).collect_vec();
+    let mut entries: Vec<(usize, usize)> = counts.iter().copied().enumerate().filter(|(_, count)| *count > 0).collect();
 
     entries.sort_by_key(|e| e.1);
     entries.reverse();

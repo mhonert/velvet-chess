@@ -22,7 +22,6 @@ mod sets;
 use crate::net::{Network, NetworkStats, A32};
 use crossbeam_channel::{bounded, Receiver, Sender};
 use env_logger::{Env, Target};
-use itertools::Itertools;
 use log::{error, info};
 use std::env;
 use std::str::FromStr;
@@ -213,8 +212,8 @@ fn run(
     loop {
         match rx.recv().expect("Could not read training command") {
             Command::Test(scope) => {
-                let set_ids = match scope {
-                    Scope::Full => (0..max_test_set_id).collect_vec(),
+                let set_ids: Vec<usize> = match scope {
+                    Scope::Full => (0..max_test_set_id).collect(),
                 };
 
                 let (curr_error, count) = base_net
@@ -239,7 +238,7 @@ fn run(
             }
 
             Command::Stats => {
-                let set_ids = (0..max_test_set_id).collect_vec();
+                let set_ids: Vec<usize> = (0..max_test_set_id).collect();
 
                 let stats = base_net
                     .read()

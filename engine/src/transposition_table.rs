@@ -147,8 +147,7 @@ impl TranspositionTable {
         for value_slot in slots.iter() {
             let value_entry = value_slot.load(Ordering::Relaxed);
             if value_entry & HASHCHECK_MASK == hash_check {
-                // update_generation(value_slot, generation);
-                return (value_entry, Some(value_slot.clone()));
+                return (value_entry, Some(value_slot));
             }
         }
 

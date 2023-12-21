@@ -10,9 +10,8 @@ velvet = { path = "../engine", default-features = false }
 fathomrs = { path = "../fathomrs" }
 traincommon = { path = "../traincommon" }
 
-env_logger = "0.10.0"
-itertools = "0.11.0"
-log = "0.4.17"
+env_logger = "0.10.1"
+log = "0.4.20"
 rand = "0.8.5"
 tch = "0.14.0"
 clap = { version = "4.4.11", features = ["derive"] }

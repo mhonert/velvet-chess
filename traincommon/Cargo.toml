@@ -9,6 +9,5 @@ edition = "2021"
 velvet = { path = "../engine", default-features = false }
 fathomrs = { path = "../fathomrs" }
 
-itertools = "0.11.0"
 lz4_flex = { version = "0.11.1", default-features = false, features = ["frame"] }
 rand = "0.8.5"

@@ -16,7 +16,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use itertools::Itertools;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::process::exit;
@@ -28,13 +27,9 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use clap::{Args, Parser, Subcommand};
 
-use crate::chess960::CHESS960_FENS;
-use velvet::board::Board;
 use velvet::engine::{LogLevel, Message};
 use velvet::fen::{create_from_fen, read_fen, write_fen, START_POS};
-use velvet::history_heuristics::HistoryHeuristics;
 use velvet::init::init;
-use velvet::move_gen::MoveGenerator;
 use velvet::moves::{Move, NO_MOVE};
 use velvet::nn::init_nn_params;
 use velvet::random::Random;
@@ -44,7 +39,6 @@ use velvet::time_management::SearchLimits;
 use velvet::transposition_table::{TranspositionTable};
 use crate::writer::{NextIDSource, OutputWriter};
 
-mod chess960;
 mod writer;
 
 #[derive(Clone, Debug)]
@@ -73,9 +67,7 @@ pub struct ConvertArgs {
 #[derive(Args, Debug)]
 struct GenerateArgs {
     concurrency: usize,
-    // frc: bool,
-    rnd_moves: u8,
-    opening_file: Option<String>,
+    opening_file: String,
     tb_path: String
 }
 
@@ -109,21 +101,13 @@ fn generate(args: GenerateArgs) {
 
     let concurrency = args.concurrency;
 
-    let random_moves = args.rnd_moves;
-
-    let chess960 = false; //args.frc;
-
     if concurrency == 0 {
         eprintln!("-c Concurrency must be >= 1");
         exit(1);
     }
     println!("Running with {} concurrent threads", concurrency);
 
-    let openings = if let Some(opening_file) = args.opening_file {
-        read_openings(&opening_file)
-    } else {
-        gen_openings(chess960)
-    };
+    let openings = read_openings(&args.opening_file);
 
     let (tx, rx) = mpsc::channel::<Command>();
 
@@ -132,7 +116,7 @@ fn generate(args: GenerateArgs) {
     println!("Starting worker threads ...");
     let stop = Arc::new(AtomicBool::default());
     let id_source = Arc::new(NextIDSource::new());
-    spawn_threads(&tx, concurrency, Arc::new(openings), random_moves, id_source, stop.clone());
+    spawn_threads(&tx, concurrency, Arc::new(openings), id_source, stop.clone());
 
     let mut count = 0;
     let mut sub_count = 0;
@@ -203,42 +187,7 @@ fn read_openings(file_name: &str) -> Vec<String> {
     }
 }
 
-
-fn gen_openings(chess960: bool) -> Vec<String> {
-    let mut openings = Vec::with_capacity(500000);
-
-    if chess960 {
-        for w_fen in CHESS960_FENS.iter() {
-            for b_fen in CHESS960_FENS.iter() {
-                let fen = mix(w_fen, b_fen);
-                openings.push(fen);
-            }
-        }
-    } else {
-        openings.push(String::from(START_POS));
-    }
-
-    openings.sort_unstable();
-    openings.dedup();
-
-    println!("Generated {} openings", openings.len());
-
-    openings
-}
-
-fn mix(white: &str, black: &str) -> String {
-    // "bbqnnrkr/pppppppp/8/8/8/8/PPPPPPPP/BBQNNRKR w HFhf - 0 1",
-    let w_pieces = white.split_terminator(' ').take(1).collect::<String>();
-    let white_pieces: String = w_pieces.split('/').skip(4).take(4).join("/");
-    let black_pieces: String = black.split('/').take(4).join("/");
-
-    let white_castling: String = white.split(' ').skip(2).take(1).join("").chars().take(2).collect();
-    let black_castling: String = black.split(' ').skip(2).take(1).join("").chars().skip(2).take(2).collect();
-
-    format!("{}/{} w {}{} - 0 1", black_pieces, white_pieces, white_castling, black_castling)
-}
-
-fn spawn_threads(tx: &Sender<Command>, concurrency: usize, openings: Arc<Vec<String>>, random_moves: u8, id_source: Arc<NextIDSource>, stop: Arc<AtomicBool>) {
+fn spawn_threads(tx: &Sender<Command>, concurrency: usize, openings: Arc<Vec<String>>, id_source: Arc<NextIDSource>, stop: Arc<AtomicBool>) {
     for pos in 0..concurrency {
         thread::sleep(Duration::from_millis(pos as u64 * 10));
         let tx2 = tx.clone();
@@ -246,12 +195,12 @@ fn spawn_threads(tx: &Sender<Command>, concurrency: usize, openings: Arc<Vec<Str
         let id_source2 = id_source.clone();
         let stop2 = stop.clone();
         thread::spawn(move || {
-            find_test_positions(&tx2, openings2, random_moves, id_source2, stop2);
+            find_test_positions(&tx2, openings2, id_source2, stop2);
         });
     }
 }
 
-fn find_test_positions(tx: &Sender<Command>, openings: Arc<Vec<String>>, random_moves: u8, id_source: Arc<NextIDSource>, stop: Arc<AtomicBool>) {
+fn find_test_positions(tx: &Sender<Command>, openings: Arc<Vec<String>>, id_source: Arc<NextIDSource>, stop: Arc<AtomicBool>) {
     let mut rnd = Random::new_with_seed(new_rnd_seed());
 
     let tt = TranspositionTable::new(32);
@@ -268,7 +217,7 @@ fn find_test_positions(tx: &Sender<Command>, openings: Arc<Vec<String>>, random_
     loop {
         let opening = openings[rnd.rand32() as usize % openings.len()].clone();
 
-        let update_count = collect_quiet_pos(Some(&rx), opening.as_str(), random_moves, &mut search, &mut rnd, &mut writer);
+        let update_count = collect_quiet_pos(Some(&rx), opening.as_str(), &mut search, &mut rnd, &mut writer);
         tx.send(Command::UpdateCount(update_count)).expect("could not send update count");
 
         if stop.load(Ordering::Relaxed) {
@@ -281,19 +230,13 @@ fn find_test_positions(tx: &Sender<Command>, openings: Arc<Vec<String>>, random_
 }
 
 fn collect_quiet_pos(
-    rx: Option<&Receiver<Message>>, opening: &str, random_moves: u8,
+    rx: Option<&Receiver<Message>>, opening: &str,
     search: &mut Search, rnd: &mut Random, writer: &mut OutputWriter
 ) -> usize {
     read_fen(&mut search.board, opening).unwrap();
 
     let mut ply = search.board.halfmove_count() as i32;
     let start_ply = ply;
-    for _ in 0..random_moves {
-        if !play_random_move(rnd, &search.hh, &mut search.movegen, &mut search.board) {
-            return 0;
-        }
-        ply += 1;
-    }
 
     let mut positions = Vec::new();
 
@@ -357,54 +300,6 @@ fn find_candidate_moves(search: &mut Search, rx: Option<&Receiver<Message>>, min
         skip.push(selected_move.without_score());
     }
     (best_score, candidates)
-}
-
-fn play_random_move(
-    rnd: &mut Random, hh: &HistoryHeuristics, move_gen: &mut MoveGenerator, board: &mut Board,
-) -> bool {
-    if board.is_in_check(board.active_player()) || board.is_draw() {
-        return false;
-    }
-
-    move_gen.enter_ply(board.active_player(), NO_MOVE, NO_MOVE, NO_MOVE);
-
-    let mut candidate_moves = Vec::new();
-
-    while let Some(m) = move_gen.next_root_move(hh, board) {
-        let upm = m.unpack();
-        let captured_piece_id = board.get_item(upm.end as usize).abs();
-        if captured_piece_id < upm.move_type.piece_id()
-            && board.has_negative_see(
-            board.active_player().flip(),
-            upm.start as usize,
-            upm.end as usize,
-            upm.move_type.piece_id(),
-            captured_piece_id,
-            0,
-            board.occupancy_bb(),
-        ) {
-            continue;
-        }
-
-        let (previous_piece, removed_piece_id) = board.perform_move(upm);
-        if board.is_in_check(board.active_player().flip()) || board.is_draw() {
-            board.undo_move(upm, previous_piece, removed_piece_id);
-            continue;
-        }
-        candidate_moves.push(m);
-
-        board.undo_move(upm, previous_piece, removed_piece_id);
-    }
-    move_gen.leave_ply();
-
-    if candidate_moves.is_empty() {
-        return false;
-    }
-
-    let m = candidate_moves[rnd.rand32() as usize % candidate_moves.len()];
-    board.perform_move(m.unpack());
-
-    true
 }
 
 fn new_rnd_seed() -> u64 {

@@ -22,7 +22,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Build
         env:
@@ -30,13 +30,13 @@ jobs:
           CFLAGS: '${{ matrix.cflags }}'
         run: |
           sudo apt-get install -y musl-tools
-          rustup override set 1.71.0
+          rustup override set 1.74.1
           rustup target add x86_64-unknown-linux-musl
           cargo build --release --target x86_64-unknown-linux-musl --bin velvet
           mv target/x86_64-unknown-linux-musl/release/velvet velvet-linux-x86_64-${{ matrix.exec_postfix }}
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v4
         with:
           name: velvet-linux
           path: velvet-linux-x86_64-${{ matrix.exec_postfix }}
@@ -58,19 +58,19 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Build
         env:
           RUSTFLAGS: '${{ matrix.add_rustflags }} -Cinline-threshold=500'
           CFLAGS: '${{ matrix.cflags }}'
         run: |
-          rustup override set 1.71.0
+          rustup override set 1.74.1
           cargo build --release --bin velvet
           mv .\target\release\velvet.exe velvet-windows-x86_64-${{ matrix.exec_postfix }}.exe
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v4
         with:
           name: velvet-windows
           path: velvet-windows-x86_64-${{ matrix.exec_postfix }}.exe
@@ -99,20 +99,20 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Build
         env:
           RUSTFLAGS: '${{ matrix.add_rustflags }} -Cinline-threshold=500'
           CFLAGS: '${{ matrix.cflags }}'
         run: |
-          rustup override set 1.71.0
+          rustup override set 1.74.1
           rustup target add ${{ matrix.toolchain }}
           cargo build --release --target ${{ matrix.toolchain }} --bin velvet
           mv target/${{ matrix.toolchain }}/release/velvet velvet-macOS-${{ matrix.exec_postfix }}
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v4
         with:
           name: velvet-macos
           path: velvet-macOS-${{ matrix.exec_postfix }}
@@ -124,17 +124,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
-      - uses: actions/download-artifact@v2
+      - uses: actions/download-artifact@v4
         with:
           name: velvet-linux
 
-      - uses: actions/download-artifact@v2
+      - uses: actions/download-artifact@v4
         with:
           name: velvet-windows
 
-      - uses: actions/download-artifact@v2
+      - uses: actions/download-artifact@v4
         with:
           name: velvet-macos
 
@@ -158,10 +158,9 @@ jobs:
           mv velvet-macOS-nopopcnt velvet-${tag_name}-macOS-x86_64-nopopcnt
           mv velvet-macOS-apple-silicon velvet-${tag_name}-macOS-apple-silicon
           sha256sum velvet-* > checksums.txt
-          echo "$tag_name" > release_description.md
-          cat artifacts/release_notes.md >> release_description.md
           gh release create "$tag_name" --draft \
-                             -F release_description.md \
+                             --title "$tag_name" \
+                             --notes-file artifacts/release_notes.md \
                              "checksums.txt#Checksums" \
                              "velvet-${tag_name}-x86_64-avx2.exe#Velvet - Windows (x86_64 - AVX2)" \
                              "velvet-${tag_name}-x86_64-sse4-popcnt.exe#Velvet - Windows (x86_64 - SSE4.2+POPCNT)" \
