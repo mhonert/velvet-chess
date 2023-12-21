@@ -1,12 +1,17 @@
 
 This releases comes with a new neural network architecture and some small search improvements :christmas_tree:
 
-Estimated strength increase: ~ 20 Elo
+Estimated strength increase: ~ 35 Elo
+
+**Notes:**
+
+- The strength increase in FRC/DFRC is much lower (< 10 Elo)
+- Generating more DFRC training positions for the bigger neural network is planned for a future v6.1.0 release
 
 ## Changes
 - Change neural network architecture from 3x5x768->2x512->1 to 32x768->2x512->1
 - New neural network trained from v5.3.0 (and v6.0.0 dev) self-play games
-- Updated training tools
+- Updated training tools to support training of bigger networks
 - Some refactorings and optimizations
 
 ## Statistics
@@ -16,11 +21,11 @@ Estimated strength increase: ~ 20 Elo
 
 | Move range | Elo change |
 |------------|------------|
-| 40         | +26        |
-| 60         | +7         |
-| 80         | +21        |
-| 100        | +52        |
-| 120        | +46        |
+| 40         | +47        |
+| 60         | +27        |
+| 80         | +45        |
+| 100        | +58        |
+| 120        | +34        |
 | \>= 120    | +40        |
 
 ## Notes

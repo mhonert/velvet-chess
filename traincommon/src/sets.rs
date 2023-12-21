@@ -34,7 +34,7 @@ use velvet::fen::{create_from_fen};
 use velvet::moves::Move;
 use velvet::nn::{piece_idx, SCORE_SCALE, king_bucket, INPUTS, BUCKET_SIZE};
 use velvet::nn::io::{read_f32, read_i16, read_u16, read_u32, read_u64, read_u8, write_f32, write_u16, write_u64, write_u8};
-use velvet::scores::{is_eval_score, is_mate_or_mated_score, MAX_EVAL};
+use velvet::scores::{is_eval_score, is_mate_or_mated_score, MAX_EVAL, MIN_EVAL};
 use velvet::syzygy::ProbeTB;
 use velvet::syzygy::tb::TBResult;
 
@@ -359,7 +359,7 @@ fn read_from_bin_fen_file(output_writer: &Arc<OutputWriter>, file_name: &str, _u
 
         board = create_from_fen(&fen);
 
-        let skip_all = (!is_old_data && end_full_move_count > 140) || (is_old_data && (game_result == 0 || end_full_move_count > 80));
+        let skip_all = (!is_old_data && end_full_move_count > 120) || (is_old_data && (game_result == 0 || end_full_move_count > 60));
 
         let final_eval_score = moves.iter().map(|(_, score)| *score).filter(|&score| is_eval_score(score)).last().unwrap_or(game_result * MAX_EVAL);
         for (i, &(m, raw_score)) in moves.iter().enumerate() {
@@ -374,9 +374,9 @@ fn read_from_bin_fen_file(output_writer: &Arc<OutputWriter>, file_name: &str, _u
             } else {
                 moves.iter().map(|(_, score)| *score).nth(i + 16).unwrap_or(final_eval_score)
             };
-            adj_score = adj_score.clamp(raw_score - 100, raw_score + 100);
-
-            let scaled_score = ((raw_score as f32 * 0.8) + (adj_score as f32 * 0.2)) / SCORE_SCALE as f32;
+            adj_score = adj_score.clamp(raw_score - 200, raw_score + 200);
+            //
+            let scaled_score = ((raw_score as f32 * 0.6) + (adj_score as f32 * 0.4)).clamp(MIN_EVAL as f32, MAX_EVAL as f32) / SCORE_SCALE as f32;
 
             let active_player = board.active_player();
 
