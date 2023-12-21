@@ -619,6 +619,9 @@ impl Search {
                         ScoreType::Exact => {
                             if !is_pv && tt_depth >= depth {
                                 if let Some(slot) = tt_slot { update_generation(tt_entry, slot, self.tt_gen) }
+                                if hash_move != NO_MOVE && !hash_move.is_capture() {
+                                    self.hh.update(ply, active_player, move_history, hash_move);
+                                }
                                 return hash_score;
                             }
                             pos_score = Some(hash_score);
@@ -636,8 +639,7 @@ impl Search {
                         ScoreType::LowerBound => {
                             if !is_pv && tt_depth >= depth && hash_score.max(alpha) >= beta {
                                 if hash_move != NO_MOVE && !hash_move.is_capture() {
-                                    self.hh.update_killer_moves(ply, hash_move);
-                                    self.hh.update_counter_move(move_history.last_opp, hash_move);
+                                    self.hh.update(ply, active_player, move_history, hash_move);
                                 }
                                 if let Some(slot) = tt_slot { update_generation(tt_entry, slot, self.tt_gen) }
                                 return hash_score;
@@ -802,6 +804,10 @@ impl Search {
                     is_singular = true;
                 } else if se_beta >= beta {
                     // Multi-Cut Pruning
+                    if !curr_move.is_capture() {
+                        self.hh.update(ply, active_player, move_history, packed_curr_move);
+                    }
+
                     return clamp_score(se_beta, worst_possible_score, best_possible_score);
                 }
 
