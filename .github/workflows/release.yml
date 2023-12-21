@@ -158,18 +158,18 @@ jobs:
           mv velvet-macOS-nopopcnt velvet-${tag_name}-macOS-x86_64-nopopcnt
           mv velvet-macOS-apple-silicon velvet-${tag_name}-macOS-apple-silicon
           sha256sum velvet-* > checksums.txt
-          echo "$tag_name" > release_description.txt
-          cat artifacts/release_notes.md >> release_description.txt
-          hub release create --draft \
-                             -a "checksums.txt#Checksums" \
-                             -a "velvet-${tag_name}-x86_64-avx2.exe#Velvet - Windows (x86_64 - AVX2)" \
-                             -a "velvet-${tag_name}-x86_64-sse4-popcnt.exe#Velvet - Windows (x86_64 - SSE4.2+POPCNT)" \
-                             -a "velvet-${tag_name}-x86_64-nopopcnt.exe#Velvet - Windows (x86_64 - No POPCNT)" \
-                             -a "velvet-${tag_name}-x86_64-avx2#Velvet - Linux (x86_64 - AVX2)" \
-                             -a "velvet-${tag_name}-x86_64-sse4-popcnt#Velvet - Linux (x86_64 - SSE4.2+POPCNT)" \
-                             -a "velvet-${tag_name}-x86_64-nopopcnt#Velvet - Linux (x86_64 - No POPCNT)" \
-                             -a "velvet-${tag_name}-macOS-apple-silicon#Velvet - macOS (Apple Silicon)" \
-                             -a "velvet-${tag_name}-macOS-x86_64-avx2#Velvet - macOS (x86_64 - AVX2)" \
-                             -a "velvet-${tag_name}-macOS-x86_64-sse4-popcnt#Velvet - macOS (x86_64 - SSE4.2+POPCNT)" \
-                             -a "velvet-${tag_name}-macOS-x86_64-nopopcnt#Velvet - macOS (x86_64 - No POPCNT)" \
-                             -F release_description.txt "$tag_name"
+          echo "$tag_name" > release_description.md
+          cat artifacts/release_notes.md >> release_description.md
+          gh release create "$tag_name" --draft \
+                             -F release_description.md \
+                             "checksums.txt#Checksums" \
+                             "velvet-${tag_name}-x86_64-avx2.exe#Velvet - Windows (x86_64 - AVX2)" \
+                             "velvet-${tag_name}-x86_64-sse4-popcnt.exe#Velvet - Windows (x86_64 - SSE4.2+POPCNT)" \
+                             "velvet-${tag_name}-x86_64-nopopcnt.exe#Velvet - Windows (x86_64 - No POPCNT)" \
+                             "velvet-${tag_name}-x86_64-avx2#Velvet - Linux (x86_64 - AVX2)" \
+                             "velvet-${tag_name}-x86_64-sse4-popcnt#Velvet - Linux (x86_64 - SSE4.2+POPCNT)" \
+                             "velvet-${tag_name}-x86_64-nopopcnt#Velvet - Linux (x86_64 - No POPCNT)" \
+                             "velvet-${tag_name}-macOS-apple-silicon#Velvet - macOS (Apple Silicon)" \
+                             "velvet-${tag_name}-macOS-x86_64-avx2#Velvet - macOS (x86_64 - AVX2)" \
+                             "velvet-${tag_name}-macOS-x86_64-sse4-popcnt#Velvet - macOS (x86_64 - SSE4.2+POPCNT)" \
+                             "velvet-${tag_name}-macOS-x86_64-nopopcnt#Velvet - macOS (x86_64 - No POPCNT)"
