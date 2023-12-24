@@ -848,13 +848,10 @@ impl Search {
                         reductions += NEG_HISTORY_REDUCTIONS;
 
                     } else if curr_move.score <= QUIET_BASE_SCORE
-                        && self.board.has_negative_see( active_player.flip(), start as usize, end as usize, target_piece_id, EMPTY, 0, occupied_bb)
+                        && self.board.has_negative_see(active_player.flip(), start as usize, end as usize, target_piece_id, EMPTY, 0, occupied_bb)
                     {
                         // Reduce search depth for moves with negative SEE score
                         reductions += NEG_SEE_REDUCTIONS;
-                        if curr_move.score < QUIET_BASE_SCORE && evaluated_move_count > 0 && depth <= 3 {
-                            skip = true;
-                        }
                     }
 
                     if is_singular {
