@@ -655,6 +655,7 @@ impl Search {
                         && hash_move != NO_MOVE
                         && !in_check
                         && depth > 7
+                        && is_eval_score(hash_score)
                         && !self.ctx.is_recapture(move_history.last_opp, upm.end);
                 }
             }
@@ -792,7 +793,7 @@ impl Search {
             let mut se_extension = 0;
             if check_se && !gives_check && packed_curr_move == hash_move {
                 self.board.undo_move(curr_move, previous_piece, removed_piece_id);
-                let se_beta = sanitize_score(hash_score - (5 + depth as i16 / 2));
+                let se_beta = sanitize_score(hash_score - depth as i16);
                 let result = same_ply!(self.ctx, self.rec_find_best_move(rx, se_beta - 1, se_beta, ply, depth / 2, &mut PrincipalVariation::default(), false, true, packed_curr_move));
 
                 if result == CANCEL_SEARCH {
