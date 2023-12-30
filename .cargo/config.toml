@@ -1,2 +1,5 @@
 [build]
 rustflags = ["-Ctarget-cpu=native", "-Cinline-threshold=500"]
+
+[env]
+CFLAGS = "-march=native"
