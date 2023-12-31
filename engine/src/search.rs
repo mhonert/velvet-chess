@@ -823,10 +823,13 @@ impl Search {
             let mut reductions = 0;
 
             if !skip {
-                let target_piece_id = curr_move.move_type.piece_id();
                 has_valid_moves = true;
+            }
 
-                if !is_pv && move_history.last_opp.is_capture() && !self.ctx.is_recapture(move_history.last_opp, curr_move.end) && evaluated_move_count > 0 && !curr_move.is_queen_promotion() {
+            if !skip && evaluated_move_count > 0 {
+                let target_piece_id = curr_move.move_type.piece_id();
+
+                if !is_pv && move_history.last_opp.is_capture() && !self.ctx.is_recapture(move_history.last_opp, curr_move.end) && !curr_move.is_queen_promotion() {
                     reductions += 1;
                 }
 
@@ -862,7 +865,6 @@ impl Search {
                     quiet_move_count += 1;
 
                     if allow_futile_move_pruning
-                        && evaluated_move_count > 0
                         && !gives_check
                         && !curr_move.is_queen_promotion()
                         && reductions >= (depth - 1)
