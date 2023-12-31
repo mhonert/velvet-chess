@@ -742,7 +742,6 @@ impl Search {
 
         let mut evaluated_move_count = 0;
         let mut quiet_move_count = 0;
-        let mut has_valid_moves = false;
 
         let allow_lmr = depth > 2;
 
@@ -821,10 +820,6 @@ impl Search {
             let mut skip = self.board.is_in_check(active_player); // skip if move would put own king in check
 
             let mut reductions = 0;
-
-            if !skip {
-                has_valid_moves = true;
-            }
 
             if !skip && evaluated_move_count > 0 {
                 let target_piece_id = curr_move.move_type.piece_id();
@@ -947,7 +942,7 @@ impl Search {
             }
         }
 
-        if !has_valid_moves {
+        if evaluated_move_count == 0 {
             return if se_move != NO_MOVE {
                 alpha
             } else if in_check {
