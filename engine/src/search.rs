@@ -1002,11 +1002,11 @@ impl Search {
     pub fn quiescence_search(&mut self, active_player: Color, mut alpha: i16, beta: i16, ply: usize, pos_score: Option<i16>) -> i16 {
         self.max_reached_depth = ply.max(self.max_reached_depth);
 
+        let position_score = pos_score.unwrap_or_else(|| { self.board.eval() });
         if ply >= MAX_DEPTH {
-            return beta;
+            return position_score;
         }
 
-        let position_score = pos_score.unwrap_or_else(|| { self.board.eval() });
         if position_score > alpha {
             if position_score >= beta {
                 return position_score;
@@ -1021,13 +1021,13 @@ impl Search {
         let mut best_score = position_score;
 
         let opp_player = active_player.flip();
+        let opp_king = self.board.king_pos(opp_player);
         while let Some(m) = self.ctx.next_good_capture_move(&mut self.board, threshold) {
             let upm = m.unpack();
-            let (previous_piece, captured_piece_id) = self.board.perform_move(upm);
-            if self.board.is_in_check(active_player) {
-                self.board.undo_move(upm, previous_piece, captured_piece_id);
-                continue;
+            if upm.end == opp_king {
+                return MATE_SCORE;
             }
+            let (previous_piece, captured_piece_id) = self.board.perform_move(upm);
             self.inc_node_count();
 
             let score = if self.board.is_insufficient_material_draw() {
