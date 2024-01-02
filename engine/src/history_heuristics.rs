@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2023 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2024 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -74,10 +74,12 @@ impl HistoryHeuristics {
     }
 
     #[inline]
-    pub fn update(&mut self, ply: usize, active_player: Color, move_history: MoveHistory, m: Move) {
+    pub fn update(&mut self, ply: usize, active_player: Color, move_history: MoveHistory, m: Move, has_positive_history: bool) {
         let offset = base_offset(active_player, m);
-        self.update_history(offset, false, move_history.prev_own, 1);
-        self.update_history(offset, true, move_history.last_opp, 1);
+        let bonus = if has_positive_history { 1 } else { 4 };
+
+        self.update_history(offset, false, move_history.prev_own, bonus);
+        self.update_history(offset, true, move_history.last_opp, bonus);
 
         self.update_killer_moves(ply, m);
         self.update_counter_move(move_history.last_opp, m);
