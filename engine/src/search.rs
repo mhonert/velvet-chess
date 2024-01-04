@@ -654,7 +654,7 @@ impl Search {
                         && !in_se_search
                         && hash_move != NO_MOVE
                         && !in_check
-                        && depth > 7
+                        && depth >= 6
                         && is_eval_score(hash_score)
                         && !self.ctx.is_recapture(move_history.last_opp, upm.end);
                 }
