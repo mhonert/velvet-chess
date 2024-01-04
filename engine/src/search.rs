@@ -661,7 +661,7 @@ impl Search {
             }
 
             if !is_tb_move {
-                if hash_move == NO_MOVE && depth > 7 {
+                if hash_move == NO_MOVE && depth > 3 {
                     // Reduce nodes without hash move from transposition table
                     depth -= 1;
                 }
