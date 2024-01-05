@@ -160,8 +160,8 @@ mod tests {
 
         let move_a = Move::new(MoveType::QueenQuiet, 1, 2);
         let move_b = Move::new(MoveType::RookQuiet, 4, 5);
-        hh.update(1, WHITE, EMPTY_HISTORY, move_a);
-        hh.update(1, WHITE, EMPTY_HISTORY, move_b);
+        hh.update(1, WHITE, EMPTY_HISTORY, move_a, true);
+        hh.update(1, WHITE, EMPTY_HISTORY, move_b, true);
 
         let (primary_killer, secondary_killer) = hh.get_killer_moves(1);
 
