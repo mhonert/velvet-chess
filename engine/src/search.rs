@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2023 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2024 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -747,7 +747,7 @@ impl Search {
 
         // Futile move pruning
         let mut allow_futile_move_pruning = false;
-        if !is_pv && depth <= 6 && !in_check && self.current_depth >= 8 {
+        if !is_pv && !improving && depth <= 6 && !in_check && self.current_depth >= 8 {
             let margin = (params::fp_margin_multiplier() << depth) + params::fp_base_margin();
             pos_score = pos_score.or_else(|| Some(self.ctx.eval()));
             let static_score = pos_score.unwrap();
