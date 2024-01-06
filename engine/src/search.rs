@@ -467,12 +467,12 @@ impl Search {
             self.inc_node_count();
             self.ctx.update_next_ply_entry(m, gives_check);
 
-            let mut result = next_ply!(self.ctx, self.rec_find_best_move(rx, a, -alpha, 1, depth - 1, &mut local_pv, false, false, NO_MOVE));
+            let mut result = next_ply!(self.ctx, self.rec_find_best_move(rx, a, -alpha, 1, depth - 1, &mut local_pv, false, NO_MOVE));
             if result == CANCEL_SEARCH {
                 iteration_cancelled = true;
             } else if -result > alpha && a != -beta {
                 // Repeat search if it falls outside the search window
-                result = next_ply!(self.ctx, self.rec_find_best_move(rx, -beta, -alpha, 1, depth - 1, &mut local_pv, false, false, NO_MOVE));
+                result = next_ply!(self.ctx, self.rec_find_best_move(rx, -beta, -alpha, 1, depth - 1, &mut local_pv, false, NO_MOVE));
                 if result == CANCEL_SEARCH {
                     iteration_cancelled = true;
                 }
@@ -532,7 +532,7 @@ impl Search {
     // find the best possible move in response to the current board position.
     fn rec_find_best_move(
         &mut self, rx: Option<&Receiver<Message>>, mut alpha: i16, beta: i16, ply: usize, mut depth: i32,
-        pv: &mut PrincipalVariation, played_null_move: bool, in_se_search: bool, se_move: Move
+        pv: &mut PrincipalVariation, in_se_search: bool, se_move: Move
     ) -> i16 {
         self.max_reached_depth = ply.max(self.max_reached_depth);
 
@@ -650,7 +650,6 @@ impl Search {
                     };
 
                     check_se = check_se
-                        && !played_null_move
                         && !in_se_search
                         && hash_move != NO_MOVE
                         && !in_check
@@ -727,7 +726,7 @@ impl Search {
 
                     self.ctx.update_next_ply_entry(NO_MOVE, false);
 
-                    let result = next_ply!(self.ctx, self.rec_find_best_move(rx, -beta, -beta + 1, ply + 1, depth - null_move_reduction(depth), &mut PrincipalVariation::default(), true, in_se_search, NO_MOVE));
+                    let result = next_ply!(self.ctx, self.rec_find_best_move(rx, -beta, -beta + 1, ply + 1, depth - null_move_reduction(depth), &mut PrincipalVariation::default(), in_se_search, NO_MOVE));
                     self.board.undo_null_move();
                     if result == CANCEL_SEARCH {
                         return CANCEL_SEARCH;
@@ -793,7 +792,7 @@ impl Search {
             if check_se && !gives_check && packed_curr_move == hash_move {
                 self.board.undo_move(curr_move, previous_piece, removed_piece_id);
                 let se_beta = sanitize_score(hash_score - depth as i16);
-                let result = same_ply!(self.ctx, self.rec_find_best_move(rx, se_beta - 1, se_beta, ply, depth / 2, &mut PrincipalVariation::default(), false, true, packed_curr_move));
+                let result = same_ply!(self.ctx, self.rec_find_best_move(rx, se_beta - 1, se_beta, ply, depth / 2, &mut PrincipalVariation::default(), true, packed_curr_move));
 
                 if result == CANCEL_SEARCH {
                     return CANCEL_SEARCH;
@@ -885,7 +884,7 @@ impl Search {
                 self.inc_node_count();
                 self.ctx.update_next_ply_entry(packed_curr_move, gives_check);
 
-                let mut result = next_ply!(self.ctx, self.rec_find_best_move(rx, a, -alpha, ply + 1, depth + se_extension - reductions - 1, &mut local_pv, played_null_move, in_se_search, NO_MOVE));
+                let mut result = next_ply!(self.ctx, self.rec_find_best_move(rx, a, -alpha, ply + 1, depth + se_extension - reductions - 1, &mut local_pv, in_se_search, NO_MOVE));
                 if result == CANCEL_SEARCH {
                     self.board.undo_move(curr_move, previous_piece, removed_piece_id);
                     return CANCEL_SEARCH;
@@ -893,7 +892,7 @@ impl Search {
 
                 if -result > alpha && (reductions > 0 || (-result < beta && a != -beta)) {
                     // Repeat search without reduction and with full window
-                    result = next_ply!(self.ctx, self.rec_find_best_move(rx, -beta, -alpha, ply + 1, depth + se_extension - 1, &mut local_pv, played_null_move, in_se_search, NO_MOVE));
+                    result = next_ply!(self.ctx, self.rec_find_best_move(rx, -beta, -alpha, ply + 1, depth + se_extension - 1, &mut local_pv, in_se_search, NO_MOVE));
                     if result == CANCEL_SEARCH {
                         self.board.undo_move(curr_move, previous_piece, removed_piece_id);
                         return CANCEL_SEARCH;
