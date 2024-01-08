@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2023 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2024 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -117,18 +117,21 @@ impl TranspositionTable {
         let mut lowest_sort_score = i16::MAX;
         for slot in segment.iter() {
             let entry = slot.load(Ordering::Relaxed);
-            if entry & HASHCHECK_MASK == hash_check {
-                // Only store entries for the same position if they are exact scores or have only slightly lower depth
-                // Reduces risk of storing invalid, path-dependent draw scores
-                if matches!(typ, ScoreType::Exact) || new_depth >= get_depth(entry) - 3 {
-                    slot.store(new_entry, Ordering::Relaxed);
-                }
-                return;
-            }
 
             let age = get_age(entry, generation);
             let depth = get_depth(entry);
-            let sort_score = depth as i16 - age as i16 * (MAX_DEPTH as i16 + 1);
+            let sort_score = if entry == 0 {
+                i16::MIN
+            } else if entry & HASHCHECK_MASK == hash_check {
+                if matches!(typ, ScoreType::Exact) || new_depth >= get_depth(entry) - 3 {
+                    i16::MIN
+                } else {
+                    depth as i16 - age as i16 * (MAX_DEPTH as i16 + 1)
+                }
+
+            } else {
+                depth as i16 - age as i16 * (MAX_DEPTH as i16 + 1)
+            };
 
             if sort_score < lowest_sort_score {
                 lowest_sort_score = sort_score;
@@ -247,7 +250,7 @@ pub fn get_age(entry: u64, curr_generation: u16) -> u16 {
 }
 
 fn calc_age(current: u16, previous: u16) -> u16 {
-    current.wrapping_sub(previous) & 0b11
+    current.wrapping_sub(previous) & GENERATION_MASK as u16
 }
 
 pub fn get_score_type(entry: u64) -> ScoreType {
@@ -291,7 +294,7 @@ mod tests {
         let tt = TranspositionTable::new(1);
         let score = MIN_SCORE;
         let hash = u64::MAX;
-        let m = NO_MOVE.with_score(score as i16);
+        let m = NO_MOVE.with_score(score);
         let tpm = TTPackedMove::new(m.to_u32());
         tt.write_entry(hash, 0, 1, tpm, ScoreType::Exact);
 
@@ -304,7 +307,7 @@ mod tests {
         let tt = TranspositionTable::new(1);
         let score = MAX_SCORE;
         let hash = u64::MAX;
-        let m = NO_MOVE.with_score(score as i16);
+        let m = NO_MOVE.with_score(score);
         let tpm = TTPackedMove::new(m.to_u32());
         tt.write_entry(hash, 0, 1, tpm, ScoreType::Exact);
 
@@ -315,25 +318,36 @@ mod tests {
 
     #[test]
     fn calculates_age_from_generation_diff() {
+        assert_eq!(7, MAX_GENERATION);
+        assert_eq!(GENERATION_MASK, MAX_GENERATION as u64);
+
         assert_eq!(calc_age(0, 0), 0);
         assert_eq!(calc_age(1, 1), 0);
         assert_eq!(calc_age(2, 2), 0);
         assert_eq!(calc_age(3, 3), 0);
+        assert_eq!(calc_age(4, 4), 0);
+        assert_eq!(calc_age(5, 5), 0);
+        assert_eq!(calc_age(6, 6), 0);
+        assert_eq!(calc_age(7, 7), 0);
 
         assert_eq!(calc_age(1, 0), 1);
         assert_eq!(calc_age(2, 0), 2);
         assert_eq!(calc_age(3, 0), 3);
+        assert_eq!(calc_age(4, 0), 4);
+        assert_eq!(calc_age(5, 0), 5);
+        assert_eq!(calc_age(6, 0), 6);
+        assert_eq!(calc_age(7, 0), 7);
 
         assert_eq!(calc_age(2, 1), 1);
         assert_eq!(calc_age(3, 1), 2);
-        assert_eq!(calc_age(0, 1), 3);
+        assert_eq!(calc_age(0, 1), 7);
 
         assert_eq!(calc_age(3, 2), 1);
-        assert_eq!(calc_age(0, 2), 2);
-        assert_eq!(calc_age(1, 2), 3);
+        assert_eq!(calc_age(0, 2), 6);
+        assert_eq!(calc_age(1, 2), 7);
 
-        assert_eq!(calc_age(0, 3), 1);
-        assert_eq!(calc_age(1, 3), 2);
-        assert_eq!(calc_age(2, 3), 3);
+        assert_eq!(calc_age(0, 3), 5);
+        assert_eq!(calc_age(1, 3), 6);
+        assert_eq!(calc_age(2, 3), 7);
     }
 }

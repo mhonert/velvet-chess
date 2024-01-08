@@ -237,7 +237,7 @@ impl Search {
 
         self.next_check_node_count = self.limits.node_limit().min(1000);
 
-        self.tt_gen = self.board.fullmove_count() % (MAX_GENERATION + 1);
+        self.tt_gen = self.board.halfmove_count() % (MAX_GENERATION + 1);
 
         let mut last_best_move: Move = NO_MOVE;
 
@@ -600,7 +600,8 @@ impl Search {
                 let packed_tt_move = get_hash_move(tt_entry);
                 hash_move = packed_tt_move.unpack(active_player, &self.board.bitboards);
                 let upm = hash_move.unpack();
-                hash_score = upm.score;
+                hash_score = to_root_relative_score(ply as i32, sanitize_score(upm.score));
+                hash_move = hash_move.with_score(hash_score);
 
                 is_tb_move = if self.is_tb_move(upm) {
                     hash_move = NO_MOVE;
@@ -613,7 +614,6 @@ impl Search {
                 };
 
                 if hash_move != NO_MOVE || is_tb_move {
-                    hash_score = to_root_relative_score(ply as i32, sanitize_score(hash_score));
                     let tt_depth = get_depth(tt_entry);
                     match get_score_type(tt_entry) {
                         ScoreType::Exact => {
@@ -910,13 +910,7 @@ impl Search {
                     if best_score >= beta {
                         if se_move == NO_MOVE {
                             let tt_move = best_move.with_score(from_root_relative_score(ply as i32, best_score)).to_tt_packed_move(active_player, &self.board.bitboards);
-                            self.tt.write_entry(
-                                hash,
-                                self.tt_gen,
-                                depth,
-                                tt_move,
-                                ScoreType::LowerBound,
-                            );
+                            self.tt.write_entry(hash, self.tt_gen, depth, tt_move, ScoreType::LowerBound);
                         }
 
                         if !curr_move.is_capture() {
@@ -955,14 +949,7 @@ impl Search {
 
         if se_move == NO_MOVE {
             let tt_move = best_move.with_score(from_root_relative_score(ply as i32, best_score)).to_tt_packed_move(active_player, &self.board.bitboards);
-
-            self.tt.write_entry(
-                hash,
-                self.tt_gen,
-                depth,
-                tt_move,
-                score_type,
-            );
+            self.tt.write_entry(hash, self.tt_gen, depth, tt_move, score_type);
         }
 
         best_score
@@ -1020,13 +1007,13 @@ impl Search {
         let mut best_score = position_score;
 
         let opp_player = active_player.flip();
-        let opp_king = self.board.king_pos(opp_player);
         while let Some(m) = self.ctx.next_good_capture_move(&mut self.board, threshold) {
             let upm = m.unpack();
-            if upm.end == opp_king {
-                return MATE_SCORE;
-            }
             let (previous_piece, captured_piece_id) = self.board.perform_move(upm);
+            if self.board.is_in_check(active_player) {
+                self.board.undo_move(upm, previous_piece, captured_piece_id);
+                continue;
+            }
             self.inc_node_count();
 
             let score = if self.board.is_insufficient_material_draw() {
