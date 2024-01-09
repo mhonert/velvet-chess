@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2023 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2024 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -261,18 +261,16 @@ fn scale_eval(mut score: i32) -> i16 {
         let bound = (MAX_EVAL * 3 / 2) as i32;
         if score > bound {
             score = bound + ((score - bound) / 2);
-            score = sanitize_eval_score(score);
         }
     } else if score < (MIN_EVAL / 2) as i32 {
         score = MIN_EVAL as i32 / 2 + ((score - MIN_EVAL as i32 / 2) / 2);
         let bound = (MIN_EVAL * 3 / 2) as i32;
         if score < bound {
             score = bound + ((score - bound) / 2);
-            score = sanitize_eval_score(score);
         }
     }
 
-    score as i16
+    sanitize_eval_score(score) as i16
 }
 
 fn calc_bucket_offsets(
