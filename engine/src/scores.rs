@@ -16,14 +16,14 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub const MAX_SCORE: i16 = 8191;
+pub const MAX_SCORE: i16 = 16383;
 pub const MIN_SCORE: i16 = -MAX_SCORE;
 
-pub const MATE_SCORE: i16 = 8150;
+pub const MATE_SCORE: i16 = 13000;
 pub const MATED_SCORE: i16 = -MATE_SCORE;
 const MATE_SCORE_RANGE: i16 = 499;
 
-pub const MAX_EVAL: i16 = MATE_SCORE - (MATE_SCORE_RANGE + 1);
+pub const MAX_EVAL: i16 = 9999;
 pub const MIN_EVAL: i16 = -MAX_EVAL;
 
 pub fn is_mate_or_mated_score(score: i16) -> bool {
@@ -52,7 +52,12 @@ pub fn mate_in(score: i16) -> Option<i16> {
 }
 
 pub fn sanitize_score(score: i16) -> i16 {
-    score.clamp(MATED_SCORE, MATE_SCORE)
+    let tmp = score.clamp(MATED_SCORE, MATE_SCORE);
+    if is_mate_or_mated_score(tmp) {
+        tmp
+    } else {
+        tmp.clamp(MIN_EVAL, MAX_EVAL)
+    }
 }
 
 pub fn sanitize_eval_score(score: i32) -> i32 {

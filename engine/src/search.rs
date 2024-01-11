@@ -26,7 +26,7 @@ use crate::move_gen::{is_killer, NEGATIVE_HISTORY_SCORE, QUIET_BASE_SCORE, is_va
 use crate::moves::{Move, MoveType, NO_MOVE, TTPackedMove, UnpackedMove};
 use crate::pieces::{EMPTY, P};
 use crate::pos_history::PositionHistory;
-use crate::scores::{mate_in, sanitize_score, MATED_SCORE, MATE_SCORE, MAX_SCORE, MIN_SCORE, is_mate_or_mated_score, is_eval_score, MAX_EVAL, MIN_EVAL};
+use crate::scores::{mate_in, sanitize_score, MATED_SCORE, MATE_SCORE, MAX_SCORE, MIN_SCORE, is_mate_or_mated_score, MAX_EVAL, MIN_EVAL};
 use crate::time_management::{SearchLimits, TimeManager};
 use crate::transposition_table::{from_root_relative_score, ScoreType, TranspositionTable, MAX_DEPTH, get_hash_move, to_root_relative_score, get_depth, get_score_type, MAX_GENERATION, update_generation};
 use crate::uci_move::UCIMove;
@@ -654,7 +654,6 @@ impl Search {
                         && hash_move != NO_MOVE
                         && !in_check
                         && depth >= 6
-                        && is_eval_score(hash_score)
                         && !self.ctx.is_recapture(move_history.last_opp, upm.end);
                 }
             }
@@ -733,7 +732,7 @@ impl Search {
                     }
                     let score = clamp_score(-result, worst_possible_score, best_possible_score);
                     if score >= beta {
-                        return if is_eval_score(score) { score } else { beta };
+                        return if is_mate_or_mated_score(score) { beta } else { score };
                     }
                 }
             }
@@ -750,7 +749,7 @@ impl Search {
             let margin = (params::fp_margin_multiplier() << depth) + params::fp_base_margin();
             pos_score = pos_score.or_else(|| Some(self.ctx.eval()));
             let static_score = pos_score.unwrap();
-            allow_futile_move_pruning = !is_mate_or_mated_score(static_score) && static_score + margin <= alpha;
+            allow_futile_move_pruning = static_score + margin <= alpha;
 
             if depth == 1 && static_score + params::razor_margin_multiplier() <= alpha {
                 let score = clamp_score(same_ply!(self.ctx, self.quiescence_search(active_player, alpha, beta, ply, pos_score)), worst_possible_score, best_possible_score);
@@ -766,7 +765,7 @@ impl Search {
 
         let mut is_singular = false;
 
-        let allow_lmp = !is_pv && !in_check && depth <= 2 && self.current_depth >= 7;
+        let allow_lmp = !is_pv && !in_check && depth <= 2 && self.current_depth >= 7 && !is_mate_or_mated_score(alpha) && !is_mate_or_mated_score(beta);
 
         self.hh.clear_killers(ply + 1);
 
@@ -790,8 +789,8 @@ impl Search {
             // Check, if the hash move is singular and should be extended
             let mut se_extension = 0;
             if check_se && !gives_check && packed_curr_move == hash_move {
-                self.board.undo_move(curr_move, previous_piece, removed_piece_id);
                 let se_beta = sanitize_score(hash_score - depth as i16);
+                self.board.undo_move(curr_move, previous_piece, removed_piece_id);
                 let result = same_ply!(self.ctx, self.rec_find_best_move(rx, se_beta - 1, se_beta, ply, depth / 2, &mut PrincipalVariation::default(), true, packed_curr_move));
 
                 if result == CANCEL_SEARCH {
@@ -809,7 +808,6 @@ impl Search {
 
                     return clamp_score(se_beta, worst_possible_score, best_possible_score);
                 }
-
                 self.board.perform_move(curr_move);
             };
 

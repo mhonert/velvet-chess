@@ -258,13 +258,13 @@ impl NeuralNetEval {
 fn scale_eval(mut score: i32) -> i16 {
     if score > (MAX_EVAL / 2) as i32  {
         score = MAX_EVAL as i32 / 2 + ((score - MAX_EVAL as i32 / 2) / 2);
-        let bound = (MAX_EVAL * 3 / 2) as i32;
+        let bound = MAX_EVAL as i32 / 2;
         if score > bound {
             score = bound + ((score - bound) / 2);
         }
     } else if score < (MIN_EVAL / 2) as i32 {
         score = MIN_EVAL as i32 / 2 + ((score - MIN_EVAL as i32 / 2) / 2);
-        let bound = (MIN_EVAL * 3 / 2) as i32;
+        let bound = MIN_EVAL as i32 / 2;
         if score < bound {
             score = bound + ((score - bound) / 2);
         }

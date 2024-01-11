@@ -154,26 +154,26 @@ pub struct Move(u32);
 
 // Move:
 //    31       23       15       7      0
-// 0b 0SSSSSSt ttttEEEE EEssssss ssssssss => 31 Bit
+// 0b SSSSSStt tttEEEEE Esssssss ssssssss => 32 Bits
 //
 // TTPackedMove:
-// 0b 0000SSSt ttttEEEE EEssssss ssssssss => 28 Bit
+// 0b 000SSStt tttEEEEE Esssssss ssssssss => 29 Bits
 
-const TYPE_SHIFT: u32 = 20;
+const TYPE_SHIFT: u32 = 21;
 const TYPE_MASK: u32 = 0b11111;
 
-const START_SHIFT: u32 = 25;
+const START_SHIFT: u32 = 26;
 const START_MASK: u32 = 0b111111;
 
-const PIECE_NUM_SHIFT: u32 = 25;
+const PIECE_NUM_SHIFT: u32 = 26;
 const PIECE_NUM_MASK: u32 = 0b111;
 
-const END_SHIFT: u32 = 14;
+const END_SHIFT: u32 = 15;
 const END_MASK: u32 = 0b111111;
 
-const MOVE_ONLY_MASK: u32 =  0b01111111111111111100000000000000;
+const MOVE_ONLY_MASK: u32 =  0b11111111111111111000000000000000;
 
-const SCORE_MASK: u32 = 0b11111111111111;
+const SCORE_MASK: u32 = 0b111111111111111;
 
 impl Hash for Move {
     #[inline]
@@ -214,7 +214,7 @@ impl Move {
     #[inline]
     pub fn with_score(&self, score: i16) -> Move {
         if score < 0 {
-            Move((self.0 & MOVE_ONLY_MASK) | (0b10000000000000 | (-score as u32)))
+            Move((self.0 & MOVE_ONLY_MASK) | (0b100000000000000 | (-score as u32)))
         } else {
             Move((self.0 & MOVE_ONLY_MASK) | (score as u32))
         }
@@ -225,7 +225,7 @@ impl Move {
     // (saves clearing those bits)
     pub fn with_initial_score(&self, score: i16) -> Move {
         if score < 0 {
-            Move(self.0 | (0b10000000000000 | (-score as u32)))
+            Move(self.0 | (0b100000000000000 | (-score as u32)))
         } else {
             Move(self.0 | (score as u32))
         }
@@ -264,9 +264,9 @@ impl Move {
             assert!(piece_num < 16, "invalid chess position (max. queen count [16] exceeded)");
             piece_num -= 8;
 
-            (self.0 & 0b00000001100011111111111111111111) | (0b111 << TYPE_SHIFT)
+            (self.0 & 0b00000011000111111111111111111111) | (0b111 << TYPE_SHIFT)
         } else {
-            self.0 & 0b00000001111111111111111111111111
+            self.0 & 0b00000011111111111111111111111111
         };
 
         TTPackedMove(packed_move | piece_num << PIECE_NUM_SHIFT)
@@ -303,8 +303,8 @@ impl Move {
 
     #[inline]
     pub fn score(&self) -> i16 {
-        if self.0 & 0b10000000000000 != 0 {
-            -((self.0 & 0b01111111111111) as i16)
+        if self.0 & 0b100000000000000 != 0 {
+            -((self.0 & 0b011111111111111) as i16)
         } else {
             (self.0 & SCORE_MASK) as i16
         }
@@ -343,7 +343,7 @@ impl TTPackedMove {
     pub fn unpack(&self, active_player: Color, boards: &BitBoards) -> Move {
         let mut src_piece_id = (self.0 >> TYPE_SHIFT) & 0b111;
         if src_piece_id == 0 {
-            return Move(self.0 & 0b00000001111111111111111111111111)
+            return Move(self.0 & 0b00000011111111111111111111111111)
         }
 
         let mut target_piece_id = src_piece_id;
@@ -362,7 +362,7 @@ impl TTPackedMove {
         let bb = boards.by_piece(active_player.piece(src_piece_id as i8));
         let start = bb.nth_pos(piece_num as usize);
 
-        Move((self.0 & 0b00000001100011111111111111111111) | target_piece_id << TYPE_SHIFT | start << START_SHIFT)
+        Move((self.0 & 0b00000011000111111111111111111111) | target_piece_id << TYPE_SHIFT | start << START_SHIFT)
     }
 
     #[inline]
@@ -371,7 +371,7 @@ impl TTPackedMove {
     }
 
     #[inline]
-    pub fn to_bits28(&self) -> u32 {
+    pub fn to_bits29(&self) -> u32 {
         self.0
     }
 }

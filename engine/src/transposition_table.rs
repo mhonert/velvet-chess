@@ -27,12 +27,12 @@ use std::sync::Arc;
 pub const MAX_HASH_SIZE_MB: i32 = 512 * 1024;
 
 // Transposition table entry
-// Bits 63 - 40: 24 highest bits of the hash
-const HASHCHECK_MASK: u64 = 0b1111111111111111111111110000000000000000000000000000000000000000;
+// Bits 63 - 41: 23 highest bits of the hash
+const HASHCHECK_MASK: u64 = 0b1111111111111111111111100000000000000000000000000000000000000000;
 
-// Bits 39 - 12: Move + Score
+// Bits 40 - 12: Move + Score
 const MOVE_BITSHIFT: u32 = 12;
-const MOVE_MASK: u64 = 0b1111111111111111111111111111;
+const MOVE_MASK: u64 = 0b11111111111111111111111111111;
 
 
 // Bits 11 - 5: Depth
@@ -111,27 +111,24 @@ impl TranspositionTable {
         new_entry |= generation as u64;
         new_entry |= (new_depth as u64) << DEPTH_BITSHIFT;
         new_entry |= (typ as u64) << SCORE_TYPE_BITSHIFT;
-        new_entry |= (scored_move.to_bits28() as u64) << MOVE_BITSHIFT;
+        new_entry |= (scored_move.to_bits29() as u64) << MOVE_BITSHIFT;
 
         let mut target_slot = MaybeUninit::uninit();
         let mut lowest_sort_score = i16::MAX;
         for slot in segment.iter() {
             let entry = slot.load(Ordering::Relaxed);
+            if entry & HASHCHECK_MASK == hash_check {
+                // Only store entries for the same position if they are exact scores or have only slightly lower depth
+                // Reduces risk of storing invalid, path-dependent draw scores
+                if matches!(typ, ScoreType::Exact) || new_depth >= get_depth(entry) - 3 {
+                    slot.store(new_entry, Ordering::Relaxed);
+                }
+                return;
+            }
 
             let age = get_age(entry, generation);
             let depth = get_depth(entry);
-            let sort_score = if entry == 0 {
-                i16::MIN
-            } else if entry & HASHCHECK_MASK == hash_check {
-                if matches!(typ, ScoreType::Exact) || new_depth >= get_depth(entry) - 3 {
-                    i16::MIN
-                } else {
-                    depth as i16 - age as i16 * (MAX_DEPTH as i16 + 1)
-                }
-
-            } else {
-                depth as i16 - age as i16 * (MAX_DEPTH as i16 + 1)
-            };
+            let sort_score = if entry == 0 { i16::MIN } else { depth as i16 - age as i16 * (MAX_DEPTH as i16 + 1) };
 
             if sort_score < lowest_sort_score {
                 lowest_sort_score = sort_score;
@@ -284,7 +281,7 @@ mod tests {
 
         let (entry, _) = tt.get_entry(hash);
 
-        assert_eq!(tpm.to_bits28(), get_hash_move(entry).to_bits28());
+        assert_eq!(tpm.to_bits29(), get_hash_move(entry).to_bits29());
         assert_eq!(depth, get_depth(entry));
         assert_eq!(typ as u8, get_score_type(entry) as u8);
     }
@@ -299,7 +296,7 @@ mod tests {
         tt.write_entry(hash, 0, 1, tpm, ScoreType::Exact);
 
         let (entry, _) = tt.get_entry(hash);
-        assert_eq!(tpm.to_bits28(), get_hash_move(entry).to_bits28());
+        assert_eq!(tpm.to_bits29(), get_hash_move(entry).to_bits29());
     }
 
     #[test]
@@ -312,7 +309,7 @@ mod tests {
         tt.write_entry(hash, 0, 1, tpm, ScoreType::Exact);
 
         let (entry, _) = tt.get_entry(hash);
-        assert_eq!(tpm.to_bits28(), get_hash_move(entry).to_bits28());
+        assert_eq!(tpm.to_bits29(), get_hash_move(entry).to_bits29());
     }
 
 
