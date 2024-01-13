@@ -575,8 +575,6 @@ impl Search {
             depth = (depth + 1).max(1);
         }
 
-        let mut pos_score = None;
-
         let hash = self.board.get_hash();
 
         let mut hash_move = NO_MOVE;
@@ -624,7 +622,6 @@ impl Search {
                                 }
                                 return hash_score;
                             }
-                            pos_score = Some(hash_score);
                             check_se = tt_depth >= depth - 3;
                         }
 
@@ -644,7 +641,6 @@ impl Search {
                                 if let Some(slot) = tt_slot { update_generation(tt_entry, slot, self.tt_gen) }
                                 return hash_score;
                             }
-                            pos_score = Some(hash_score);
                             check_se = tt_depth >= depth - 3;
                         }
                     };
@@ -696,7 +692,7 @@ impl Search {
 
         // Quiescence search
         if depth <= 0 || ply >= (MAX_DEPTH - 16) {
-            return clamp_score(same_ply!(self.ctx, self.quiescence_search(active_player, alpha, beta, ply, pos_score)), worst_possible_score, best_possible_score);
+            return clamp_score(same_ply!(self.ctx, self.quiescence_search(active_player, alpha, beta, ply)), worst_possible_score, best_possible_score);
         }
 
         self.ctx.set_eval(if in_check { MIN_SCORE } else { self.board.eval() });
@@ -705,8 +701,7 @@ impl Search {
         if !is_pv && !in_check {
             if depth <= 2 {
                 // Jump directly to QS, if position is already so good, that it is unlikely for the opponent to counter it within the remaining search depth
-                pos_score = pos_score.or_else(|| Some(self.ctx.eval()));
-                let score = pos_score.unwrap();
+                let score = self.ctx.eval();
 
                 let margin = if improving {
                     (params::rfp_margin_multiplier_improving() << depth) + params::rfp_base_margin_improving()
@@ -714,12 +709,12 @@ impl Search {
                     (params::rfp_margin_multiplier_not_improving() << depth) + params::rfp_base_margin_not_improving()
                 };
                 if self.current_depth > 7 && !is_mate_or_mated_score(score) && score - margin >= beta {
-                    return clamp_score(same_ply!(self.ctx, self.quiescence_search(active_player, alpha, beta, ply, pos_score)), worst_possible_score, best_possible_score);
+                    return clamp_score(same_ply!(self.ctx, self.quiescence_search(active_player, alpha, beta, ply)), worst_possible_score, best_possible_score);
                 }
             } else if !skip_null_move {
                 // Null move pruning
-                pos_score = pos_score.or_else(|| Some(self.ctx.eval()));
-                if pos_score.unwrap() >= beta && self.board.has_non_pawns(active_player) {
+                let score = self.ctx.eval();
+                if score >= beta && self.board.has_non_pawns(active_player) {
                     self.board.perform_null_move();
                     self.tt.prefetch(self.board.get_hash());
 
@@ -747,12 +742,11 @@ impl Search {
         let mut allow_futile_move_pruning = false;
         if !is_pv && !improving && depth <= 6 && !in_check && self.current_depth >= 8 {
             let margin = (params::fp_margin_multiplier() << depth) + params::fp_base_margin();
-            pos_score = pos_score.or_else(|| Some(self.ctx.eval()));
-            let static_score = pos_score.unwrap();
+            let static_score = self.ctx.eval();
             allow_futile_move_pruning = static_score + margin <= alpha;
 
             if depth == 1 && static_score + params::razor_margin_multiplier() <= alpha {
-                let score = clamp_score(same_ply!(self.ctx, self.quiescence_search(active_player, alpha, beta, ply, pos_score)), worst_possible_score, best_possible_score);
+                let score = clamp_score(same_ply!(self.ctx, self.quiescence_search(active_player, alpha, beta, ply)), worst_possible_score, best_possible_score);
                 if score <= alpha {
                     return score;
                 }
@@ -983,10 +977,10 @@ impl Search {
         }
     }
 
-    pub fn quiescence_search(&mut self, active_player: Color, mut alpha: i16, beta: i16, ply: usize, pos_score: Option<i16>) -> i16 {
+    pub fn quiescence_search(&mut self, active_player: Color, mut alpha: i16, beta: i16, ply: usize) -> i16 {
         self.max_reached_depth = ply.max(self.max_reached_depth);
 
-        let position_score = pos_score.unwrap_or_else(|| { self.board.eval() });
+        let position_score = self.board.eval();
         if ply >= MAX_DEPTH {
             return position_score;
         }
@@ -1017,7 +1011,7 @@ impl Search {
             let score = if self.board.is_insufficient_material_draw() {
                 -self.effective_draw_score()
             } else {
-                -next_ply!(self.ctx, self.quiescence_search(opp_player, -beta, -alpha, ply + 1, None))
+                -next_ply!(self.ctx, self.quiescence_search(opp_player, -beta, -alpha, ply + 1))
             };
             self.board.undo_move(upm, previous_piece, captured_piece_id);
 
