@@ -178,7 +178,7 @@ impl MoveList {
                         if self.checked_priority_moves.contains(&m) {
                             continue;
                         }
-                        if self.is_bad_capture(m, board, 0) {
+                        if self.is_bad_capture(m, board) {
                             self.bad_capture_moves.push(m);
                             continue;
                         }
@@ -279,9 +279,9 @@ impl MoveList {
     }
 
     #[inline(always)]
-    pub fn next_good_capture_move(&mut self, board: &mut Board, see_threshold: i16) -> Option<Move> {
+    pub fn next_good_capture_move(&mut self, board: &mut Board) -> Option<Move> {
         while let Some(m) = self.capture_moves.pop() {
-            if !self.is_bad_capture(m, board, see_threshold) {
+            if !self.is_bad_capture(m, board) {
                 return Some(m);
             }
         }
@@ -535,7 +535,7 @@ impl MoveList {
 
     // If the given move is a bad capture (i.e. has a negative SEE value), the search can be skipped for now and the move will be stored in a separate "bad capture" list
     #[inline(always)]
-    fn is_bad_capture(&mut self, m: Move, board: &mut Board, see_threshold: i16) -> bool {
+    fn is_bad_capture(&mut self, m: Move, board: &mut Board) -> bool {
         let upm = m.unpack();
 
         if matches!(upm.move_type, MoveType::PawnEnPassant) {
@@ -550,7 +550,6 @@ impl MoveList {
                 upm.end as usize,
                 own_piece_id,
                 captured_piece_id,
-                see_threshold,
                 board.occupancy_bb(),
             )
     }

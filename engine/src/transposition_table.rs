@@ -128,7 +128,7 @@ impl TranspositionTable {
 
             let age = get_age(entry, generation);
             let depth = get_depth(entry);
-            let sort_score = if entry == 0 { i16::MIN } else { depth as i16 - age as i16 * (MAX_DEPTH as i16 + 1) };
+            let sort_score = depth as i16 - age as i16 * (MAX_DEPTH as i16 + 1);
 
             if sort_score < lowest_sort_score {
                 lowest_sort_score = sort_score;

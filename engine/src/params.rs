@@ -31,8 +31,6 @@ tunable_params!(
     rfp_margin_multiplier_improving = 22
     rfp_base_margin_not_improving = 23
     rfp_margin_multiplier_not_improving = 28
-
-    qs_see_threshold = 111
 );
 
 tunable_array_params!(

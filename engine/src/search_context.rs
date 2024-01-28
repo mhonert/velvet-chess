@@ -80,8 +80,8 @@ impl SearchContext {
         self.movelist_mut().generate_qs_captures(board);
     }
 
-    pub fn next_good_capture_move(&mut self, board: &mut Board, threshold: i16) -> Option<Move> {
-        self.movelist_mut().next_good_capture_move(board, threshold)
+    pub fn next_good_capture_move(&mut self, board: &mut Board) -> Option<Move> {
+        self.movelist_mut().next_good_capture_move(board)
     }
 
     pub fn reset_root_moves(&mut self) {

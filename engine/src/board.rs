@@ -829,8 +829,7 @@ impl Board {
        after applying all immediate and discovered re-capture attacks.
     */
     pub fn has_negative_see(
-        &mut self, mut opp_color: Color, start: usize, end: usize, own_piece_id: i8, captured_piece_id: i8,
-        threshold: i16, mut occupied: BitBoard,
+        &mut self, mut opp_color: Color, start: usize, end: usize, own_piece_id: i8, captured_piece_id: i8, mut occupied: BitBoard,
     ) -> bool {
         let mut score = params::see_piece_values(captured_piece_id as usize);
         occupied = occupied & !(1 << start as u64);
@@ -866,9 +865,9 @@ impl Board {
         }
 
         if own_turn {
-            -score < threshold
+            -score < 0
         } else {
-            score < threshold
+            score < 0
         }
     }
 
@@ -1360,7 +1359,7 @@ mod tests {
         ];
 
         let mut board = Board::new(&items, WHITE, CastlingState::default(), None, 0, 1, CastlingRules::default());
-        assert!(!board.has_negative_see(BLACK, 52, 44, R, P, 0, board.occupancy_bb()));
+        assert!(!board.has_negative_see(BLACK, 52, 44, R, P, board.occupancy_bb()));
     }
 
     #[test]
@@ -1379,7 +1378,7 @@ mod tests {
         ];
 
         let mut board = Board::new(&items, BLACK, CastlingState::default(), None, 0, 1, CastlingRules::default());
-        assert!(!board.has_negative_see(WHITE, 52, 44, R, P, 0, board.occupancy_bb()));
+        assert!(!board.has_negative_see(WHITE, 52, 44, R, P, board.occupancy_bb()));
     }
 
     #[test]
