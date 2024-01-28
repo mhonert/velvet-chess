@@ -694,7 +694,9 @@ impl Search {
             return clamp_score(same_ply!(self.ctx, self.quiescence_search(is_pv, active_player, alpha, beta, ply, in_check, pv)), worst_possible_score, best_possible_score);
         }
 
-        self.ctx.set_eval(if in_check { MIN_SCORE } else { self.board.eval() });
+        self.ctx.set_eval(if in_check { MIN_SCORE } else {
+            self.tt.get_or_calc_eval(self.board.get_hash(), || self.board.eval())
+        });
         let improving = self.ctx.is_improving();
 
         if !is_pv && !in_check {
@@ -777,6 +779,8 @@ impl Search {
             }
 
             let (previous_piece, removed_piece_id) = self.board.perform_move(curr_move);
+            self.tt.prefetch(self.board.get_hash());
+
             let gives_check = self.board.is_in_check(active_player.flip());
 
             // Check, if the hash move is singular and should be extended
@@ -866,8 +870,6 @@ impl Search {
             if skip {
                 self.board.undo_move(curr_move, previous_piece, removed_piece_id);
             } else {
-                self.tt.prefetch(self.board.get_hash());
-
                 evaluated_move_count += 1;
 
                 let mut local_pv = PrincipalVariation::default();
@@ -988,7 +990,9 @@ impl Search {
     fn qs<const PV: bool>(&mut self, active_player: Color, mut alpha: i16, beta: i16, ply: usize, in_check: bool, pv: &mut PrincipalVariation) -> i16 {
         self.max_reached_depth = ply.max(self.max_reached_depth);
 
-        let position_score = if in_check { MATED_SCORE + ply as i16 } else { self.board.eval() };
+        let position_score = if in_check { MATED_SCORE + ply as i16 } else {
+            self.tt.get_or_calc_eval(self.board.get_hash(), || self.board.eval())
+        };
 
         if ply >= MAX_DEPTH {
             return position_score;
@@ -1019,6 +1023,7 @@ impl Search {
         } {
             let upm = m.unpack();
             let (previous_piece, captured_piece_id) = self.board.perform_move(upm);
+            self.tt.prefetch(self.board.get_hash());
             if self.board.is_in_check(active_player) {
                 self.board.undo_move(upm, previous_piece, captured_piece_id);
                 continue;

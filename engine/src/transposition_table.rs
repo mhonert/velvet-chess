@@ -63,6 +63,10 @@ const SCORE_TYPE_MASK: u64 = 0b11;
 pub const MAX_GENERATION: u16 = 7;
 const GENERATION_MASK: u64 = 0b111;
 
+const EVAL_SCORE_MASK: u64 = 0b111111111111111;
+const EVAL_HASHCHECK_MASK: u64 = !EVAL_SCORE_MASK;
+
+
 const SLOTS_PER_SEGMENT: usize = 4;
 
 pub const DEFAULT_SIZE_MB: u64 = 32;
@@ -115,7 +119,7 @@ impl TranspositionTable {
 
         let mut target_slot = MaybeUninit::uninit();
         let mut lowest_sort_score = i16::MAX;
-        for slot in segment.iter() {
+        for slot in segment.iter().skip(1) {
             let entry = slot.load(Ordering::Relaxed);
             if entry & HASHCHECK_MASK == hash_check {
                 // Only store entries for the same position if they are exact scores or have only slightly lower depth
@@ -144,7 +148,7 @@ impl TranspositionTable {
         let slots = unsafe { self.segments.0.get_unchecked(index) };
         let hash_check = hash & HASHCHECK_MASK;
 
-        for value_slot in slots.iter() {
+        for value_slot in slots.iter().skip(1) {
             let value_entry = value_slot.load(Ordering::Relaxed);
             if value_entry & HASHCHECK_MASK == hash_check {
                 return (value_entry, Some(value_slot));
@@ -152,6 +156,23 @@ impl TranspositionTable {
         }
 
         (0, None)
+    }
+
+    pub fn get_or_calc_eval<F: FnOnce() -> i16>(&self, hash: u64, calc_eval: F) -> i16 {
+        let index = self.calc_index(hash);
+        let slots = unsafe { self.segments.0.get_unchecked(index) };
+        let hash_check = hash & EVAL_HASHCHECK_MASK;
+        let slot = slots.first().unwrap();
+        let entry = slot.load(Ordering::Relaxed);
+        if entry & EVAL_HASHCHECK_MASK == hash_check {
+            return decode_score(entry);
+        }
+
+        let score = calc_eval();
+        let entry = hash_check | encode_score(score);
+        slot.store(entry, Ordering::Relaxed);
+
+        score
     }
 
     fn calc_index(&self, hash: u64) -> usize {
@@ -196,6 +217,22 @@ impl TranspositionTable {
             .count()
             * 1000
             / 1024
+    }
+}
+
+fn decode_score(entry: u64) -> i16 {
+    if entry & 0b100000000000000 != 0 {
+        -((entry & 0b011111111111111) as i16)
+    } else {
+        (entry & 0b011111111111111) as i16
+    }
+}
+
+fn encode_score(score: i16) -> u64 {
+    if score < 0 {
+         0b100000000000000 | (-score as u64)
+    } else {
+        score as u64
     }
 }
 
