@@ -530,7 +530,7 @@ impl Search {
     // Recursively calls itself with alternating player colors to
     // find the best possible move in response to the current board position.
     fn rec_find_best_move(
-        &mut self, rx: Option<&Receiver<Message>>, mut alpha: i16, beta: i16, ply: usize, mut depth: i32,
+        &mut self, rx: Option<&Receiver<Message>>, mut alpha: i16, mut beta: i16, ply: usize, mut depth: i32,
         pv: &mut PrincipalVariation, in_se_search: bool, se_move: Move
     ) -> i16 {
         self.max_reached_depth = ply.max(self.max_reached_depth);
@@ -555,20 +555,18 @@ impl Search {
 
         let is_pv = (alpha + 1) < beta; // in a principal variation search, non-PV nodes are searched with a zero-window
 
-        // Prune, if even the best possible score cannot improve alpha (because a shorter mate has already been found)
+        // Mate distance pruning
         let mut best_possible_score = MATE_SCORE - (ply as i16 + 1);
-        if best_possible_score <= alpha {
-            return best_possible_score;
+        let mut worst_possible_score = MATED_SCORE + (ply as i16);
+
+        alpha = alpha.max(worst_possible_score);
+        beta = beta.min(best_possible_score);
+        if alpha >= beta {
+            return alpha;
         }
 
         let in_check = self.ctx.in_check();
-        // Prune, if worst possible score is already sufficient to reach beta
-        let mut worst_possible_score = MATED_SCORE + ply as i16 + if in_check { 0 } else { 1 };
-        if worst_possible_score >= beta {
-            return worst_possible_score;
-        }
 
-        let active_player = self.board.active_player();
         if in_check && se_move == NO_MOVE {
             // Extend search when in check
             depth = (depth + 1).max(1);
@@ -590,6 +588,7 @@ impl Search {
 
         let move_history = self.ctx.move_history();
 
+        let active_player = self.board.active_player();
         if se_move == NO_MOVE {
             // Check transposition table
             let (tt_entry, tt_slot) = self.tt.get_entry(hash);
