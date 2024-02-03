@@ -25,6 +25,7 @@ use crate::pieces::{B, N, P, Q, R};
 use std::cmp::Reverse;
 use std::mem::swap;
 use crate::magics::{get_bishop_attacks, get_queen_attacks, get_rook_attacks};
+use crate::scores::MAX_SCORE;
 
 const PRIMARY_KILLER_SCORE: i16 = -2200;
 const SECONDARY_KILLER_SCORE: i16 = -2250;
@@ -260,7 +261,7 @@ impl MoveList {
             let active_player = board.active_player();
             self.moves.retain(|&m| board.is_legal_move(active_player, m.unpack()));
 
-            self.moves.sort_by_key(|m| Reverse(m.score()));
+            self.moves.sort_by_key(|&m| Reverse(if m == self.scored_hash_move { MAX_SCORE } else { m.score() }));
             self.moves_generated = true;
         }
 

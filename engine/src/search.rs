@@ -243,7 +243,7 @@ impl Search {
 
         let active_player = self.board.active_player();
 
-        self.ctx.prepare_moves(active_player, NO_MOVE, EMPTY_HISTORY);
+        self.ctx.prepare_moves(active_player, self.get_hash_move(), EMPTY_HISTORY);
 
         self.set_stopped(false);
 
@@ -708,7 +708,7 @@ impl Search {
                 } else {
                     (params::rfp_margin_multiplier_not_improving() << depth) + params::rfp_base_margin_not_improving()
                 };
-                if self.current_depth > 7 && !is_mate_or_mated_score(score) && score - margin >= beta {
+                if self.current_depth > 7 && score - margin >= beta {
                     return clamp_score(same_ply!(self.ctx, self.quiescence_search(false, active_player, alpha, beta, ply, in_check, pv)), worst_possible_score, best_possible_score);
                 }
             } else if !skip_null_move {
@@ -759,7 +759,7 @@ impl Search {
 
         let mut is_singular = false;
 
-        let allow_lmp = !is_pv && !in_check && depth <= 2 && self.current_depth >= 7 && !is_mate_or_mated_score(alpha) && !is_mate_or_mated_score(beta);
+        let allow_lmp = !is_pv && !in_check && depth <= 2 && self.current_depth >= 7;
 
         self.hh.clear_killers(ply + 1);
 
@@ -909,6 +909,10 @@ impl Search {
                             self.hh.update(ply, active_player, move_history, best_move, curr_move.score > QUIET_BASE_SCORE)
                         }
 
+                        if is_pv {
+                            pv.update(best_move, &mut local_pv);
+                        }
+
                         return best_score;
                     }
 
@@ -1055,6 +1059,19 @@ impl Search {
         }
 
         best_score
+    }
+
+    fn get_hash_move(&self) -> Move {
+       let (entry, _) = self.tt.get_entry(self.board.get_hash());
+        let tt_move = get_hash_move(entry);
+        let active_player = self.board.active_player();
+        let hash_move = tt_move.unpack(active_player, &self.board.bitboards);
+
+        if is_valid_move(&self.board, active_player, hash_move.unpack()) {
+            hash_move
+        } else {
+            NO_MOVE
+        }
     }
 
     pub fn determine_skipped_moves(&mut self, search_moves: Vec<String>) -> Vec<Move> {
@@ -1508,7 +1525,7 @@ impl HelperThread {
                     sub_search.player_pov = sub_search.board.active_player();
                     sub_search.tt_gen = sub_search.board.fullmove_count() % (MAX_GENERATION + 1);
 
-                    sub_search.ctx.prepare_moves(sub_search.board.active_player(), NO_MOVE, EMPTY_HISTORY);
+                    sub_search.ctx.prepare_moves(sub_search.board.active_player(), sub_search.get_hash_move(), EMPTY_HISTORY);
 
                     let mut multi_pv_state = vec![
                         (
