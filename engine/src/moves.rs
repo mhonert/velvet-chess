@@ -28,8 +28,8 @@ use crate::colors::Color;
 #[derive(Clone, Copy, Default, Debug, Eq, PartialEq)]
 pub enum MoveType {
     #[default]
-    TableBaseMarker  = 0b00_000,
-    Unused = 0b01_000,
+    Unused = 0b00_000,
+    TableBaseMarker = 0b01_000,
     Unused2 = 0b11_000,
 
     PawnQuiet   = 0b00_001,
