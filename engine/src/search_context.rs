@@ -72,6 +72,10 @@ impl SearchContext {
         unsafe { self.movelists.get_unchecked_mut(self.ml_idx) }
     }
 
+    fn movelist(&self) -> &MoveList {
+        unsafe { self.movelists.get_unchecked(self.ml_idx) }
+    }
+
     pub fn next_move(&mut self, ply: usize, hh: &HistoryHeuristics, board: &mut Board) -> Option<Move> {
         self.movelist_mut().next_move(ply, hh, board)
     }
@@ -112,6 +116,10 @@ impl SearchContext {
             last_opp: curr.opp_move,
             prev_own: prev_opp.opp_move,
         }
+    }
+
+    pub fn root_move_count(&self) -> usize {
+        self.movelist().root_move_count()
     }
 
     fn ply_entry(&self, idx: usize) -> &PlyEntry {

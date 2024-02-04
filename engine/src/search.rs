@@ -301,7 +301,7 @@ impl Search {
                 let mut local_pv = PrincipalVariation::default();
                 let (score, mut window_step, mut window_size) = multi_pv_state[multi_pv_num - 1];
 
-                let (cancelled, move_num, best_move, current_pv, new_window_step) =
+                let (cancelled, best_move, current_pv, new_window_step) =
                     self.root_search(rx, &local_skipped_moves, window_step, window_size, score, depth, &mut local_pv);
                 if new_window_step > window_step {
                     window_step = new_window_step;
@@ -347,7 +347,7 @@ impl Search {
                     break;
                 }
 
-                if depth == 1 && multi_pv_num == 1 && move_num == 1 {
+                if depth == 1 && multi_pv_num == 1 && self.ctx.root_move_count() == 1 {
                     self.time_mgr.reduce_timelimit();
                 }
             }
@@ -382,7 +382,7 @@ impl Search {
 
     fn root_search(
         &mut self, rx: Option<&Receiver<Message>>, skipped_moves: &[Move], window_step: i16, window_size: i16,
-        score: i16, depth: i32, pv: &mut PrincipalVariation) -> (bool, i32, Move, Option<String>, i16) {
+        score: i16, depth: i32, pv: &mut PrincipalVariation) -> (bool, Move, Option<String>, i16) {
         let mut alpha = if depth > 7 { score - window_size } else { MIN_SCORE };
         let mut beta = if depth > 7 { score + window_size } else { MAX_SCORE };
 
@@ -392,7 +392,7 @@ impl Search {
         loop {
             pv.clear();
 
-            let (cancelled, move_num, best_move, current_pv) =
+            let (cancelled, best_move, current_pv) =
                 self.bounded_root_search(rx, skipped_moves, alpha, beta, depth, pv);
 
             // Bulk update of global node count
@@ -406,7 +406,7 @@ impl Search {
             }
 
             if best_move == NO_MOVE || cancelled {
-                return (cancelled, move_num, best_move, current_pv, step);
+                return (cancelled, best_move, current_pv, step);
             }
 
             let best_score = best_move.score();
@@ -415,7 +415,7 @@ impl Search {
             } else if best_score >= beta {
                 beta = MAX_SCORE.min(beta.saturating_add(step));
             } else {
-                return (false, move_num, best_move, current_pv, step);
+                return (false, best_move, current_pv, step);
             }
 
             step = (MATE_SCORE / 2).min(step.saturating_mul(2));
@@ -425,7 +425,7 @@ impl Search {
     // Root search within the bounds of an aspiration window (alpha...beta)
     fn bounded_root_search(
         &mut self, rx: Option<&Receiver<Message>>, skipped_moves: &[Move], mut alpha: i16, beta: i16, depth: i32, pv: &mut PrincipalVariation
-    ) -> (bool, i32, Move, Option<String>) {
+    ) -> (bool, Move, Option<String>) {
         let mut move_num = 0;
         let mut a = -beta;
         let mut best_move: Move = NO_MOVE;
@@ -489,7 +489,7 @@ impl Search {
                 best_move = m.with_score(score);
 
                 if best_score <= alpha || best_score >= beta {
-                    return (false, move_num, best_move, current_pv);
+                    return (false, best_move, current_pv);
                 }
 
                 pv.update(best_move, &mut local_pv);
@@ -511,7 +511,7 @@ impl Search {
 
         self.ctx.reorder_root_moves(best_move, self.is_helper_thread);
 
-        (iteration_cancelled, move_num, best_move, current_pv)
+        (iteration_cancelled, best_move, current_pv)
     }
 
     fn node_count(&self) -> u64 {
@@ -653,11 +653,6 @@ impl Search {
             }
 
             if !is_tb_move {
-                if hash_move == NO_MOVE && depth > 3 {
-                    // Reduce nodes without hash move from transposition table
-                    depth -= 1;
-                }
-
                 // Probe tablebases
                 if depth.max(0) >= self.tb_probe_depth {
                     if let Some(tb_result) = self.board.probe_wdl() {
@@ -665,7 +660,7 @@ impl Search {
 
                         match tb_result {
                             TBResult::Draw => {
-                                self.tt.write_entry(hash, self.tt_gen, depth, self.tb_move(0), ScoreType::Exact);
+                                self.tt.write_entry(hash, self.tt_gen, MAX_DEPTH as i32, self.tb_move(0), ScoreType::Exact);
                                 return 0;
                             },
                             TBResult::Win => {
@@ -675,15 +670,19 @@ impl Search {
                                 best_possible_score = -400;
                             },
                             TBResult::CursedWin => {
-                                self.tt.write_entry(hash, self.tt_gen, depth, self.tb_move(1), ScoreType::Exact);
+                                self.tt.write_entry(hash, self.tt_gen, MAX_DEPTH as i32, self.tb_move(1), ScoreType::Exact);
                                 return 1;
                             },
                             TBResult::BlessedLoss => {
-                                self.tt.write_entry(hash, self.tt_gen, depth, self.tb_move(-1), ScoreType::Exact);
+                                self.tt.write_entry(hash, self.tt_gen, MAX_DEPTH as i32, self.tb_move(-1), ScoreType::Exact);
                                 return -1;
                             }
                         }
                     }
+                }
+                if hash_move == NO_MOVE && depth > 3 {
+                    // Reduce nodes without hash move from transposition table
+                    depth -= 1;
                 }
             }
         }
@@ -1542,7 +1541,7 @@ impl HelperThread {
                         let mut local_skipped_moves = skipped_moves.clone();
                         for multi_pv_num in 1..=multi_pv_count {
                             let (score, mut window_size, mut window_step) = multi_pv_state[multi_pv_num - 1];
-                            let (_, move_count, best_move, _, new_window_step) = sub_search.root_search(
+                            let (_, best_move, _, new_window_step) = sub_search.root_search(
                                 None,
                                 &local_skipped_moves,
                                 window_step,
@@ -1559,7 +1558,7 @@ impl HelperThread {
                                 window_size /= 2;
                             }
 
-                            if move_count == 0 {
+                            if sub_search.ctx.root_move_count() == 0 {
                                 break;
                             } else {
                                 found_moves = true;

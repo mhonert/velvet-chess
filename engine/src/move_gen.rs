@@ -111,6 +111,10 @@ impl MoveList {
         }
     }
 
+    pub fn root_move_count(&self) -> usize {
+        self.moves.len()
+    }
+
     #[inline]
     pub fn add_moves(&mut self, hh: &HistoryHeuristics, typ: MoveType, pos: i8, target_bb: BitBoard) {
         for end in target_bb {

@@ -124,7 +124,7 @@ impl TimeManager {
 
     pub fn reduce_timelimit(&mut self) {
         self.allow_time_extension = false;
-        self.timelimit_ms /= 4;
+        self.timelimit_ms /= 32;
     }
 }
 
