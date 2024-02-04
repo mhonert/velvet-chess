@@ -82,9 +82,15 @@ pub mod tb {
 
     impl ProbeTB for Board {
         fn probe_wdl(&self) -> Option<TBResult> {
-            if self.piece_count() > fathomrs::tb::max_piece_count() || self.halfmove_clock() != 0 || self.get_enpassant_state() != 0 || self.any_castling() {
+            if self.halfmove_clock() != 0 || self.any_castling() || self.piece_count() > fathomrs::tb::max_piece_count() {
                 return None;
             }
+
+            let ep = if let Some(target) = self.enpassant_target() {
+                v_mirror_i8(target as i8) as u16
+            } else {
+                0
+            };
 
             fathomrs::tb::probe_wdl(
                 self.get_all_piece_bitboard(WHITE).0.swap_bytes(),
@@ -95,15 +101,21 @@ pub mod tb {
                 (self.get_bitboard(B) | self.get_bitboard(-B)).0.swap_bytes(),
                 (self.get_bitboard(N) | self.get_bitboard(-N)).0.swap_bytes(),
                 (self.get_bitboard(P) | self.get_bitboard(-P)).0.swap_bytes(),
-                0,
+                ep,
                 self.active_player().is_white()
             )
         }
 
         fn probe_root(&self) -> Option<(TBResult, Vec<Move>)> {
-            if self.piece_count() > fathomrs::tb::max_piece_count() || self.get_enpassant_state() != 0 || self.any_castling() {
+            if self.any_castling() || self.piece_count() > fathomrs::tb::max_piece_count() {
                 return None;
             }
+
+            let ep = if let Some(target) = self.enpassant_target() {
+                v_mirror_i8(target as i8) as u16
+            } else {
+                0
+            };
 
             let (result, moves) = fathomrs::tb::probe_root(
                 self.get_all_piece_bitboard(WHITE).0.swap_bytes(),
@@ -115,7 +127,7 @@ pub mod tb {
                 (self.get_bitboard(N) | self.get_bitboard(-N)).0.swap_bytes(),
                 (self.get_bitboard(P) | self.get_bitboard(-P)).0.swap_bytes(),
                 self.halfmove_clock(),
-                0,
+                ep,
                 self.active_player().is_white()
             );
 
