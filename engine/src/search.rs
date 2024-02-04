@@ -584,7 +584,6 @@ impl Search {
         let mut best_score = worst_possible_score;
         let mut best_move = NO_MOVE;
         let mut score_type = ScoreType::UpperBound;
-        let mut is_tb_move = false;
 
         let move_history = self.ctx.move_history();
 
@@ -599,7 +598,7 @@ impl Search {
                 hash_score = to_root_relative_score(ply as i32, sanitize_score(upm.score));
                 hash_move = hash_move.with_score(hash_score);
 
-                is_tb_move = if self.is_tb_move(upm) {
+                let is_tb_move = if self.is_tb_move(upm) {
                     hash_move = NO_MOVE;
                     true
                 } else if is_valid_move(&self.board, active_player, upm) {
@@ -652,38 +651,37 @@ impl Search {
                 }
             }
 
-            if !is_tb_move {
-                // Probe tablebases
-                if depth.max(0) >= self.tb_probe_depth {
-                    if let Some(tb_result) = self.board.probe_wdl() {
-                        self.local_tb_hits += 1;
+            // Probe tablebases
+            if depth.max(0) >= self.tb_probe_depth {
+                if let Some(tb_result) = self.board.probe_wdl() {
+                    self.local_tb_hits += 1;
 
-                        match tb_result {
-                            TBResult::Draw => {
-                                self.tt.write_entry(hash, self.tt_gen, MAX_DEPTH as i32, self.tb_move(0), ScoreType::Exact);
-                                return 0;
-                            },
-                            TBResult::Win => {
-                                worst_possible_score = 400;
-                            }
-                            TBResult::Loss => {
-                                best_possible_score = -400;
-                            },
-                            TBResult::CursedWin => {
-                                self.tt.write_entry(hash, self.tt_gen, MAX_DEPTH as i32, self.tb_move(1), ScoreType::Exact);
-                                return 1;
-                            },
-                            TBResult::BlessedLoss => {
-                                self.tt.write_entry(hash, self.tt_gen, MAX_DEPTH as i32, self.tb_move(-1), ScoreType::Exact);
-                                return -1;
-                            }
+                    match tb_result {
+                        TBResult::Draw => {
+                            self.tt.write_entry(hash, self.tt_gen, MAX_DEPTH as i32, self.tb_move(0), ScoreType::Exact);
+                            return 0;
+                        },
+                        TBResult::Win => {
+                            worst_possible_score = 400;
+                        }
+                        TBResult::Loss => {
+                            best_possible_score = -400;
+                        },
+                        TBResult::CursedWin => {
+                            self.tt.write_entry(hash, self.tt_gen, MAX_DEPTH as i32, self.tb_move(1), ScoreType::Exact);
+                            return 1;
+                        },
+                        TBResult::BlessedLoss => {
+                            self.tt.write_entry(hash, self.tt_gen, MAX_DEPTH as i32, self.tb_move(-1), ScoreType::Exact);
+                            return -1;
                         }
                     }
                 }
-                if hash_move == NO_MOVE && depth > 3 {
-                    // Reduce nodes without hash move from transposition table
-                    depth -= 1;
-                }
+            }
+
+            if hash_move == NO_MOVE && depth > 3 {
+                // Reduce nodes without hash move from transposition table
+                depth -= 1;
             }
         }
 
