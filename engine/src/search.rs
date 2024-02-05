@@ -493,7 +493,7 @@ impl Search {
                 }
 
                 pv.update(best_move, &mut local_pv);
-                current_pv = Some(self.pv_info(&pv.moves()));
+                current_pv = Some(self.pv_info(&pv.moves(), is_mate_or_mated_score(best_score)));
 
                 alpha = score;
 
@@ -612,7 +612,7 @@ impl Search {
                     let tt_depth = get_depth(tt_entry);
                     match get_score_type(tt_entry) {
                         ScoreType::Exact => {
-                            if !is_pv && tt_depth >= depth {
+                            if depth <= 0 || (!is_pv && tt_depth >= depth) {
                                 if let Some(slot) = tt_slot { update_generation(tt_entry, slot, self.tt_gen) }
                                 if hash_move != NO_MOVE && !hash_move.is_capture() {
                                     self.hh.update(ply, active_player, move_history, hash_move, true);
@@ -631,7 +631,7 @@ impl Search {
                         }
 
                         ScoreType::LowerBound => {
-                            if !is_pv && tt_depth >= depth && hash_score.max(alpha) >= beta {
+                            if !is_pv && hash_score >= beta && tt_depth >= depth {
                                 if hash_move != NO_MOVE && !hash_move.is_capture() {
                                     self.hh.update(ply, active_player, move_history, hash_move, true);
                                 }
@@ -1110,19 +1110,47 @@ impl Search {
         }
     }
 
-    fn pv_info(&mut self, pv: &[Move]) -> String {
+    fn pv_info(&mut self, pv: &[Move], enhance_from_tt: bool) -> String {
         if let Some((m, rest_pv)) = pv.split_first() {
             let upm = m.unpack();
             let uci_move = UCIMove::from_move(&self.board, upm);
             let (previous_piece, move_state) = self.board.perform_move(upm);
 
-            let followup_moves = self.pv_info(rest_pv);
+            let followup_moves = self.pv_info(rest_pv, enhance_from_tt);
 
             self.board.undo_move(upm, previous_piece, move_state);
             format!("{} {}", uci_move, followup_moves)
+        } else if enhance_from_tt {
+            self.pv_info_from_tt()
         } else {
             String::new()
         }
+    }
+
+    fn pv_info_from_tt(&mut self) -> String {
+        if self.board.is_draw() {
+            return String::new();
+        }
+
+        let (entry, _) = self.tt.get_entry(self.board.get_hash());
+        let active_player = self.board.active_player();
+        let packed_tt_move = get_hash_move(entry);
+        if packed_tt_move.is_no_move() {
+            return String::new();
+        }
+        let tt_move = packed_tt_move.unpack(active_player, &self.board.bitboards);
+        let upm = tt_move.unpack();
+        if !is_valid_move(&self.board, active_player, upm) {
+            return String::new();
+        }
+
+        let uci_move = UCIMove::from_move(&self.board, upm);
+        let (previous_piece, move_state) = self.board.perform_move(upm);
+
+        let followup_moves = self.pv_info_from_tt();
+
+        self.board.undo_move(upm, previous_piece, move_state);
+        format!("{} {}", uci_move, followup_moves)
     }
 
     fn log(&self, log_level: LogLevel) -> bool {
