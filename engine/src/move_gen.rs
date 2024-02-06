@@ -147,6 +147,13 @@ impl MoveList {
         self.capture_moves.push(m.with_initial_score(score));
     }
 
+    #[inline]
+    pub fn add_capture_promotion_move(&mut self, board: &Board, typ: MoveType, start: i8, end: i8) {
+        let m = Move::new(typ, start, end);
+        let score = evaluate_capture_move_order(board, end, typ.piece_id()) + typ.piece_id() as i16 * 128;
+        self.capture_moves.push(m.with_initial_score(score));
+    }
+
     #[inline(always)]
     fn add_checked_priority_move(&mut self, m: Move) {
         for entry in self.checked_priority_moves.iter_mut() {
@@ -503,11 +510,11 @@ impl MoveList {
         // Promotions
         for end in target_bb & 0xFF000000000000FF {
             let start = end as i8 + direction;
-            self.add_capture_move(board, MoveType::QueenCapturePromotion, start, end as i8);
+            self.add_capture_promotion_move(board, MoveType::QueenCapturePromotion, start, end as i8);
             if MINOR_PROMOTIONS {
-                self.add_capture_move(board, MoveType::KnightCapturePromotion, start, end as i8);
-                self.add_capture_move(board, MoveType::RookCapturePromotion, start, end as i8);
-                self.add_capture_move(board, MoveType::BishopCapturePromotion, start, end as i8);
+                self.add_capture_promotion_move(board, MoveType::KnightCapturePromotion, start, end as i8);
+                self.add_capture_promotion_move(board, MoveType::RookCapturePromotion, start, end as i8);
+                self.add_capture_promotion_move(board, MoveType::BishopCapturePromotion, start, end as i8);
             }
         }
 
