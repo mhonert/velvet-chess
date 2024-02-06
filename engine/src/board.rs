@@ -842,7 +842,7 @@ impl Board {
        after applying all immediate and discovered re-capture attacks.
     */
     pub fn has_negative_see(
-        &mut self, mut opp_color: Color, start: usize, end: usize, own_piece_id: i8, captured_piece_id: i8, mut occupied: BitBoard,
+        &self, mut opp_color: Color, start: usize, end: usize, own_piece_id: i8, captured_piece_id: i8, mut occupied: BitBoard,
     ) -> bool {
         let mut score = params::see_piece_values(captured_piece_id as usize);
         occupied = occupied & !(1 << start as u64);

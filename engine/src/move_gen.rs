@@ -190,7 +190,7 @@ impl MoveList {
                         if self.checked_priority_moves.contains(&m) {
                             continue;
                         }
-                        if self.is_bad_capture(m, board) {
+                        if is_bad_capture(m, board) {
                             self.bad_capture_moves.push(m);
                             continue;
                         }
@@ -293,7 +293,7 @@ impl MoveList {
     #[inline(always)]
     pub fn next_good_capture_move(&mut self, board: &mut Board) -> Option<Move> {
         while let Some(m) = self.capture_moves.pop() {
-            if !self.is_bad_capture(m, board) {
+            if !is_bad_capture(m, board) {
                 return Some(m);
             }
         }
@@ -545,26 +545,27 @@ impl MoveList {
         }
     }
 
-    // If the given move is a bad capture (i.e. has a negative SEE value), the search can be skipped for now and the move will be stored in a separate "bad capture" list
-    #[inline(always)]
-    fn is_bad_capture(&mut self, m: Move, board: &mut Board) -> bool {
-        let upm = m.unpack();
+}
 
-        if matches!(upm.move_type, MoveType::PawnEnPassant) {
-            return false;
-        }
-        let captured_piece_id = board.get_item(upm.end as usize).abs();
-        let own_piece_id = upm.move_type.piece_id();
-        captured_piece_id < own_piece_id
-            && board.has_negative_see(
-                board.active_player().flip(),
-                upm.start as usize,
-                upm.end as usize,
-                own_piece_id,
-                captured_piece_id,
-                board.occupancy_bb(),
-            )
+// If the given move is a bad capture (i.e. has a negative SEE value), the search can be skipped for now and the move will be stored in a separate "bad capture" list
+#[inline(always)]
+fn is_bad_capture(m: Move, board: &Board) -> bool {
+    let upm = m.unpack();
+
+    if matches!(upm.move_type, MoveType::PawnEnPassant) {
+        return false;
     }
+    let captured_piece_id = board.get_item(upm.end as usize).abs();
+    let own_piece_id = upm.move_type.piece_id();
+    captured_piece_id < own_piece_id
+        && board.has_negative_see(
+        board.active_player().flip(),
+        upm.start as usize,
+        upm.end as usize,
+        own_piece_id,
+        captured_piece_id,
+        board.occupancy_bb(),
+    )
 }
 
 pub fn is_valid_move(board: &Board, active_player: Color, upm: UnpackedMove) -> bool {
