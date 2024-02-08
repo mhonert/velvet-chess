@@ -20,7 +20,6 @@ use crate::align::A64;
 use crate::moves::{TTPackedMove};
 use crate::scores::{is_mate_score, is_mated_score, sanitize_mate_score, sanitize_mated_score};
 use std::intrinsics::transmute;
-use std::mem::MaybeUninit;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -117,30 +116,24 @@ impl TranspositionTable {
         new_entry |= (typ as u64) << SCORE_TYPE_BITSHIFT;
         new_entry |= (scored_move.to_bits29() as u64) << MOVE_BITSHIFT;
 
-        let mut target_slot = MaybeUninit::uninit();
-        let mut lowest_sort_score = i16::MAX;
         for slot in segment.iter().skip(1) {
             let entry = slot.load(Ordering::Relaxed);
+            if entry == 0 {
+                slot.store(new_entry, Ordering::Relaxed);
+                return;
+            }
             if entry & HASHCHECK_MASK == hash_check {
-                // Only store entries for the same position if they are exact scores or have only slightly lower depth
-                // Reduces risk of storing invalid, path-dependent draw scores
                 if matches!(typ, ScoreType::Exact) || new_depth >= get_depth(entry) - 3 {
                     slot.store(new_entry, Ordering::Relaxed);
                 }
                 return;
             }
-
-            let age = get_age(entry, generation);
-            let depth = get_depth(entry);
-            let sort_score = depth as i16 - age as i16 * (MAX_DEPTH as i16 + 1);
-
-            if sort_score < lowest_sort_score {
-                lowest_sort_score = sort_score;
-                target_slot = MaybeUninit::new(slot);
-            }
         }
 
-        unsafe { target_slot.assume_init() }.store(new_entry, Ordering::Relaxed);
+        segment.iter().skip(1).min_by_key(|slot| {
+            let entry = slot.load(Ordering::Relaxed);
+            get_depth(entry) as i16 - get_age(entry, generation) as i16 * (MAX_DEPTH as i16 + 1)
+        }).unwrap().store(new_entry, Ordering::Relaxed);
     }
 
     pub fn get_entry(&self, hash: u64) -> (u64, Option<&AtomicU64>) {

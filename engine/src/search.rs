@@ -237,7 +237,7 @@ impl Search {
 
         self.next_check_node_count = self.limits.node_limit().min(1000);
 
-        self.tt_gen = self.board.halfmove_count() % (MAX_GENERATION + 1);
+        self.tt_gen = self.board.fullmove_count() % (MAX_GENERATION + 1);
 
         let mut last_best_move: Move = NO_MOVE;
 
