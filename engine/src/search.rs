@@ -23,7 +23,7 @@ use crate::colors::{Color, WHITE};
 use crate::engine::{LogLevel, Message};
 use crate::history_heuristics::{EMPTY_HISTORY, HistoryHeuristics};
 use crate::move_gen::{is_killer, NEGATIVE_HISTORY_SCORE, QUIET_BASE_SCORE, is_valid_move};
-use crate::moves::{Move, MoveType, NO_MOVE, UnpackedMove};
+use crate::moves::{Move, MoveType, NO_MOVE};
 use crate::pieces::{EMPTY, P};
 use crate::pos_history::PositionHistory;
 use crate::scores::{mate_in, sanitize_score, MATED_SCORE, MATE_SCORE, MAX_SCORE, MIN_SCORE, is_mate_or_mated_score, MAX_EVAL, MIN_EVAL};
@@ -449,13 +449,12 @@ impl Search {
                 let now = Instant::now();
                 if self.time_mgr.search_duration_ms(now) >= 1000 {
                     self.last_log_time = now;
-                    let uci_move = UCIMove::from_move(&self.board, m.unpack());
+                    let uci_move = UCIMove::from_move(&self.board, m);
                     println!("info currmove {} currmovenumber {}", uci_move, move_num);
                 }
             }
 
-            let upm = m.unpack();
-            let (previous_piece, removed_piece_id) = self.board.perform_move(upm);
+            let (previous_piece, removed_piece_id) = self.board.perform_move(m);
 
             let gives_check = self.board.is_in_check(active_player.flip());
 
@@ -477,7 +476,7 @@ impl Search {
                 }
             }
 
-            self.board.undo_move(upm, previous_piece, removed_piece_id);
+            self.board.undo_move(m, previous_piece, removed_piece_id);
 
             if iteration_cancelled {
                 break;
@@ -592,13 +591,12 @@ impl Search {
             // Check transposition table
             if let Some((tt_entry, tt_slot)) = self.tt.get_entry(hash) {
                 hash_move = get_hash_move(tt_entry, ply);
-                let upm = hash_move.unpack();
                 hash_score = hash_move.score();
 
-                let is_tb_move = if self.is_tb_move(upm) {
+                let is_tb_move = if self.is_tb_move(hash_move) {
                     hash_move = NO_MOVE;
                     true
-                } else if is_valid_move(&self.board, active_player, upm) {
+                } else if is_valid_move(&self.board, active_player, hash_move) {
                     false
                 } else {
                     hash_move = NO_MOVE;
@@ -644,7 +642,7 @@ impl Search {
                         && hash_move != NO_MOVE
                         && !in_check
                         && depth >= 6
-                        && !self.ctx.is_recapture(move_history.last_opp, upm.end);
+                        && !self.ctx.is_recapture(move_history.last_opp, hash_move.end());
                 }
             }
 
@@ -758,12 +756,10 @@ impl Search {
         self.hh.clear_killers(ply + 1);
 
         let mut a = -beta;
-        while let Some(packed_curr_move) = self.ctx.next_move(ply, &self.hh, &mut self.board) {
-            if se_move == packed_curr_move {
+        while let Some(curr_move) = self.ctx.next_move(ply, &self.hh, &mut self.board) {
+            if se_move == curr_move {
                 continue;
             }
-
-            let curr_move = packed_curr_move.unpack();
 
             if allow_lmp && !curr_move.is_capture()
                 && !is_killer(curr_move)
@@ -778,10 +774,10 @@ impl Search {
 
             // Check, if the hash move is singular and should be extended
             let mut se_extension = 0;
-            if check_se && !gives_check && packed_curr_move == hash_move {
+            if check_se && !gives_check && curr_move == hash_move {
                 let se_beta = sanitize_score(hash_score - depth as i16);
                 self.board.undo_move(curr_move, previous_piece, removed_piece_id);
-                let result = same_ply!(self.ctx, self.rec_find_best_move(rx, se_beta - 1, se_beta, ply, depth / 2, &mut PrincipalVariation::default(), true, packed_curr_move));
+                let result = same_ply!(self.ctx, self.rec_find_best_move(rx, se_beta - 1, se_beta, ply, depth / 2, &mut PrincipalVariation::default(), true, curr_move));
 
                 if result == CANCEL_SEARCH {
                     return CANCEL_SEARCH;
@@ -793,7 +789,7 @@ impl Search {
                 } else if se_beta >= beta {
                     // Multi-Cut Pruning
                     if !curr_move.is_capture() {
-                        self.hh.update(ply, active_player, move_history, packed_curr_move, curr_move.score > QUIET_BASE_SCORE);
+                        self.hh.update(ply, active_player, move_history, curr_move, curr_move.score() > QUIET_BASE_SCORE);
                     }
 
                     return clamp_score(se_beta, worst_possible_score, best_possible_score);
@@ -801,17 +797,17 @@ impl Search {
                 self.board.perform_move(curr_move);
             };
 
-            let start = curr_move.start;
-            let end = curr_move.end;
+            let start = curr_move.start();
+            let end = curr_move.end();
 
             let mut skip = self.board.is_in_check(active_player); // skip if move would put own king in check
 
             let mut reductions = 0;
 
             if !skip && evaluated_move_count > 0 {
-                let target_piece_id = curr_move.move_type.piece_id();
+                let target_piece_id = curr_move.move_type().piece_id();
 
-                if !is_pv && move_history.last_opp.is_capture() && !self.ctx.is_recapture(move_history.last_opp, curr_move.end) && !curr_move.is_queen_promotion() {
+                if !is_pv && move_history.last_opp.is_capture() && !self.ctx.is_recapture(move_history.last_opp, curr_move.end()) && !curr_move.is_queen_promotion() {
                     reductions += 1;
                 }
 
@@ -819,7 +815,7 @@ impl Search {
 
                     if allow_lmr && quiet_move_count > LMR_THRESHOLD && !curr_move.is_queen_promotion()  {
                         reductions += unsafe { *LMR.get_unchecked((quiet_move_count as usize).min(MAX_LMR_MOVES - 1)) } + i32::from(!is_pv);
-                        if !improving && curr_move.score <= NEGATIVE_HISTORY_SCORE {
+                        if !improving && curr_move.score() <= NEGATIVE_HISTORY_SCORE {
                             reductions += 1;
                         }
 
@@ -830,10 +826,10 @@ impl Search {
                             reductions -= 1;
                         }
 
-                    } else if curr_move.score <= NEGATIVE_HISTORY_SCORE {
+                    } else if curr_move.score() <= NEGATIVE_HISTORY_SCORE {
                         reductions += NEG_HISTORY_REDUCTIONS;
 
-                    } else if curr_move.score < QUIET_BASE_SCORE
+                    } else if curr_move.score() < QUIET_BASE_SCORE
                         && self.board.has_negative_see(active_player.flip(), start as usize, end as usize, target_piece_id, EMPTY, occupied_bb)
                     {
                         // Reduce search depth for moves with negative SEE score
@@ -868,7 +864,7 @@ impl Search {
                 let mut local_pv = PrincipalVariation::default();
 
                 self.inc_node_count();
-                self.ctx.update_next_ply_entry(packed_curr_move, gives_check);
+                self.ctx.update_next_ply_entry(curr_move, gives_check);
 
                 let mut result = next_ply!(self.ctx, self.rec_find_best_move(rx, a, -alpha, ply + 1, depth + se_extension - reductions - 1, &mut local_pv, in_se_search, NO_MOVE));
                 if result == CANCEL_SEARCH {
@@ -890,7 +886,7 @@ impl Search {
 
                 if score > best_score {
                     best_score = score;
-                    best_move = packed_curr_move;
+                    best_move = curr_move;
 
                     // Alpha-beta pruning
                     if best_score >= beta {
@@ -899,7 +895,7 @@ impl Search {
                         }
 
                         if !curr_move.is_capture() {
-                            self.hh.update(ply, active_player, move_history, best_move, curr_move.score > QUIET_BASE_SCORE)
+                            self.hh.update(ply, active_player, move_history, best_move, curr_move.score() > QUIET_BASE_SCORE)
                         }
 
                         if is_pv {
@@ -917,7 +913,7 @@ impl Search {
                         }
                     }
                 } else if !curr_move.is_capture() {
-                    self.hh.update_played_moves(active_player, move_history, packed_curr_move);
+                    self.hh.update_played_moves(active_player, move_history, curr_move);
                 }
 
                 a = -(alpha + 1);
@@ -1016,11 +1012,10 @@ impl Search {
         } else {
             self.ctx.next_good_capture_move(&mut self.board)
         } {
-            let upm = m.unpack();
-            let (previous_piece, captured_piece_id) = self.board.perform_move(upm);
+            let (previous_piece, captured_piece_id) = self.board.perform_move(m);
             self.tt.prefetch(self.board.get_hash());
             if self.board.is_in_check(active_player) {
-                self.board.undo_move(upm, previous_piece, captured_piece_id);
+                self.board.undo_move(m, previous_piece, captured_piece_id);
                 continue;
             }
             self.inc_node_count();
@@ -1032,7 +1027,7 @@ impl Search {
             } else {
                 -next_ply!(self.ctx, self.qs::<PV>(opp_player, -beta, -alpha, ply + 1, self.board.is_in_check(opp_player), &mut local_pv))
             };
-            self.board.undo_move(upm, previous_piece, captured_piece_id);
+            self.board.undo_move(m, previous_piece, captured_piece_id);
 
             if score > best_score {
                 best_score = score;
@@ -1057,7 +1052,7 @@ impl Search {
         if let Some((entry, _)) = self.tt.get_entry(self.board.get_hash()) {
             let hash_move = get_hash_move(entry, ply);
             let active_player = self.board.active_player();
-            if is_valid_move(&self.board, active_player, hash_move.unpack()) {
+            if is_valid_move(&self.board, active_player, hash_move) {
                 return hash_move;
             }
         }
@@ -1105,14 +1100,13 @@ impl Search {
     }
 
     fn pv_info(&mut self, pv: &[Move], enhance_from_tt: bool) -> String {
-        if let Some((m, rest_pv)) = pv.split_first() {
-            let upm = m.unpack();
-            let uci_move = UCIMove::from_move(&self.board, upm);
-            let (previous_piece, move_state) = self.board.perform_move(upm);
+        if let Some((&m, rest_pv)) = pv.split_first() {
+            let uci_move = UCIMove::from_move(&self.board, m);
+            let (previous_piece, move_state) = self.board.perform_move(m);
 
             let followup_moves = self.pv_info(rest_pv, enhance_from_tt);
 
-            self.board.undo_move(upm, previous_piece, move_state);
+            self.board.undo_move(m, previous_piece, move_state);
             format!("{} {}", uci_move, followup_moves)
         } else if enhance_from_tt {
             self.pv_info_from_tt()
@@ -1132,17 +1126,16 @@ impl Search {
             if hash_move.is_no_move() {
                 return String::new();
             }
-            let upm = hash_move.unpack();
-            if !is_valid_move(&self.board, active_player, upm) {
+            if !is_valid_move(&self.board, active_player, hash_move) {
                 return String::new();
             }
 
-            let uci_move = UCIMove::from_move(&self.board, upm);
-            let (previous_piece, move_state) = self.board.perform_move(upm);
+            let uci_move = UCIMove::from_move(&self.board, hash_move);
+            let (previous_piece, move_state) = self.board.perform_move(hash_move);
 
             let followup_moves = self.pv_info_from_tt();
 
-            self.board.undo_move(upm, previous_piece, move_state);
+            self.board.undo_move(hash_move, previous_piece, move_state);
             return format!("{} {}", uci_move, followup_moves);
         }
 
@@ -1228,17 +1221,17 @@ impl Search {
 
     fn tb_move(&self) -> Move {
         let active_player = self.board.active_player();
-        Move::new(MoveType::TableBaseMarker, 0, self.board.king_pos(active_player))
+        Move::new(MoveType::TableBaseMarker, self.board.king_pos(active_player), self.board.king_pos(active_player.flip()))
     }
 
     #[inline]
-    fn is_tb_move(&self, m: UnpackedMove) -> bool {
-        if !matches!(m.move_type, MoveType::TableBaseMarker) {
+    fn is_tb_move(&self, m: Move) -> bool {
+        if !matches!(m.move_type(), MoveType::TableBaseMarker) {
             return false;
         }
 
         let active_player = self.board.active_player();
-        m.end == self.board.king_pos(active_player)
+        m.start() == self.board.king_pos(active_player) && m.end() == self.board.king_pos(active_player.flip())
     }
 }
 
@@ -1677,7 +1670,7 @@ mod tests {
         let m = search(tt.clone(), limits, board.clone(), 2);
         assert_ne!(NO_MOVE, m);
 
-        board.perform_move(m.unpack());
+        board.perform_move(m);
 
         let is_check_mate = search(tt, limits, board.clone(), 1) == NO_MOVE && board.is_in_check(WHITE);
         assert!(is_check_mate);
@@ -1704,13 +1697,13 @@ mod tests {
         let mut board = create_from_fen(fen.as_str());
 
         let m1 = search(tt.clone(), limits, board.clone(), 3);
-        board.perform_move(m1.unpack());
+        board.perform_move(m1);
 
         let m2 = search(tt.clone(), limits, board.clone(), 2);
-        board.perform_move(m2.unpack());
+        board.perform_move(m2);
 
         let m3 = search(tt.clone(), limits, board.clone(), 1);
-        board.perform_move(m3.unpack());
+        board.perform_move(m3);
 
         let is_check_mate = search(tt, limits, board.clone(), 1) == NO_MOVE && board.is_in_check(BLACK);
         assert!(is_check_mate);
@@ -1738,7 +1731,7 @@ mod tests {
 
         let search = new_search(tt, limits, board);
         let tb_move = search.tb_move();
-        assert!(search.is_tb_move(tb_move.unpack()));
+        assert!(search.is_tb_move(tb_move));
     }
 
     fn search(tt: Arc<TranspositionTable>, limits: SearchLimits, board: Board, min_depth: i32) -> Move {

@@ -20,7 +20,7 @@ use crate::bitboard::{get_king_attacks, get_knight_attacks, BitBoard, PAWN_DOUBL
 use crate::board::Board;
 use crate::colors::{Color, BLACK, WHITE};
 use crate::history_heuristics::{HistoryHeuristics, MIN_HISTORY_SCORE, MoveHistory};
-use crate::moves::{Move, MoveType, NO_MOVE, UnpackedMove};
+use crate::moves::{Move, MoveType, NO_MOVE};
 use crate::pieces::{B, N, P, Q, R};
 use std::cmp::Reverse;
 use std::mem::swap;
@@ -203,7 +203,7 @@ impl MoveList {
                     self.stage = Stage::SecondaryKillerMove;
 
                     let killer = hh.get_killer_moves(ply).0;
-                    if killer != NO_MOVE && !self.checked_priority_moves.contains(&killer) && is_valid_move(board, board.active_player(), killer.unpack()) {
+                    if killer != NO_MOVE && !self.checked_priority_moves.contains(&killer) && is_valid_move(board, board.active_player(), killer) {
                         self.add_checked_priority_move(killer);
                         return Some(killer.with_score(PRIMARY_KILLER_SCORE));
                     }
@@ -213,7 +213,7 @@ impl MoveList {
                     self.stage = Stage::CounterMove;
 
                     let killer = hh.get_killer_moves(ply).1;
-                    if killer != NO_MOVE && !self.checked_priority_moves.contains(&killer) && is_valid_move(board, board.active_player(), killer.unpack()) {
+                    if killer != NO_MOVE && !self.checked_priority_moves.contains(&killer) && is_valid_move(board, board.active_player(), killer) {
                         self.add_checked_priority_move(killer);
                         return Some(killer.with_score(SECONDARY_KILLER_SCORE));
                     }
@@ -223,7 +223,7 @@ impl MoveList {
                     self.stage = Stage::PostponedBadCaptureMoves;
                     let counter = hh.get_counter_move(self.move_history.last_opp);
 
-                    if counter != NO_MOVE && !self.checked_priority_moves.contains(&counter) && is_valid_move(board, board.active_player(), counter.unpack()) {
+                    if counter != NO_MOVE && !self.checked_priority_moves.contains(&counter) && is_valid_move(board, board.active_player(), counter) {
                         self.add_checked_priority_move(counter);
                         return Some(counter.with_score(COUNTER_MOVE_SCORE));
                     }
@@ -270,7 +270,7 @@ impl MoveList {
             self.gen_quiet_moves(hh, board);
 
             let active_player = board.active_player();
-            self.moves.retain(|&m| board.is_legal_move(active_player, m.unpack()));
+            self.moves.retain(|&m| board.is_legal_move(active_player, m));
 
             self.moves.sort_by_key(|&m| Reverse(if m == self.scored_hash_move { MAX_SCORE } else { m.score() }));
             self.moves_generated = true;
@@ -550,33 +550,31 @@ impl MoveList {
 // If the given move is a bad capture (i.e. has a negative SEE value), the search can be skipped for now and the move will be stored in a separate "bad capture" list
 #[inline(always)]
 fn is_bad_capture(m: Move, board: &Board) -> bool {
-    let upm = m.unpack();
-
-    if matches!(upm.move_type, MoveType::PawnEnPassant) {
+    if matches!(m.move_type(), MoveType::PawnEnPassant) {
         return false;
     }
-    let captured_piece_id = board.get_item(upm.end as usize).abs();
-    let own_piece_id = upm.move_type.piece_id();
+    let captured_piece_id = board.get_item(m.end() as usize).abs();
+    let own_piece_id = m.move_type().piece_id();
     captured_piece_id < own_piece_id
         && board.has_negative_see(
         board.active_player().flip(),
-        upm.start as usize,
-        upm.end as usize,
+        m.start() as usize,
+        m.end() as usize,
         own_piece_id,
         captured_piece_id,
         board.occupancy_bb(),
     )
 }
 
-pub fn is_valid_move(board: &Board, active_player: Color, upm: UnpackedMove) -> bool {
+pub fn is_valid_move(board: &Board, active_player: Color, m: Move) -> bool {
     let opponent_bb = board.get_all_piece_bitboard(active_player.flip());
     let occupied = opponent_bb | board.get_all_piece_bitboard(active_player);
     let empty_bb = !occupied;
 
-    let start = upm.start;
-    let end = upm.end;
+    let start = m.start();
+    let end = m.end();
 
-    match upm.move_type {
+    match m.move_type() {
         MoveType::PawnQuiet => {
             if !(8..=55).contains(&end) {
                 return false;
@@ -940,8 +938,8 @@ fn evaluate_capture_move_order(board: &Board, end: i8, piece_id: i8) -> i16 {
 }
 
 #[inline]
-pub fn is_killer(m: UnpackedMove) -> bool {
-    m.score == PRIMARY_KILLER_SCORE || m.score == SECONDARY_KILLER_SCORE
+pub fn is_killer(m: Move) -> bool {
+    m.score() == PRIMARY_KILLER_SCORE || m.score() == SECONDARY_KILLER_SCORE
 }
 
 #[cfg(test)]
@@ -985,7 +983,7 @@ mod tests {
     #[test]
     pub fn exclude_illegal_moves() {
         let mut board = setup(WHITE, Q, 52);
-        board.perform_move(Move::new(MoveType::KingQuiet, board.king_pos(WHITE), 53).unpack());
+        board.perform_move(Move::new(MoveType::KingQuiet, board.king_pos(WHITE), 53));
         board.add_piece(BLACK, R, 51);
 
         board.perform_null_move(); // so WHITE is the active player
@@ -1019,10 +1017,9 @@ mod tests {
             }
         }
 
-        moves.into_iter().map(|m| (m.unpack(), m))
-            .filter(|&(upm, _)| upm.start == pos as i8)
-            .filter(|&(upm, _)| board.is_legal_move(color, upm))
-            .map(|(_, m)| m)
+        moves.into_iter()
+            .filter(|&m| m.start() == pos as i8)
+            .filter(|&m| board.is_legal_move(color, m))
             .collect()
     }
 }

@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2023 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2024 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -18,7 +18,7 @@
 
 use crate::board::castling::CastlingRules;
 use crate::board::Board;
-use crate::moves::{Move, MoveType, UnpackedMove};
+use crate::moves::{Move, MoveType};
 use crate::pieces::{B, EMPTY, K, N, P, Q, R};
 
 pub struct UCIMove {
@@ -32,26 +32,26 @@ impl UCIMove {
         UCIMove { start, end, promotion }
     }
 
-    pub fn from_move(board: &Board, upm: UnpackedMove) -> String {
-        let mut end = upm.end;
+    pub fn from_move(board: &Board, m: Move) -> String {
+        let mut end = m.end();
         let color = board.active_player();
 
         if !board.castling_rules.is_chess960() {
-            if matches!(upm.move_type, MoveType::KingKSCastling) {
+            if matches!(m.move_type(), MoveType::KingKSCastling) {
                 end = CastlingRules::ks_king_end(color);
-            } else if matches!(upm.move_type, MoveType::KingQSCastling) {
+            } else if matches!(m.move_type(), MoveType::KingQSCastling) {
                 end = CastlingRules::qs_king_end(color);
             }
         }
 
         let mut result = String::with_capacity(5);
-        result.push(uci_col(upm.start & 7));
-        result.push(uci_row(upm.start / 8));
+        result.push(uci_col(m.start() & 7));
+        result.push(uci_row(m.start() / 8));
         result.push(uci_col(end & 7));
         result.push(uci_row(end / 8));
 
-        if upm.move_type.is_promotion() {
-            result.push(uci_promotion(upm.move_type.piece_id()));
+        if m.move_type().is_promotion() {
+            result.push(uci_promotion(m.move_type().piece_id()));
         };
 
         result
@@ -204,7 +204,7 @@ mod tests {
         let board = create_from_fen(START_POS);
         let m = UCIMove::new(52, 36, EMPTY);
 
-        assert_eq!("e2e4", UCIMove::from_move(&board, m.to_move(&board).unpack()));
+        assert_eq!("e2e4", UCIMove::from_move(&board, m.to_move(&board)));
     }
 
     #[test]
@@ -224,7 +224,7 @@ mod tests {
         let board = Board::new(&items, WHITE, CastlingState::default(), None, 0, 1, CastlingRules::default());
 
         let m = UCIMove::new(8, 0, Q);
-        assert_eq!("a7a8q", UCIMove::from_move(&board, m.to_move(&board).unpack()));
+        assert_eq!("a7a8q", UCIMove::from_move(&board, m.to_move(&board)));
     }
 
     #[test]
@@ -243,7 +243,7 @@ mod tests {
 
         let board = Board::new(&items, WHITE, CastlingState::ALL, None, 0, 1, CastlingRules::default());
 
-        let uci_move = UCIMove::from_move(&board, Move::new(MoveType::KingKSCastling, 60, 63).unpack());
+        let uci_move = UCIMove::from_move(&board, Move::new(MoveType::KingKSCastling, 60, 63));
         assert_eq!("e1g1", uci_move);
     }
 
@@ -264,7 +264,7 @@ mod tests {
         let board =
             Board::new(&items, WHITE, CastlingState::ALL, None, 0, 1, CastlingRules::new(true, 4, 7, 0, 4, 7, 0));
 
-        let uci_move = UCIMove::from_move(&board, Move::new(MoveType::KingKSCastling, 60, 63).unpack());
+        let uci_move = UCIMove::from_move(&board, Move::new(MoveType::KingKSCastling, 60, 63));
         assert_eq!("e1h1", uci_move);
     }
 
@@ -286,9 +286,8 @@ mod tests {
             Board::new(&items, WHITE, CastlingState::ALL, None, 0, 1, CastlingRules::new(true, 4, 7, 0, 4, 7, 0));
 
         let m = UCIMove::from_uci("e1h1").unwrap().to_move(&board);
-        let upm = m.unpack();
-        assert_eq!(upm.end, board.castling_rules.ks_rook_start(WHITE));
-        assert!(matches!(upm.move_type, MoveType::KingKSCastling));
+        assert_eq!(m.end(), board.castling_rules.ks_rook_start(WHITE));
+        assert!(matches!(m.move_type(), MoveType::KingKSCastling));
     }
 
     #[test]

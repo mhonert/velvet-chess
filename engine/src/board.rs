@@ -28,7 +28,7 @@ use crate::bitboard::{
 use crate::board::castling::{Castling, CastlingRules, CastlingState, KING_SIDE_CASTLING, QUEEN_SIDE_CASTLING};
 use crate::colors::{Color, BLACK, WHITE};
 use crate::magics::{get_bishop_attacks, get_queen_attacks, get_rook_attacks};
-use crate::moves::{MoveType, UnpackedMove};
+use crate::moves::{Move, MoveType};
 use crate::nn::eval::NeuralNetEval;
 use crate::params;
 use crate::pieces::{B, EMPTY, K, N, P, Q, R};
@@ -321,20 +321,20 @@ impl Board {
         self.state.hash ^= player_zobrist_key();
     }
 
-    pub fn perform_move(&mut self, m: UnpackedMove) -> (i8, i8) {
+    pub fn perform_move(&mut self, m: Move) -> (i8, i8) {
         self.nn_eval.start_move();
         self.pos_history.push(self.state.hash);
         let color = self.active_player();
         self.store_state();
         self.increase_half_move_count();
 
-        let move_start = m.start as usize;
-        let move_end = m.end as usize;
-        let target_piece_id = m.move_type.piece_id();
+        let move_start = m.start() as usize;
+        let move_end = m.end() as usize;
+        let target_piece_id = m.move_type().piece_id();
 
         self.clear_en_passant();
 
-        match m.move_type {
+        match m.move_type() {
             MoveType::PawnQuiet => {
                 let own_piece = color.piece(P);
                 self.move_piece(color, own_piece, move_start, move_end);
@@ -531,19 +531,19 @@ impl Board {
         self.update_hash_for_castling(previous_state);
     }
 
-    pub fn undo_move(&mut self, m: UnpackedMove, piece: i8, removed_piece_id: i8) {
+    pub fn undo_move(&mut self, m: Move, piece: i8, removed_piece_id: i8) {
         self.nn_eval.start_undo();
         self.pos_history.pop();
 
-        let move_start = m.start as usize;
-        let move_end = m.end as usize;
+        let move_start = m.start() as usize;
+        let move_end = m.end() as usize;
 
         let color = Color::from_piece(piece);
 
         self.halfmove_count -= 1;
         self.restore_state();
 
-        match m.move_type {
+        match m.move_type() {
             MoveType::PawnQuiet | MoveType::PawnDoubleQuiet | MoveType::KnightQuiet | MoveType::BishopQuiet | MoveType::RookQuiet | MoveType::QueenQuiet | MoveType::QueenQuiet8 => {
                 self.nn_eval.remove_add_piece::<false>(move_end , piece, move_start , piece);
                 self.move_piece_without_state(color, piece, move_end , move_start );
@@ -571,12 +571,12 @@ impl Board {
             MoveType::KnightQuietPromotion | MoveType::BishopQuietPromotion | MoveType::RookQuietPromotion | MoveType::QueenQuietPromotion => {
                 self.remove_piece_without_inc_update(move_end );
                 self.add_piece_without_inc_update(color, piece, move_start);
-                self.nn_eval.remove_add_piece::<true>(move_end , color.piece(m.move_type.piece_id()), move_start , piece);
+                self.nn_eval.remove_add_piece::<true>(move_end , color.piece(m.move_type().piece_id()), move_start , piece);
             }
             MoveType::KnightCapturePromotion | MoveType::BishopCapturePromotion | MoveType::RookCapturePromotion | MoveType::QueenCapturePromotion => {
                 self.remove_piece_without_inc_update(move_end );
                 self.add_piece_without_inc_update(color, piece, move_start);
-                self.nn_eval.remove_add_add_piece::<true>(move_end , color.piece(m.move_type.piece_id()), move_start , piece, move_end , color.flip().piece(removed_piece_id));
+                self.nn_eval.remove_add_add_piece::<true>(move_end , color.piece(m.move_type().piece_id()), move_start , piece, move_end , color.flip().piece(removed_piece_id));
                 self.add_piece_without_inc_update(color.flip(), color.flip().piece(removed_piece_id), move_end);
             }
             MoveType::KingQuiet => {
@@ -785,7 +785,7 @@ impl Board {
         self.bitboards.by_piece(piece)
     }
 
-    pub fn is_legal_move(&mut self, color: Color, m: UnpackedMove) -> bool {
+    pub fn is_legal_move(&mut self, color: Color, m: Move) -> bool {
         let (previous_piece, move_state) = self.perform_move(m);
         let is_legal = !self.is_in_check(color);
         self.undo_move(m, previous_piece, move_state);
@@ -1015,7 +1015,7 @@ mod tests {
         board.recalculate_hash();
         let initial_hash = board.get_hash();
 
-        let m = UnpackedMove::new(59, 60, MoveType::KingQuiet, 0);
+        let m = Move::new(MoveType::KingQuiet, 59, 60);
         let (previous, state) = board.perform_move(m);
         let hash_perform_move = board.get_hash();
         assert_ne!(initial_hash, hash_perform_move);
@@ -1076,11 +1076,10 @@ mod tests {
         let initial_hash = board.get_hash();
         let initial_castling_state = board.state.castling;
 
-        let m = UnpackedMove::new(
-            board.castling_rules.king_start(WHITE) as i8,
-            board.castling_rules.ks_rook_start(WHITE) as i8,
+        let m = Move::new(
             MoveType::KingKSCastling,
-            0
+            board.castling_rules.king_start(WHITE),
+            board.castling_rules.ks_rook_start(WHITE),
         );
         let (previous, state) = board.perform_move(m);
 
@@ -1116,11 +1115,10 @@ mod tests {
         let initial_hash = board.get_hash();
         let initial_castling_state = board.state.castling;
 
-        let m = UnpackedMove::new(
-            board.castling_rules.king_start(BLACK) as i8,
-            board.castling_rules.ks_rook_start(BLACK) as i8,
+        let m = Move::new(
             MoveType::KingKSCastling,
-            0
+            board.castling_rules.king_start(BLACK),
+            board.castling_rules.ks_rook_start(BLACK),
         );
 
         let (previous, state) = board.perform_move(m);
@@ -1412,12 +1410,12 @@ mod tests {
         let mut board = Board::new(&items, BLACK, CastlingState::default(), None, 0, 1, CastlingRules::default());
         let initial_hash = board.get_hash();
 
-        board.perform_move(UnpackedMove::new(59, 60, MoveType::KingQuiet, 0));
+        board.perform_move(Move::new(MoveType::KingQuiet, 59, 60));
         let hash_after_move = board.get_hash();
         assert_ne!(initial_hash, hash_after_move);
         board.perform_null_move();
 
-        board.perform_move(UnpackedMove::new(60, 59, MoveType::KingQuiet, 0));
+        board.perform_move(Move::new(MoveType::KingQuiet, 60, 59));
         board.perform_null_move();
         let hash_reverted_move = board.get_hash();
         assert_eq!(initial_hash, hash_reverted_move);

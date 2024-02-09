@@ -117,39 +117,16 @@ impl MoveType {
     }
 
     #[inline]
+    pub fn is_queen_promotion(self) -> bool {
+        matches!(self, MoveType::QueenQuietPromotion | MoveType::QueenCapturePromotion)
+    }
+
+    #[inline]
     pub fn is_tb_move(self) -> bool {
         matches!(self, MoveType::TableBaseMarker)
     }
 }
 
-#[derive(Copy, Clone, Debug, Default)]
-pub struct UnpackedMove {
-    pub start: i8,
-    pub end: i8,
-    pub move_type: MoveType,
-    pub score: i16
-}
-
-impl UnpackedMove {
-    pub fn new(start: i8, end: i8, move_type: MoveType, score: i16) -> Self {
-        UnpackedMove{ start, end, move_type, score }
-    }
-
-    #[inline]
-    pub fn is_queen_promotion(self) -> bool {
-        matches!(self.move_type, MoveType::QueenQuietPromotion | MoveType::QueenCapturePromotion)
-    }
-
-    #[inline]
-    pub fn is_promotion(self) -> bool {
-        self.move_type.is_promotion()
-    }
-
-    #[inline]
-    pub fn is_capture(self) -> bool {
-        self.move_type.is_capture()
-    }
-}
 
 #[derive(Copy, Clone, Default)]
 pub struct Move(u32);
@@ -196,16 +173,6 @@ impl Move {
 
     pub const fn from_u32(value: u32) -> Self {
         Move(value)
-    }
-
-    #[inline]
-    pub fn unpack(&self) -> UnpackedMove {
-        UnpackedMove{
-            start: ((self.0 >> START_SHIFT) & START_MASK) as i8,
-            end: ((self.0 >> END_SHIFT) & END_MASK) as i8,
-            move_type: unsafe { transmute(((self.0 >> TYPE_SHIFT) & TYPE_MASK) as u8) },
-            score: self.score()
-        }
     }
 
     #[inline]
@@ -263,8 +230,13 @@ impl Move {
     }
 
     #[inline]
-    fn move_type(&self) -> MoveType {
+    pub fn move_type(&self) -> MoveType {
         unsafe { transmute(((self.0 >> TYPE_SHIFT) & TYPE_MASK) as u8) }
+    }
+
+    #[inline]
+    pub fn is_queen_promotion(&self) -> bool {
+        self.move_type().is_queen_promotion()
     }
 
     /// Checks, whether the two moves are the same (except for the score)
@@ -294,13 +266,12 @@ impl Move {
 
 impl fmt::Debug for Move {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let m = self.unpack();
         f.debug_struct("Move")
-            .field("target-piece", &m.move_type.piece_id())
-            .field("start", &m.start)
-            .field("end", &m.end)
-            .field("score", &m.score)
-            .field("type", &m.move_type)
+            .field("target-piece", &self.move_type().piece_id())
+            .field("start", &self.start())
+            .field("end", &self.end())
+            .field("score", &self.score())
+            .field("type", &self.move_type())
             .finish()
     }
 }
@@ -319,11 +290,10 @@ mod tests {
 
             let m = Move::new(MoveType::KingQuiet, 4, 12).with_score(score);
 
-            let unpacked = m.unpack();
-            assert_eq!(unpacked.move_type, MoveType::KingQuiet);
-            assert_eq!(unpacked.start, 4);
-            assert_eq!(unpacked.end, 12);
-            assert_eq!(unpacked.score, score);
+            assert_eq!(m.move_type(), MoveType::KingQuiet);
+            assert_eq!(m.start(), 4);
+            assert_eq!(m.end(), 12);
+            assert_eq!(m.score(), score);
         }
     }
 
@@ -338,12 +308,11 @@ mod tests {
             KingQuiet, KingCapture, KingQSCastling, KingKSCastling,
         ] {
             let m = Move::new(move_type, 63, 63).with_score(MIN_SCORE);
-            let upm = m.unpack();
 
-            assert_eq!(upm.move_type as u8, move_type as u8);
-            assert_eq!(upm.start, 63);
-            assert_eq!(upm.end, 63);
-            assert_eq!(upm.score, MIN_SCORE);
+            assert_eq!(m.move_type() as u8, move_type as u8);
+            assert_eq!(m.start(), 63);
+            assert_eq!(m.end(), 63);
+            assert_eq!(m.score(), MIN_SCORE);
         }
     }
 
@@ -354,13 +323,12 @@ mod tests {
                 for piece in 1..=6 {
                     let move_type = MoveType::new_quiet(piece);
                     let m = Move::new(move_type, start, end).with_score(MIN_SCORE);
-                    let upm = m.unpack();
 
-                    assert_eq!(upm.move_type as u8, move_type as u8);
-                    assert_eq!(upm.move_type.piece_id(), piece);
-                    assert_eq!(upm.start, start);
-                    assert_eq!(upm.end, end);
-                    assert_eq!(upm.score, MIN_SCORE);
+                    assert_eq!(m.move_type() as u8, move_type as u8);
+                    assert_eq!(m.move_type().piece_id(), piece);
+                    assert_eq!(m.start(), start);
+                    assert_eq!(m.end(), end);
+                    assert_eq!(m.score(), MIN_SCORE);
                 }
             }
         }
