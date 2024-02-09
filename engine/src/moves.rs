@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2023 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2024 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -16,13 +16,10 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::pieces::{N, P, Q};
 use std::fmt;
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 use std::intrinsics::transmute;
-use crate::bitboard::BitBoards;
-use crate::colors::Color;
 
 #[repr(u8)]
 #[derive(Clone, Copy, Default, Debug, Eq, PartialEq)]
@@ -118,6 +115,11 @@ impl MoveType {
             MoveType::QueenQuietPromotion | MoveType::QueenCapturePromotion
         )
     }
+
+    #[inline]
+    pub fn is_tb_move(self) -> bool {
+        matches!(self, MoveType::TableBaseMarker)
+    }
 }
 
 #[derive(Copy, Clone, Debug, Default)]
@@ -156,17 +158,12 @@ pub struct Move(u32);
 //    31       23       15       7      0
 // 0b SSSSSStt tttEEEEE Esssssss ssssssss => 32 Bits
 //
-// TTPackedMove:
-// 0b 000SSStt tttEEEEE Esssssss ssssssss => 29 Bits
 
 const TYPE_SHIFT: u32 = 21;
 const TYPE_MASK: u32 = 0b11111;
 
 const START_SHIFT: u32 = 26;
 const START_MASK: u32 = 0b111111;
-
-const PIECE_NUM_SHIFT: u32 = 26;
-const PIECE_NUM_MASK: u32 = 0b111;
 
 const END_SHIFT: u32 = 15;
 const END_MASK: u32 = 0b111111;
@@ -246,53 +243,28 @@ impl Move {
     }
 
     #[inline]
-    pub fn to_tt_packed_move(&self, active_player: Color, boards: &BitBoards) -> TTPackedMove {
-        let piece_id = if self.is_promotion() { P as u32 } else { (self.0 >> TYPE_SHIFT) & 0b111 };
-
-        let start = (self.0 >> START_SHIFT) & START_MASK;
-        let bb = boards.by_piece(active_player.piece(piece_id as i8));
-
-        let mut piece_num = if start == 0 {
-            0
-        } else {
-            let mask = (1u64 << start) - 1;
-            (bb & mask).piece_count()
-        };
-
-        let packed_move = if piece_num > 7 {
-            assert_eq!(piece_id as i8, Q, "invalid chess position (max. non-queen piece count [8] exceeded)");
-            assert!(piece_num < 16, "invalid chess position (max. queen count [16] exceeded)");
-            piece_num -= 8;
-
-            (self.0 & 0b00000011000111111111111111111111) | (0b111 << TYPE_SHIFT)
-        } else {
-            self.0 & 0b00000011111111111111111111111111
-        };
-
-        TTPackedMove(packed_move | piece_num << PIECE_NUM_SHIFT)
-    }
-
-    #[inline]
     pub fn without_score(&self) -> Move {
         Move(self.0 & MOVE_ONLY_MASK)
     }
 
     #[inline]
     pub fn is_capture(&self) -> bool {
-        let move_type: MoveType = unsafe { transmute(((self.0 >> TYPE_SHIFT) & TYPE_MASK) as u8) };
-        move_type.is_capture()
+        self.move_type().is_capture()
     }
 
     #[inline]
     pub fn is_quiet(&self) -> bool {
-        let move_type: MoveType = unsafe { transmute(((self.0 >> TYPE_SHIFT) & TYPE_MASK) as u8) };
-        move_type.is_quiet()
+        self.move_type().is_quiet()
     }
 
     #[inline]
     pub fn is_promotion(&self) -> bool {
-        let move_type: MoveType = unsafe { transmute(((self.0 >> TYPE_SHIFT) & TYPE_MASK) as u8) };
-        move_type.is_promotion()
+        self.move_type().is_promotion()
+    }
+
+    #[inline]
+    fn move_type(&self) -> MoveType {
+        unsafe { transmute(((self.0 >> TYPE_SHIFT) & TYPE_MASK) as u8) }
     }
 
     /// Checks, whether the two moves are the same (except for the score)
@@ -314,6 +286,10 @@ impl Move {
     pub fn to_u32(&self) -> u32 {
         self.0
     }
+
+    pub fn is_no_move(&self) -> bool {
+        self.0 == 0 || self.move_type().is_tb_move()
+    }
 }
 
 impl fmt::Debug for Move {
@@ -331,56 +307,9 @@ impl fmt::Debug for Move {
 
 pub const NO_MOVE: Move = Move(0);
 
-#[derive(Copy, Clone, Default, Eq, PartialEq)]
-pub struct TTPackedMove(u32);
-
-impl TTPackedMove {
-    pub fn new(bits28: u32) -> TTPackedMove {
-        TTPackedMove(bits28)
-    }
-
-    #[inline]
-    pub fn unpack(&self, active_player: Color, boards: &BitBoards) -> Move {
-        let mut src_piece_id = (self.0 >> TYPE_SHIFT) & 0b111;
-        if src_piece_id == 0 {
-            return Move(self.0 & 0b00000011111111111111111111111111)
-        }
-
-        let mut target_piece_id = src_piece_id;
-        if src_piece_id >= N as u32 && src_piece_id <= Q as u32 && (self.0 & (1 << (TYPE_SHIFT + 3)) != 0) {
-            target_piece_id = src_piece_id;
-            src_piece_id = P as u32;
-        };
-
-        let mut piece_num = (self.0 >> PIECE_NUM_SHIFT) & PIECE_NUM_MASK;
-        if src_piece_id == 0b111 {
-            src_piece_id = 0b101; // Queen
-            target_piece_id = 0b101;
-            piece_num += 8;
-        }
-
-        let bb = boards.by_piece(active_player.piece(src_piece_id as i8));
-        let start = bb.nth_pos(piece_num as usize);
-
-        Move((self.0 & 0b00000011000111111111111111111111) | target_piece_id << TYPE_SHIFT | start << START_SHIFT)
-    }
-
-    #[inline]
-    pub fn is_no_move(&self) -> bool {
-        self.0 == 0
-    }
-
-    #[inline]
-    pub fn to_bits29(&self) -> u32 {
-        self.0
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use crate::colors::{BLACK, WHITE};
     use crate::moves::MoveType::*;
-    use crate::pieces::P;
     use super::*;
     use crate::scores::{MAX_SCORE, MIN_SCORE};
 
@@ -433,74 +362,6 @@ mod tests {
                     assert_eq!(upm.end, end);
                     assert_eq!(upm.score, MIN_SCORE);
                 }
-            }
-        }
-    }
-
-    #[test]
-    fn tt_packed_move() {
-        for start in 0..64 {
-            for end in 0..64 {
-                for active_player in [WHITE, BLACK] {
-                    for piece_id in 1..=6 {
-                        let mut bitboards = BitBoards::default();
-                        bitboards.flip(active_player, active_player.piece(piece_id), start);
-                        let move_type = MoveType::new_quiet(piece_id);
-                        let m = Move::new(move_type, start as i8, end).with_score(MIN_SCORE);
-                        let tt = m.to_tt_packed_move(active_player, &bitboards);
-
-                        let upm = tt.unpack(active_player, &bitboards).unpack();
-
-                        assert_eq!(upm.move_type as u8, move_type as u8);
-                        assert_eq!(upm.move_type.piece_id(), piece_id);
-                        assert_eq!(upm.start, start as i8);
-                        assert_eq!(upm.end, end);
-                        assert_eq!(upm.score, MIN_SCORE);
-                    }
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn tt_packed_move_9_queens() {
-        let mut bitboards = BitBoards::default();
-        for pos in 0..9 {
-            bitboards.flip(WHITE, Q, pos);
-        }
-
-        let move_type = MoveType::QueenQuiet;
-        let m = Move::new(move_type, 8, 16).with_score(MIN_SCORE);
-        let tt = m.to_tt_packed_move(WHITE, &bitboards);
-
-        let upm = tt.unpack(WHITE, &bitboards).unpack();
-
-        assert_eq!(upm.move_type.piece_id(), Q);
-        assert_eq!(upm.start, 8);
-        assert_eq!(upm.end, 16);
-        assert_eq!(upm.score, MIN_SCORE);
-        assert_eq!(upm.move_type as u8, move_type as u8);
-    }
-
-    #[test]
-    fn tt_packed_promotions() {
-        for start in 8..=15 {
-            let end = (start as i8) - 8;
-            let active_player = WHITE;
-            for piece_id in 2..=5 {
-                let mut bitboards = BitBoards::default();
-                bitboards.flip(active_player, active_player.piece(P), start);
-                let move_type = MoveType::new_quiet_promotion(piece_id);
-                let m = Move::new(move_type, start as i8, end).with_score(MIN_SCORE);
-                let tt = m.to_tt_packed_move(active_player, &bitboards);
-
-                let upm = tt.unpack(active_player, &bitboards).unpack();
-
-                assert_eq!(upm.move_type.piece_id(), piece_id);
-                assert_eq!(upm.move_type as u8, move_type as u8);
-                assert_eq!(upm.start, start as i8);
-                assert_eq!(upm.end, end);
-                assert_eq!(upm.score, MIN_SCORE);
             }
         }
     }

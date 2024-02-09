@@ -1371,7 +1371,7 @@ mod tests {
             0,  0,  0,  0,  R,  0,  0,  0,
         ];
 
-        let mut board = Board::new(&items, WHITE, CastlingState::default(), None, 0, 1, CastlingRules::default());
+        let board = Board::new(&items, WHITE, CastlingState::default(), None, 0, 1, CastlingRules::default());
         assert!(!board.has_negative_see(BLACK, 52, 44, R, P, board.occupancy_bb()));
     }
 
@@ -1390,7 +1390,7 @@ mod tests {
             0,  0,  0,  0, -R,  0,  0,  0,
         ];
 
-        let mut board = Board::new(&items, BLACK, CastlingState::default(), None, 0, 1, CastlingRules::default());
+        let board = Board::new(&items, BLACK, CastlingState::default(), None, 0, 1, CastlingRules::default());
         assert!(!board.has_negative_see(WHITE, 52, 44, R, P, board.occupancy_bb()));
     }
 
