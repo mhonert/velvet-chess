@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2023 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2024 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -23,7 +23,7 @@ use crate::moves::{Move, NO_MOVE};
 use crate::nn::init_nn_params;
 use crate::perft::perft;
 use crate::search::{Search, DEFAULT_SEARCH_THREADS};
-use crate::time_management::SearchLimits;
+use crate::time_management::{DEFAULT_MOVE_OVERHEAD_MS, SearchLimits};
 use crate::transposition_table::{TranspositionTable, DEFAULT_SIZE_MB};
 use crate::uci_move::UCIMove;
 use std::sync::atomic::{AtomicBool, AtomicU64};
@@ -49,6 +49,7 @@ pub enum Message {
     SetTableBasePath(String),
     SetTableBaseProbeDepth(i32),
     SetMultiPV(i32),
+    SetMoveOverheadMillis(i32),
     SetTranspositionTableSize(i32),
     Stop,
     PonderHit,
@@ -73,6 +74,7 @@ pub struct Engine {
     current_tt_size: i32,
     new_tb_path: Option<String>,
     search: Search,
+    move_overhead_ms: i32,
 }
 
 pub fn spawn_engine_thread() -> Sender<Message> {
@@ -112,7 +114,8 @@ impl Engine {
             new_tt_size: None,
             current_tt_size: DEFAULT_SIZE_MB as i32,
             search,
-            new_tb_path: None
+            new_tb_path: None,
+            move_overhead_ms: DEFAULT_MOVE_OVERHEAD_MS,
         }
     }
 
@@ -133,7 +136,7 @@ impl Engine {
                     }
                 }
                 Err(err) => {
-                    println!("Engine communication error: {:?}", err);
+                    println!("info string error: engine communication error: {:?}", err);
                     return;
                 }
             }
@@ -179,6 +182,10 @@ impl Engine {
                 self.search.set_multi_pv_count(count);
             }
 
+            Message::SetMoveOverheadMillis(ms) => {
+                self.move_overhead_ms = ms;
+            }
+
             Message::Perft(depth) => self.perft(depth),
 
             Message::IsReady => self.check_readiness(),
@@ -198,7 +205,7 @@ impl Engine {
 
             Message::Stop => (),
 
-            Message::PonderHit => println!("info Received 'ponderhit' outside ongoing search"),
+            Message::PonderHit => println!("info string warning: received 'ponderhit' outside ongoing search"),
 
             Message::ClearHash => self.search.clear_tt(),
 
@@ -242,7 +249,7 @@ impl Engine {
             vec![]
         };
 
-        limits.update(self.board.active_player());
+        limits.update(self.board.active_player(), self.move_overhead_ms);
 
         self.search.update(&self.board, limits, ponder);
 
@@ -281,13 +288,13 @@ impl Engine {
     fn update_tb(&mut self) {
         if let Some(path) = self.new_tb_path.clone() {
             if !syzygy::tb::init(path.clone()) {
-                eprintln!("could not initialize tablebases using path: {}", path);
+                eprintln!("info string error: could not initialize tablebases using path: {}", path);
             } else {
                 let count = syzygy::tb::max_piece_count();
                 if count == 0 {
-                    println!("debug no tablebases found");
+                    println!("info string warning: no tablebases found");
                 } else {
-                    println!("debug found {}-men tablebases", syzygy::tb::max_piece_count());
+                    println!("info string found {}-men tablebases", syzygy::tb::max_piece_count());
                 }
 
             }
@@ -322,17 +329,17 @@ impl Engine {
 
         let duration = start.elapsed();
 
-        println!("Nodes: {}", nodes);
-        println!("Duration: {:?}", duration);
+        println!("info string Nodes: {}", nodes);
+        println!("info string Duration: {:?}", duration);
 
         let duration_micro = duration.as_micros();
         if duration_micro > 0 {
             let nodes_per_sec = nodes * 1_000_000 / duration_micro as u64;
-            println!("Nodes per second: {}", nodes_per_sec);
+            println!("info string Nodes per second: {}", nodes_per_sec);
         }
     }
     pub fn profile(&mut self) {
-        println!("Profiling ...");
+        println!("info string Profiling ...");
         self.go(SearchLimits::nodes(100_000), false, None);
     }
 }

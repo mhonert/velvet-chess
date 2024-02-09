@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2023 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2024 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -27,7 +27,9 @@ pub const MAX_TIMELIMIT_MS: i32 = i32::MAX;
 const TIMEEXT_SCORE_DROP_THRESHOLD: i32 = 20;
 const TIMEEXT_HISTORY_SIZE: usize = 6;
 
-const TIME_SAFETY_MARGIN_MS: i32 = 16;
+pub const DEFAULT_MOVE_OVERHEAD_MS: i32 = 20;
+pub const MAX_MOVE_OVERHEAD_MS: i32 = 1000;
+pub const MIN_MOVE_OVERHEAD_MS: i32 = 0;
 
 #[derive(Clone)]
 pub struct TimeManager {
@@ -208,15 +210,15 @@ impl SearchLimits {
         })
     }
 
-    pub fn update(&mut self, active_player: Color) {
+    pub fn update(&mut self, active_player: Color, move_overhead_ms: i32) {
         let (time_left, inc) = if active_player.is_white() { (self.wtime, self.winc) } else { (self.btime, self.binc) };
 
-        self.time_limit_ms = calc_time_limit(self.move_time, time_left, inc, self.moves_to_go);
+        self.time_limit_ms = calc_time_limit(self.move_time, time_left, inc, self.moves_to_go, move_overhead_ms);
 
         self.strict_time_limit = self.move_time > 0
             || self.time_limit_ms == MAX_TIMELIMIT_MS
             || self.moves_to_go == 1
-            || (time_left - (TIMEEXT_MULTIPLIER * self.time_limit_ms) <= TIME_SAFETY_MARGIN_MS);
+            || (time_left - (TIMEEXT_MULTIPLIER * self.time_limit_ms) <= move_overhead_ms);
     }
 
     pub fn node_limit(&self) -> u64 {
@@ -240,16 +242,16 @@ impl SearchLimits {
     }
 }
 
-fn calc_time_limit(movetime: i32, mut time_left: i32, time_increment: i32, moves_to_go: i32) -> i32 {
+fn calc_time_limit(movetime: i32, mut time_left: i32, time_increment: i32, moves_to_go: i32, move_overhead_ms: i32) -> i32 {
     if movetime == -1 && time_left == -1 {
         return MAX_TIMELIMIT_MS;
     }
 
     if movetime > 0 {
-        return (movetime - TIME_SAFETY_MARGIN_MS).max(0);
+        return (movetime - move_overhead_ms).max(0);
     }
 
-    time_left -= TIME_SAFETY_MARGIN_MS;
+    time_left -= move_overhead_ms;
     if time_left <= 0 {
         return 0;
     }

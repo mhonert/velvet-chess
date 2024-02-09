@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2023 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2024 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -19,11 +19,11 @@
 use crate::engine::Message;
 use crate::fen::START_POS;
 use crate::search::{DEFAULT_SEARCH_THREADS, MAX_SEARCH_THREADS};
-use crate::time_management::SearchLimits;
+use crate::time_management::{DEFAULT_MOVE_OVERHEAD_MS, MAX_MOVE_OVERHEAD_MS, MIN_MOVE_OVERHEAD_MS, SearchLimits};
 use crate::transposition_table::{DEFAULT_SIZE_MB, MAX_DEPTH, MAX_HASH_SIZE_MB};
 use crate::uci_move::UCIMove;
 use std::collections::HashSet;
-use std::fmt::Display;
+use std::fmt::{Display};
 use std::io;
 use std::str::FromStr;
 use std::sync::mpsc::Sender;
@@ -111,7 +111,7 @@ fn send_message(tx: &Sender<Message>, msg: Message) {
     match tx.send(msg) {
         Ok(_) => {}
         Err(err) => {
-            eprintln!("could not send message to engine thread: {}", err);
+            eprintln!("info string error: could not send message to engine thread: {}", err);
         }
     }
 }
@@ -121,6 +121,7 @@ fn uci() {
     println!("id author {}", AUTHOR);
     println!("option name Clear Hash type button");
     println!("option name Hash type spin default {} min 1 max {}", DEFAULT_SIZE_MB, MAX_HASH_SIZE_MB);
+    println!("option name Move Overhead type spin default {} min {} max {}", DEFAULT_MOVE_OVERHEAD_MS, MIN_MOVE_OVERHEAD_MS, MAX_MOVE_OVERHEAD_MS);
     println!("option name MultiPV type spin default 1 min 1 max {}", MAX_MULTI_PV_MOVES);
     println!("option name Ponder type check default false");
     if HAS_TB_SUPPORT {
@@ -158,12 +159,12 @@ fn set_position(tx: &Sender<Message>, parts: &[&str]) {
 
 fn set_option(tx: &Sender<Message>, parts: &[&str]) {
     if parts.len() < 2 {
-        println!("Missing parameters for setoption");
+        println!("info string error: missing parameters for setoption");
         return;
     }
 
     if parts[0] != "name" {
-        println!("Missing 'name' in setoption");
+        println!("info string error: missing 'name' in setoption");
         return;
     }
 
@@ -180,12 +181,12 @@ fn set_option(tx: &Sender<Message>, parts: &[&str]) {
             if let Some(size_mb) = parse_int_option(value, 1, MAX_HASH_SIZE_MB) {
                 send_message(tx, Message::SetTranspositionTableSize(size_mb));
             } else {
-                println!("Invalid hash size: {}", value);
+                println!("info string error: invalid hash size: {}", value);
             };
         }
 
         "clear" => {
-            if parts.len() >= 2 && parts[2].eq_ignore_ascii_case("hash") {
+            if parts.len() > 2 && parts[2].eq_ignore_ascii_case("hash") {
                 send_message(tx, Message::ClearHash);
             }
         }
@@ -194,13 +195,13 @@ fn set_option(tx: &Sender<Message>, parts: &[&str]) {
             if let Some(threads) = parse_int_option(value, 1, MAX_SEARCH_THREADS as i32) {
                 send_message(tx, Message::SetThreadCount(threads));
             } else {
-                println!("Invalid thread count: {}", value);
+                println!("info string error: invalid thread count: {}", value);
             };
         }
 
         "syzygypath" => {
             if !HAS_TB_SUPPORT {
-                println!("Unknown option: SyzygyPath");
+                println!("info string warning: unknown option: SyzygyPath");
                 return;
             }
 
@@ -209,14 +210,14 @@ fn set_option(tx: &Sender<Message>, parts: &[&str]) {
 
         "syzygyprobedepth" => {
             if !HAS_TB_SUPPORT {
-                println!("Unknown option: SyzygyProbeDepth");
+                println!("info string warning: unknown option: SyzygyProbeDepth");
                 return;
             }
 
             if let Some(depth) = parse_int_option(value, 0, MAX_DEPTH as i32) {
                 send_message(tx, Message::SetTableBaseProbeDepth(depth));
             } else {
-                println!("Invalid probe depth: {}", value);
+                println!("info string error: invalid probe depth: {}", value);
             };
         }
 
@@ -228,17 +229,28 @@ fn set_option(tx: &Sender<Message>, parts: &[&str]) {
             if let Some(multipv_moves) = parse_int_option(value, 1, MAX_MULTI_PV_MOVES as i32) {
                 send_message(tx, Message::SetMultiPV(multipv_moves));
             } else {
-                println!("Invalid number of MultiPV moves: {}", value);
+                println!("info string error: invalid number of MultiPV moves: {}", value);
             };
+        }
+
+        "move" => {
+            if parts.len() > 2 && parts[2].eq_ignore_ascii_case("overhead") {
+                if let Some(ms) = parse_int_option(value, MIN_MOVE_OVERHEAD_MS, MAX_MOVE_OVERHEAD_MS) {
+                    send_message(tx, Message::SetMoveOverheadMillis(ms));
+                } else {
+                    println!("info string error: invalid move overhead value");
+                }
+            }
         }
 
         _ => {
             if let Some(value) = parse_int_option(value, i16::MIN, i16::MAX) {
                 send_message(tx, Message::SetParam(name, value));
             } else {
-                println!("Invalid value for param {}: {}", name, value)
+                println!("info string error: invalid value for param {}: {}", name, value)
             }
         },
+
     }
 }
 
@@ -251,10 +263,10 @@ fn parse_int_option<T: FromStr + Ord + Display>(value: &str, min_value: T, max_v
     };
 
     if value < min_value {
-        println!("Value too low! Will be set to allowed minimum: {}", min_value);
+        println!("info string warning: value too low: setting to allowed minimum: {}", min_value);
         Some(min_value)
     } else if value > max_value {
-        println!("Value too high! Will be set to allowed maximum: {}", max_value);
+        println!("info string warning: value too high: setting to allowed maximum: {}", max_value);
         Some(max_value)
     } else {
         Some(value)
@@ -268,7 +280,7 @@ fn parse_moves(idx: usize, parts: &[&str]) -> Vec<UCIMove> {
         match UCIMove::from_uci(parts[i]) {
             Some(m) => moves.push(m),
             None => {
-                eprintln!("could not parse move notation: {}", parts[i]);
+                eprintln!("info string error: could not parse move notation: {}", parts[i]);
                 return moves;
             }
         }
@@ -279,13 +291,13 @@ fn parse_moves(idx: usize, parts: &[&str]) -> Vec<UCIMove> {
 
 fn perft(tx: &Sender<Message>, parts: Vec<&str>) {
     if parts.is_empty() {
-        println!("perft cmd: missing depth");
+        println!("info string error: missing depth parameter");
         return;
     }
 
     match i32::from_str(parts[0]) {
         Ok(depth) => send_message(tx, Message::Perft(depth)),
-        Err(_) => println!("perft cmd: invalid depth parameter: {}", parts[0]),
+        Err(_) => println!("info string error: invalid depth parameter: {}", parts[0]),
     };
 }
 
@@ -334,7 +346,7 @@ fn go(tx: &Sender<Message>, valid_cmds: &HashSet<&str>, parts: Vec<&str>) {
         match SearchLimits::new(depth_limit, node_limit, wtime, btime, winc, binc, move_time, moves_to_go, mate_limit) {
             Ok(limits) => limits,
             Err(e) => {
-                eprintln!("go: invalid search params: {}", e);
+                eprintln!("info string error: invalid search params: {}", e);
                 return;
             }
         }
@@ -386,7 +398,7 @@ fn parse_cmd_multi_arg<T: std::str::FromStr>(
 
 fn parse_position_cmd(parts: &[&str]) -> String {
     if parts.is_empty() {
-        eprintln!("position command: missing fen/startpos");
+        eprintln!("info string error: missing fen/startpos");
         return String::from(START_POS);
     }
 
