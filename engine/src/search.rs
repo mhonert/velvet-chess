@@ -800,7 +800,7 @@ impl Search {
             let start = curr_move.start();
             let end = curr_move.end();
 
-            let mut skip = self.board.is_in_check(active_player); // skip if move would put own king in check
+            let mut skip = self.board.is_left_in_check(active_player, in_check, curr_move); // skip if move would put own king in check
 
             let mut reductions = 0;
 
@@ -1014,7 +1014,7 @@ impl Search {
         } {
             let (previous_piece, captured_piece_id) = self.board.perform_move(m);
             self.tt.prefetch(self.board.get_hash());
-            if self.board.is_in_check(active_player) {
+            if self.board.is_left_in_check(active_player, in_check, m) {
                 self.board.undo_move(m, previous_piece, captured_piece_id);
                 continue;
             }

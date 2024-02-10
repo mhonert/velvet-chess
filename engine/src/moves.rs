@@ -117,6 +117,11 @@ impl MoveType {
     }
 
     #[inline]
+    pub fn is_en_passant(self) -> bool {
+        matches!(self, MoveType::PawnEnPassant)
+    }
+
+    #[inline]
     pub fn is_queen_promotion(self) -> bool {
         matches!(self, MoveType::QueenQuietPromotion | MoveType::QueenCapturePromotion)
     }

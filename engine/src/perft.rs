@@ -37,10 +37,12 @@ pub fn perft(ctx: &mut SearchContext, hh: &HistoryHeuristics, board: &mut Board,
     let active_player = board.active_player();
     ctx.prepare_moves(active_player, NO_MOVE, EMPTY_HISTORY);
 
+    let in_check = board.is_in_check(active_player);
+
     while let Some(m) = ctx.next_move(0, hh, board) {
         let (previous_piece, removed_piece_id) = board.perform_move(m);
 
-        if !board.is_in_check(active_player) {
+        if !board.is_left_in_check(active_player, in_check, m) {
             nodes += next_ply!(ctx, perft(ctx, hh, board, depth - 1));
         }
 

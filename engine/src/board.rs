@@ -731,11 +731,23 @@ impl Board {
 
     #[inline(always)]
     pub fn is_in_check(&self, color: Color) -> bool {
-        if color.is_white() {
-            self.is_attacked(BLACK, self.king_pos(WHITE) as usize)
-        } else {
-            self.is_attacked(WHITE, self.king_pos(BLACK) as usize)
+        self.is_attacked(color.flip(), self.king_pos(color) as usize)
+    }
+
+    #[inline(always)]
+    pub fn is_left_in_check(&self, color: Color, was_in_check: bool, m: Move) -> bool {
+        if was_in_check || m.move_type().piece_id() == K || m.move_type().is_en_passant() {
+            return self.is_in_check(color);
         }
+
+        let opp = color.flip();
+        let empty_bb = !self.occupancy_bb();
+        let queens = self.get_bitboard(opp.piece(Q));
+        let king_pos = self.king_pos(color) as usize;
+        let diagonal_attacks = (self.get_bitboard(opp.piece(B)) | queens) & get_bishop_attacks(empty_bb.0, king_pos);
+        let orthogonal_attacks = (self.get_bitboard(opp.piece(R)) | queens) & get_rook_attacks(empty_bb.0, king_pos);
+
+        (diagonal_attacks | orthogonal_attacks).is_occupied()
     }
 
     pub fn get_all_piece_bitboard(&self, color: Color) -> BitBoard {
@@ -751,34 +763,18 @@ impl Board {
         let empty_bb = !self.occupancy_bb();
         let target_bb = BitBoard(1 << pos as u64);
 
-        // Check knights
-        if (self.get_bitboard(opp.piece(N)) & get_knight_attacks(pos)).is_occupied() {
-            return true;
-        }
+        let knight_attacks = self.get_bitboard(opp.piece(N)) & get_knight_attacks(pos);
 
-        // Check diagonal
         let queens = self.get_bitboard(opp.piece(Q));
-        if ((self.get_bitboard(opp.piece(B)) | queens) & get_bishop_attacks(empty_bb.0, pos)).is_occupied() {
-            return true;
-        }
+        let diagonal_attacks = (self.get_bitboard(opp.piece(B)) | queens) & get_bishop_attacks(empty_bb.0, pos);
 
-        // Check orthogonal
-        if ((self.get_bitboard(opp.piece(R)) | queens) & get_rook_attacks(empty_bb.0, pos)).is_occupied() {
-            return true;
-        }
+        let orthogonal_attacks = (self.get_bitboard(opp.piece(R)) | queens) & get_rook_attacks(empty_bb.0, pos);
 
-        // Check pawns
         let pawns = self.get_bitboard(opp.piece(P));
-        if (target_bb & get_pawn_attacks(pawns, opp)).is_occupied() {
-            return true;
-        }
+        let pawn_attacks = get_pawn_attacks(pawns, opp) & target_bb;
 
-        // Check king
-        if (target_bb & get_king_attacks(self.king_pos(opp) as usize)).is_occupied() {
-            return true;
-        }
-
-        false
+        let king_attacks = get_king_attacks(self.king_pos(opp) as usize) & target_bb;
+        (knight_attacks | diagonal_attacks | orthogonal_attacks | pawn_attacks | king_attacks).is_occupied()
     }
 
     pub fn get_bitboard(&self, piece: i8) -> BitBoard {
