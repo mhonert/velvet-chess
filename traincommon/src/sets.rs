@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2023 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2024 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -330,7 +330,7 @@ fn read_from_bin_fen_file(output_writer: &Arc<OutputWriter>, file_name: &str, _u
 
         for _ in 1..=move_count {
             let m = Move::from_u32(read_u32(&mut reader).expect("could not read move"));
-            board.perform_move(m.unpack());
+            board.perform_move(m);
             let score = if let Some(tb_result) = board.probe_wdl() {
                 let (tb_score, tb_result) = match tb_result {
                     TBResult::Draw => (0, 0),
@@ -364,7 +364,7 @@ fn read_from_bin_fen_file(output_writer: &Arc<OutputWriter>, file_name: &str, _u
         let final_eval_score = moves.iter().map(|(_, score)| *score).filter(|&score| is_eval_score(score)).last().unwrap_or(game_result * MAX_EVAL);
         for (i, &(m, raw_score)) in moves.iter().enumerate() {
             if skip_all || is_mate_or_mated_score(raw_score) || !m.is_quiet() || gives_check {
-                board.perform_move(m.unpack());
+                board.perform_move(m);
                 gives_check = board.is_in_check(board.active_player());
                 continue;
             }
@@ -422,7 +422,7 @@ fn read_from_bin_fen_file(output_writer: &Arc<OutputWriter>, file_name: &str, _u
                 }
             }
 
-            board.perform_move(m.unpack());
+            board.perform_move(m);
 
             gives_check = board.is_in_check(board.active_player());
 
