@@ -265,7 +265,7 @@ fn collect_quiet_pos(
 
         positions.push(best_move.with_score(score).to_u32());
 
-        search.board.perform_move(best_move.unpack());
+        search.board.perform_move(best_move);
     }
 
     let count = positions.len();
