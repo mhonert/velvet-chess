@@ -28,7 +28,7 @@ use crate::pieces::{EMPTY, P};
 use crate::pos_history::PositionHistory;
 use crate::scores::{mate_in, sanitize_score, MATED_SCORE, MATE_SCORE, MAX_SCORE, MIN_SCORE, is_mate_or_mated_score, MAX_EVAL, MIN_EVAL};
 use crate::time_management::{SearchLimits, TimeManager};
-use crate::transposition_table::{ScoreType, TranspositionTable, MAX_DEPTH, get_hash_move, get_depth, get_score_type, update_gen_bit, to_gen_bit};
+use crate::transposition_table::{ScoreType, TranspositionTable, MAX_DEPTH, get_hash_move, get_depth, get_score_type, to_gen_bit};
 use crate::uci_move::UCIMove;
 use std::cmp::Reverse;
 use std::collections::HashSet;
@@ -108,6 +108,7 @@ pub struct Search {
     multi_pv_count: usize,
     tb_probe_depth: i32,
     tb_probe_root: bool,
+    is_tb_root: bool,
 
     node_count: Arc<AtomicU64>,
     is_stopped: Arc<AtomicBool>,
@@ -155,6 +156,7 @@ impl Search {
             multi_pv_count: 1,
             tb_probe_depth: DEFAULT_TB_PROBE_DEPTH,
             tb_probe_root: true,
+            is_tb_root: false,
 
             draw_score: 0,
             player_pov: WHITE,
@@ -253,6 +255,7 @@ impl Search {
 
         let mut skipped_moves = Vec::from(skipped_moves);
 
+        self.is_tb_root = false;
         // Probe tablebases
         let (draw_score, tb_result) = if self.tb_probe_root {
             if let Some((tb_result, mut tb_skip_moves)) = self.board.probe_root() {
@@ -266,6 +269,7 @@ impl Search {
                     TBResult::CursedWin => -1,
                     TBResult::Win => MATED_SCORE,
                 };
+                self.is_tb_root = true;
                 skipped_moves.append(&mut tb_skip_moves);
                 (draw_score, Some(tb_result))
             } else {
@@ -277,7 +281,7 @@ impl Search {
 
         self.player_pov = self.board.active_player();
         self.draw_score = draw_score;
-        self.threads.start_search(&self.board, &skipped_moves, self.multi_pv_count, self.tb_probe_depth, draw_score);
+        self.threads.start_search(&self.board, &skipped_moves, self.multi_pv_count, self.tb_probe_depth, draw_score, self.is_tb_root);
 
         let mut multi_pv_state = vec![
             (
@@ -589,7 +593,7 @@ impl Search {
         let active_player = self.board.active_player();
         if se_move == NO_MOVE {
             // Check transposition table
-            if let Some((tt_entry, tt_slot)) = self.tt.get_entry(hash) {
+            if let Some(tt_entry) = self.tt.get_entry(hash, self.gen_bit) {
                 hash_move = get_hash_move(tt_entry, ply);
                 hash_score = hash_move.score();
 
@@ -608,7 +612,6 @@ impl Search {
                     match get_score_type(tt_entry) {
                         ScoreType::Exact => {
                             if depth <= 0 || (!is_pv && tt_depth >= depth) {
-                                update_gen_bit(tt_entry, tt_slot, self.gen_bit);
                                 if hash_move != NO_MOVE && !hash_move.is_capture() {
                                     self.hh.update(ply, active_player, move_history, hash_move, true);
                                 }
@@ -619,7 +622,6 @@ impl Search {
 
                         ScoreType::UpperBound => {
                             if !is_pv && hash_score <= alpha && tt_depth >= depth {
-                                update_gen_bit(tt_entry, tt_slot, self.gen_bit);
                                 return hash_score;
                             }
                             skip_null_move = tt_depth >= depth - null_move_reduction(depth);
@@ -627,7 +629,6 @@ impl Search {
 
                         ScoreType::LowerBound => {
                             if !is_pv && hash_score >= beta && tt_depth >= depth {
-                                update_gen_bit(tt_entry, tt_slot, self.gen_bit);
                                 if hash_move != NO_MOVE && !hash_move.is_capture() {
                                     self.hh.update(ply, active_player, move_history, hash_move, true);
                                 }
@@ -647,7 +648,7 @@ impl Search {
             }
 
             // Probe tablebases
-            if depth.max(0) >= self.tb_probe_depth {
+            if !self.is_tb_root && depth.max(0) >= self.tb_probe_depth {
                 if let Some(tb_result) = self.board.probe_wdl() {
                     self.local_tb_hits += 1;
 
@@ -663,11 +664,11 @@ impl Search {
                             best_possible_score = -400;
                         },
                         TBResult::CursedWin => {
-                            self.tt.write_entry(hash, self.gen_bit, ply, MAX_DEPTH as i32, self.tb_move(), 1, ScoreType::Exact);
+                            self.tt.write_entry(hash, self.gen_bit, ply, MAX_DEPTH as i32, self.tb_move(), 1, ScoreType::UpperBound);
                             return 1;
                         },
                         TBResult::BlessedLoss => {
-                            self.tt.write_entry(hash, self.gen_bit, ply, MAX_DEPTH as i32, self.tb_move(), -1, ScoreType::Exact);
+                            self.tt.write_entry(hash, self.gen_bit, ply, MAX_DEPTH as i32, self.tb_move(), -1, ScoreType::LowerBound);
                             return -1;
                         }
                     }
@@ -1049,7 +1050,7 @@ impl Search {
     }
 
     fn get_hash_move(&self, ply: usize) -> Move {
-        if let Some((entry, _)) = self.tt.get_entry(self.board.get_hash()) {
+        if let Some(entry) = self.tt.get_entry(self.board.get_hash(), self.gen_bit) {
             let hash_move = get_hash_move(entry, ply);
             let active_player = self.board.active_player();
             if is_valid_move(&self.board, active_player, hash_move) {
@@ -1120,7 +1121,7 @@ impl Search {
             return String::new();
         }
 
-        if let Some((entry, _)) = self.tt.get_entry(self.board.get_hash()) {
+        if let Some(entry) = self.tt.get_entry(self.board.get_hash(), self.gen_bit) {
             let active_player = self.board.active_player();
             let hash_move = get_hash_move(entry, 0);
             if hash_move.is_no_move() {
@@ -1282,6 +1283,7 @@ enum ToThreadMessage {
         multi_pv_count: usize,
         tb_probe_depth: i32,
         draw_score: i16,
+        is_tb_root: bool,
     },
     ClearTT {
         thread_no: usize,
@@ -1339,9 +1341,9 @@ impl HelperThreads {
         self.threads.len()
     }
 
-    pub fn start_search(&self, board: &Board, skipped_moves: &[Move], multi_pv_count: usize, tb_probe_depth: i32, draw_score: i16) {
+    pub fn start_search(&self, board: &Board, skipped_moves: &[Move], multi_pv_count: usize, tb_probe_depth: i32, draw_score: i16, is_tb_root: bool) {
         for t in self.threads.iter() {
-            t.search(board, skipped_moves, multi_pv_count, tb_probe_depth, draw_score);
+            t.search(board, skipped_moves, multi_pv_count, tb_probe_depth, draw_score, is_tb_root);
         }
     }
 
@@ -1472,7 +1474,7 @@ struct HelperThread {
 }
 
 impl HelperThread {
-    pub fn search(&self, board: &Board, skipped_moves: &[Move], multi_pv_count: usize, tb_probe_depth: i32, draw_score: i16) {
+    pub fn search(&self, board: &Board, skipped_moves: &[Move], multi_pv_count: usize, tb_probe_depth: i32, draw_score: i16, is_tb_root: bool) {
         match self.to_tx.send(ToThreadMessage::Search {
             pos_history: board.pos_history.clone(),
             bitboards: board.bitboards,
@@ -1482,7 +1484,8 @@ impl HelperThread {
             skipped_moves: Vec::from(skipped_moves),
             multi_pv_count,
             tb_probe_depth,
-            draw_score
+            draw_score,
+            is_tb_root,
         }) {
             Ok(_) => {}
             Err(e) => {
@@ -1529,7 +1532,9 @@ impl HelperThread {
                     skipped_moves,
                     multi_pv_count,
                     tb_probe_depth,
-                    draw_score
+                    draw_score,
+                    is_tb_root
+
                 } => {
                     sub_search.reset();
                     sub_search.board.reset(pos_history, bitboards, halfmove_count, state, castling_rules);
@@ -1537,6 +1542,7 @@ impl HelperThread {
                     sub_search.draw_score = draw_score;
                     sub_search.player_pov = sub_search.board.active_player();
                     sub_search.gen_bit = to_gen_bit(sub_search.board.fullmove_count());
+                    sub_search.is_tb_root = is_tb_root;
 
                     sub_search.ctx.prepare_moves(sub_search.board.active_player(), sub_search.get_hash_move(0), EMPTY_HISTORY);
 

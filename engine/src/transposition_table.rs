@@ -122,7 +122,7 @@ impl TranspositionTable {
                 return;
             }
             if entry & HASHCHECK_MASK == hash_check {
-                if matches!(typ, ScoreType::Exact) || gen_bit != get_gen_bit(entry) || new_depth >= get_depth(entry) - 3 {
+                if matches!(typ, ScoreType::Exact) || new_depth >= get_depth(entry) - 3 {
                     slot.store(new_entry, Ordering::Relaxed);
                 }
                 return;
@@ -137,12 +137,17 @@ impl TranspositionTable {
         }).unwrap().store(new_entry, Ordering::Relaxed);
     }
 
-    pub fn get_entry(&self, hash: u64) -> Option<(u64, &AtomicU64)> {
+    pub fn get_entry(&self, hash: u64, gen_bit: u8) -> Option<u64> {
         let index = self.calc_index(hash);
         let slots = unsafe { self.segments.0.get_unchecked(index) };
         let hash_check = hash & HASHCHECK_MASK;
 
-        slots.iter().skip(1).map(|s| (s.load(Ordering::Relaxed), s)).find(|(e, _)| e & HASHCHECK_MASK == hash_check)
+        if let Some((entry, slot)) = slots.iter().skip(1).map(|s| (s.load(Ordering::Relaxed), s)).find(|(e, _)| e & HASHCHECK_MASK == hash_check) {
+            update_gen_bit(entry, slot, gen_bit);
+            Some(entry)
+        } else {
+            None
+        }
     }
 
     pub fn get_or_calc_eval<F: FnOnce() -> i16>(&self, hash: u64, calc_eval: F) -> i16 {
@@ -215,10 +220,9 @@ fn get_gen_bit(entry: u64) -> u8 {
     (entry & (GEN_MASK << GEN_BITSHIFT)) as u8
 }
 
-pub fn update_gen_bit(mut entry: u64, slot: &AtomicU64, gen_bit: u8) {
+fn update_gen_bit(entry: u64, slot: &AtomicU64, gen_bit: u8) {
     if get_gen_bit(entry) != gen_bit {
-        entry ^= gen_bit as u64;
-        slot.store(entry, Ordering::Relaxed);
+        slot.store(entry ^ gen_bit as u64, Ordering::Relaxed);
     }
 }
 
