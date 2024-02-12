@@ -691,6 +691,7 @@ impl Search {
         });
         let improving = self.ctx.is_improving();
 
+        let unreduced_depth = depth;
         if !is_pv && !in_check {
             if depth <= 2 {
                 // Jump directly to QS, if position is already so good, that it is unlikely for the opponent to counter it within the remaining search depth
@@ -713,14 +714,21 @@ impl Search {
 
                     self.ctx.update_next_ply_entry(NO_MOVE, false);
 
-                    let result = next_ply!(self.ctx, self.rec_find_best_move(rx, -beta, -beta + 1, ply + 1, depth - null_move_reduction(depth), &mut PrincipalVariation::default(), in_se_search, NO_MOVE));
+                    let reduced_depth = depth - null_move_reduction(depth);
+                    let result = next_ply!(self.ctx, self.rec_find_best_move(rx, -beta, -beta + 1, ply + 1, reduced_depth, &mut PrincipalVariation::default(), in_se_search, NO_MOVE));
                     self.board.undo_null_move();
                     if result == CANCEL_SEARCH {
                         return CANCEL_SEARCH;
                     }
                     let score = clamp_score(-result, worst_possible_score, best_possible_score);
                     if score >= beta {
-                        return if is_mate_or_mated_score(score) { beta } else { score };
+                        if is_mate_or_mated_score(score) {
+                            return beta;
+                        } else if reduced_depth >= 8 {
+                            depth = reduced_depth; // verify null move result with reduced regular search
+                        } else {
+                            return score;
+                        }
                     }
                 }
             }
@@ -875,6 +883,7 @@ impl Search {
 
                 if -result > alpha && (reductions > 0 || (-result < beta && a != -beta)) {
                     // Repeat search without reduction and with full window
+                    depth = unreduced_depth;
                     result = next_ply!(self.ctx, self.rec_find_best_move(rx, -beta, -alpha, ply + 1, depth + se_extension - 1, &mut local_pv, in_se_search, NO_MOVE));
                     if result == CANCEL_SEARCH {
                         self.board.undo_move(curr_move, previous_piece, removed_piece_id);
