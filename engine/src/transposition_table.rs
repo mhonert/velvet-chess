@@ -304,7 +304,7 @@ mod tests {
 
         tt.write_entry(hash, 0, 0, depth,  m, score, typ);
 
-        let entry= tt.get_entry(hash).expect("entry must exist").0;
+        let entry = tt.get_entry(hash, 0).expect("entry must exist");
 
         assert_eq!(m.to_u32(), get_hash_move(entry, 0).to_u32());
         assert_eq!(depth, get_depth(entry));
@@ -319,7 +319,7 @@ mod tests {
         let m = NO_MOVE.with_score(score);
         tt.write_entry(hash, 0, 0, 1, m, score, ScoreType::Exact);
 
-        let entry= tt.get_entry(hash).expect("entry must exist").0;
+        let entry= tt.get_entry(hash, 0).expect("entry must exist");
         assert_eq!(m.to_u32(), get_hash_move(entry, 0).to_u32());
     }
 
@@ -331,7 +331,7 @@ mod tests {
         let m = NO_MOVE.with_score(score);
         tt.write_entry(hash,  0, 0, 1, m, score, ScoreType::Exact);
 
-        let entry = tt.get_entry(hash).expect("entry must exist").0;
+        let entry = tt.get_entry(hash, 0).expect("entry must exist");
         assert_eq!(m.to_u32(), get_hash_move(entry, 0).to_u32());
     }
 
@@ -343,7 +343,7 @@ mod tests {
         let m = NO_MOVE.with_score(score);
         tt.write_entry(hash, 0, 0, 1, m, score, ScoreType::Exact);
 
-        let entry= tt.get_entry(hash).expect("entry must exist").0;
+        let entry= tt.get_entry(hash, 0).expect("entry must exist");
         assert_eq!(m.to_u32(), get_hash_move(entry, 0).to_u32());
     }
 
@@ -355,7 +355,7 @@ mod tests {
         let m = NO_MOVE.with_score(score);
         tt.write_entry(hash,  0, 0, 1, m, score, ScoreType::Exact);
 
-        let entry = tt.get_entry(hash).expect("entry must exist").0;
+        let entry = tt.get_entry(hash, 0).expect("entry must exist");
         assert_eq!(m.to_u32(), get_hash_move(entry, 0).to_u32());
     }
 }
