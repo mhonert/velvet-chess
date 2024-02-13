@@ -386,13 +386,14 @@ impl Search {
 
     fn root_search(
         &mut self, rx: Option<&Receiver<Message>>, skipped_moves: &[Move], window_step: i16, window_size: i16,
-        score: i16, depth: i32, pv: &mut PrincipalVariation) -> (bool, Move, Option<String>, i16) {
+        score: i16, mut depth: i32, pv: &mut PrincipalVariation) -> (bool, Move, Option<String>, i16) {
         let mut alpha = if depth > 7 { score - window_size } else { MIN_SCORE };
         let mut beta = if depth > 7 { score + window_size } else { MAX_SCORE };
 
         self.ctx.set_eval(if self.board.is_in_check(self.board.active_player()) { MIN_SCORE } else { self.board.eval() });
 
         let mut step = window_step;
+        let original_depth = depth;
         loop {
             pv.clear();
 
@@ -415,9 +416,12 @@ impl Search {
 
             let best_score = best_move.score();
             if best_score <= alpha {
+                beta = (alpha + beta) / 2;
                 alpha = MIN_SCORE.max(alpha.saturating_sub(step));
+                depth = original_depth;
             } else if best_score >= beta {
                 beta = MAX_SCORE.min(beta.saturating_add(step));
+                depth -= 1;
             } else {
                 return (false, best_move, current_pv, step);
             }
