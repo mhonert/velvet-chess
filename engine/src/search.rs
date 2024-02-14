@@ -597,6 +597,7 @@ impl Search {
         let active_player = self.board.active_player();
         if se_move == NO_MOVE {
             // Check transposition table
+            let mut is_tt_hit = false;
             if let Some(tt_entry) = self.tt.get_entry(hash, self.gen_bit) {
                 hash_move = get_hash_move(tt_entry, ply);
                 hash_score = hash_move.score();
@@ -612,6 +613,7 @@ impl Search {
                 };
 
                 if hash_move != NO_MOVE || is_tb_move {
+                    is_tt_hit = true;
                     let tt_depth = get_depth(tt_entry);
                     match get_score_type(tt_entry) {
                         ScoreType::Exact => {
@@ -679,7 +681,7 @@ impl Search {
                 }
             }
 
-            if hash_move == NO_MOVE && depth > 3 {
+            if !is_tt_hit && depth > 3 {
                 // Reduce nodes without hash move from transposition table
                 depth -= 1;
             }
