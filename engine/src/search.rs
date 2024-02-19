@@ -699,7 +699,7 @@ impl Search {
 
         let unreduced_depth = depth;
         if !is_pv && !in_check {
-            if depth <= 2 {
+            if depth <= 3 {
                 // Jump directly to QS, if position is already so good, that it is unlikely for the opponent to counter it within the remaining search depth
                 let score = self.ctx.eval();
 
@@ -709,9 +709,11 @@ impl Search {
                     (params::rfp_margin_multiplier_not_improving() << depth) + params::rfp_base_margin_not_improving()
                 };
                 if self.current_depth > 7 && score - margin >= beta {
-                    return clamp_score(same_ply!(self.ctx, self.quiescence_search(false, active_player, alpha, beta, ply, in_check, pv)), worst_possible_score, best_possible_score);
+                    return score;
                 }
-            } else if !skip_null_move {
+            }
+
+            if !skip_null_move {
                 // Null move pruning
                 let score = self.ctx.eval();
                 if score >= beta && self.board.has_non_pawns(active_player) {
