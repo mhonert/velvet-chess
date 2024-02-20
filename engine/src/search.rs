@@ -699,44 +699,49 @@ impl Search {
 
         let unreduced_depth = depth;
         if !is_pv && !in_check {
-            if depth <= 3 {
-                // Jump directly to QS, if position is already so good, that it is unlikely for the opponent to counter it within the remaining search depth
-                let score = self.ctx.eval();
 
+            let static_score = clamp_score(self.ctx.eval(), worst_possible_score, best_possible_score);
+            if !improving && self.current_depth > 7 && depth <= 4 && !is_mate_or_mated_score(alpha) && static_score + (1 << (depth - 1)) * params::razor_margin_multiplier() <= alpha {
+                // Razoring
+                let score = clamp_score(same_ply!(self.ctx, self.quiescence_search(false, active_player, alpha, beta, ply, in_check, pv)), worst_possible_score, best_possible_score);
+                if score <= alpha {
+                    return score;
+                }
+            }
+
+            if depth <= 3 {
+                // Reverse futility pruning
                 let margin = if improving {
                     (params::rfp_margin_multiplier_improving() << depth) + params::rfp_base_margin_improving()
                 } else {
                     (params::rfp_margin_multiplier_not_improving() << depth) + params::rfp_base_margin_not_improving()
                 };
-                if self.current_depth > 7 && score - margin >= beta {
-                    return score;
+                if self.current_depth > 7 && static_score - margin >= beta {
+                    return static_score;
                 }
             }
 
-            if !skip_null_move {
+            if !skip_null_move && static_score >= beta && self.board.has_non_pawns(active_player) {
                 // Null move pruning
-                let score = self.ctx.eval();
-                if score >= beta && self.board.has_non_pawns(active_player) {
-                    self.board.perform_null_move();
-                    self.tt.prefetch(self.board.get_hash());
+                self.board.perform_null_move();
+                self.tt.prefetch(self.board.get_hash());
 
-                    self.ctx.update_next_ply_entry(NO_MOVE, false);
+                self.ctx.update_next_ply_entry(NO_MOVE, false);
 
-                    let reduced_depth = depth - null_move_reduction(depth);
-                    let result = next_ply!(self.ctx, self.rec_find_best_move(rx, -beta, -beta + 1, ply + 1, reduced_depth, &mut PrincipalVariation::default(), in_se_search, NO_MOVE));
-                    self.board.undo_null_move();
-                    if result == CANCEL_SEARCH {
-                        return CANCEL_SEARCH;
-                    }
-                    let score = clamp_score(-result, worst_possible_score, best_possible_score);
-                    if score >= beta {
-                        if is_mate_or_mated_score(score) {
-                            return beta;
-                        } else if reduced_depth >= 8 {
-                            depth = reduced_depth; // verify null move result with reduced regular search
-                        } else {
-                            return score;
-                        }
+                let reduced_depth = depth - null_move_reduction(depth);
+                let result = next_ply!(self.ctx, self.rec_find_best_move(rx, -beta, -beta + 1, ply + 1, reduced_depth, &mut PrincipalVariation::default(), in_se_search, NO_MOVE));
+                self.board.undo_null_move();
+                if result == CANCEL_SEARCH {
+                    return CANCEL_SEARCH;
+                }
+                let score = clamp_score(-result, worst_possible_score, best_possible_score);
+                if score >= beta {
+                    if is_mate_or_mated_score(score) {
+                        return beta;
+                    } else if reduced_depth >= 8 {
+                        depth = reduced_depth; // verify null move result with reduced regular search
+                    } else {
+                        return score;
                     }
                 }
             }
@@ -753,13 +758,6 @@ impl Search {
             let margin = (params::fp_margin_multiplier() << depth) + params::fp_base_margin();
             let static_score = self.ctx.eval();
             allow_futile_move_pruning = static_score + margin <= alpha;
-
-            if depth == 1 && static_score + params::razor_margin_multiplier() <= alpha {
-                let score = clamp_score(same_ply!(self.ctx, self.quiescence_search(false, active_player, alpha, beta, ply, in_check, pv)), worst_possible_score, best_possible_score);
-                if score <= alpha {
-                    return score;
-                }
-            }
         }
 
         self.ctx.prepare_moves(active_player, hash_move, move_history);
