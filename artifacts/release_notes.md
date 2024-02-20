@@ -1,5 +1,5 @@
 
-This releases comes with a new neural network architecture and some small search improvements :christmas_tree:
+This release improves the strength and performance in later game stages, while maintaining the early game strength
 
 Estimated strength increase: ~ 65 Elo
 
