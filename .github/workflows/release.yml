@@ -22,7 +22,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v2
 
       - name: Build
         env:
@@ -36,7 +36,7 @@ jobs:
           mv target/x86_64-unknown-linux-musl/release/velvet velvet-linux-x86_64-${{ matrix.exec_postfix }}
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v2
         with:
           name: velvet-linux
           path: velvet-linux-x86_64-${{ matrix.exec_postfix }}
@@ -58,7 +58,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v2
 
       - name: Build
         env:
@@ -70,7 +70,7 @@ jobs:
           mv .\target\release\velvet.exe velvet-windows-x86_64-${{ matrix.exec_postfix }}.exe
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v2
         with:
           name: velvet-windows
           path: velvet-windows-x86_64-${{ matrix.exec_postfix }}.exe
@@ -99,7 +99,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v2
 
       - name: Build
         env:
@@ -112,7 +112,7 @@ jobs:
           mv target/${{ matrix.toolchain }}/release/velvet velvet-macOS-${{ matrix.exec_postfix }}
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v2
         with:
           name: velvet-macos
           path: velvet-macOS-${{ matrix.exec_postfix }}
@@ -124,17 +124,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v2
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v2
         with:
           name: velvet-linux
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v2
         with:
           name: velvet-windows
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v2
         with:
           name: velvet-macos
 
