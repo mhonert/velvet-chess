@@ -28,7 +28,7 @@ use crate::pieces::{EMPTY, P};
 use crate::pos_history::PositionHistory;
 use crate::scores::{mate_in, sanitize_score, MATED_SCORE, MATE_SCORE, MAX_SCORE, MIN_SCORE, is_mate_or_mated_score, MAX_EVAL, MIN_EVAL};
 use crate::time_management::{SearchLimits, TimeManager};
-use crate::transposition_table::{ScoreType, TranspositionTable, MAX_DEPTH, get_hash_move, get_depth, get_score_type, to_gen_bit};
+use crate::transposition_table::{ScoreType, TranspositionTable, MAX_DEPTH, get_tt_move, get_depth, get_score_type, to_gen_bit};
 use crate::uci_move::UCIMove;
 use std::cmp::Reverse;
 use std::collections::HashSet;
@@ -245,7 +245,7 @@ impl Search {
 
         let active_player = self.board.active_player();
 
-        self.ctx.prepare_moves(active_player, self.get_hash_move(0), EMPTY_HISTORY);
+        self.ctx.prepare_moves(active_player, self.get_tt_move(0), EMPTY_HISTORY);
 
         self.set_stopped(false);
 
@@ -581,75 +581,60 @@ impl Search {
 
         let hash = self.board.get_hash();
 
-        let mut hash_move = NO_MOVE;
-        let mut hash_score = 0;
+        let mut tt_move = NO_MOVE;
+        let mut tt_score = 0;
 
         let mut check_se = false;
 
-        let mut skip_null_move = false;
-
         let mut best_score = worst_possible_score;
         let mut best_move = NO_MOVE;
-        let mut score_type = ScoreType::UpperBound;
 
         let move_history = self.ctx.move_history();
 
         let active_player = self.board.active_player();
+        let mut tt_score_is_upper_bound = false;
+        let mut tt_depth = 0;
         if se_move == NO_MOVE {
             // Check transposition table
             let mut is_tt_hit = false;
             if let Some(tt_entry) = self.tt.get_entry(hash, self.gen_bit) {
-                hash_move = get_hash_move(tt_entry, ply);
-                hash_score = hash_move.score();
+                tt_move = get_tt_move(tt_entry, ply);
+                tt_score = tt_move.score();
 
-                let is_tb_move = if self.is_tb_move(hash_move) {
-                    hash_move = NO_MOVE;
+                let is_tb_move = if self.is_tb_move(tt_move) {
+                    tt_move = NO_MOVE;
                     true
-                } else if is_valid_move(&self.board, active_player, hash_move) {
+                } else if is_valid_move(&self.board, active_player, tt_move) {
                     false
                 } else {
-                    hash_move = NO_MOVE;
+                    tt_move = NO_MOVE;
                     false
                 };
 
-                if hash_move != NO_MOVE || is_tb_move {
+                if tt_move != NO_MOVE || is_tb_move {
                     is_tt_hit = true;
-                    let tt_depth = get_depth(tt_entry);
-                    match get_score_type(tt_entry) {
-                        ScoreType::Exact => {
-                            if depth <= 0 || (!is_pv && tt_depth >= depth) {
-                                if hash_move != NO_MOVE && !hash_move.is_capture() {
-                                    self.hh.update(ply, active_player, move_history, hash_move, true);
-                                }
-                                return hash_score;
-                            }
-                            check_se = tt_depth >= depth - 3;
-                        }
+                    tt_depth = get_depth(tt_entry);
+                    let score_type = get_score_type(tt_entry);
 
-                        ScoreType::UpperBound => {
-                            if !is_pv && hash_score <= alpha && tt_depth >= depth {
-                                return hash_score;
-                            }
-                            skip_null_move = tt_depth >= depth - null_move_reduction(depth);
+                    tt_score_is_upper_bound = matches!(score_type, ScoreType::UpperBound);
+                    if tt_depth >= depth && match score_type {
+                        ScoreType::Exact => !is_pv || depth <= 0,
+                        ScoreType::UpperBound => !is_pv && tt_score <= alpha,
+                        ScoreType::LowerBound => (!is_pv || depth <= 0) && tt_score >= beta
+                    } {
+                        if !tt_score_is_upper_bound && tt_move != NO_MOVE && !tt_move.is_capture() {
+                            self.hh.update(ply, active_player, move_history, tt_move, true);
                         }
+                        return tt_score;
+                    }
 
-                        ScoreType::LowerBound => {
-                            if !is_pv && hash_score >= beta && tt_depth >= depth {
-                                if hash_move != NO_MOVE && !hash_move.is_capture() {
-                                    self.hh.update(ply, active_player, move_history, hash_move, true);
-                                }
-                                return hash_score;
-                            }
-                            check_se = tt_depth >= depth - 3;
-                        }
-                    };
-
-                    check_se = check_se
-                        && !in_se_search
-                        && hash_move != NO_MOVE
+                    check_se = !in_se_search
+                        && tt_move != NO_MOVE
                         && !in_check
+                        && !tt_score_is_upper_bound
                         && depth >= 6
-                        && !self.ctx.is_recapture(move_history.last_opp, hash_move.end());
+                        && tt_depth >= depth - 3
+                        && !self.ctx.is_recapture(move_history.last_opp, tt_move.end());
                 }
             }
 
@@ -670,11 +655,11 @@ impl Search {
                             best_possible_score = -400;
                         },
                         TBResult::CursedWin => {
-                            self.tt.write_entry(hash, self.gen_bit, ply, MAX_DEPTH as i32, self.tb_move(), 1, ScoreType::UpperBound);
+                            self.tt.write_entry(hash, self.gen_bit, ply, MAX_DEPTH as i32, self.tb_move(), 1, ScoreType::Exact);
                             return 1;
                         },
                         TBResult::BlessedLoss => {
-                            self.tt.write_entry(hash, self.gen_bit, ply, MAX_DEPTH as i32, self.tb_move(), -1, ScoreType::LowerBound);
+                            self.tt.write_entry(hash, self.gen_bit, ply, MAX_DEPTH as i32, self.tb_move(), -1, ScoreType::Exact);
                             return -1;
                         }
                     }
@@ -682,7 +667,7 @@ impl Search {
             }
 
             if !is_tt_hit && depth > 3 {
-                // Reduce nodes without hash move from transposition table
+                // Reduce nodes without move from transposition table
                 depth -= 1;
             }
         }
@@ -721,27 +706,29 @@ impl Search {
                 }
             }
 
-            if !skip_null_move && static_score >= beta && self.board.has_non_pawns(active_player) {
-                // Null move pruning
-                self.board.perform_null_move();
-                self.tt.prefetch(self.board.get_hash());
-
-                self.ctx.update_next_ply_entry(NO_MOVE, false);
-
+            if static_score >= beta {
                 let reduced_depth = depth - null_move_reduction(depth);
-                let result = next_ply!(self.ctx, self.rec_find_best_move(rx, -beta, -beta + 1, ply + 1, reduced_depth, &mut PrincipalVariation::default(), in_se_search, NO_MOVE));
-                self.board.undo_null_move();
-                if result == CANCEL_SEARCH {
-                    return CANCEL_SEARCH;
-                }
-                let score = clamp_score(-result, worst_possible_score, best_possible_score);
-                if score >= beta {
-                    if is_mate_or_mated_score(score) {
-                        return beta;
-                    } else if reduced_depth >= 8 {
-                        depth = reduced_depth; // verify null move result with reduced regular search
-                    } else {
-                        return score;
+                if !(tt_score_is_upper_bound && tt_depth >= reduced_depth) && self.board.has_non_pawns(active_player) {
+                    // Null move pruning
+                    self.board.perform_null_move();
+                    self.tt.prefetch(self.board.get_hash());
+
+                    self.ctx.update_next_ply_entry(NO_MOVE, false);
+
+                    let result = next_ply!(self.ctx, self.rec_find_best_move(rx, -beta, -beta + 1, ply + 1, reduced_depth, &mut PrincipalVariation::default(), in_se_search, NO_MOVE));
+                    self.board.undo_null_move();
+                    if result == CANCEL_SEARCH {
+                        return CANCEL_SEARCH;
+                    }
+                    let score = clamp_score(-result, worst_possible_score, best_possible_score);
+                    if score >= beta {
+                        if is_mate_or_mated_score(score) {
+                            return beta;
+                        } else if reduced_depth >= 8 {
+                            depth = reduced_depth; // verify null move result with reduced regular search
+                        } else {
+                            return score;
+                        }
                     }
                 }
             }
@@ -760,7 +747,7 @@ impl Search {
             allow_futile_move_pruning = static_score + margin <= alpha;
         }
 
-        self.ctx.prepare_moves(active_player, hash_move, move_history);
+        self.ctx.prepare_moves(active_player, tt_move, move_history);
 
         let occupied_bb = self.board.occupancy_bb();
 
@@ -770,6 +757,7 @@ impl Search {
 
         self.hh.clear_killers(ply + 1);
 
+        let mut score_type = ScoreType::UpperBound;
         let mut a = -beta;
         while let Some(curr_move) = self.ctx.next_move(ply, &self.hh, &mut self.board) {
             if se_move == curr_move {
@@ -787,10 +775,10 @@ impl Search {
 
             let gives_check = self.board.is_in_check(active_player.flip());
 
-            // Check, if the hash move is singular and should be extended
+            // Check, if the transposition table move is singular and should be extended
             let mut se_extension = 0;
-            if check_se && !gives_check && curr_move == hash_move {
-                let se_beta = sanitize_score(hash_score - depth as i16);
+            if check_se && !gives_check && curr_move == tt_move {
+                let se_beta = sanitize_score(tt_score - depth as i16);
                 self.board.undo_move(curr_move, previous_piece, removed_piece_id);
                 let result = same_ply!(self.ctx, self.rec_find_best_move(rx, se_beta - 1, se_beta, ply, depth / 2, &mut PrincipalVariation::default(), true, curr_move));
 
@@ -1064,12 +1052,12 @@ impl Search {
         best_score
     }
 
-    fn get_hash_move(&self, ply: usize) -> Move {
+    fn get_tt_move(&self, ply: usize) -> Move {
         if let Some(entry) = self.tt.get_entry(self.board.get_hash(), self.gen_bit) {
-            let hash_move = get_hash_move(entry, ply);
+            let tt_move = get_tt_move(entry, ply);
             let active_player = self.board.active_player();
-            if is_valid_move(&self.board, active_player, hash_move) {
-                return hash_move;
+            if is_valid_move(&self.board, active_player, tt_move) {
+                return tt_move;
             }
         }
 
@@ -1138,7 +1126,7 @@ impl Search {
 
         if let Some(entry) = self.tt.get_entry(self.board.get_hash(), self.gen_bit) {
             let active_player = self.board.active_player();
-            let hash_move = get_hash_move(entry, 0);
+            let hash_move = get_tt_move(entry, 0);
             if hash_move.is_no_move() {
                 return String::new();
             }
@@ -1559,7 +1547,7 @@ impl HelperThread {
                     sub_search.gen_bit = to_gen_bit(sub_search.board.fullmove_count());
                     sub_search.is_tb_root = is_tb_root;
 
-                    sub_search.ctx.prepare_moves(sub_search.board.active_player(), sub_search.get_hash_move(0), EMPTY_HISTORY);
+                    sub_search.ctx.prepare_moves(sub_search.board.active_player(), sub_search.get_tt_move(0), EMPTY_HISTORY);
 
                     let mut multi_pv_state = vec![
                         (

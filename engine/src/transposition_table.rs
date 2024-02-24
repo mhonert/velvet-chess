@@ -242,7 +242,7 @@ fn encode_score(score: i16) -> u64 {
     }
 }
 
-pub fn get_hash_move(entry: u64, ply: usize) -> Move {
+pub fn get_tt_move(entry: u64, ply: usize) -> Move {
     let m = Move::from_u32(((entry >> MOVE_BITSHIFT) & MOVE_MASK) as u32);
     let score = to_root_relative_score(ply, m.score());
     m.with_score(score)
@@ -306,7 +306,7 @@ mod tests {
 
         let entry = tt.get_entry(hash, 0).expect("entry must exist");
 
-        assert_eq!(m.to_u32(), get_hash_move(entry, 0).to_u32());
+        assert_eq!(m.to_u32(), get_tt_move(entry, 0).to_u32());
         assert_eq!(depth, get_depth(entry));
         assert_eq!(typ as u8, get_score_type(entry) as u8);
     }
@@ -320,7 +320,7 @@ mod tests {
         tt.write_entry(hash, 0, 0, 1, m, score, ScoreType::Exact);
 
         let entry= tt.get_entry(hash, 0).expect("entry must exist");
-        assert_eq!(m.to_u32(), get_hash_move(entry, 0).to_u32());
+        assert_eq!(m.to_u32(), get_tt_move(entry, 0).to_u32());
     }
 
     #[test]
@@ -332,7 +332,7 @@ mod tests {
         tt.write_entry(hash,  0, 0, 1, m, score, ScoreType::Exact);
 
         let entry = tt.get_entry(hash, 0).expect("entry must exist");
-        assert_eq!(m.to_u32(), get_hash_move(entry, 0).to_u32());
+        assert_eq!(m.to_u32(), get_tt_move(entry, 0).to_u32());
     }
 
     #[test]
@@ -344,7 +344,7 @@ mod tests {
         tt.write_entry(hash, 0, 0, 1, m, score, ScoreType::Exact);
 
         let entry= tt.get_entry(hash, 0).expect("entry must exist");
-        assert_eq!(m.to_u32(), get_hash_move(entry, 0).to_u32());
+        assert_eq!(m.to_u32(), get_tt_move(entry, 0).to_u32());
     }
 
     #[test]
@@ -356,6 +356,6 @@ mod tests {
         tt.write_entry(hash,  0, 0, 1, m, score, ScoreType::Exact);
 
         let entry = tt.get_entry(hash, 0).expect("entry must exist");
-        assert_eq!(m.to_u32(), get_hash_move(entry, 0).to_u32());
+        assert_eq!(m.to_u32(), get_tt_move(entry, 0).to_u32());
     }
 }
