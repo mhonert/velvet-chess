@@ -100,8 +100,10 @@ pub fn start_uci_loop(tx: &Sender<Message>) {
 
                 _ => {
                     // Skip unknown commands
+                    continue;
                 }
             }
+            break;
         }
     }
 }
@@ -171,14 +173,14 @@ fn set_option(tx: &Sender<Message>, parts: &[&str]) {
     let name = parts[1].to_ascii_lowercase();
 
     let value = if let Some(value_idx) = parts.iter().position(|p| p.eq_ignore_ascii_case("value")) {
-        parts.get(value_idx + 1).copied().unwrap_or("")
+        parts[value_idx + 1..].join(" ")
     } else {
-        ""
+        String::new()
     };
 
     match name.as_str() {
         "hash" => {
-            if let Some(size_mb) = parse_int_option(value, 1, MAX_HASH_SIZE_MB) {
+            if let Some(size_mb) = parse_int_option(value.as_str(), 1, MAX_HASH_SIZE_MB) {
                 send_message(tx, Message::SetTranspositionTableSize(size_mb));
             } else {
                 println!("info string error: invalid hash size: {}", value);
@@ -192,7 +194,7 @@ fn set_option(tx: &Sender<Message>, parts: &[&str]) {
         }
 
         "threads" => {
-            if let Some(threads) = parse_int_option(value, 1, MAX_SEARCH_THREADS as i32) {
+            if let Some(threads) = parse_int_option(value.as_str(), 1, MAX_SEARCH_THREADS as i32) {
                 send_message(tx, Message::SetThreadCount(threads));
             } else {
                 println!("info string error: invalid thread count: {}", value);
@@ -205,6 +207,7 @@ fn set_option(tx: &Sender<Message>, parts: &[&str]) {
                 return;
             }
 
+            println!("info string setting path to {}", value);
             send_message(tx, Message::SetTableBasePath(value.to_string()));
         }
 
@@ -214,7 +217,7 @@ fn set_option(tx: &Sender<Message>, parts: &[&str]) {
                 return;
             }
 
-            if let Some(depth) = parse_int_option(value, 0, MAX_DEPTH as i32) {
+            if let Some(depth) = parse_int_option(value.as_str(), 0, MAX_DEPTH as i32) {
                 send_message(tx, Message::SetTableBaseProbeDepth(depth));
             } else {
                 println!("info string error: invalid probe depth: {}", value);
@@ -226,7 +229,7 @@ fn set_option(tx: &Sender<Message>, parts: &[&str]) {
         "uci_chess960" => {}
 
         "multipv" => {
-            if let Some(multipv_moves) = parse_int_option(value, 1, MAX_MULTI_PV_MOVES as i32) {
+            if let Some(multipv_moves) = parse_int_option(value.as_str(), 1, MAX_MULTI_PV_MOVES as i32) {
                 send_message(tx, Message::SetMultiPV(multipv_moves));
             } else {
                 println!("info string error: invalid number of MultiPV moves: {}", value);
@@ -235,7 +238,7 @@ fn set_option(tx: &Sender<Message>, parts: &[&str]) {
 
         "move" => {
             if parts.len() > 2 && parts[2].eq_ignore_ascii_case("overhead") {
-                if let Some(ms) = parse_int_option(value, MIN_MOVE_OVERHEAD_MS, MAX_MOVE_OVERHEAD_MS) {
+                if let Some(ms) = parse_int_option(value.as_str(), MIN_MOVE_OVERHEAD_MS, MAX_MOVE_OVERHEAD_MS) {
                     send_message(tx, Message::SetMoveOverheadMillis(ms));
                 } else {
                     println!("info string error: invalid move overhead value");
@@ -244,7 +247,7 @@ fn set_option(tx: &Sender<Message>, parts: &[&str]) {
         }
 
         _ => {
-            if let Some(value) = parse_int_option(value, i16::MIN, i16::MAX) {
+            if let Some(value) = parse_int_option(value.as_str(), i16::MIN, i16::MAX) {
                 send_message(tx, Message::SetParam(name, value));
             } else {
                 println!("info string error: invalid value for param {}: {}", name, value)
@@ -364,7 +367,7 @@ fn fen(tx: &Sender<Message>) {
     send_message(tx, Message::Fen);
 }
 
-fn set_cmd_arg<T: std::str::FromStr>(parts: &[&str], target: &mut Option<T>, pos: usize) -> usize {
+fn set_cmd_arg<T: FromStr>(parts: &[&str], target: &mut Option<T>, pos: usize) -> usize {
     if let Some(value) = parts.get(pos) {
         *target = match T::from_str(value) {
             Ok(value) => Some(value),
@@ -375,7 +378,7 @@ fn set_cmd_arg<T: std::str::FromStr>(parts: &[&str], target: &mut Option<T>, pos
     pos + 1
 }
 
-fn parse_cmd_multi_arg<T: std::str::FromStr>(
+fn parse_cmd_multi_arg<T: FromStr>(
     valid_cmds: &HashSet<&str>, parts: &[&str], target: &mut Option<Vec<T>>, mut pos: usize,
 ) -> usize {
     let mut values = Vec::new();
