@@ -934,7 +934,7 @@ impl Search {
             }
         }
 
-        best_score = best_score.min(best_possible_score);
+        best_score = best_score.clamp(worst_possible_score, best_possible_score);
 
         if se_move == NO_MOVE {
             self.tt.write_entry(hash, self.gen_bit, ply, depth, best_move, best_score, score_type);
