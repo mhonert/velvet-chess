@@ -19,14 +19,28 @@
 use crate::align::A32;
 use crate::bitboard::{v_mirror_i8, BitBoards};
 use crate::colors::{Color};
-use crate::nn::{piece_idx, HL1_HALF_NODES, SCORE_SCALE, king_bucket, IN_TO_H1_WEIGHTS, OUT_BIASES, FP_OUT_MULTIPLIER, BUCKET_SIZE};
+use crate::nn::{piece_idx, HL1_HALF_NODES, SCORE_SCALE, king_bucket, IN_TO_H1_WEIGHTS, OUT_BIASES, FP_OUT_MULTIPLIER, BUCKET_SIZE, BUCKETS};
 use crate::pieces::{P};
 use crate::scores::{MAX_EVAL, MIN_EVAL, sanitize_eval_score};
 
+type HiddenNodes = [i16; HL1_HALF_NODES];
+
 #[derive(Clone)]
 pub struct NeuralNetEval {
-    hidden_nodes_white: A32<[i16; HL1_HALF_NODES]>, // white perspective
-    hidden_nodes_black: A32<[i16; HL1_HALF_NODES]>, // black perspective
+    hidden_nodes_white: A32<[HiddenNodes; BUCKETS]>, // white perspective
+    hidden_nodes_black: A32<[HiddenNodes; BUCKETS]>, // black perspective
+
+    bb_white: [BitBoards; BUCKETS],
+    bb_black: [BitBoards; BUCKETS],
+
+    white_offsets: [usize; BUCKETS],
+    black_offsets: [usize; BUCKETS],
+
+    white_xor: [usize; BUCKETS],
+    black_xor: [usize; BUCKETS],
+
+    white_bucket: usize,
+    black_bucket: usize,
 
     white_offset: usize,
     black_offset: usize,
@@ -53,8 +67,20 @@ enum UpdateAction {
 impl NeuralNetEval {
     pub fn new() -> Box<Self> {
         Box::new(NeuralNetEval {
-            hidden_nodes_white: A32([0; HL1_HALF_NODES]),
-            hidden_nodes_black: A32([0; HL1_HALF_NODES]),
+            hidden_nodes_white: A32([[0; HL1_HALF_NODES]; BUCKETS]),
+            hidden_nodes_black: A32([[0; HL1_HALF_NODES]; BUCKETS]),
+
+            bb_white: [BitBoards::default(); BUCKETS],
+            bb_black: [BitBoards::default(); BUCKETS],
+
+            white_offsets: [0; BUCKETS],
+            black_offsets: [0; BUCKETS],
+
+            white_xor: [0; BUCKETS],
+            black_xor: [0; BUCKETS],
+
+            white_bucket: 0,
+            black_bucket: 0,
 
             white_offset: 0,
             black_offset: 0,
@@ -73,25 +99,76 @@ impl NeuralNetEval {
 
     pub fn init_pos(&mut self, bitboards: &BitBoards, white_king: i8, black_king: i8) {
         self.updates.clear();
-        self.fast_undo = false;
-        self.move_id = 0;
-        self.hidden_nodes_white.0.fill(0);
-        self.hidden_nodes_black.0.fill(0);
 
-        let (xor_white_pov, xor_black_pov, white_offset, black_offset) =
+        let (white_bucket, black_bucket, xor_white_pov, xor_black_pov, white_offset, black_offset) =
             calc_bucket_offsets(bitboards, white_king, black_king);
+
+        self.update_white_pov(bitboards, white_bucket, xor_white_pov, white_offset);
+        self.update_black_pov(bitboards, black_bucket, xor_black_pov, black_offset);
+    }
+
+    fn update_white_pov(&mut self, bitboards: &BitBoards, white_bucket: usize, xor_white_pov: usize, white_offset: usize) {
+        if self.white_offsets[white_bucket] != white_offset || self.white_xor[white_bucket] != xor_white_pov {
+            self.hidden_nodes_white.0[white_bucket].fill(0);
+            self.bb_white[white_bucket] = BitBoards::default();
+        }
+
+        self.white_offsets[white_bucket] = white_offset;
+        self.white_xor[white_bucket] = xor_white_pov;
+        self.white_bucket = white_bucket;
         self.xor_white_pov = xor_white_pov;
-        self.xor_black_pov = xor_black_pov;
         self.white_offset = white_offset;
+
+        for piece in 1..=6 {
+            let now = bitboards.by_piece(piece);
+            let prev = self.bb_white[white_bucket].by_piece(piece);
+            for pos in prev & !now {
+                self.remove_piece_now_wpov(pos as usize, piece);
+            }
+            for pos in now & !prev {
+                self.add_piece_now_wpov(pos as usize, piece);
+            }
+
+            let now = bitboards.by_piece(-piece);
+            let prev = self.bb_white[white_bucket].by_piece(-piece);
+            for pos in prev & !now {
+                self.remove_piece_now_wpov(pos as usize, -piece);
+            }
+            for pos in now & !prev {
+                self.add_piece_now_wpov(pos as usize, -piece);
+            }
+        }
+    }
+
+    fn update_black_pov(&mut self, bitboards: &BitBoards, black_bucket: usize, xor_black_pov: usize, black_offset: usize) {
+        if self.black_xor[black_bucket] != xor_black_pov || self.black_offsets[black_bucket] != black_offset {
+            self.hidden_nodes_black.0[black_bucket].fill(0);
+            self.bb_black[black_bucket] = BitBoards::default();
+        }
+
+        self.black_offsets[black_bucket] = black_offset;
+        self.black_xor[black_bucket] = xor_black_pov;
+        self.black_bucket = black_bucket;
+        self.xor_black_pov = xor_black_pov;
         self.black_offset = black_offset;
 
         for piece in 1..=6 {
-            for pos in bitboards.by_piece(piece) {
-                self.add_piece_now(pos as usize, piece);
+            let now = bitboards.by_piece(piece);
+            let prev = self.bb_black[black_bucket].by_piece(piece);
+            for pos in prev & !now {
+                self.remove_piece_now_bpov(pos as usize, piece);
+            }
+            for pos in now & !prev {
+                self.add_piece_now_bpov(pos as usize, piece);
             }
 
-            for pos in bitboards.by_piece(-piece) {
-                self.add_piece_now(pos as usize, -piece);
+            let now = bitboards.by_piece(-piece);
+            let prev = self.bb_black[black_bucket].by_piece(-piece);
+            for pos in prev & !now {
+                self.remove_piece_now_bpov(pos as usize, -piece);
+            }
+            for pos in now & !prev {
+                self.add_piece_now_bpov(pos as usize, -piece);
             }
         }
     }
@@ -162,11 +239,24 @@ impl NeuralNetEval {
         }
     }
 
-    fn add_piece_now(&mut self, pos: usize, piece: i8) {
-        let (white_pov_idx, black_pov_idx) = self.calc_pov_weight_start(pos, piece);
+    fn add_piece_now_wpov(&mut self, pos: usize, piece: i8) {
+        let white_pov_idx= self.calc_wpov_weight_start(pos, piece);
+        add_weights::<HL1_HALF_NODES>(&mut self.hidden_nodes_white.0[self.white_bucket], unsafe { &IN_TO_H1_WEIGHTS.0 }, white_pov_idx);
+    }
 
-        add_weights::<HL1_HALF_NODES>(&mut self.hidden_nodes_white.0, unsafe { &IN_TO_H1_WEIGHTS.0 }, white_pov_idx);
-        add_weights::<HL1_HALF_NODES>(&mut self.hidden_nodes_black.0, unsafe { &IN_TO_H1_WEIGHTS.0 }, black_pov_idx);
+    fn add_piece_now_bpov(&mut self, pos: usize, piece: i8) {
+        let black_pov_idx= self.calc_bpov_weight_start(pos, piece);
+        add_weights::<HL1_HALF_NODES>(&mut self.hidden_nodes_black.0[self.black_bucket], unsafe { &IN_TO_H1_WEIGHTS.0 }, black_pov_idx);
+    }
+
+    fn remove_piece_now_wpov(&mut self, pos: usize, piece: i8) {
+        let white_pov_idx= self.calc_wpov_weight_start(pos, piece);
+        sub_weights::<HL1_HALF_NODES>(&mut self.hidden_nodes_white.0[self.white_bucket], unsafe { &IN_TO_H1_WEIGHTS.0 }, white_pov_idx);
+    }
+
+    fn remove_piece_now_bpov(&mut self, pos: usize, piece: i8) {
+        let black_pov_idx= self.calc_bpov_weight_start(pos, piece);
+        sub_weights::<HL1_HALF_NODES>(&mut self.hidden_nodes_black.0[self.black_bucket], unsafe { &IN_TO_H1_WEIGHTS.0 }, black_pov_idx);
     }
 
     fn calc_pov_weight_start(&self, pos: usize, piece: i8) -> (usize, usize) {
@@ -188,15 +278,41 @@ impl NeuralNetEval {
         }
     }
 
+    fn calc_wpov_weight_start(&self, pos: usize, piece: i8) -> usize {
+        let idx = piece_idx(piece.unsigned_abs() as i8);
+
+        let base_index = idx as usize * 64 * 2;
+        const OPP_OFFSET: usize = 64;
+
+        if piece > 0 {
+            self.white_offset + base_index + (pos ^ self.xor_white_pov)
+        } else {
+            self.white_offset + base_index + OPP_OFFSET + (pos ^ self.xor_white_pov)
+        }
+    }
+
+    fn calc_bpov_weight_start(&self, pos: usize, piece: i8) -> usize {
+        let idx = piece_idx(piece.unsigned_abs() as i8);
+
+        let base_index = idx as usize * 64 * 2;
+        const OPP_OFFSET: usize = 64;
+
+        if piece > 0 {
+            self.black_offset + base_index + OPP_OFFSET + (pos ^ self.xor_black_pov)
+        } else {
+            self.black_offset + base_index + (pos ^ self.xor_black_pov)
+        }
+    }
+
     pub fn eval(
         &mut self, active_player: Color, bitboards: &BitBoards, white_king: i8, black_king: i8,
     ) -> i16 {
         self.apply_updates(bitboards, white_king, black_king);
 
         let (own_hidden_nodes, opp_hidden_nodes) = if active_player.is_white() {
-            (&self.hidden_nodes_white.0, &self.hidden_nodes_black.0)
+            (&self.hidden_nodes_white.0[self.white_bucket], &self.hidden_nodes_black.0[self.black_bucket])
         } else {
-            (&self.hidden_nodes_black.0, &self.hidden_nodes_white.0)
+            (&self.hidden_nodes_black.0[self.black_bucket], &self.hidden_nodes_white.0[self.white_bucket])
         };
 
         let output = (
@@ -208,50 +324,117 @@ impl NeuralNetEval {
     }
 
     fn apply_updates(&mut self, bitboards: &BitBoards, white_king: i8, black_king: i8) {
+        let mut refresh_wpov = false;
+        let mut refresh_bpov = false;
+
         if self.check_refresh > 0 {
             self.check_refresh = 0;
-            let (xor_white_pov, xor_black_pov, white_offset, black_offset) =
+            let (white_bucket, black_bucket, xor_white_pov, xor_black_pov, white_offset, black_offset) =
                 calc_bucket_offsets(bitboards, white_king, black_king);
-            if xor_white_pov != self.xor_white_pov
-                || xor_black_pov != self.xor_black_pov
-                || white_offset != self.white_offset
-                || black_offset != self.black_offset
-            {
-                self.init_pos(bitboards, white_king, black_king);
-                return;
+
+            refresh_wpov = white_bucket != self.white_bucket || xor_white_pov != self.xor_white_pov || white_offset != self.white_offset;
+            refresh_bpov = black_bucket != self.black_bucket || xor_black_pov != self.xor_black_pov || black_offset != self.black_offset;
+
+            if refresh_wpov {
+                self.update_white_pov(bitboards, white_bucket, xor_white_pov, white_offset);
+            }
+
+            if refresh_bpov {
+                self.update_black_pov(bitboards, black_bucket, xor_black_pov, black_offset);
             }
         }
 
-        for (_, _, _, update) in self.updates.iter() {
-            match *update {
-                UpdateAction::RemoveAdd(rem_pos, rem_piece, add_pos, add_piece) => {
-                    let (rem_white_pov_idx, rem_black_pov_idx) = self.calc_pov_weight_start(rem_pos, rem_piece);
-                    let (add_white_pov_idx, add_black_pov_idx) = self.calc_pov_weight_start(add_pos, add_piece);
+        if !refresh_wpov && !refresh_bpov {
+            for (_, _, _, update) in self.updates.iter() {
+                match *update {
+                    UpdateAction::RemoveAdd(rem_pos, rem_piece, add_pos, add_piece) => {
+                        let (rem_white_pov_idx, rem_black_pov_idx) = self.calc_pov_weight_start(rem_pos, rem_piece);
+                        let (add_white_pov_idx, add_black_pov_idx) = self.calc_pov_weight_start(add_pos, add_piece);
 
-                    sub_add_weights::<HL1_HALF_NODES>(&mut self.hidden_nodes_white.0, unsafe { &IN_TO_H1_WEIGHTS.0 }, rem_white_pov_idx, add_white_pov_idx);
-                    sub_add_weights::<HL1_HALF_NODES>(&mut self.hidden_nodes_black.0, unsafe { &IN_TO_H1_WEIGHTS.0 }, rem_black_pov_idx, add_black_pov_idx);
+                        sub_add_weights::<HL1_HALF_NODES>(&mut self.hidden_nodes_white.0[self.white_bucket], unsafe { &IN_TO_H1_WEIGHTS.0 }, rem_white_pov_idx, add_white_pov_idx);
+                        sub_add_weights::<HL1_HALF_NODES>(&mut self.hidden_nodes_black.0[self.black_bucket], unsafe { &IN_TO_H1_WEIGHTS.0 }, rem_black_pov_idx, add_black_pov_idx);
+                    }
+
+                    UpdateAction::RemoveRemoveAdd(rem1_pos, rem1_piece, rem2_pos, rem2_piece, add_pos, add_piece) => {
+                        let (rem1_white_pov_idx, rem1_black_pov_idx) = self.calc_pov_weight_start(rem1_pos, rem1_piece);
+                        let (rem2_white_pov_idx, rem2_black_pov_idx) = self.calc_pov_weight_start(rem2_pos, rem2_piece);
+                        let (add_white_pov_idx, add_black_pov_idx) = self.calc_pov_weight_start(add_pos, add_piece);
+
+                        sub_sub_add_weights::<HL1_HALF_NODES>(&mut self.hidden_nodes_white.0[self.white_bucket], unsafe { &IN_TO_H1_WEIGHTS.0 }, rem1_white_pov_idx, rem2_white_pov_idx, add_white_pov_idx);
+                        sub_sub_add_weights::<HL1_HALF_NODES>(&mut self.hidden_nodes_black.0[self.black_bucket], unsafe { &IN_TO_H1_WEIGHTS.0 }, rem1_black_pov_idx, rem2_black_pov_idx, add_black_pov_idx);
+                    }
+
+                    UpdateAction::RemoveAddAdd(rem_pos, rem_piece, add1_pos, add1_piece, add2_pos, add2_piece) => {
+                        let (rem_white_pov_idx, rem_black_pov_idx) = self.calc_pov_weight_start(rem_pos, rem_piece);
+                        let (add1_white_pov_idx, add1_black_pov_idx) = self.calc_pov_weight_start(add1_pos, add1_piece);
+                        let (add2_white_pov_idx, add2_black_pov_idx) = self.calc_pov_weight_start(add2_pos, add2_piece);
+
+                        sub_add_add_weights::<HL1_HALF_NODES>(&mut self.hidden_nodes_white.0[self.white_bucket], unsafe { &IN_TO_H1_WEIGHTS.0 }, rem_white_pov_idx, add1_white_pov_idx, add2_white_pov_idx);
+                        sub_add_add_weights::<HL1_HALF_NODES>(&mut self.hidden_nodes_black.0[self.black_bucket], unsafe { &IN_TO_H1_WEIGHTS.0 }, rem_black_pov_idx, add1_black_pov_idx, add2_black_pov_idx);
+                    }
                 }
+            }
 
-                UpdateAction::RemoveRemoveAdd(rem1_pos, rem1_piece, rem2_pos, rem2_piece, add_pos, add_piece) => {
-                    let (rem1_white_pov_idx, rem1_black_pov_idx) = self.calc_pov_weight_start(rem1_pos, rem1_piece);
-                    let (rem2_white_pov_idx, rem2_black_pov_idx) = self.calc_pov_weight_start(rem2_pos, rem2_piece);
-                    let (add_white_pov_idx, add_black_pov_idx) = self.calc_pov_weight_start(add_pos, add_piece);
+        } else if !refresh_wpov {
+            for (_, _, _, update) in self.updates.iter() {
+                match *update {
+                    UpdateAction::RemoveAdd(rem_pos, rem_piece, add_pos, add_piece) => {
+                        let rem_white_pov_idx = self.calc_wpov_weight_start(rem_pos, rem_piece);
+                        let add_white_pov_idx = self.calc_wpov_weight_start(add_pos, add_piece);
 
-                    sub_sub_add_weights::<HL1_HALF_NODES>(&mut self.hidden_nodes_white.0, unsafe { &IN_TO_H1_WEIGHTS.0 }, rem1_white_pov_idx, rem2_white_pov_idx, add_white_pov_idx);
-                    sub_sub_add_weights::<HL1_HALF_NODES>(&mut self.hidden_nodes_black.0, unsafe { &IN_TO_H1_WEIGHTS.0 }, rem1_black_pov_idx, rem2_black_pov_idx, add_black_pov_idx);
+                        sub_add_weights::<HL1_HALF_NODES>(&mut self.hidden_nodes_white.0[self.white_bucket], unsafe { &IN_TO_H1_WEIGHTS.0 }, rem_white_pov_idx, add_white_pov_idx);
+                    }
+
+                    UpdateAction::RemoveRemoveAdd(rem1_pos, rem1_piece, rem2_pos, rem2_piece, add_pos, add_piece) => {
+                        let rem1_white_pov_idx = self.calc_wpov_weight_start(rem1_pos, rem1_piece);
+                        let rem2_white_pov_idx = self.calc_wpov_weight_start(rem2_pos, rem2_piece);
+                        let add_white_pov_idx = self.calc_wpov_weight_start(add_pos, add_piece);
+
+                        sub_sub_add_weights::<HL1_HALF_NODES>(&mut self.hidden_nodes_white.0[self.white_bucket], unsafe { &IN_TO_H1_WEIGHTS.0 }, rem1_white_pov_idx, rem2_white_pov_idx, add_white_pov_idx);
+                    }
+
+                    UpdateAction::RemoveAddAdd(rem_pos, rem_piece, add1_pos, add1_piece, add2_pos, add2_piece) => {
+                        let rem_white_pov_idx = self.calc_wpov_weight_start(rem_pos, rem_piece);
+                        let add1_white_pov_idx = self.calc_wpov_weight_start(add1_pos, add1_piece);
+                        let add2_white_pov_idx = self.calc_wpov_weight_start(add2_pos, add2_piece);
+
+                        sub_add_add_weights::<HL1_HALF_NODES>(&mut self.hidden_nodes_white.0[self.white_bucket], unsafe { &IN_TO_H1_WEIGHTS.0 }, rem_white_pov_idx, add1_white_pov_idx, add2_white_pov_idx);
+                    }
                 }
+            }
+        } else if !refresh_bpov {
+            for (_, _, _, update) in self.updates.iter() {
+                match *update {
+                    UpdateAction::RemoveAdd(rem_pos, rem_piece, add_pos, add_piece) => {
+                        let rem_black_pov_idx = self.calc_bpov_weight_start(rem_pos, rem_piece);
+                        let add_black_pov_idx = self.calc_bpov_weight_start(add_pos, add_piece);
 
-                UpdateAction::RemoveAddAdd(rem_pos, rem_piece, add1_pos, add1_piece, add2_pos, add2_piece) => {
-                    let (rem_white_pov_idx, rem_black_pov_idx) = self.calc_pov_weight_start(rem_pos, rem_piece);
-                    let (add1_white_pov_idx, add1_black_pov_idx) = self.calc_pov_weight_start(add1_pos, add1_piece);
-                    let (add2_white_pov_idx, add2_black_pov_idx) = self.calc_pov_weight_start(add2_pos, add2_piece);
+                        sub_add_weights::<HL1_HALF_NODES>(&mut self.hidden_nodes_black.0[self.black_bucket], unsafe { &IN_TO_H1_WEIGHTS.0 }, rem_black_pov_idx, add_black_pov_idx);
+                    }
 
-                    sub_add_add_weights::<HL1_HALF_NODES>(&mut self.hidden_nodes_white.0, unsafe { &IN_TO_H1_WEIGHTS.0 }, rem_white_pov_idx, add1_white_pov_idx, add2_white_pov_idx);
-                    sub_add_add_weights::<HL1_HALF_NODES>(&mut self.hidden_nodes_black.0, unsafe { &IN_TO_H1_WEIGHTS.0 }, rem_black_pov_idx, add1_black_pov_idx, add2_black_pov_idx);
+                    UpdateAction::RemoveRemoveAdd(rem1_pos, rem1_piece, rem2_pos, rem2_piece, add_pos, add_piece) => {
+                        let rem1_black_pov_idx = self.calc_bpov_weight_start(rem1_pos, rem1_piece);
+                        let rem2_black_pov_idx = self.calc_bpov_weight_start(rem2_pos, rem2_piece);
+                        let add_black_pov_idx = self.calc_bpov_weight_start(add_pos, add_piece);
+
+                        sub_sub_add_weights::<HL1_HALF_NODES>(&mut self.hidden_nodes_black.0[self.black_bucket], unsafe { &IN_TO_H1_WEIGHTS.0 }, rem1_black_pov_idx, rem2_black_pov_idx, add_black_pov_idx);
+                    }
+
+                    UpdateAction::RemoveAddAdd(rem_pos, rem_piece, add1_pos, add1_piece, add2_pos, add2_piece) => {
+                        let rem_black_pov_idx = self.calc_bpov_weight_start(rem_pos, rem_piece);
+                        let add1_black_pov_idx = self.calc_bpov_weight_start(add1_pos, add1_piece);
+                        let add2_black_pov_idx = self.calc_bpov_weight_start(add2_pos, add2_piece);
+
+                        sub_add_add_weights::<HL1_HALF_NODES>(&mut self.hidden_nodes_black.0[self.black_bucket], unsafe { &IN_TO_H1_WEIGHTS.0 }, rem_black_pov_idx, add1_black_pov_idx, add2_black_pov_idx);
+                    }
                 }
             }
         }
+        self.bb_white[self.white_bucket] = *bitboards;
+        self.bb_black[self.black_bucket] = *bitboards;
         self.updates.clear();
+        self.fast_undo = false;
+        self.move_id = 0;
     }
 }
 
@@ -275,7 +458,7 @@ fn scale_eval(mut score: i32) -> i16 {
 
 fn calc_bucket_offsets(
     bitboards: &BitBoards, mut white_king: i8, mut black_king: i8,
-) -> (usize, usize, usize, usize) {
+) -> (usize, usize, usize, usize, usize, usize) {
     let white_king_col = white_king & 7;
     let black_king_col = black_king & 7;
 
@@ -311,7 +494,7 @@ fn calc_bucket_offsets(
     const BASE_OFFSET: usize = 0;
     let (white_offset, black_offset) = (BASE_OFFSET + w_bucket * BUCKET_SIZE, BASE_OFFSET + b_bucket * BUCKET_SIZE);
 
-    (xor_white_pov, xor_black_pov, white_offset, black_offset)
+    (w_bucket, b_bucket, xor_white_pov, xor_black_pov, white_offset, black_offset)
 }
 
 #[inline(always)]
