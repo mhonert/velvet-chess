@@ -875,7 +875,7 @@ impl Search {
                     return CANCEL_SEARCH;
                 }
 
-                if -result > alpha && (reductions > 0 || (-result < beta && a != -beta)) {
+                if -result > alpha && (reductions > 0 || a != -beta) {
                     // Repeat search without reduction and with full window
                     depth = unreduced_depth;
                     result = next_ply!(self.ctx, self.rec_find_best_move(rx, -beta, -alpha, ply + 1, depth + se_extension - 1, &mut local_pv, in_se_search, NO_MOVE));
