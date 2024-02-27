@@ -21,7 +21,7 @@ use crate::board::castling::CastlingRules;
 use crate::board::{Board, StateEntry};
 use crate::colors::{Color, WHITE};
 use crate::engine::{LogLevel, Message};
-use crate::history_heuristics::{EMPTY_HISTORY, HistoryHeuristics};
+use crate::history_heuristics::{EMPTY_HISTORY, HistoryHeuristics, MIN_HISTORY_SCORE};
 use crate::move_gen::{is_killer, NEGATIVE_HISTORY_SCORE, QUIET_BASE_SCORE, is_valid_move};
 use crate::moves::{Move, MoveType, NO_MOVE};
 use crate::pieces::{EMPTY, P};
@@ -818,8 +818,11 @@ impl Search {
 
                     if allow_lmr && quiet_move_count > LMR_THRESHOLD && !curr_move.is_queen_promotion()  {
                         reductions += unsafe { *LMR.get_unchecked((quiet_move_count as usize).min(MAX_LMR_MOVES - 1)) } + i32::from(!is_pv);
-                        if !improving && curr_move.score() <= NEGATIVE_HISTORY_SCORE {
-                            reductions += 1;
+                        let history_diff = (curr_move.score() - QUIET_BASE_SCORE) / -MIN_HISTORY_SCORE;
+                        if !improving && history_diff < 0  {
+                            reductions -= history_diff as i32;
+                        } else if improving && history_diff > 0 && reductions > 0 {
+                            reductions -= 1;
                         }
 
                     } else if allow_futile_move_pruning && !gives_check && !curr_move.is_queen_promotion() {
