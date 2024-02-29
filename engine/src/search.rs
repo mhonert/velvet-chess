@@ -42,6 +42,7 @@ use std::time::{Duration, Instant};
 use LogLevel::Info;
 use crate::{next_ply, same_ply, params};
 use crate::nn::io::FastHasher;
+use crate::params::nmp_divider;
 use crate::search_context::{SearchContext};
 use crate::syzygy::{DEFAULT_TB_PROBE_DEPTH, ProbeTB};
 use crate::syzygy::tb::{TBResult};
@@ -1631,7 +1632,7 @@ fn get_score_info(score: i16) -> String {
 
 #[inline]
 fn null_move_reduction(depth: i32) -> i32 {
-    log2((depth * 3 - 4) as u32) + 1
+    params::nmp_base() as i32 + depth / nmp_divider() as i32
 }
 
 #[inline]
