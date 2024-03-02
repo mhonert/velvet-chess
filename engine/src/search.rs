@@ -815,7 +815,7 @@ impl Search {
                     reductions += 1;
                 }
 
-                if se_extension == 0 && !curr_move.is_capture() {
+                if !curr_move.is_capture() {
 
                     if allow_lmr && quiet_move_count > LMR_THRESHOLD && !curr_move.is_queen_promotion()  {
                         reductions += unsafe { *LMR.get_unchecked((quiet_move_count as usize).min(MAX_LMR_MOVES - 1)) } + i32::from(!is_pv);
