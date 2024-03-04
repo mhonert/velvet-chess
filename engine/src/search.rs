@@ -797,6 +797,8 @@ impl Search {
                     }
 
                     return clamp_score(se_beta, worst_possible_score, best_possible_score);
+                } else if tt_score <= alpha || tt_score >= beta {
+                    se_extension = -1;
                 }
                 self.board.perform_move(curr_move);
             };
@@ -810,10 +812,6 @@ impl Search {
 
             if !skip && evaluated_move_count > 0 {
                 let target_piece_id = curr_move.move_type().piece_id();
-
-                if !is_pv && move_history.last_opp.is_capture() && !self.ctx.is_recapture(move_history.last_opp, curr_move.end()) && !curr_move.is_queen_promotion() {
-                    reductions += 1;
-                }
 
                 if !curr_move.is_capture() {
 
