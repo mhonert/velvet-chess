@@ -33,6 +33,8 @@ tunable_params!(
     rfp_margin_multiplier_not_improving = 28
     nmp_base = 3
     nmp_divider = 3
+    se_double_ext_margin = 4
+    se_double_ext_limit = 12
 );
 
 tunable_array_params!(

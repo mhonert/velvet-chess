@@ -788,8 +788,13 @@ impl Search {
                 }
 
                 if result < se_beta {
-                    se_extension = 1;
                     is_singular = true;
+                    if !is_pv && result + params::se_double_ext_margin() < se_beta && self.ctx.double_extensions() < params::se_double_ext_limit() {
+                        self.ctx.inc_double_extensions();
+                        se_extension = 2;
+                    } else {
+                        se_extension = 1;
+                    }
                 } else if se_beta >= beta {
                     // Multi-Cut Pruning
                     if !curr_move.is_capture() {
@@ -822,6 +827,9 @@ impl Search {
                             reductions -= history_diff as i32;
                         } else if improving && history_diff > 0 && reductions > 0 {
                             reductions -= 1;
+                        }
+                        if tt_move != NO_MOVE && tt_move.is_capture() {
+                            reductions += 1;
                         }
 
                     } else if allow_futile_move_pruning && !gives_check && !curr_move.is_queen_promotion() {

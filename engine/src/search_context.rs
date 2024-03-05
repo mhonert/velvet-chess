@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2023 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2024 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -52,6 +52,7 @@ impl SearchContext {
         self.ply += 1;
         self.ml_idx += 1;
         self.pe_idx += 1;
+        self.ply_entry_mut(self.pe_idx).double_extensions = self.ply_entry(self.pe_idx - 1).double_extensions;
     }
 
     pub fn leave_ply(&mut self) {
@@ -170,6 +171,14 @@ impl SearchContext {
     pub fn set_eval(&mut self, score: i16) {
         self.ply_entry_mut(self.pe_idx).eval = score;
     }
+
+    pub fn inc_double_extensions(&mut self) {
+        self.ply_entry_mut(self.pe_idx).double_extensions += 1;
+    }
+
+    pub fn double_extensions(&self) -> i16 {
+        self.ply_entry(self.pe_idx).double_extensions
+    }
 }
 
 #[derive(Copy, Clone, Default)]
@@ -177,6 +186,7 @@ pub struct PlyEntry {
     eval: i16,
     in_check: bool,
     opp_move: Move,
+    double_extensions: i16,
 }
 
 #[macro_export]
