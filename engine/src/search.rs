@@ -754,7 +754,8 @@ impl Search {
 
         let mut is_singular = false;
 
-        let allow_lmp = !is_pv && !in_check && depth <= 2 && self.current_depth >= 7;
+        let has_non_pawns = self.board.has_non_pawns(active_player);
+        let allow_lmp = !is_pv && !in_check && has_non_pawns && depth <= 2 && self.current_depth >= 7;
 
         self.hh.clear_killers(ply + 1);
 
@@ -856,6 +857,7 @@ impl Search {
                     quiet_move_count += 1;
 
                     if allow_futile_move_pruning
+                        && has_non_pawns
                         && !gives_check
                         && !curr_move.is_queen_promotion()
                         && reductions >= (depth - 1)
