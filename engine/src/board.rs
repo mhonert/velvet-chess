@@ -379,7 +379,7 @@ impl Board {
                     }
                 }
             }
-            MoveType::KnightQuiet | MoveType::BishopQuiet | MoveType::QueenQuiet | MoveType::QueenQuiet8 => {
+            MoveType::KnightQuiet | MoveType::BishopQuiet | MoveType::QueenQuiet => {
                 let own_piece = color.piece(target_piece_id);
                 self.move_piece(color, own_piece, move_start, move_end);
                 self.nn_eval.remove_add_piece::<false>(move_start, own_piece, move_end, own_piece);
@@ -422,7 +422,7 @@ impl Board {
                 self.reset_half_move_clock();
                 (own_piece, removed_piece.abs())
             },
-            MoveType::QueenCapture | MoveType::QueenCapture8 => {
+            MoveType::QueenCapture => {
                 let own_piece = self.remove_piece(move_start);
                 let removed_piece = self.remove_piece(move_end);
                 self.update_rook_castling_state(color.flip(), removed_piece.abs(), move_end as i8);
@@ -544,11 +544,11 @@ impl Board {
         self.restore_state();
 
         match m.move_type() {
-            MoveType::PawnQuiet | MoveType::PawnDoubleQuiet | MoveType::KnightQuiet | MoveType::BishopQuiet | MoveType::RookQuiet | MoveType::QueenQuiet | MoveType::QueenQuiet8 => {
+            MoveType::PawnQuiet | MoveType::PawnDoubleQuiet | MoveType::KnightQuiet | MoveType::BishopQuiet | MoveType::RookQuiet | MoveType::QueenQuiet => {
                 self.nn_eval.remove_add_piece::<false>(move_end , piece, move_start , piece);
                 self.move_piece_without_state(color, piece, move_end , move_start );
             }
-            MoveType::PawnCapture | MoveType::KnightCapture | MoveType::BishopCapture | MoveType::RookCapture | MoveType::QueenCapture | MoveType::QueenCapture8 => {
+            MoveType::PawnCapture | MoveType::KnightCapture | MoveType::BishopCapture | MoveType::RookCapture | MoveType::QueenCapture => {
                 self.nn_eval.remove_add_add_piece::<true>(move_end , piece, move_start , piece, move_end , color.flip().piece(removed_piece_id));
 
                 self.remove_piece_without_inc_update(move_end );

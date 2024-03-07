@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2023 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2024 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -916,12 +916,6 @@ pub fn is_valid_move(board: &Board, active_player: Color, m: Move) -> bool {
             }
 
             true
-        }
-        MoveType::QueenQuiet8 => {
-            false
-        }
-        MoveType::QueenCapture8 => {
-            false
         }
 
         _ => false

@@ -59,12 +59,11 @@ pub enum MoveType {
     KingQSCastling = 0b01_110,
     KingKSCastling = 0b11_110,
 
-    // Only relevant for TTPackedMove:
-    QueenQuiet8 = 0b00_111,
-    QueenCapture8 = 0b10_111,
+    Unused3 = 0b00_111,
+    Unused4 = 0b10_111,
 
-    Unused3 = 0b01_111,
-    Unused4 = 0b11_111,
+    Unused5 = 0b01_111,
+    Unused6 = 0b11_111,
 }
 
 impl MoveType {
