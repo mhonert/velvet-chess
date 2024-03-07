@@ -788,13 +788,6 @@ impl Board {
         is_legal
     }
 
-    // Return true, if the engine considers the current position as a draw.
-    pub fn is_draw(&self) -> bool {
-        self.pos_history.is_repetition_draw(self.state.hash, self.state.history_start)
-            || self.is_fifty_move_draw()
-            || self.is_insufficient_material_draw()
-    }
-
     pub fn is_repetition_draw(&self) -> bool {
         self.pos_history.is_repetition_draw(self.state.hash, self.state.history_start)
     }

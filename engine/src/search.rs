@@ -557,7 +557,15 @@ impl Search {
             self.local_node_count = 0;
         }
 
-        if self.board.is_draw() {
+        if self.board.is_insufficient_material_draw() || self.board.is_repetition_draw() {
+            return self.effective_draw_score();
+        }
+
+        let in_check = self.ctx.in_check();
+        if self.board.is_fifty_move_draw() {
+            if in_check && !self.ctx.has_any_legal_move(self.board.active_player(), ply, &self.hh, &mut self.board) {
+                return MATED_SCORE + ply as i16; // Check mate
+            }
             return self.effective_draw_score();
         }
 
@@ -572,8 +580,6 @@ impl Search {
         if alpha >= beta {
             return alpha;
         }
-
-        let in_check = self.ctx.in_check();
 
         if in_check && se_move == NO_MOVE {
             // Extend search when in check
@@ -1131,7 +1137,7 @@ impl Search {
     }
 
     fn pv_info_from_tt(&mut self) -> String {
-        if self.board.is_draw() {
+        if self.board.is_insufficient_material_draw() || self.board.is_repetition_draw() || self.board.is_fifty_move_draw() {
             return String::new();
         }
 

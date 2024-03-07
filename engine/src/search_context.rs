@@ -19,9 +19,9 @@
 use std::array;
 use crate::board::Board;
 use crate::colors::Color;
-use crate::history_heuristics::{HistoryHeuristics, MoveHistory};
+use crate::history_heuristics::{EMPTY_HISTORY, HistoryHeuristics, MoveHistory};
 use crate::move_gen::{MoveList};
-use crate::moves::{Move};
+use crate::moves::{Move, NO_MOVE};
 use crate::transposition_table::MAX_DEPTH;
 
 pub struct SearchContext {
@@ -178,6 +178,21 @@ impl SearchContext {
 
     pub fn double_extensions(&self) -> i16 {
         self.ply_entry(self.pe_idx).double_extensions
+    }
+
+    pub fn has_any_legal_move(&mut self, active_player: Color, ply: usize, hh: &HistoryHeuristics, board: &mut Board) -> bool {
+        self.prepare_moves(active_player, NO_MOVE, EMPTY_HISTORY);
+
+        while let Some(m) = self.next_move(ply, hh, board) {
+            let (previous_piece, removed_piece_id) = board.perform_move(m);
+            let is_legal = !board.is_in_check(active_player);
+            board.undo_move(m, previous_piece, removed_piece_id);
+            if is_legal {
+                return true;
+            }
+        }
+
+        false
     }
 }
 
