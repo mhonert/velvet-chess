@@ -338,14 +338,14 @@ impl Board {
             MoveType::PawnQuiet => {
                 let own_piece = color.piece(P);
                 self.move_piece(color, own_piece, move_start, move_end);
-                self.nn_eval.remove_add_piece::<false>(move_start, own_piece, move_end, own_piece);
+                self.nn_eval.remove_add_piece(move_start, own_piece, move_end, own_piece);
                 self.reset_half_move_clock();
                 (own_piece, EMPTY)
             }
             MoveType::PawnDoubleQuiet => {
                 let own_piece = color.piece(P);
                 self.move_piece(color, own_piece, move_start, move_end);
-                self.nn_eval.remove_add_piece::<false>(move_start, own_piece, move_end, own_piece);
+                self.nn_eval.remove_add_piece(move_start, own_piece, move_end, own_piece);
                 self.reset_half_move_clock();
 
                 self.set_enpassant(move_start as i8);
@@ -358,22 +358,22 @@ impl Board {
                 if own_piece == P {
                     // Special en passant handling
                     if move_start - move_end == 7 {
-                        self.nn_eval.remove_remove_add_piece::<false>(move_start + 1, -P, move_start, own_piece, move_end, own_piece);
+                        self.nn_eval.remove_remove_add_piece(move_start + 1, -P, move_start, own_piece, move_end, own_piece);
                         self.remove_piece(move_start + 1);
                         (own_piece, P)
                     } else {
-                        self.nn_eval.remove_remove_add_piece::<false>(move_start - 1, -P, move_start, own_piece, move_end, own_piece);
+                        self.nn_eval.remove_remove_add_piece(move_start - 1, -P, move_start, own_piece, move_end, own_piece);
                         self.remove_piece(move_start - 1);
                         (own_piece, P)
                     }
                 } else {
                     // Special en passant handling
                     if (move_start as i64) - (move_end as i64) == -7 {
-                        self.nn_eval.remove_remove_add_piece::<false>(move_start - 1, P, move_start , own_piece, move_end, own_piece);
+                        self.nn_eval.remove_remove_add_piece(move_start - 1, P, move_start , own_piece, move_end, own_piece);
                         self.remove_piece(move_start - 1);
                         (own_piece, P)
                     } else {
-                        self.nn_eval.remove_remove_add_piece::<false>(move_start + 1, P, move_start, own_piece, move_end, own_piece);
+                        self.nn_eval.remove_remove_add_piece(move_start + 1, P, move_start, own_piece, move_end, own_piece);
                         self.remove_piece(move_start + 1);
                         (own_piece, P)
                     }
@@ -382,7 +382,7 @@ impl Board {
             MoveType::KnightQuiet | MoveType::BishopQuiet | MoveType::QueenQuiet => {
                 let own_piece = color.piece(target_piece_id);
                 self.move_piece(color, own_piece, move_start, move_end);
-                self.nn_eval.remove_add_piece::<false>(move_start, own_piece, move_end, own_piece);
+                self.nn_eval.remove_add_piece(move_start, own_piece, move_end, own_piece);
                 (own_piece, EMPTY)
             },
             MoveType::RookQuiet => {
@@ -393,14 +393,14 @@ impl Board {
                 } else if self.castling_rules.is_qs_castling(color, move_start as i8) {
                     self.set_rook_moved(QUEEN_SIDE_CASTLING[color.idx()]);
                 }
-                self.nn_eval.remove_add_piece::<false>(move_start, own_piece, move_end, own_piece);
+                self.nn_eval.remove_add_piece(move_start, own_piece, move_end, own_piece);
                 (own_piece, EMPTY)
             }
             MoveType::PawnCapture | MoveType::KnightCapture | MoveType::BishopCapture => {
                 let own_piece = self.remove_piece(move_start);
                 let removed_piece = self.remove_piece(move_end);
                 self.update_rook_castling_state(color.flip(), removed_piece.abs(), move_end as i8);
-                self.nn_eval.remove_remove_add_piece::<true>(move_end, removed_piece, move_start, own_piece, move_end, own_piece);
+                self.nn_eval.remove_remove_add_piece(move_end, removed_piece, move_start, own_piece, move_end, own_piece);
                 self.add_piece(color, target_piece_id, move_end);
 
                 self.reset_half_move_clock();
@@ -416,7 +416,7 @@ impl Board {
 
                 let removed_piece = self.remove_piece(move_end);
                 self.update_rook_castling_state(color.flip(), removed_piece.abs(), move_end as i8);
-                self.nn_eval.remove_remove_add_piece::<true>(move_end, removed_piece, move_start, own_piece, move_end, own_piece);
+                self.nn_eval.remove_remove_add_piece(move_end, removed_piece, move_start, own_piece, move_end, own_piece);
                 self.add_piece(color, target_piece_id, move_end);
 
                 self.reset_half_move_clock();
@@ -426,7 +426,7 @@ impl Board {
                 let own_piece = self.remove_piece(move_start);
                 let removed_piece = self.remove_piece(move_end);
                 self.update_rook_castling_state(color.flip(), removed_piece.abs(), move_end as i8);
-                self.nn_eval.remove_remove_add_piece::<true>(move_end, removed_piece, move_start, own_piece, move_end, own_piece);
+                self.nn_eval.remove_remove_add_piece(move_end, removed_piece, move_start, own_piece, move_end, own_piece);
                 self.add_piece(color, target_piece_id, move_end);
 
                 self.reset_half_move_clock();
@@ -436,7 +436,7 @@ impl Board {
                 let own_piece = self.remove_piece(move_start);
                 self.reset_half_move_clock();
                 self.add_piece(color, target_piece_id, move_end);
-                self.nn_eval.remove_add_piece::<true>(move_start, own_piece, move_end, color.piece(target_piece_id));
+                self.nn_eval.remove_add_piece(move_start, own_piece, move_end, color.piece(target_piece_id));
                 (own_piece, EMPTY)
             }
             MoveType::KnightCapturePromotion | MoveType::BishopCapturePromotion | MoveType::RookCapturePromotion | MoveType::QueenCapturePromotion => {
@@ -445,7 +445,7 @@ impl Board {
 
                 let removed_piece = self.remove_piece(move_end);
                 self.update_rook_castling_state(color.flip(), removed_piece.abs(), move_end as i8);
-                self.nn_eval.remove_remove_add_piece::<true>(move_end, removed_piece, move_start, own_piece, move_end, color.piece(target_piece_id));
+                self.nn_eval.remove_remove_add_piece(move_end, removed_piece, move_start, own_piece, move_end, color.piece(target_piece_id));
                 self.add_piece(color, target_piece_id, move_end);
 
                 (own_piece, removed_piece.abs())
@@ -453,7 +453,7 @@ impl Board {
             MoveType::KingQuiet => {
                 let own_piece = color.piece(target_piece_id);
                 self.move_piece(color, own_piece, move_start, move_end);
-                self.nn_eval.remove_add_piece::<true>(move_start, own_piece, move_end, own_piece);
+                self.nn_eval.remove_add_piece(move_start, own_piece, move_end, own_piece);
                 self.set_king_pos(color, move_end as i8);
                 self.set_king_moved(color);
                 (own_piece, EMPTY)
@@ -462,7 +462,7 @@ impl Board {
                 let own_piece = self.remove_piece(move_start);
                 let removed_piece = self.remove_piece(move_end);
                 self.update_rook_castling_state(color.flip(), removed_piece.abs(), move_end as i8);
-                self.nn_eval.remove_remove_add_piece::<true>(move_end, removed_piece, move_start, own_piece, move_end, own_piece);
+                self.nn_eval.remove_remove_add_piece(move_end, removed_piece, move_start, own_piece, move_end, own_piece);
                 self.add_piece(color, target_piece_id, move_end);
 
                 self.reset_half_move_clock();
@@ -481,8 +481,8 @@ impl Board {
                 self.add_piece(color, R, CastlingRules::qs_rook_end(color) as usize);
                 self.set_rook_moved(QUEEN_SIDE_CASTLING[color.idx()]);
 
-                self.nn_eval.remove_add_piece::<false>(move_end, color.piece(R), CastlingRules::qs_rook_end(color) as usize, color.piece(R));
-                self.nn_eval.remove_add_piece::<true>(move_start, own_piece, CastlingRules::qs_king_end(color) as usize, own_piece);
+                self.nn_eval.remove_add_piece(move_end, color.piece(R), CastlingRules::qs_rook_end(color) as usize, color.piece(R));
+                self.nn_eval.remove_add_piece(move_start, own_piece, CastlingRules::qs_king_end(color) as usize, own_piece);
 
                 (own_piece, EMPTY)
             }
@@ -495,8 +495,8 @@ impl Board {
                 self.add_piece(color, R, CastlingRules::ks_rook_end(color) as usize);
                 self.set_rook_moved(KING_SIDE_CASTLING[color.idx()]);
 
-                self.nn_eval.remove_add_piece::<false>(move_end, color.piece(R), CastlingRules::ks_rook_end(color) as usize, color.piece(R));
-                self.nn_eval.remove_add_piece::<true>(move_start, own_piece, CastlingRules::ks_king_end(color) as usize, own_piece);
+                self.nn_eval.remove_add_piece(move_end, color.piece(R), CastlingRules::ks_rook_end(color) as usize, color.piece(R));
+                self.nn_eval.remove_add_piece(move_start, own_piece, CastlingRules::ks_king_end(color) as usize, own_piece);
 
                 (own_piece, EMPTY)
             }
@@ -545,11 +545,11 @@ impl Board {
 
         match m.move_type() {
             MoveType::PawnQuiet | MoveType::PawnDoubleQuiet | MoveType::KnightQuiet | MoveType::BishopQuiet | MoveType::RookQuiet | MoveType::QueenQuiet => {
-                self.nn_eval.remove_add_piece::<false>(move_end , piece, move_start , piece);
+                self.nn_eval.remove_add_piece(move_end , piece, move_start , piece);
                 self.move_piece_without_state(color, piece, move_end , move_start );
             }
             MoveType::PawnCapture | MoveType::KnightCapture | MoveType::BishopCapture | MoveType::RookCapture | MoveType::QueenCapture => {
-                self.nn_eval.remove_add_add_piece::<true>(move_end , piece, move_start , piece, move_end , color.flip().piece(removed_piece_id));
+                self.nn_eval.remove_add_add_piece(move_end , piece, move_start , piece, move_end , color.flip().piece(removed_piece_id));
 
                 self.remove_piece_without_inc_update(move_end );
                 self.add_piece_without_inc_update(color, piece, move_start);
@@ -560,40 +560,40 @@ impl Board {
                 self.add_piece_without_inc_update(color, piece, move_start);
                 if (move_start as i32 - move_end as i32).abs() == 7 {
                     let capture_pos = if color.is_white() { move_start + 1 } else { move_start - 1 };
-                    self.nn_eval.remove_add_add_piece::<false>( move_end , piece, move_start , piece, capture_pos, color.flip().piece(P));
+                    self.nn_eval.remove_add_add_piece( move_end , piece, move_start , piece, capture_pos, color.flip().piece(P));
                     self.add_piece_without_inc_update(color.flip(), color.flip().piece(P), capture_pos);
                 } else {
                     let capture_pos = if color.is_white() { move_start - 1 } else { move_start + 1 };
-                    self.nn_eval.remove_add_add_piece::<false>( move_end , piece, move_start , piece, capture_pos, color.flip().piece(P));
+                    self.nn_eval.remove_add_add_piece( move_end , piece, move_start , piece, capture_pos, color.flip().piece(P));
                     self.add_piece_without_inc_update(color.flip(), color.flip().piece(P), capture_pos);
                 }
             }
             MoveType::KnightQuietPromotion | MoveType::BishopQuietPromotion | MoveType::RookQuietPromotion | MoveType::QueenQuietPromotion => {
                 self.remove_piece_without_inc_update(move_end );
                 self.add_piece_without_inc_update(color, piece, move_start);
-                self.nn_eval.remove_add_piece::<true>(move_end , color.piece(m.move_type().piece_id()), move_start , piece);
+                self.nn_eval.remove_add_piece(move_end , color.piece(m.move_type().piece_id()), move_start , piece);
             }
             MoveType::KnightCapturePromotion | MoveType::BishopCapturePromotion | MoveType::RookCapturePromotion | MoveType::QueenCapturePromotion => {
                 self.remove_piece_without_inc_update(move_end );
                 self.add_piece_without_inc_update(color, piece, move_start);
-                self.nn_eval.remove_add_add_piece::<true>(move_end , color.piece(m.move_type().piece_id()), move_start , piece, move_end , color.flip().piece(removed_piece_id));
+                self.nn_eval.remove_add_add_piece(move_end , color.piece(m.move_type().piece_id()), move_start , piece, move_end , color.flip().piece(removed_piece_id));
                 self.add_piece_without_inc_update(color.flip(), color.flip().piece(removed_piece_id), move_end);
             }
             MoveType::KingQuiet => {
-                self.nn_eval.remove_add_piece::<true>(move_end , piece, move_start , piece);
+                self.nn_eval.remove_add_piece(move_end , piece, move_start , piece);
                 self.move_piece_without_state(color, piece, move_end, move_start);
                 self.set_king_pos(color, move_start as i8);
             }
             MoveType::KingCapture => {
-                self.nn_eval.remove_add_add_piece::<true>(move_end , piece, move_start , piece, move_end , color.flip().piece(removed_piece_id));
+                self.nn_eval.remove_add_add_piece(move_end , piece, move_start , piece, move_end , color.flip().piece(removed_piece_id));
                 self.remove_piece_without_inc_update(move_end );
                 self.add_piece_without_inc_update(color, piece, move_start);
                 self.add_piece_without_inc_update(color.flip(), color.flip().piece(removed_piece_id), move_end);
                 self.set_king_pos(color, move_start as i8);
             }
             MoveType::KingQSCastling => {
-                self.nn_eval.remove_add_piece::<true>(CastlingRules::qs_king_end(color) as usize, piece, move_start , piece);
-                self.nn_eval.remove_add_piece::<false>(CastlingRules::qs_rook_end(color) as usize, color.piece(R), move_end , color.piece(R));
+                self.nn_eval.remove_add_piece(CastlingRules::qs_king_end(color) as usize, piece, move_start , piece);
+                self.nn_eval.remove_add_piece(CastlingRules::qs_rook_end(color) as usize, color.piece(R), move_end , color.piece(R));
 
                 self.remove_piece_without_inc_update(CastlingRules::qs_king_end(color) as usize);
                 self.remove_piece_without_inc_update(CastlingRules::qs_rook_end(color) as usize);
@@ -604,8 +604,8 @@ impl Board {
 
             }
             MoveType::KingKSCastling => {
-                self.nn_eval.remove_add_piece::<true>(CastlingRules::ks_king_end(color) as usize, piece, move_start , piece);
-                self.nn_eval.remove_add_piece::<false>(CastlingRules::ks_rook_end(color) as usize, color.piece(R), move_end , color.piece(R));
+                self.nn_eval.remove_add_piece(CastlingRules::ks_king_end(color) as usize, piece, move_start , piece);
+                self.nn_eval.remove_add_piece(CastlingRules::ks_rook_end(color) as usize, color.piece(R), move_end , color.piece(R));
 
                 self.remove_piece_without_inc_update(CastlingRules::ks_king_end(color) as usize);
                 self.remove_piece_without_inc_update(CastlingRules::ks_rook_end(color) as usize);

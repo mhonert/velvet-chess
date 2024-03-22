@@ -49,12 +49,10 @@ pub struct NeuralNetEval {
     xor_black_pov: usize,
 
     move_id: usize,
-    updates: Vec<(bool, usize, bool, UpdateAction)>,
+    updates: Vec<(bool, usize, UpdateAction)>,
 
     undo: bool,
     fast_undo: bool,
-
-    check_refresh: i32,
 }
 
 #[derive(Clone)]
@@ -93,7 +91,6 @@ impl NeuralNetEval {
 
             undo: false,
             fast_undo: false,
-            check_refresh: 0,
         })
     }
 
@@ -185,7 +182,7 @@ impl NeuralNetEval {
 
         // Remove all updates for the latest move
         let mut move_id: Option<usize> = None;
-        while let Some((was_undo, id, was_check_refresh, _)) = self.updates.last() {
+        while let Some((was_undo, id, _)) = self.updates.last() {
             if *was_undo {
                 return;
             }
@@ -199,43 +196,25 @@ impl NeuralNetEval {
                 self.fast_undo = true;
             }
 
-            if *was_check_refresh {
-                self.check_refresh -= 1;
-            }
             self.updates.pop();
         }
     }
 
-    pub fn remove_add_piece<const CHECK_REFRESH: bool>(&mut self, rem_pos: usize, rem_piece: i8, add_pos: usize, add_piece: i8) {
+    pub fn remove_add_piece(&mut self, rem_pos: usize, rem_piece: i8, add_pos: usize, add_piece: i8) {
         if !self.fast_undo {
-            if CHECK_REFRESH {
-                self.check_refresh += 1;
-            }
-            self.updates.push((self.undo, self.move_id, CHECK_REFRESH, UpdateAction::RemoveAdd(rem_pos, rem_piece, add_pos, add_piece)));
+            self.updates.push((self.undo, self.move_id, UpdateAction::RemoveAdd(rem_pos, rem_piece, add_pos, add_piece)));
         }
     }
 
-    pub fn check_refresh(&mut self) {
+    pub fn remove_remove_add_piece(&mut self, rem_pos1: usize, rem_piece1: i8, rem_pos2: usize, rem_piece2: i8, add_pos: usize, add_piece: i8) {
         if !self.fast_undo {
-            self.check_refresh += 1;
+            self.updates.push((self.undo, self.move_id, UpdateAction::RemoveRemoveAdd(rem_pos1, rem_piece1, rem_pos2, rem_piece2, add_pos, add_piece)));
         }
     }
 
-    pub fn remove_remove_add_piece<const CHECK_REFRESH: bool>(&mut self, rem_pos1: usize, rem_piece1: i8, rem_pos2: usize, rem_piece2: i8, add_pos: usize, add_piece: i8) {
+    pub fn remove_add_add_piece(&mut self, rem_pos: usize, rem_piece: i8, add_pos1: usize, add_piece1: i8, add_pos2: usize, add_piece2: i8) {
         if !self.fast_undo {
-            if CHECK_REFRESH {
-                self.check_refresh += 1;
-            }
-            self.updates.push((self.undo, self.move_id, CHECK_REFRESH, UpdateAction::RemoveRemoveAdd(rem_pos1, rem_piece1, rem_pos2, rem_piece2, add_pos, add_piece)));
-        }
-    }
-
-    pub fn remove_add_add_piece<const CHECK_REFRESH: bool>(&mut self, rem_pos: usize, rem_piece: i8, add_pos1: usize, add_piece1: i8, add_pos2: usize, add_piece2: i8) {
-        if !self.fast_undo {
-            if CHECK_REFRESH {
-                self.check_refresh += 1;
-            }
-            self.updates.push((self.undo, self.move_id, CHECK_REFRESH, UpdateAction::RemoveAddAdd(rem_pos, rem_piece, add_pos1, add_piece1, add_pos2, add_piece2)));
+            self.updates.push((self.undo, self.move_id, UpdateAction::RemoveAddAdd(rem_pos, rem_piece, add_pos1, add_piece1, add_pos2, add_piece2)));
         }
     }
 
@@ -324,28 +303,22 @@ impl NeuralNetEval {
     }
 
     fn apply_updates(&mut self, bitboards: &BitBoards, white_king: i8, black_king: i8) {
-        let mut refresh_wpov = false;
-        let mut refresh_bpov = false;
+        let (white_bucket, black_bucket, xor_white_pov, xor_black_pov, white_offset, black_offset) =
+            calc_bucket_offsets(bitboards, white_king, black_king);
 
-        if self.check_refresh > 0 {
-            self.check_refresh = 0;
-            let (white_bucket, black_bucket, xor_white_pov, xor_black_pov, white_offset, black_offset) =
-                calc_bucket_offsets(bitboards, white_king, black_king);
+        let refresh_wpov = white_bucket != self.white_bucket || xor_white_pov != self.xor_white_pov || white_offset != self.white_offset;
+        let refresh_bpov = black_bucket != self.black_bucket || xor_black_pov != self.xor_black_pov || black_offset != self.black_offset;
 
-            refresh_wpov = white_bucket != self.white_bucket || xor_white_pov != self.xor_white_pov || white_offset != self.white_offset;
-            refresh_bpov = black_bucket != self.black_bucket || xor_black_pov != self.xor_black_pov || black_offset != self.black_offset;
+        if refresh_wpov {
+            self.update_white_pov(bitboards, white_bucket, xor_white_pov, white_offset);
+        }
 
-            if refresh_wpov {
-                self.update_white_pov(bitboards, white_bucket, xor_white_pov, white_offset);
-            }
-
-            if refresh_bpov {
-                self.update_black_pov(bitboards, black_bucket, xor_black_pov, black_offset);
-            }
+        if refresh_bpov {
+            self.update_black_pov(bitboards, black_bucket, xor_black_pov, black_offset);
         }
 
         if !refresh_wpov && !refresh_bpov {
-            for (_, _, _, update) in self.updates.iter() {
+            for (_, _, update) in self.updates.iter() {
                 match *update {
                     UpdateAction::RemoveAdd(rem_pos, rem_piece, add_pos, add_piece) => {
                         let (rem_white_pov_idx, rem_black_pov_idx) = self.calc_pov_weight_start(rem_pos, rem_piece);
@@ -376,7 +349,7 @@ impl NeuralNetEval {
             }
 
         } else if !refresh_wpov {
-            for (_, _, _, update) in self.updates.iter() {
+            for (_, _, update) in self.updates.iter() {
                 match *update {
                     UpdateAction::RemoveAdd(rem_pos, rem_piece, add_pos, add_piece) => {
                         let rem_white_pov_idx = self.calc_wpov_weight_start(rem_pos, rem_piece);
@@ -403,7 +376,7 @@ impl NeuralNetEval {
                 }
             }
         } else if !refresh_bpov {
-            for (_, _, _, update) in self.updates.iter() {
+            for (_, _, update) in self.updates.iter() {
                 match *update {
                     UpdateAction::RemoveAdd(rem_pos, rem_piece, add_pos, add_piece) => {
                         let rem_black_pov_idx = self.calc_bpov_weight_start(rem_pos, rem_piece);
