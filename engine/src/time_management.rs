@@ -24,9 +24,6 @@ use std::time::{Duration, Instant};
 pub const TIMEEXT_MULTIPLIER: i32 = 3;
 pub const MAX_TIMELIMIT_MS: i32 = i32::MAX;
 
-const TIMEEXT_SCORE_DROP_THRESHOLD: i32 = 20;
-const TIMEEXT_HISTORY_SIZE: usize = 6;
-
 pub const DEFAULT_MOVE_OVERHEAD_MS: i32 = 20;
 pub const MAX_MOVE_OVERHEAD_MS: i32 = 1000;
 pub const MIN_MOVE_OVERHEAD_MS: i32 = 0;
@@ -37,6 +34,7 @@ pub struct TimeManager {
     timelimit_ms: i32,
 
     allow_time_extension: bool,
+    time_extended: bool,
 
     next_index: usize,
     current_depth: i32,
@@ -49,6 +47,7 @@ impl TimeManager {
             starttime: Instant::now(),
             timelimit_ms: 0,
             allow_time_extension: true,
+            time_extended: false,
             next_index: 0,
             current_depth: 0,
             history: vec![NO_MOVE; MAX_DEPTH],
@@ -63,6 +62,7 @@ impl TimeManager {
         self.history.fill(NO_MOVE);
         self.next_index = 0;
         self.current_depth = 0;
+        self.time_extended = false;
     }
 
     pub fn update_best_move(&mut self, new_best_move: Move, depth: i32) {
@@ -74,6 +74,9 @@ impl TimeManager {
     }
 
     pub fn is_time_for_another_iteration(&self, now: Instant, previous_iteration_time: Duration) -> bool {
+        if self.time_extended && !(self.score_dropped() || self.best_move_changed()) {
+            return false;
+        }
         let duration_ms = previous_iteration_time.as_millis() as i32;
         self.remaining_time_ms(now) >= duration_ms * 7 / 4
     }
@@ -98,30 +101,31 @@ impl TimeManager {
         if !self.allow_time_extension {
             return false;
         }
-
-        let highest_score_drop = self
-            .history
-            .iter()
-            .take(self.next_index)
-            .rev()
-            .take(self.next_index.min(TIMEEXT_HISTORY_SIZE))
-            .map(Move::score)
-            .rfold((0, 0, 0), |(highest_drop, count, prev_score), score| {
-                if count == 0 {
-                    (0, 1, score)
-                } else {
-                    (highest_drop.max((prev_score as i32 - score as i32).max(0)), count + 1, score)
-                }
-            })
-            .0;
-
-        if highest_score_drop >= TIMEEXT_SCORE_DROP_THRESHOLD {
+        
+        if self.best_move_changed() || self.score_dropped() {
             self.allow_time_extension = false;
             self.timelimit_ms *= TIMEEXT_MULTIPLIER;
+            self.time_extended = true;
             return true;
         }
-
+        
         false
+    }
+
+    fn score_dropped(&self) -> bool {
+        if self.next_index < 2 {
+            false
+        } else {
+            (self.history[self.next_index - 2].score() - self.history[self.next_index - 1].score()) > 0
+        }
+    }
+
+    fn best_move_changed(&self) -> bool {
+        if self.next_index < 2 {
+            false
+        } else {
+            self.history[self.next_index - 2] != self.history[self.next_index - 1]
+        }
     }
 
     pub fn reduce_timelimit(&mut self) {
