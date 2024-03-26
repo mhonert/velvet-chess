@@ -825,7 +825,12 @@ impl Search {
             if !skip && evaluated_move_count > 0 {
                 let target_piece_id = curr_move.move_type().piece_id();
 
-                if !curr_move.is_capture() {
+                if curr_move.is_capture() {
+                    if !gives_check && self.ctx.is_bad_capture_move() {
+                        reductions += 1;
+                    }
+
+                } else {
                     if allow_lmr && quiet_move_count > LMR_THRESHOLD && !curr_move.is_queen_promotion()  {
                         reductions += unsafe { *LMR.get_unchecked((quiet_move_count as usize).min(MAX_LMR_MOVES - 1)) } + i32::from(!is_pv);
                         let history_diff = (curr_move.score() - QUIET_BASE_SCORE) / -MIN_HISTORY_SCORE;

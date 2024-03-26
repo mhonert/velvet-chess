@@ -263,6 +263,10 @@ impl MoveList {
         }
     }
 
+    pub fn is_bad_capture_move(&self) -> bool {
+        matches!(self.stage, Stage::PostponedBadCaptureMoves)
+    }
+
     pub fn next_root_move(&mut self, hh: &HistoryHeuristics, board: &mut Board) -> Option<Move> {
         if !self.moves_generated {
             self.gen_capture_moves::<true>(board);

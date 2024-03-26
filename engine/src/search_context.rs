@@ -89,6 +89,10 @@ impl SearchContext {
         self.movelist_mut().next_good_capture_move(board)
     }
 
+    pub fn is_bad_capture_move(&self) -> bool {
+        self.movelist().is_bad_capture_move()
+    }
+
     pub fn reset_root_moves(&mut self) {
         self.movelist_mut().reset_root_moves();
     }
