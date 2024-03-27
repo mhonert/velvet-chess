@@ -839,7 +839,12 @@ impl Search {
                         } else if improving && history_diff > 0 && reductions > 0 {
                             reductions -= 1;
                         }
+                        
                         if tt_move != NO_MOVE && tt_move.is_capture() {
+                            reductions += 1;
+                        }
+
+                        if curr_move.score() < QUIET_BASE_SCORE && self.board.has_negative_see(active_player.flip(), start as usize, end as usize, target_piece_id, EMPTY, occupied_bb) {
                             reductions += 1;
                         }
 
