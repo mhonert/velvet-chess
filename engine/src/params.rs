@@ -35,6 +35,8 @@ tunable_params!(
     nmp_divider = 3
     se_double_ext_margin = 4
     se_double_ext_limit = 12
+    prob_cut_margin = 150
+    prob_cut_depth = 4
 );
 
 tunable_array_params!(

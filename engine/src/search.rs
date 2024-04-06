@@ -26,7 +26,7 @@ use crate::move_gen::{is_killer, NEGATIVE_HISTORY_SCORE, QUIET_BASE_SCORE, is_va
 use crate::moves::{Move, MoveType, NO_MOVE};
 use crate::pieces::{EMPTY, P};
 use crate::pos_history::PositionHistory;
-use crate::scores::{mate_in, sanitize_score, MATED_SCORE, MATE_SCORE, MAX_SCORE, MIN_SCORE, is_mate_or_mated_score, MAX_EVAL, MIN_EVAL};
+use crate::scores::{mate_in, sanitize_score, MATED_SCORE, MATE_SCORE, MAX_SCORE, MIN_SCORE, is_mate_or_mated_score, MAX_EVAL, MIN_EVAL, is_eval_score};
 use crate::time_management::{SearchLimits, TimeManager};
 use crate::transposition_table::{ScoreType, TranspositionTable, MAX_DEPTH, get_tt_move, get_depth, get_score_type, to_gen_bit};
 use crate::uci_move::UCIMove;
@@ -691,7 +691,6 @@ impl Search {
 
         let unreduced_depth = depth;
         if !is_pv && !in_check {
-
             let static_score = clamp_score(self.ctx.eval(), worst_possible_score, best_possible_score);
             if !improving && self.current_depth > 7 && depth <= 4 && !is_mate_or_mated_score(alpha) && static_score + (1 << (depth - 1)) * params::razor_margin_multiplier() <= alpha {
                 // Razoring
@@ -738,6 +737,31 @@ impl Search {
                         }
                     }
                 }
+            }
+            
+            // ProbCut
+            let prob_cut_beta = beta + params::prob_cut_margin();
+            let prob_cut_depth = depth - params::prob_cut_depth() as i32;
+            if se_move == NO_MOVE && tt_move != NO_MOVE && !tt_score_is_upper_bound && tt_score >= prob_cut_beta && prob_cut_depth > 0 && is_eval_score(beta) {
+                let (previous_piece, removed_piece_id) = self.board.perform_move(tt_move);
+                self.tt.prefetch(self.board.get_hash());
+                if !self.board.is_left_in_check(active_player, false, tt_move) {
+                    let gives_check = self.board.is_in_check(active_player.flip());
+                    self.ctx.update_next_ply_entry(tt_move, gives_check);
+
+                    let result = next_ply!(self.ctx, self.rec_find_best_move(rx, -prob_cut_beta, -prob_cut_beta + 1, ply + 1, prob_cut_depth, &mut PrincipalVariation::default(), in_se_search, NO_MOVE));
+                    if result == CANCEL_SEARCH {
+                        self.board.undo_move(tt_move, previous_piece, removed_piece_id);
+                        return CANCEL_SEARCH;
+                    }
+                    let score = clamp_score(-result, worst_possible_score, best_possible_score);
+
+                    if score >= prob_cut_beta {
+                        self.board.undo_move(tt_move, previous_piece, removed_piece_id);
+                        return score;
+                    }
+                }
+                self.board.undo_move(tt_move, previous_piece, removed_piece_id);
             }
         }
 
