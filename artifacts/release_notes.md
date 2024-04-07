@@ -1,28 +1,13 @@
 
-This is just a minor release with some bug-fixes, performance improvements and a small strength increase
+This is another minor release with some small search improvements and a bigger neural network
 
 Estimated strength increase: ~ 20 Elo
 
 ## Changes
+- Bigger neural network (hidden layer size increased from 2x512 to 2x768 nodes)
+- Training data for drawn games adjusted to scale down scores for certain material combinations
 - Search improvements
-- Performance optimizations
-
-## Fixed bugs
-- UCI option handling: support spaces inside the 'value' part
-- 50-move draw rule logic: checkmate at 100th half-move evaluated as draw
-
-## Statistics
-- Elo change: v7.1.0 compared to v7.0.0 against the same set of opponents
-- Move range: grouped by games won in less than x moves (each game only belongs to one group, so a game that ended in 57 moves would belong to the group "60", but not "80", "100", etc.)
-
-| Move range | Elo change |
-|------------|------------|
-| 40         | +42        |
-| 60         | +9         |
-| 80         | +28        |
-| 100        | +31        |
-| 120        | +26        |
-| \>= 120    | +2         |
+- Time management improvements
 
 ## Notes
 
