@@ -1,13 +1,15 @@
 
-This is another minor release with some small search improvements and a bigger neural network
+This minor release contains an updated neural network
 
-Estimated strength increase: ~ 20 Elo
+Estimated strength increase: ~ 10 Elo
 
 ## Changes
-- Bigger neural network (hidden layer size increased from 2x512 to 2x768 nodes)
-- Training data for drawn games adjusted to scale down scores for certain material combinations
-- Search improvements
-- Time management improvements
+
+v7.2.0 introduced a bigger neural network (hidden layer size increased from 2x512 to 2x768 hidden nodes).
+Unfortunately it was trained with some experimental changes and the resulting network was only slightly better than the smaller network.
+
+For this new v7.3.0 release, a new network was trained.
+ 
 
 ## Notes
 
