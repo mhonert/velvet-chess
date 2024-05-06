@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2022 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2024 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -19,6 +19,7 @@
 const MULTIPLIER: u64 = 6364136223846793005;
 const INCREMENT: u64 = 1442695040888963407;
 
+#[derive(Clone)]
 pub struct Random {
     state: u64,
 }

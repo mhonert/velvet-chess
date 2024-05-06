@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2023 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2024 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -279,7 +279,7 @@ fn find_candidate_moves(search: &mut Search, rx: Option<&Receiver<Message>>, min
     let mut best_score = i16::MIN;
     search.set_node_limit(5000);
     for _ in 0..2 {
-        let (selected_move, _) = search.find_best_move(rx, min_depth, &skip);
+        let (selected_move, _) = search.find_best_move(rx, &skip);
         if selected_move == NO_MOVE {
             break;
         }

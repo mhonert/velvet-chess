@@ -24,7 +24,9 @@ use crate::moves::{Move, MoveType, NO_MOVE};
 use crate::pieces::{B, N, P, Q, R};
 use std::cmp::Reverse;
 use std::mem::swap;
+use std::time::{SystemTime, UNIX_EPOCH};
 use crate::magics::{get_bishop_attacks, get_queen_attacks, get_rook_attacks};
+use crate::random::Random;
 use crate::scores::MAX_SCORE;
 
 const PRIMARY_KILLER_SCORE: i16 = -2200;
@@ -59,6 +61,7 @@ pub struct MoveList {
     root_move_index: usize,
     moves_generated: bool,
     active_player: Color,
+    rnd: Random,
 }
 
 impl Default for MoveList {
@@ -74,6 +77,7 @@ impl Default for MoveList {
             root_move_index: 0,
             moves_generated: false,
             active_player: WHITE,
+            rnd: Random::new_with_seed(SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()),
         }
     }
 }
@@ -267,7 +271,7 @@ impl MoveList {
         matches!(self.stage, Stage::PostponedBadCaptureMoves)
     }
 
-    pub fn next_root_move(&mut self, hh: &HistoryHeuristics, board: &mut Board) -> Option<Move> {
+    pub fn next_root_move(&mut self, hh: &HistoryHeuristics, board: &mut Board, randomize: bool) -> Option<Move> {
         if !self.moves_generated {
             self.gen_capture_moves::<true>(board);
             swap(&mut self.moves, &mut self.capture_moves);
@@ -275,6 +279,15 @@ impl MoveList {
 
             let active_player = board.active_player();
             self.moves.retain(|&m| board.is_legal_move(active_player, m));
+            if randomize {
+                for m in self.moves.iter_mut() {
+                    let r = (self.rnd.rand32() % 30) as i16 - 15;
+                    let (previous_piece, removed_piece_id) = board.perform_move(*m);
+                    let eval = (-board.eval() / 16) * 16;
+                    board.undo_move(*m, previous_piece, removed_piece_id);
+                    *m = m.with_score(eval + r);
+                }
+            }
 
             self.moves.sort_by_key(|&m| Reverse(if m == self.scored_hash_move { MAX_SCORE } else { m.score() }));
             self.moves_generated = true;

@@ -32,6 +32,8 @@ pub struct SearchContext {
 
     pe_idx: usize,
     ply_entries: [PlyEntry; MAX_DEPTH + 4],
+    
+    root_move_randomization: bool,
 }
 
 impl Default for SearchContext {
@@ -42,6 +44,7 @@ impl Default for SearchContext {
             pe_idx: 4, // start with 4 to remove the need for bounds checks when accessing the ply entries
             movelists: array::from_fn(|_| MoveList::default()),
             ply_entries: [PlyEntry::default(); MAX_DEPTH + 4],
+            root_move_randomization: false,
         }
     }
 }
@@ -76,6 +79,10 @@ impl SearchContext {
     fn movelist(&self) -> &MoveList {
         unsafe { self.movelists.get_unchecked(self.ml_idx) }
     }
+    
+    pub fn set_root_move_randomization(&mut self, state: bool) {
+        self.root_move_randomization = state;
+    }
 
     pub fn next_move(&mut self, ply: usize, hh: &HistoryHeuristics, board: &mut Board) -> Option<Move> {
         self.movelist_mut().next_move(ply, hh, board)
@@ -98,7 +105,8 @@ impl SearchContext {
     }
 
     pub fn next_root_move(&mut self, hh: &HistoryHeuristics, board: &mut Board) -> Option<Move> {
-        self.movelist_mut().next_root_move(hh, board)
+        let randomize = self.root_move_randomization;
+        self.movelist_mut().next_root_move(hh, board, randomize)
     }
 
     pub fn update_root_move(&mut self, m: Move) {

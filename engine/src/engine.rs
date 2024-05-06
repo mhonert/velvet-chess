@@ -32,6 +32,7 @@ use std::sync::{mpsc, Arc};
 use std::thread;
 use std::time::{Instant};
 use crate::{params, syzygy};
+use crate::params::calc_node_limit_from_elo;
 use crate::search_context::SearchContext;
 
 pub enum Message {
@@ -48,12 +49,18 @@ pub enum Message {
     SetThreadCount(i32),
     SetTableBasePath(String),
     SetTableBaseProbeDepth(i32),
+    SetLimitStrength(bool),
+    SetElo(i32),
     SetMultiPV(i32),
     SetMoveOverheadMillis(i32),
+    SetSimulateThinkingTime(bool),
     SetTranspositionTableSize(i32),
     Stop,
     PonderHit,
 }
+
+pub const MIN_ELO: i32 = 1225;
+pub const MAX_ELO: i32 = 3000;
 
 #[repr(u8)]
 #[derive(PartialOrd, PartialEq, Copy, Clone)]
@@ -75,6 +82,9 @@ pub struct Engine {
     new_tb_path: Option<String>,
     search: Search,
     move_overhead_ms: i32,
+    limit_strength: bool,
+    simulate_thinking_time: bool,
+    elo: i32,
 }
 
 pub fn spawn_engine_thread() -> Sender<Message> {
@@ -116,6 +126,9 @@ impl Engine {
             search,
             new_tb_path: None,
             move_overhead_ms: DEFAULT_MOVE_OVERHEAD_MS,
+            limit_strength: false,
+            simulate_thinking_time: true,
+            elo: MIN_ELO,
         }
     }
 
@@ -186,6 +199,18 @@ impl Engine {
                 self.move_overhead_ms = ms;
             }
 
+            Message::SetLimitStrength(limit_strength) => {
+                self.limit_strength = limit_strength;
+            }
+
+            Message::SetSimulateThinkingTime(flag) => {
+                self.simulate_thinking_time = flag;
+            }
+
+            Message::SetElo(elo) => {
+                self.elo = elo;
+            }
+
             Message::Perft(depth) => self.perft(depth),
 
             Message::IsReady => self.check_readiness(),
@@ -217,7 +242,12 @@ impl Engine {
         true
     }
 
-    fn go(&mut self, limits: SearchLimits, ponder: bool, search_moves: Option<Vec<String>>) {
+    fn go(&mut self, mut limits: SearchLimits, ponder: bool, search_moves: Option<Vec<String>>) {
+        if self.limit_strength {
+            let node_limit = calc_node_limit_from_elo(self.elo);
+            println!("info string use node limit {} for elo {}", node_limit, self.elo);
+            limits.set_node_limit(if self.board.piece_count() <= 6 { node_limit * 4 } else { node_limit });
+        }
         let (m, ponder_m) = self.search(limits, ponder, search_moves);
         if m == NO_MOVE {
             println!("bestmove 0000");
@@ -253,7 +283,11 @@ impl Engine {
 
         self.search.update(&self.board, limits, ponder);
 
-        let (m, pv) = self.search.find_best_move(Some(&self.rx), 3, &skipped_moves);
+        let (m, pv) = if self.limit_strength {
+            self.search.find_move_with_limited_strength(Some(&self.rx), self.simulate_thinking_time, &skipped_moves)
+        } else {
+            self.search.find_best_move_with_full_strength(Some(&self.rx), &skipped_moves)
+        };
         let ponder_m = *pv.moves().get(1).unwrap_or(&NO_MOVE);
         (m, ponder_m)
     }

@@ -53,6 +53,10 @@ impl HistoryHeuristics {
         self.follow_up_history.fill(0);
         self.counters.fill(NO_MOVE);
     }
+    
+    pub fn is_empty(&self) -> bool {
+        self.killers.iter().all(|e| e.0 == NO_MOVE)
+    }
 
     pub fn clear_killers(&mut self, ply: usize) {
         if let Some(k) = self.killers.get_mut(ply) {

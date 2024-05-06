@@ -122,6 +122,7 @@ pub struct Search {
     player_pov: Color,
 
     pondering: bool,
+    is_strength_limited: bool,
 
     gen_bit: u8,
 }
@@ -166,6 +167,7 @@ impl Search {
             is_helper_thread,
 
             pondering: false,
+            is_strength_limited: false,
 
             gen_bit: 0,
         }
@@ -224,9 +226,109 @@ impl Search {
         self.local_tb_hits = 0;
     }
 
-    pub fn find_best_move(
-        &mut self, rx: Option<&Receiver<Message>>, min_depth: i32, skipped_moves: &[Move],
+    pub fn find_move_with_limited_strength(
+        &mut self, rx: Option<&Receiver<Message>>, simulate_thinking_time: bool, skipped_moves: &[Move],
     ) -> (Move, PrincipalVariation) {
+        self.ctx.set_root_move_randomization(true);
+        self.limits.set_strict_time_limit(true);
+        self.is_strength_limited = true;
+
+        if self.hh.is_empty() {
+            // Fill history tables for the very first move
+            let limits = self.limits;
+
+            self.limits.set_node_limit(limits.node_limit() * 4);
+            let _ = self.find_best_move(rx, skipped_moves);
+            self.limits = limits;
+        }
+
+        let mut all_skipped = Vec::from(skipped_moves);
+        let base_candidate = self.find_best_move(rx, &all_skipped);
+        if self.ctx.root_move_count() == 0 {
+            self.set_stopped(true);
+            return (NO_MOVE, PrincipalVariation::default());
+        }
+
+        let active_player = self.board.active_player();
+        let eval = same_ply!(self.ctx, self.qs::<false>(active_player, MIN_SCORE, MAX_SCORE, 1, self.board.is_in_check(active_player), &mut PrincipalVariation::default()));
+        if eval >= 2000 {
+            self.limits.set_node_limit(self.limits.node_limit().max(200) * 4);
+        }
+        
+        self.ctx.prepare_moves(active_player, NO_MOVE, EMPTY_HISTORY);
+        self.ctx.reset_root_moves();
+
+        all_skipped.push(base_candidate.0);
+        while let Some(m) = self.ctx.next_root_move(&self.hh, &mut self.board) {
+            if self.board.has_negative_see(active_player.flip(), m.start() as usize, m.end() as usize, m.move_type().piece_id(), self.board.get_item(m.end() as usize), self.board.occupancy_bb()) {
+                all_skipped.push(m);
+            }
+        }
+
+        let (base_qs_score, base_tactical) = self.get_qs_score(base_candidate.0);
+
+        let alt_candidate = self.find_best_move(rx, &all_skipped);
+        let (alt_qs_score, alt_tactical) = if alt_candidate.0 != NO_MOVE { self.get_qs_score(alt_candidate.0) } else { (MIN_SCORE, false) };
+
+        let (m, pv) =
+            if (base_tactical || alt_tactical) && alt_qs_score > base_qs_score + 75 {
+                alt_candidate
+            } else {
+                base_candidate
+            };
+
+        let mut result = AnalysisResult::new();
+        result.update_result(self.max_reached_depth as i32, self.max_reached_depth as i32, m, Some(self.pv_info(&pv.0, false)), pv.clone());
+        result.print(self.board.halfmove_clock(), None, self.multi_pv_count, self.get_base_stats(self.time_mgr.search_duration(Instant::now())));
+
+        if simulate_thinking_time && self.limits.has_time_limit() {
+            if let Some(r) = rx {
+                if self.ctx.root_move_count() == 1 || self.board.fullmove_count() <= 4 {
+                    self.time_mgr.reduce_timelimit();
+                }
+                self.set_stopped(false);
+                println!("info string Simulate thinking time for {} seconds ...", (self.time_mgr.remaining_time_ms(Instant::now()) + 500) / 1000);
+                while self.time_mgr.remaining_time_ms(Instant::now()) > 100 && !self.is_stopped() {
+                    self.check_messages(r, false);
+                    thread::sleep(Duration::from_millis(100));
+                }
+            }
+        }
+
+        result.print(self.board.halfmove_clock(), None, self.multi_pv_count, self.get_base_stats(self.time_mgr.search_duration(Instant::now())));
+
+        self.set_stopped(true);
+        (m, pv.clone())
+    }
+
+    fn get_qs_score(&mut self, m: Move) -> (i16, bool) {
+        self.local_total_node_count = 0;
+        let (previous_piece, removed_piece_id) = self.board.perform_move(m);
+        let active_player = self.board.active_player();
+        let gives_check = self.board.is_in_check(active_player);
+        let mut pv = PrincipalVariation::default();
+        let qs_score = next_ply!(self.ctx, -self.quiescence_search(false, active_player, MIN_SCORE, MAX_SCORE, 0, gives_check, &mut PrincipalVariation::default()));
+
+        self.ctx.update_next_ply_entry(m, gives_check);
+        self.set_stopped(false);
+        let score = next_ply!(self.ctx, -self.rec_find_best_move(None, MIN_SCORE, MAX_SCORE, 1, 1, &mut pv, false, NO_MOVE));
+        let has_captures = pv.moves().iter().any(|m| m.is_capture());
+        self.board.undo_move(m, previous_piece, removed_piece_id);
+        
+        if is_mate_or_mated_score(score) {
+            (score, true)
+        } else {
+            (qs_score, has_captures)
+        }
+    }
+
+    pub fn find_best_move_with_full_strength(&mut self, rx: Option<&Receiver<Message>>, skipped_moves: &[Move]) -> (Move, PrincipalVariation) {
+        self.ctx.set_root_move_randomization(false);
+        self.is_strength_limited = false;
+        self.find_best_move(rx, skipped_moves)
+    }
+
+    fn find_best_move(&mut self, rx: Option<&Receiver<Message>>, skipped_moves: &[Move]) -> (Move, PrincipalVariation) {
         self.reset();
         self.time_mgr.reset(self.limits);
 
@@ -247,6 +349,7 @@ impl Search {
         let active_player = self.board.active_player();
 
         self.ctx.prepare_moves(active_player, self.get_tt_move(0), EMPTY_HISTORY);
+        self.ctx.reset_root_moves();
 
         self.set_stopped(false);
 
@@ -328,7 +431,6 @@ impl Search {
                     analysis_result.update_result(depth, self.max_reached_depth as i32, best_move, current_pv, local_pv);
 
                     let now = Instant::now();
-                    self.cancel_possible = depth >= min_depth;
                     let iteration_duration = now.duration_since(iteration_start_time);
                     if !self.pondering
                         && self.cancel_possible
@@ -337,10 +439,12 @@ impl Search {
                     {
                         iteration_cancelled = true;
                     }
+                } else if analysis_result.get_best_move() == NO_MOVE {
+                    analysis_result.update_result(depth, self.max_reached_depth as i32, best_move, current_pv, local_pv);
                 }
 
                 if let Some(mate_distance) = mate_in(best_move.score()) {
-                    if mate_distance <= self.limits.mate_limit() {
+                    if mate_distance.abs() <= self.limits.mate_limit() {
                         iteration_cancelled = true;
                     }
                 }
@@ -495,6 +599,7 @@ impl Search {
             if score > best_score {
                 best_score = score;
                 best_move = m.with_score(score);
+                self.cancel_possible = true;
 
                 if best_score <= alpha || best_score >= beta {
                     return (false, best_move, current_pv);
@@ -748,14 +853,14 @@ impl Search {
                 if !self.board.is_left_in_check(active_player, false, tt_move) {
                     let gives_check = self.board.is_in_check(active_player.flip());
                     self.ctx.update_next_ply_entry(tt_move, gives_check);
-
+            
                     let result = next_ply!(self.ctx, self.rec_find_best_move(rx, -prob_cut_beta, -prob_cut_beta + 1, ply + 1, prob_cut_depth, &mut PrincipalVariation::default(), in_se_search, NO_MOVE));
                     if result == CANCEL_SEARCH {
                         self.board.undo_move(tt_move, previous_piece, removed_piece_id);
                         return CANCEL_SEARCH;
                     }
                     let score = clamp_score(-result, worst_possible_score, best_possible_score);
-
+            
                     if score >= prob_cut_beta {
                         self.board.undo_move(tt_move, previous_piece, removed_piece_id);
                         return score;
@@ -1007,7 +1112,7 @@ impl Search {
             let now = Instant::now();
             if !self.pondering
                 && self.cancel_possible
-                && (self.node_count() >= self.limits.node_limit() || self.time_mgr.is_timelimit_exceeded(now))
+                && (self.local_total_node_count >= self.limits.node_limit() || self.time_mgr.is_timelimit_exceeded(now))
             {
                 // Cancel search if the node or time limit has been reached, but first check
                 // whether the search time should be extended
@@ -1040,7 +1145,7 @@ impl Search {
             self.tt.get_or_calc_eval(self.board.get_hash(), || self.board.eval())
         };
 
-        if ply >= MAX_DEPTH {
+        if ply >= MAX_DEPTH || (self.is_strength_limited && self.local_total_node_count >= self.limits.node_limit()) {
             return position_score;
         }
 
@@ -1727,12 +1832,12 @@ mod tests {
         let limits = SearchLimits::default();
         let mut board = create_from_fen(fen.as_str());
 
-        let m = search(tt.clone(), limits, board.clone(), 2);
+        let m = search(tt.clone(), limits, board.clone());
         assert_ne!(NO_MOVE, m);
 
         board.perform_move(m);
 
-        let is_check_mate = search(tt, limits, board.clone(), 1) == NO_MOVE && board.is_in_check(WHITE);
+        let is_check_mate = search(tt, limits, board.clone()) == NO_MOVE && board.is_in_check(WHITE);
         assert!(is_check_mate);
     }
 
@@ -1756,16 +1861,16 @@ mod tests {
         let limits = SearchLimits::default();
         let mut board = create_from_fen(fen.as_str());
 
-        let m1 = search(tt.clone(), limits, board.clone(), 3);
+        let m1 = search(tt.clone(), limits, board.clone());
         board.perform_move(m1);
 
-        let m2 = search(tt.clone(), limits, board.clone(), 2);
+        let m2 = search(tt.clone(), limits, board.clone());
         board.perform_move(m2);
 
-        let m3 = search(tt.clone(), limits, board.clone(), 1);
+        let m3 = search(tt.clone(), limits, board.clone());
         board.perform_move(m3);
 
-        let is_check_mate = search(tt, limits, board.clone(), 1) == NO_MOVE && board.is_in_check(BLACK);
+        let is_check_mate = search(tt, limits, board.clone()) == NO_MOVE && board.is_in_check(BLACK);
         assert!(is_check_mate);
     }
 
@@ -1794,9 +1899,9 @@ mod tests {
         assert!(search.is_tb_move(tb_move));
     }
 
-    fn search(tt: Arc<TranspositionTable>, limits: SearchLimits, board: Board, min_depth: i32) -> Move {
+    fn search(tt: Arc<TranspositionTable>, limits: SearchLimits, board: Board) -> Move {
         let mut search = new_search(tt, limits, board);
-        let (m, _) = search.find_best_move(None, min_depth, &[]);
+        let (m, _) = search.find_best_move(None, &[]);
         m
     }
 

@@ -136,8 +136,6 @@ impl TimeManager {
 
 #[derive(Copy, Clone, Debug)]
 pub struct SearchLimits {
-    infinite: bool,
-
     node_limit: u64,
     depth_limit: i32,
     mate_limit: i16,
@@ -155,8 +153,6 @@ pub struct SearchLimits {
 impl SearchLimits {
     pub fn default() -> Self {
         SearchLimits {
-            infinite: false,
-
             node_limit: u64::MAX,
             depth_limit: MAX_DEPTH as i32,
             mate_limit: 0,
@@ -174,7 +170,7 @@ impl SearchLimits {
 
     pub fn infinite() -> SearchLimits {
         let mut limits = SearchLimits::default();
-        limits.infinite = true;
+        limits.time_limit_ms = MAX_TIMELIMIT_MS;
         limits
     }
 
@@ -198,7 +194,6 @@ impl SearchLimits {
         let mate_limit = mate_limit.unwrap_or(0);
 
         Ok(SearchLimits {
-            infinite: false,
             depth_limit,
             node_limit,
             mate_limit,
@@ -233,6 +228,14 @@ impl SearchLimits {
         self.node_limit = limit;
     }
 
+    pub fn set_depth_limit(&mut self, limit: i32) {
+        self.depth_limit = limit;
+    }
+
+    pub fn set_strict_time_limit(&mut self, strict: bool) {
+        self.strict_time_limit = strict;
+    }
+
     pub fn depth_limit(&self) -> i32 {
         self.depth_limit
     }
@@ -242,7 +245,11 @@ impl SearchLimits {
     }
 
     pub fn is_infinite(&self) -> bool {
-        self.infinite
+        self.time_limit_ms == MAX_TIMELIMIT_MS && self.node_limit == u64::MAX && self.mate_limit == 0 && self.depth_limit == MAX_DEPTH as i32
+    }
+
+    pub fn has_time_limit(&self) -> bool {
+        self.time_limit_ms != MAX_TIMELIMIT_MS
     }
 }
 

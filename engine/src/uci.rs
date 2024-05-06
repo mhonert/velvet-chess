@@ -16,7 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::engine::Message;
+use crate::engine::{MAX_ELO, Message, MIN_ELO};
 use crate::fen::START_POS;
 use crate::search::{DEFAULT_SEARCH_THREADS, MAX_SEARCH_THREADS};
 use crate::time_management::{DEFAULT_MOVE_OVERHEAD_MS, MAX_MOVE_OVERHEAD_MS, MIN_MOVE_OVERHEAD_MS, SearchLimits};
@@ -132,6 +132,9 @@ fn uci() {
     }
     println!("option name Threads type spin default {} min 1 max {}", DEFAULT_SEARCH_THREADS, MAX_SEARCH_THREADS);
     println!("option name UCI_Chess960 type check default false");
+    println!("option name UCI_Elo type spin default {} min {} max {}", MIN_ELO, MIN_ELO, MAX_ELO);
+    println!("option name UCI_LimitStrength type check default false");
+    println!("option name SimulateThinkingTime type check default true");
     println!(
         "option name UCI_EngineAbout type string default Velvet Chess Engine (https://github.com/mhonert/velvet-chess)"
     );
@@ -228,6 +231,19 @@ fn set_option(tx: &Sender<Message>, parts: &[&str]) {
 
         "uci_chess960" => {}
 
+        "uci_limitstrength" => {
+            let limit_strength = value.as_str().eq_ignore_ascii_case("true");
+            send_message(tx, Message::SetLimitStrength(limit_strength));
+        }
+        
+        "uci_elo" => {
+            if let Some(elo) = parse_int_option(value.as_str(), MIN_ELO, MAX_ELO) {
+                send_message(tx, Message::SetElo(elo));
+            } else {
+                println!("info string error: unsupported Elo number: {}", value);
+            }
+        }
+
         "multipv" => {
             if let Some(multipv_moves) = parse_int_option(value.as_str(), 1, MAX_MULTI_PV_MOVES as i32) {
                 send_message(tx, Message::SetMultiPV(multipv_moves));
@@ -244,6 +260,11 @@ fn set_option(tx: &Sender<Message>, parts: &[&str]) {
                     println!("info string error: invalid move overhead value");
                 }
             }
+        }
+        
+        "simulatethinkingtime" => {
+            let simulate_thinking_time = value.as_str().eq_ignore_ascii_case("true");
+            send_message(tx, Message::SetSimulateThinkingTime(simulate_thinking_time));
         }
 
         _ => {

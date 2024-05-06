@@ -45,6 +45,13 @@ tunable_array_params!(
     lmp_not_improving = [0, 2, 3]
 );
 
+static STRENGTH_NODE_LIMITS: [u16; 72] = [
+    2, 3, 4, 5, 6, 7, 8, 9, 11, 13, 15, 18, 21, 25, 31, 40, 59, 102, 149, 196, 239, 276, 318, 354, 394,
+    438, 486, 539, 597, 661, 731, 826, 933, 1053, 1188, 1340, 1492, 1661, 1825, 2005, 2202, 2418,
+    2678, 2965, 3282, 3632, 4019, 4447, 4920, 5443, 6021, 6660, 7290, 7979, 8733, 9558, 10460, 11447,
+    12527, 13708, 15000, 16413, 17959, 19435, 21032, 22760, 24629, 26651, 28839, 31527, 34465, 37676,
+];
+
 #[cfg(not(feature = "tune"))]
 pub fn set(name: String, _value: i16) {
     println!("Unknown option: {}", name)
@@ -66,4 +73,9 @@ pub fn set(name: String, value: i16) {
 pub fn print_options() {
     print_single_options();
     print_array_options();
+}
+
+pub fn calc_node_limit_from_elo(elo: i32) -> u64 {
+    let elo_normalized = (elo.clamp(1225, 3000) - 1225) / 25;
+    STRENGTH_NODE_LIMITS[elo_normalized as usize] as u64
 }
