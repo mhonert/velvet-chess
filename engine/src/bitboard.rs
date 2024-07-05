@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2023 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2024 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -57,8 +57,12 @@ impl BitBoard {
         (self.0 & other.0) == other.0
     }
 
-    pub fn first(&self) -> BitBoard {
-        BitBoard(self.0 & (self.0 as i64).wrapping_neg() as u64)
+    pub fn first(&self) -> Option<BitBoard> {
+        if self.is_occupied() {
+            Some(BitBoard(self.0 & (self.0 as i64).wrapping_neg() as u64))
+        } else {
+            None
+        }
     }
 
     pub fn nth_pos(&self, mut n: usize) -> u32 {

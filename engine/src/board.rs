@@ -27,10 +27,11 @@ use crate::bitboard::{
 };
 use crate::board::castling::{Castling, CastlingRules, CastlingState, KING_SIDE_CASTLING, QUEEN_SIDE_CASTLING};
 use crate::colors::{Color, BLACK, WHITE};
-use crate::magics::{get_bishop_attacks, get_queen_attacks, get_rook_attacks};
+use crate::magics::{get_bishop_attacks, get_rook_attacks};
 use crate::moves::{Move, MoveType};
 use crate::nn::eval::NeuralNetEval;
 use crate::params;
+use crate::params::see_piece_values;
 use crate::pieces::{B, EMPTY, K, N, P, Q, R};
 use crate::pos_history::PositionHistory;
 use crate::transposition_table::MAX_DEPTH;
@@ -828,7 +829,7 @@ impl Board {
     }
 
     /* Perform a Static Exchange Evaluation (SEE) to check, whether the net gain of the capture is still positive,
-       after applying all immediate and discovered re-capture attacks.
+       after applying all immediate and revealed re-capture attacks.
     */
     pub fn has_negative_see(
         &self, mut opp_color: Color, start: usize, end: usize, own_piece_id: i8, captured_piece_id: i8, mut occupied: BitBoard,
@@ -838,28 +839,43 @@ impl Board {
         let mut potential_gain = params::see_piece_values(own_piece_id as usize);
 
         let mut attackers = self.find_attackers(!occupied, occupied, end);
-
-        // Pieces blocking line of sight for ray-attacking pieces (B, R, Q)
-        let los_blockers = (self.bitboards.occupancy()
-            ^ (self.bitboards.by_piece(N)
-                | self.bitboards.by_piece(-N)
-                | self.bitboards.by_piece(K)
-                | self.bitboards.by_piece(-K)))
-            & (get_queen_attacks(!0, end));
+        let all_bishops = self.get_bitboard(B) | self.get_bitboard(-B);
+        let all_rooks = self.get_bitboard(R) | self.get_bitboard(-R);
+        let all_queens = self.get_bitboard(Q) | self.get_bitboard(-Q);
+        let all_diagonal = all_bishops | all_queens;
+        let all_orthogonal = all_rooks | all_queens;
 
         let mut own_turn = false;
 
-        while let Some((attacker, attacker_value)) = self.find_smallest_attacker(attackers, opp_color) {
+        loop {
+            let (attacker_piece_id, attacker_bb) =
+                if let Some(bb) = (self.get_bitboard(opp_color.piece(P)) & attackers).first() {
+                    (P, bb)
+                } else if let Some(bb) = (self.get_bitboard(opp_color.piece(N)) & attackers).first() {
+                    (N, bb)
+                } else if let Some(bb) = (self.get_bitboard(opp_color.piece(B)) & attackers).first() {
+                    (B, bb)
+                } else if let Some(bb) = (self.get_bitboard(opp_color.piece(R)) & attackers).first() {
+                    (R, bb)
+                } else if let Some(bb) = (self.get_bitboard(opp_color.piece(Q)) & attackers).first() {
+                    (Q, bb)
+                } else if let Some(bb) = (self.get_bitboard(opp_color.piece(K)) & attackers).first() {
+                    (K, bb)
+                } else {
+                    break;
+                };
+
             score -= potential_gain;
-            potential_gain = attacker_value;
+            potential_gain = see_piece_values(attacker_piece_id as usize);
             if score + potential_gain < 0 {
                 break;
             }
-            occupied ^= attacker;
-            attackers ^= attacker;
-            if (los_blockers & attacker).is_occupied() {
-                attackers |= self.find_ray_attackers(!occupied, occupied, end);
-            }
+            occupied ^= attacker_bb;
+            attackers ^= attacker_bb;
+            
+            // Add new revealed attackers
+            attackers |= occupied & all_diagonal & get_bishop_attacks((!occupied).0, end);
+            attackers |= occupied & all_orthogonal & get_rook_attacks((!occupied).0, end);
 
             own_turn = !own_turn;
             score = -score;
@@ -871,41 +887,6 @@ impl Board {
         } else {
             score < 0
         }
-    }
-
-    #[inline(always)]
-    fn find_smallest_attacker(&self, attackers: BitBoard, color: Color) -> Option<(BitBoard, i16)> {
-        let pieces = self.get_bitboard(color.piece(P)) & attackers;
-        if pieces.is_occupied() {
-            return Some((pieces.first(), params::see_piece_values(P as usize)));
-        }
-
-        let pieces = self.get_bitboard(color.piece(N)) & attackers;
-        if pieces.is_occupied() {
-            return Some((pieces.first(), params::see_piece_values(N as usize)));
-        }
-
-        let pieces = self.get_bitboard(color.piece(B)) & attackers;
-        if pieces.is_occupied() {
-            return Some((pieces.first(), params::see_piece_values(B as usize)));
-        }
-
-        let pieces = self.get_bitboard(color.piece(R)) & attackers;
-        if pieces.is_occupied() {
-            return Some((pieces.first(), params::see_piece_values(R as usize)));
-        }
-
-        let pieces = self.get_bitboard(color.piece(Q)) & attackers;
-        if pieces.is_occupied() {
-            return Some((pieces.first(), params::see_piece_values(Q as usize)));
-        }
-
-        let pieces = self.get_bitboard(color.piece(K)) & attackers;
-        if pieces.is_occupied() {
-            return Some((pieces.first(), params::see_piece_values(K as usize)));
-        }
-
-        None
     }
 
     #[inline(always)]
@@ -1121,186 +1102,6 @@ mod tests {
         assert_eq!(&initial_items[..], &board.items[..]);
         assert_eq!(initial_hash, board.get_hash());
         assert_eq!(initial_castling_state, board.state.castling);
-    }
-
-    #[test]
-    fn find_white_pawn_left_attack() {
-        initialize();
-        #[rustfmt::skip]
-        let items: [i8; 64] = [
-            0,  0,  0, -K,  0,  0,  0,  0,
-            0,  0,  0,  0,  0,  0,  0,  0,
-            0,  0,  0,  0,  0,  0,  0,  0,
-            0,  0,  0, -B,  0,  0,  0,  0,
-            0,  0,  P,  0,  0,  0,  0,  0,
-            0,  0,  0,  0,  0,  0,  0,  0,
-            0,  0,  0,  0,  0,  0,  0,  0,
-            0,  0,  0,  K,  0,  0,  0,  0,
-        ];
-
-        let board = Board::new(&items, WHITE, CastlingState::default(), None, 0, 1, CastlingRules::default());
-        let attackers = board.find_attackers(!board.occupancy_bb(), board.occupancy_bb(), 27);
-        assert_eq!(Some((BitBoard(1 << 34), params::see_piece_values(P as usize))), board.find_smallest_attacker(attackers, WHITE));
-    }
-
-    #[test]
-    fn find_white_pawn_right_attack() {
-        initialize();
-        #[rustfmt::skip]
-        let items: [i8; 64] = [
-            0,  0,  0, -K,  0,  0,  0,  0,
-            0,  0,  0,  0,  0,  0,  0,  0,
-            0,  0,  0,  0,  0,  0,  0,  0,
-            0,  0,  0, -B,  0,  0,  0,  0,
-            0,  0,  0,  0,  P,  0,  0,  0,
-            0,  0,  0,  0,  0,  0,  0,  0,
-            0,  0,  0,  0,  0,  0,  0,  0,
-            0,  0,  0,  K,  0,  0,  0,  0,
-        ];
-
-        let board = Board::new(&items, WHITE, CastlingState::default(), None, 0, 1, CastlingRules::default());
-        let attackers = board.find_attackers(!board.occupancy_bb(), board.occupancy_bb(), 27);
-        assert_eq!(Some((BitBoard(1 << 36), params::see_piece_values(P as usize))), board.find_smallest_attacker(attackers, WHITE));
-    }
-
-    #[test]
-    fn find_black_pawn_left_attack() {
-        initialize();
-        #[rustfmt::skip]
-        let items: [i8; 64] = [
-            0,  0,  0, -K,  0,  0,  0,  0,
-            0,  0,  0,  0,  0,  0,  0,  0,
-            0,  0,  0,  0, -P,  0,  0,  0,
-            0,  0,  0,  B,  0,  0,  0,  0,
-            0,  0,  0,  0,  0,  0,  0,  0,
-            0,  0,  0,  0,  0,  0,  0,  0,
-            0,  0,  0,  0,  0,  0,  0,  0,
-            0,  0,  0,  K,  0,  0,  0,  0,
-        ];
-
-        let board = Board::new(&items, BLACK, CastlingState::default(), None, 0, 1, CastlingRules::default());
-        let attackers = board.find_attackers(!board.occupancy_bb(), board.occupancy_bb(), 27);
-        assert_eq!(Some((BitBoard(1 << 20), params::see_piece_values(P as usize))), board.find_smallest_attacker(attackers, BLACK));
-    }
-
-    #[test]
-    fn find_black_pawn_right_attack() {
-        initialize();
-        #[rustfmt::skip]
-        let items: [i8; 64] = [
-            0,  0,  0, -K,  0,  0,  0,  0,
-            0,  0,  0,  0,  0,  0,  0,  0,
-            0,  0, -P,  0,  0,  0,  0,  0,
-            0,  0,  0,  B,  0,  0,  0,  0,
-            0,  0,  0,  0,  0,  0,  0,  0,
-            0,  0,  0,  0,  0,  0,  0,  0,
-            0,  0,  0,  0,  0,  0,  0,  0,
-            0,  0,  0,  K,  0,  0,  0,  0,
-        ];
-
-        let board = Board::new(&items, BLACK, CastlingState::default(), None, 0, 1, CastlingRules::default());
-        let attackers = board.find_attackers(!board.occupancy_bb(), board.occupancy_bb(), 27);
-        assert_eq!(Some((BitBoard(1 << 18), params::see_piece_values(P as usize))), board.find_smallest_attacker(attackers, BLACK));
-    }
-
-    #[test]
-    fn find_knight_attack() {
-        initialize();
-        #[rustfmt::skip]
-        let items: [i8; 64] = [
-            0,  0,  0, -K,  0,  0,  0,  0,
-            0,  0,  0,  0,  0,  0,  0,  0,
-            0,  0,  0,  0,  0,  0,  0,  0,
-            0,  0,  0, -B,  0,  0,  0,  0,
-            0,  0,  0,  0,  0,  N,  0,  0,
-            0,  0,  0,  0,  0,  0,  0,  0,
-            0,  0,  0,  0,  0,  0,  0,  0,
-            0,  0,  0,  K,  0,  0,  0,  0,
-        ];
-
-        let board = Board::new(&items, WHITE, CastlingState::default(), None, 0, 1, CastlingRules::default());
-        let attackers = board.find_attackers(!board.occupancy_bb(), board.occupancy_bb(), 27);
-        assert_eq!(Some((BitBoard(1 << 37), params::see_piece_values(N as usize))), board.find_smallest_attacker(attackers, WHITE));
-    }
-
-    #[test]
-    fn find_bishop_attack() {
-        initialize();
-        #[rustfmt::skip]
-        let items: [i8; 64] = [
-            0,  0,  0, -K,  0,  0,  0,  0,
-            0,  0,  0,  0,  0,  0,  0,  0,
-            0,  0,  0,  0,  0,  0,  0,  0,
-            0,  0,  0, -B,  0,  0,  0,  0,
-            0,  0,  0,  0,  0,  0,  0,  0,
-            0,  0,  0,  0,  0,  B,  0,  0,
-            0,  0,  0,  0,  0,  0,  0,  0,
-            0,  0,  0,  K,  0,  0,  0,  0,
-        ];
-
-        let board = Board::new(&items, WHITE, CastlingState::default(), None, 0, 1, CastlingRules::default());
-        let attackers = board.find_attackers(!board.occupancy_bb(), board.occupancy_bb(), 27);
-        assert_eq!(Some((BitBoard(1 << 45), params::see_piece_values(B as usize))), board.find_smallest_attacker(attackers, WHITE));
-    }
-
-    #[test]
-    fn find_rook_attack() {
-        initialize();
-        #[rustfmt::skip]
-        let items: [i8; 64] = [
-            0,  0,  0, -K,  0,  0,  0,  0,
-            0,  0,  0,  0,  0,  0,  0,  0,
-            0,  0,  0,  0,  0,  0,  0,  0,
-            R,  0,  0, -B,  0,  0,  0,  0,
-            0,  0,  0,  0,  0,  0,  0,  0,
-            0,  0,  0,  0,  0,  0,  0,  0,
-            0,  0,  0,  0,  0,  0,  0,  0,
-            0,  0,  0,  K,  0,  0,  0,  0,
-        ];
-
-        let board = Board::new(&items, WHITE, CastlingState::default(), None, 0, 1, CastlingRules::default());
-        let attackers = board.find_attackers(!board.occupancy_bb(), board.occupancy_bb(), 27);
-        assert_eq!(Some((BitBoard(1 << 24), params::see_piece_values(R as usize))), board.find_smallest_attacker(attackers, WHITE));
-    }
-
-    #[test]
-    fn find_queen_attack() {
-        initialize();
-        #[rustfmt::skip]
-        let items: [i8; 64] = [
-            0,  0,  0, -K,  0,  0,  0,  0,
-            0,  0,  0,  0,  0,  0,  0,  0,
-            0,  0,  0,  0,  0,  0,  0,  0,
-            0,  0,  0, -B,  0,  Q,  0,  0,
-            0,  0,  0,  0,  0,  0,  0,  0,
-            0,  0,  0,  0,  0,  0,  0,  0,
-            0,  0,  0,  0,  0,  0,  0,  0,
-            0,  0,  0,  K,  0,  0,  0,  0,
-        ];
-
-        let board = Board::new(&items, WHITE, CastlingState::default(), None, 0, 1, CastlingRules::default());
-        let attackers = board.find_attackers(!board.occupancy_bb(), board.occupancy_bb(), 27);
-        assert_eq!(Some((BitBoard(1 << 29), params::see_piece_values(Q as usize))), board.find_smallest_attacker(attackers, WHITE));
-    }
-
-    #[test]
-    fn find_king_attack() {
-        initialize();
-        #[rustfmt::skip]
-        let items: [i8; 64] = [
-            0,  0,  0, -K,  0,  0,  0,  0,
-            0,  0,  0,  0,  0,  0,  0,  0,
-            0,  0,  0,  0,  0,  0,  0,  0,
-            0,  0,  0, -B,  0,  0,  0,  0,
-            0,  0,  0,  K,  0,  0,  0,  0,
-            0,  0,  0,  0,  0,  0,  0,  0,
-            0,  0,  0,  0,  0,  0,  0,  0,
-            0,  0,  0,  0,  0,  0,  0,  0,
-        ];
-
-        let board = Board::new(&items, WHITE, CastlingState::default(), None, 0, 1, CastlingRules::default());
-        let attackers = board.find_attackers(!board.occupancy_bb(), board.occupancy_bb(), 27);
-        assert_eq!(Some((BitBoard(1 << 35), params::see_piece_values(K as usize))), board.find_smallest_attacker(attackers, WHITE));
     }
 
     #[test]
