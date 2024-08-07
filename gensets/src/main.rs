@@ -247,11 +247,11 @@ fn collect_quiet_pos(
     loop {
         ply += 1;
 
-        if search.board.is_draw() {
+        if search.board.is_repetition_draw() || search.board.is_fifty_move_draw() || search.board.is_insufficient_material_draw() {
             break;
         }
 
-        let (best_score, candidate_moves) = find_candidate_moves(search, rx, 9, (ply - start_ply) <= 16 && rnd.rand32() & 1 == 0);
+        let (best_score, candidate_moves) = find_candidate_moves(search, rx, (ply - start_ply) <= 16 && rnd.rand32() & 1 == 0);
         if candidate_moves.is_empty() {
             let active_player = search.board.active_player();
             if search.board.is_in_check(active_player) {
@@ -273,13 +273,13 @@ fn collect_quiet_pos(
     count
 }
 
-fn find_candidate_moves(search: &mut Search, rx: Option<&Receiver<Message>>, min_depth: i32, consider_alternative: bool) -> (i16, Vec<Move>) {
+fn find_candidate_moves(search: &mut Search, rx: Option<&Receiver<Message>>, consider_alternative: bool) -> (i16, Vec<Move>) {
     let mut skip = Vec::with_capacity(2);
     let mut candidates = Vec::with_capacity(2);
     let mut best_score = i16::MIN;
     search.set_node_limit(5000);
     for _ in 0..2 {
-        let (selected_move, _) = search.find_best_move(rx, &skip);
+        let (selected_move, _) = search.find_best_move_with_full_strength(rx, &skip);
         if selected_move == NO_MOVE {
             break;
         }
