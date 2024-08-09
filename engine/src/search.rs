@@ -696,6 +696,7 @@ impl Search {
         let mut tt_move = NO_MOVE;
         let mut tt_score = 0;
 
+
         let mut check_se = false;
 
         let mut best_score = worst_possible_score;
@@ -1702,8 +1703,9 @@ impl HelperThread {
                     sub_search.player_pov = sub_search.board.active_player();
                     sub_search.gen_bit = to_gen_bit(sub_search.board.fullmove_count());
                     sub_search.is_tb_root = is_tb_root;
-
-                    sub_search.ctx.prepare_moves(sub_search.board.active_player(), sub_search.get_tt_move(0), EMPTY_HISTORY);
+                    
+                    let active_player = sub_search.board.active_player();
+                    sub_search.ctx.prepare_moves(active_player, sub_search.get_tt_move(0), EMPTY_HISTORY);
 
                     let mut multi_pv_state = vec![
                         (

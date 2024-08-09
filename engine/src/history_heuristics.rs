@@ -20,28 +20,21 @@ use crate::colors::Color;
 use crate::moves::{Move, NO_MOVE};
 use crate::transposition_table::MAX_DEPTH;
 
-const HISTORY_SIZE: usize =
-    2 *      // side to move
-    2 *      // is own or opponent previous move
-    2 *      // previous move type (capture or quiet)
-    8 * 64 * // previous move piece and target
-    8 * 64;  // follow up move piece and target
-
 pub const MIN_HISTORY_SCORE: i16 = -128;
 
 #[derive(Clone)]
 pub struct HistoryHeuristics {
     killers: Vec<(Move, Move)>,
     counters: Vec<Move>,
-    follow_up_history: Vec<i8>,
+    history: Box<HistoryTable>,
 }
 
 impl Default for HistoryHeuristics {
     fn default() -> Self {
         Self {
             killers: vec![(NO_MOVE, NO_MOVE); MAX_DEPTH],
-            counters: vec![NO_MOVE; 64 * 8 * 64],
-            follow_up_history: vec![0; HISTORY_SIZE],
+            counters: vec![NO_MOVE; 512],
+            history: Default::default(),
         }
     }
 }
@@ -50,10 +43,10 @@ impl HistoryHeuristics {
 
     pub fn clear(&mut self) {
         self.killers.fill((NO_MOVE, NO_MOVE));
-        self.follow_up_history.fill(0);
         self.counters.fill(NO_MOVE);
+        self.history.clear();
     }
-    
+
     pub fn is_empty(&self) -> bool {
         self.killers.iter().all(|e| e.0 == NO_MOVE)
     }
@@ -64,40 +57,36 @@ impl HistoryHeuristics {
         }
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn get_killer_moves(&self, ply: usize) -> (Move, Move) {
         unsafe { *self.killers.get_unchecked(ply) }
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn get_counter_move(&self, opp_m: Move) -> Move {
         if opp_m == NO_MOVE {
             return NO_MOVE;
         }
-        unsafe { *self.counters.get_unchecked(opp_m.calc_piece_end_index() * 64 + opp_m.start() as usize) }
+        unsafe { *self.counters.get_unchecked(opp_m.calc_piece_end_index()) }
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn update(&mut self, ply: usize, active_player: Color, move_history: MoveHistory, m: Move, has_positive_history: bool) {
-        let offset = base_offset(active_player, m);
         let bonus = if has_positive_history { 1 } else { 4 };
-
-        self.update_history(offset, false, move_history.prev_own, bonus);
-        self.update_history(offset, true, move_history.last_opp, bonus);
+        self.update_history(active_player, move_history, m, bonus);
 
         self.update_killer_moves(ply, m);
         self.update_counter_move(move_history.last_opp, m);
     }
 
-    #[inline]
-    fn update_history(&mut self, base_offset: usize, prev_is_opp: bool, prev_m: Move, counter_scale: i8) {
-        let idx = history_idx(base_offset, prev_is_opp, prev_m);
-        let entry = unsafe { self.follow_up_history.get_unchecked_mut(idx) };
-        *entry = entry.saturating_add(counter_scale * 4 - *entry / 32);
+    #[inline(always)]
+    fn update_history(&mut self, active_player: Color, move_history: MoveHistory, m: Move, scale: i8) {
+        self.history.update_follow_up(active_player, move_history.prev_own, m, scale);
+        self.history.update_counter(active_player, move_history.last_opp, m, scale);
     }
 
-    #[inline]
-    pub fn update_killer_moves(&mut self, ply: usize, m: Move) {
+    #[inline(always)]
+    fn update_killer_moves(&mut self, ply: usize, m: Move) {
         let entry = unsafe { self.killers.get_unchecked_mut(ply) };
         if entry.0 != m {
             entry.1 = entry.0;
@@ -105,43 +94,91 @@ impl HistoryHeuristics {
         }
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn update_counter_move(&mut self, opp_m: Move, counter_m: Move) {
-        *unsafe { self.counters.get_unchecked_mut(opp_m.calc_piece_end_index() * 64 + opp_m.start() as usize) } = counter_m;
+        *unsafe { self.counters.get_unchecked_mut(opp_m.calc_piece_end_index()) } = counter_m;
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn update_played_moves(&mut self, active_player: Color, move_history: MoveHistory, m: Move) {
-        let offset = base_offset(active_player, m);
-        self.update_history(offset, false, move_history.prev_own, -1);
-        self.update_history(offset, true, move_history.last_opp, -1);
+        self.update_history(active_player, move_history, m, -1);
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn score(&self, active_player: Color, move_history: MoveHistory, m: Move) -> i16 {
-        let offset = base_offset(active_player, m);
+        let follow_up_score = self.history.follow_up_score(active_player, move_history.prev_own, m);
+        let counter_score = self.history.counter_score(active_player, move_history.last_opp, m);
 
-        self.history_score(offset, false, move_history.prev_own)
-            + self.history_score(offset, true, move_history.last_opp)
-    }
-
-    #[inline]
-    fn history_score(&self, offset: usize, prev_is_opp: bool, prev_m: Move) -> i16 {
-        unsafe { *self.follow_up_history.get_unchecked(history_idx(offset, prev_is_opp, prev_m) ) as i16 }
+        follow_up_score + counter_score
     }
 }
 
-#[inline]
-fn base_offset(active_player: Color, m: Move) -> usize {
-    let color_offset = if active_player.is_white() { HISTORY_SIZE / 2 } else { 0 };
-    color_offset + m.calc_piece_end_index()
+#[derive(Default, Clone, Copy)]
+struct HistoryValue(i8);
+
+impl HistoryValue {
+    #[inline(always)]
+    fn update(&mut self, scale: i8) {
+        self.0 = self.0.saturating_add(scale * 4 - self.0 / 32);
+    }
+
+    #[inline(always)]
+    fn score(&self) -> i16 {
+        self.0 as i16
+    }
 }
 
-#[inline]
-fn history_idx(base_offset: usize, prev_is_opp: bool, prev_m: Move) -> usize {
-    let opp_offset = if prev_is_opp { HISTORY_SIZE / 4 } else { 0 };
-    let type_offset = if prev_m.is_capture() { HISTORY_SIZE / 8 } else { 0 };
-    base_offset + opp_offset + type_offset + prev_m.calc_piece_end_index() * 64 * 8
+#[derive(Clone)]
+struct HistoryTable([[[(HistoryValue, HistoryValue); 512]; 2]; 512]);
+
+impl Default for HistoryTable {
+    fn default() -> Self {
+        HistoryTable([[[(HistoryValue::default(), HistoryValue::default()); 512]; 2]; 512])
+    }
+}
+
+impl HistoryTable {
+    fn clear(&mut self) {
+        self.0.fill([[(HistoryValue::default(), HistoryValue::default()); 512]; 2]);
+    }
+
+    #[inline(always)]
+    fn update_counter(&mut self, active_player: Color, rel_m: Move, m: Move, scale: i8) {
+        self.entry_mut(active_player, rel_m, m).0.update(scale);
+    }
+
+    #[inline(always)]
+    fn update_follow_up(&mut self, active_player: Color, rel_m: Move, m: Move, scale: i8) {
+        self.entry_mut(active_player, rel_m, m).1.update(scale);
+    }
+
+    #[inline(always)]
+    fn counter_score(&self, active_player: Color, rel_m: Move, m: Move) -> i16 {
+        self.entry(active_player, rel_m, m).0.score()
+    }
+
+    #[inline(always)]
+    fn follow_up_score(&self, active_player: Color, rel_m: Move, m: Move) -> i16 {
+        self.entry(active_player, rel_m, m).1.score()
+    }
+
+    #[inline(always)]
+    fn entry_mut(&mut self, active_player: Color, rel_m: Move, m: Move) -> &mut (HistoryValue, HistoryValue) {
+        unsafe {
+            self.0.get_unchecked_mut(rel_m.calc_piece_end_index())
+                .get_unchecked_mut(active_player.idx())
+                .get_unchecked_mut(m.calc_piece_end_index())
+        }
+    }
+
+    #[inline(always)]
+    fn entry(&self, active_player: Color, rel_m: Move, m: Move) -> &(HistoryValue, HistoryValue) {
+        unsafe {
+            self.0.get_unchecked(rel_m.calc_piece_end_index())
+                .get_unchecked(active_player.idx())
+                .get_unchecked(m.calc_piece_end_index())
+        }
+    }
 }
 
 #[derive(Copy, Clone, Default)]
