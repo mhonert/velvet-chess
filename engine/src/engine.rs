@@ -16,6 +16,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+mod bench;
+
 use crate::board::Board;
 use crate::fen::{create_from_fen, read_fen, write_fen, START_POS};
 use crate::history_heuristics::HistoryHeuristics;
@@ -36,6 +38,7 @@ use crate::params::calc_node_limit_from_elo;
 use crate::search_context::SearchContext;
 
 pub enum Message {
+    Bench,
     ClearHash,
     Fen,
     Go(SearchLimits, bool, Option<Vec<String>>),
@@ -159,6 +162,8 @@ impl Engine {
 
     fn handle_message(&mut self, msg: Message) -> bool {
         match msg {
+            Message::Bench => self.bench(),
+
             Message::NewGame => self.reset(),
 
             Message::SetPosition(fen, moves) => self.set_position(fen, moves),

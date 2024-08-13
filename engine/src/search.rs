@@ -627,7 +627,7 @@ impl Search {
         (iteration_cancelled, best_move, current_pv)
     }
 
-    fn node_count(&self) -> u64 {
+    pub fn node_count(&self) -> u64 {
         self.node_count.load(Ordering::Relaxed)
     }
 

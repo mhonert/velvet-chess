@@ -77,6 +77,8 @@ pub fn start_uci_loop(tx: &Sender<Message>) {
                     profile(tx);
                     return;
                 }
+                
+                "bench" => send_message(tx, Message::Bench),
 
                 "quit" => {
                     send_message(tx, Message::Stop);
