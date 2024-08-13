@@ -10,15 +10,22 @@ jobs:
     strategy:
       matrix:
         include:
-          - exec_postfix: "avx2"
+          - exec_postfix: "x86_64-avx2"
             add_rustflags: "-Ctarget-feature=+crt-static,-bmi2 -Ctarget-cpu=x86-64-v3"
+            toolchain: "x86_64-unknown-linux-musl"
             cflags: "-march=x86-64-v3"
-          - exec_postfix: "sse4-popcnt"
+          - exec_postfix: "x86_64-sse4-popcnt"
             add_rustflags: "-Ctarget-feature=+crt-static -Ctarget-cpu=x86-64-v2"
+            toolchain: "x86_64-unknown-linux-musl"
             cflags: "-march=x86-64-v2"
-          - exec_postfix: "nopopcnt"
+          - exec_postfix: "x86_64-nopopcnt"
             add_rustflags: "-Ctarget-feature=+crt-static"
+            toolchain: "x86_64-unknown-linux-musl"
             cflags: "-march=x86-64 -DTB_CUSTOM_POP_COUNT"
+          - exec_postfix: "aarch64-rpi"
+            add_rustflags: "-Ctarget-feature=+crt-static -Ctarget-cpu=cortex-a53"
+            toolchain: "aarch64-unknown-linux-gnu"
+            cflags: "-march=armv8-a"
 
     steps:
       - name: Checkout code
@@ -31,15 +38,15 @@ jobs:
         run: |
           sudo apt-get install -y musl-tools
           rustup override set 1.80.0
-          rustup target add x86_64-unknown-linux-musl
-          cargo build --release --target x86_64-unknown-linux-musl --bin velvet
-          mv target/x86_64-unknown-linux-musl/release/velvet velvet-linux-x86_64-${{ matrix.exec_postfix }}
+          rustup target add ${{ matrix.toolchain }}
+          cargo build --release --target ${{ matrix.toolchain }} --bin velvet
+          mv target/${{ matrix.toolchain }}/release/velvet velvet-linux-${{ matrix.exec_postfix }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v2
         with:
           name: velvet-linux
-          path: velvet-linux-x86_64-${{ matrix.exec_postfix }}
+          path: velvet-linux-${{ matrix.exec_postfix }}
 
   build-windows:
     runs-on: windows-latest
@@ -153,6 +160,7 @@ jobs:
           mv velvet-linux-x86_64-avx2 velvet-${tag_name}-x86_64-avx2
           mv velvet-linux-x86_64-sse4-popcnt velvet-${tag_name}-x86_64-sse4-popcnt
           mv velvet-linux-x86_64-nopopcnt velvet-${tag_name}-x86_64-nopopcnt
+          mv velvet-linux-aarch64-rpi velvet-${tag_name}-aarch64-rpi
           mv velvet-macOS-avx2 velvet-${tag_name}-macOS-x86_64-avx2
           mv velvet-macOS-sse4-popcnt velvet-${tag_name}-macOS-x86_64-sse4-popcnt
           mv velvet-macOS-nopopcnt velvet-${tag_name}-macOS-x86_64-nopopcnt
@@ -168,6 +176,7 @@ jobs:
                              "velvet-${tag_name}-x86_64-avx2#Velvet - Linux (x86_64 - AVX2)" \
                              "velvet-${tag_name}-x86_64-sse4-popcnt#Velvet - Linux (x86_64 - SSE4.2+POPCNT)" \
                              "velvet-${tag_name}-x86_64-nopopcnt#Velvet - Linux (x86_64 - No POPCNT)" \
+                             "velvet-${tag_name}-aarch64-rpi#Velvet - Linux (aarch64 - Raspberry Pi)" \
                              "velvet-${tag_name}-macOS-apple-silicon#Velvet - macOS (Apple Silicon)" \
                              "velvet-${tag_name}-macOS-x86_64-avx2#Velvet - macOS (x86_64 - AVX2)" \
                              "velvet-${tag_name}-macOS-x86_64-sse4-popcnt#Velvet - macOS (x86_64 - SSE4.2+POPCNT)" \
