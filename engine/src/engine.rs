@@ -20,7 +20,7 @@ use crate::board::Board;
 use crate::fen::{create_from_fen, read_fen, write_fen, START_POS};
 use crate::history_heuristics::HistoryHeuristics;
 use crate::moves::{Move, NO_MOVE};
-use crate::nn::init_nn_params;
+use crate::nn::{init_nn_params, set_network_style, Style};
 use crate::perft::perft;
 use crate::search::{Search, DEFAULT_SEARCH_THREADS};
 use crate::time_management::{DEFAULT_MOVE_OVERHEAD_MS, SearchLimits};
@@ -54,6 +54,7 @@ pub enum Message {
     SetMultiPV(i32),
     SetMoveOverheadMillis(i32),
     SetSimulateThinkingTime(bool),
+    SetStyle(Style),
     SetTranspositionTableSize(i32),
     Stop,
     PonderHit,
@@ -205,6 +206,10 @@ impl Engine {
 
             Message::SetSimulateThinkingTime(flag) => {
                 self.simulate_thinking_time = flag;
+            }
+            
+            Message::SetStyle(is_balanced) => {
+                set_network_style(is_balanced);
             }
 
             Message::SetElo(elo) => {

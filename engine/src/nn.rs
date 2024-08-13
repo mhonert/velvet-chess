@@ -16,7 +16,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use std::sync::Once;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex};
 
 use crate::align::A32;
 use crate::nn::io::{read_quantized, read_u8};
@@ -53,36 +54,63 @@ pub static mut H1_TO_OUT_WEIGHTS: A32<[i16; HL1_NODES]> = A32([0; HL1_NODES]);
 
 pub static mut OUT_BIASES: A32<[i16; 1]> = A32([0; 1]);
 
-static INIT_NN_PARAMS: Once = Once::new();
-
 pub const fn piece_idx(piece_id: i8) -> u16 {
     (piece_id - 1) as u16
 }
 
+static IS_NORMAL_NETWORK: AtomicBool = AtomicBool::new(true);
+
+static IS_NETWORK_INITIALIZED: AtomicBool = AtomicBool::new(false);
+static NETWORK_LOAD_LOCK: Mutex<()> = Mutex::new(());
+
+pub enum Style {
+    Normal = 0,
+    Risky = 1,
+}
+
 pub fn init_nn_params() {
-    INIT_NN_PARAMS.call_once(|| {
-        let mut reader = &include_bytes!("../nets/velvet.qnn")[..];
+    if !IS_NETWORK_INITIALIZED.load(Ordering::Acquire) {
+        let _lock = NETWORK_LOAD_LOCK.lock();
+        if !IS_NETWORK_INITIALIZED.load(Ordering::Relaxed) {
+            let mut reader = if IS_NORMAL_NETWORK.load(Ordering::Acquire) {
+                println!("info string Loading neural network weights for normal style");
+                &include_bytes!("../nets/velvet_nml.qnn")[..]
+            } else {
+                println!("info string Loading neural network weights for risky style");
+                &include_bytes!("../nets/velvet_rsk.qnn")[..]
+            };
 
-        let in_precision_bits = read_u8(&mut reader).expect("Could not read input fixed point precision bits");
-        assert_eq!(
-            in_precision_bits, FP_IN_PRECISION_BITS,
-            "NN hidden layer has been quantized with a different (input) fixed point precision, expected: {}, got: {}",
-            FP_IN_PRECISION_BITS, in_precision_bits
-        );
+            let in_precision_bits = read_u8(&mut reader).expect("Could not read input fixed point precision bits");
+            assert_eq!(
+                in_precision_bits, FP_IN_PRECISION_BITS,
+                "NN hidden layer has been quantized with a different (input) fixed point precision, expected: {}, got: {}",
+                FP_IN_PRECISION_BITS, in_precision_bits
+            );
 
-        let out_precision_bits = read_u8(&mut reader).expect("Could not read output fixed point precision bits");
-        assert_eq!(
-            out_precision_bits, FP_OUT_PRECISION_BITS,
-            "NN hidden layer has been quantized with a different (input) fixed point precision, expected: {}, got: {}",
-            FP_OUT_PRECISION_BITS, out_precision_bits
-        );
+            let out_precision_bits = read_u8(&mut reader).expect("Could not read output fixed point precision bits");
+            assert_eq!(
+                out_precision_bits, FP_OUT_PRECISION_BITS,
+                "NN hidden layer has been quantized with a different (input) fixed point precision, expected: {}, got: {}",
+                FP_OUT_PRECISION_BITS, out_precision_bits
+            );
 
-        read_quantized(&mut reader, unsafe { &mut IN_TO_H1_WEIGHTS.0 }).expect("Could not read weights");
-        read_quantized(&mut reader, unsafe { &mut H1_BIASES.0 }).expect("Could not read biases");
+            read_quantized(&mut reader, unsafe { &mut IN_TO_H1_WEIGHTS.0 }).expect("Could not read weights");
+            read_quantized(&mut reader, unsafe { &mut H1_BIASES.0 }).expect("Could not read biases");
 
-        read_quantized(&mut reader, unsafe { &mut H1_TO_OUT_WEIGHTS.0 }).expect("Could not read weights");
-        read_quantized(&mut reader, unsafe { &mut OUT_BIASES.0 }).expect("Could not read biases");
-    });
+            read_quantized(&mut reader, unsafe { &mut H1_TO_OUT_WEIGHTS.0 }).expect("Could not read weights");
+            read_quantized(&mut reader, unsafe { &mut OUT_BIASES.0 }).expect("Could not read biases");
+
+            IS_NETWORK_INITIALIZED.store(true, Ordering::Release);
+        }
+    }
+}
+
+pub fn set_network_style(style: Style) {
+    let is_normal = matches!(style, Style::Normal);
+    
+    if IS_NORMAL_NETWORK.swap(is_normal, Ordering::AcqRel) != is_normal {
+        IS_NETWORK_INITIALIZED.store(false, Ordering::Release);
+    }
 }
 
 #[inline(always)]

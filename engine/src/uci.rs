@@ -29,6 +29,7 @@ use std::str::FromStr;
 use std::sync::mpsc::Sender;
 use std::thread::sleep;
 use std::time::Duration;
+use crate::nn::Style;
 use crate::params;
 use crate::syzygy::{DEFAULT_TB_PROBE_DEPTH, HAS_TB_SUPPORT};
 
@@ -135,6 +136,7 @@ fn uci() {
     println!("option name UCI_Elo type spin default {} min {} max {}", MIN_ELO, MIN_ELO, MAX_ELO);
     println!("option name UCI_LimitStrength type check default false");
     println!("option name SimulateThinkingTime type check default true");
+    println!("option name Style type combo default Normal var Normal var Risky");
     println!(
         "option name UCI_EngineAbout type string default Velvet Chess Engine (https://github.com/mhonert/velvet-chess)"
     );
@@ -266,6 +268,14 @@ fn set_option(tx: &Sender<Message>, parts: &[&str]) {
             let simulate_thinking_time = value.as_str().eq_ignore_ascii_case("true");
             send_message(tx, Message::SetSimulateThinkingTime(simulate_thinking_time));
         }
+        
+        "style" => {
+            match value.to_ascii_lowercase().as_str() {
+                "normal" => send_message(tx, Message::SetStyle(Style::Normal)),
+                "risky" => send_message(tx, Message::SetStyle(Style::Risky)),
+                _ => println!("info string error: unknown style: {}", value)
+            };
+        }
 
         _ => {
             if let Some(value) = parse_int_option(value.as_str(), i16::MIN, i16::MAX) {
@@ -274,7 +284,7 @@ fn set_option(tx: &Sender<Message>, parts: &[&str]) {
                 println!("info string error: invalid value for param {}: {}", name, value)
             }
         },
-
+        
     }
 }
 
