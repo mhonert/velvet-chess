@@ -526,7 +526,7 @@ impl Search {
                 depth = original_depth;
             } else if best_score >= beta {
                 beta = MAX_SCORE.min(beta.saturating_add(step));
-                depth -= 1;
+                depth = (depth - 1).max(original_depth - 5);
             } else {
                 return (false, best_move, current_pv, step);
             }
