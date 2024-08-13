@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2023 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2024 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -119,7 +119,9 @@ pub fn parse_fen(fen: &str) -> Result<FenParseResult, FenError> {
 }
 
 pub fn create_from_fen(fen: &str) -> Board {
-    let items: [i8; 64] = [0; 64];
+    let mut items: [i8; 64] = [0; 64];
+    items[4] = -K;
+    items[60] = K;
     let mut board = Board::new(&items, WHITE, CastlingState::default(), None, 0, 1, CastlingRules::default());
     match read_fen(&mut board, fen) {
         Ok(_) => board,

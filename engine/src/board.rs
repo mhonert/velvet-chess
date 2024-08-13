@@ -63,7 +63,6 @@ pub struct Board {
 
     nn_eval: Box<NeuralNetEval>,
     items: [i8; 64],
-    king_pos: [i8; 2],
 
     history: Vec<StateEntry>,
 }
@@ -97,7 +96,6 @@ impl Board {
                 hash: 0,
                 history_start: 0,
             },
-            king_pos: [0; 2],
             halfmove_count: 0,
             history: Vec::with_capacity(MAX_DEPTH),
         };
@@ -118,15 +116,11 @@ impl Board {
         &mut self, pos_history: PositionHistory, bitboards: BitBoards, halfmove_count: u16, state: StateEntry,
         castling_rules: CastlingRules,
     ) {
-        let white_king = bitboards.by_piece(K).piece_pos() as i8;
-        let black_king = bitboards.by_piece(-K).piece_pos() as i8;
-
         self.castling_rules = castling_rules;
         self.pos_history = pos_history;
         self.bitboards = bitboards;
         self.state = state;
         self.halfmove_count = halfmove_count;
-        self.king_pos = [white_king, black_king];
         self.history.clear();
 
         self.items.fill(0);
@@ -174,17 +168,11 @@ impl Board {
 
             if item != EMPTY {
                 self.add_piece(Color::from_piece(item), item.abs(), i);
-            } else {
-                self.items[i] = item;
-            }
-
-            if item == K {
-                self.set_king_pos(WHITE, i as i8);
-            } else if item == -K {
-                self.set_king_pos(BLACK, i as i8);
             }
         }
 
+        assert!((0..=63).contains(&self.king_pos(WHITE)), "Cannot set position with missing white king");
+        assert!((0..=63).contains(&self.king_pos(BLACK)), "Cannot set position with missing black king");
 
         self.nn_eval.init_pos(&self.bitboards, self.king_pos(WHITE), self.king_pos(BLACK));
 
@@ -455,7 +443,6 @@ impl Board {
                 let own_piece = color.piece(target_piece_id);
                 self.move_piece(color, own_piece, move_start, move_end);
                 self.nn_eval.remove_add_piece(move_start, own_piece, move_end, own_piece);
-                self.set_king_pos(color, move_end as i8);
                 self.set_king_moved(color);
                 (own_piece, EMPTY)
             }
@@ -468,7 +455,6 @@ impl Board {
 
                 self.reset_half_move_clock();
 
-                self.set_king_pos(color, move_end as i8);
                 self.set_king_moved(color);
 
                 (own_piece, removed_piece.abs())
@@ -477,7 +463,6 @@ impl Board {
                 let own_piece = self.remove_piece(move_start);
                 self.remove_piece(move_end);
                 self.set_has_castled(color);
-                self.set_king_pos(color, CastlingRules::qs_king_end(color));
                 self.add_piece(color, K, CastlingRules::qs_king_end(color) as usize);
                 self.add_piece(color, R, CastlingRules::qs_rook_end(color) as usize);
                 self.set_rook_moved(QUEEN_SIDE_CASTLING[color.idx()]);
@@ -491,7 +476,6 @@ impl Board {
                 let own_piece = self.remove_piece(move_start);
                 self.remove_piece(move_end);
                 self.set_has_castled(color);
-                self.set_king_pos(color, CastlingRules::ks_king_end(color));
                 self.add_piece(color, K, CastlingRules::ks_king_end(color) as usize);
                 self.add_piece(color, R, CastlingRules::ks_rook_end(color) as usize);
                 self.set_rook_moved(KING_SIDE_CASTLING[color.idx()]);
@@ -583,14 +567,12 @@ impl Board {
             MoveType::KingQuiet => {
                 self.nn_eval.remove_add_piece(move_end , piece, move_start , piece);
                 self.move_piece_without_state(color, piece, move_end, move_start);
-                self.set_king_pos(color, move_start as i8);
             }
             MoveType::KingCapture => {
                 self.nn_eval.remove_add_add_piece(move_end , piece, move_start , piece, move_end , color.flip().piece(removed_piece_id));
                 self.remove_piece_without_inc_update(move_end );
                 self.add_piece_without_inc_update(color, piece, move_start);
                 self.add_piece_without_inc_update(color.flip(), color.flip().piece(removed_piece_id), move_end);
-                self.set_king_pos(color, move_start as i8);
             }
             MoveType::KingQSCastling => {
                 self.nn_eval.remove_add_piece(CastlingRules::qs_king_end(color) as usize, piece, move_start , piece);
@@ -600,9 +582,7 @@ impl Board {
                 self.remove_piece_without_inc_update(CastlingRules::qs_rook_end(color) as usize);
 
                 self.add_piece_without_inc_update(color, color.piece(R), move_end);
-                self.set_king_pos(color, move_start as i8);
                 self.add_piece_without_inc_update(color, piece, move_start);
-
             }
             MoveType::KingKSCastling => {
                 self.nn_eval.remove_add_piece(CastlingRules::ks_king_end(color) as usize, piece, move_start , piece);
@@ -612,7 +592,6 @@ impl Board {
                 self.remove_piece_without_inc_update(CastlingRules::ks_rook_end(color) as usize);
 
                 self.add_piece_without_inc_update(color, color.piece(R), move_end);
-                self.set_king_pos(color, move_start as i8);
                 self.add_piece_without_inc_update(color, piece, move_start);
             }
 
@@ -925,14 +904,9 @@ impl Board {
         attackers & occupied_bb
     }
 
-    #[inline]
-    fn set_king_pos(&mut self, color: Color, pos: i8) {
-        unsafe { *self.king_pos.get_unchecked_mut(color.idx()) = pos };
-    }
-
-    #[inline]
+    #[inline(always)]
     pub fn king_pos(&self, color: Color) -> i8 {
-        unsafe { *self.king_pos.get_unchecked(color.idx()) }
+        self.get_bitboard(color.piece(K)).piece_pos() as i8
     }
 
     pub fn reset_nn_eval(&mut self) {
