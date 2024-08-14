@@ -956,8 +956,8 @@ impl Search {
                 let target_piece_id = curr_move.move_type().piece_id();
 
                 if curr_move.is_capture() {
-                    if !gives_check && self.ctx.is_bad_capture_move() {
-                        reductions += 1;
+                    if !gives_check && self.ctx.is_bad_capture_move() && !improving {
+                        reductions += 2;
                     }
 
                 } else {
