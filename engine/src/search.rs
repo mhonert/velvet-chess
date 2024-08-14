@@ -414,7 +414,7 @@ impl Search {
                 if new_window_step > window_step {
                     window_step = new_window_step;
                     window_size = new_window_step;
-                } else if window_step > 16 {
+                } else if window_step > INITIAL_ASPIRATION_WINDOW_STEP {
                     window_step /= 2;
                     window_size /= 2;
                 }
