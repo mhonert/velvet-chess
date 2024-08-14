@@ -16,7 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::engine::{MAX_ELO, Message, MIN_ELO};
+use crate::engine::{DEFAULT_RISKY_STYLE_THRESHOLD, MAX_ELO, Message, MIN_ELO};
 use crate::fen::START_POS;
 use crate::search::{DEFAULT_SEARCH_THREADS, MAX_SEARCH_THREADS};
 use crate::time_management::{DEFAULT_MOVE_OVERHEAD_MS, MAX_MOVE_OVERHEAD_MS, MIN_MOVE_OVERHEAD_MS, SearchLimits};
@@ -129,6 +129,10 @@ fn uci() {
     println!("option name Move Overhead type spin default {} min {} max {}", DEFAULT_MOVE_OVERHEAD_MS, MIN_MOVE_OVERHEAD_MS, MAX_MOVE_OVERHEAD_MS);
     println!("option name MultiPV type spin default 1 min 1 max {}", MAX_MULTI_PV_MOVES);
     println!("option name Ponder type check default false");
+    println!("option name RatingAdvAdaptiveStyle type check default true");
+    println!("option name RatingAdvRiskyStyleThreshold type spin default {} min -10000 max 10000", DEFAULT_RISKY_STYLE_THRESHOLD);
+    println!("option name SimulateThinkingTime type check default true");
+    println!("option name Style type combo default Normal var Normal var Risky");
     if HAS_TB_SUPPORT {
         println!("option name SyzygyPath type string default");
         println!("option name SyzygyProbeDepth type spin default {} min 0 max {}", DEFAULT_TB_PROBE_DEPTH, MAX_DEPTH);
@@ -137,8 +141,8 @@ fn uci() {
     println!("option name UCI_Chess960 type check default false");
     println!("option name UCI_Elo type spin default {} min {} max {}", MIN_ELO, MIN_ELO, MAX_ELO);
     println!("option name UCI_LimitStrength type check default false");
-    println!("option name SimulateThinkingTime type check default true");
-    println!("option name Style type combo default Normal var Normal var Risky");
+    println!("option name UCI_Opponent type string default");
+    println!("option name UCI_RatingAdv type spin default 0 min -10000 max 10000");
     println!(
         "option name UCI_EngineAbout type string default Velvet Chess Engine (https://github.com/mhonert/velvet-chess)"
     );
@@ -187,7 +191,7 @@ fn set_option(tx: &Sender<Message>, parts: &[&str]) {
 
     match name.as_str() {
         "hash" => {
-            if let Some(size_mb) = parse_int_option(value.as_str(), 1, MAX_HASH_SIZE_MB) {
+            if let Some(size_mb) = parse_numeric_option(value.as_str(), 1, MAX_HASH_SIZE_MB) {
                 send_message(tx, Message::SetTranspositionTableSize(size_mb));
             } else {
                 println!("info string error: invalid hash size: {}", value);
@@ -201,7 +205,7 @@ fn set_option(tx: &Sender<Message>, parts: &[&str]) {
         }
 
         "threads" => {
-            if let Some(threads) = parse_int_option(value.as_str(), 1, MAX_SEARCH_THREADS as i32) {
+            if let Some(threads) = parse_numeric_option(value.as_str(), 1, MAX_SEARCH_THREADS as i32) {
                 send_message(tx, Message::SetThreadCount(threads));
             } else {
                 println!("info string error: invalid thread count: {}", value);
@@ -224,7 +228,7 @@ fn set_option(tx: &Sender<Message>, parts: &[&str]) {
                 return;
             }
 
-            if let Some(depth) = parse_int_option(value.as_str(), 0, MAX_DEPTH as i32) {
+            if let Some(depth) = parse_numeric_option(value.as_str(), 0, MAX_DEPTH as i32) {
                 send_message(tx, Message::SetTableBaseProbeDepth(depth));
             } else {
                 println!("info string error: invalid probe depth: {}", value);
@@ -241,15 +245,38 @@ fn set_option(tx: &Sender<Message>, parts: &[&str]) {
         }
         
         "uci_elo" => {
-            if let Some(elo) = parse_int_option(value.as_str(), MIN_ELO, MAX_ELO) {
+            if let Some(elo) = parse_numeric_option(value.as_str(), MIN_ELO, MAX_ELO) {
                 send_message(tx, Message::SetElo(elo));
             } else {
                 println!("info string error: unsupported Elo number: {}", value);
             }
         }
 
+        "uci_opponent" => {}
+
+        "uci_ratingadv" => {
+            if let Some(rating_adv) = parse_numeric_option(value.as_str(), -10000.0, 10000.0) {
+                send_message(tx, Message::SetRatingAdv(rating_adv as i32));
+            } else {
+                println!("info string error: invalid UCI_RatingAdv value: {}", value);
+            }
+        }
+
+        "ratingadvadaptivestyle" => {
+            let adaptive = value.as_str().eq_ignore_ascii_case("true");
+            send_message(tx, Message::SetRatingAdvAdaptiveStyle(adaptive));
+        }
+
+        "ratingadvriskystylethreshold" => {
+            if let Some(threshold) = parse_numeric_option(value.as_str(), -10000.0, 10000.0) {
+                send_message(tx, Message::SetRatingAdvRiskyStyleThreshold(threshold as i32));
+            } else {
+                println!("info string error: invalid RatingAdvRiskyStyleThreshold value: {}", value);
+            }
+        }
+
         "multipv" => {
-            if let Some(multipv_moves) = parse_int_option(value.as_str(), 1, MAX_MULTI_PV_MOVES as i32) {
+            if let Some(multipv_moves) = parse_numeric_option(value.as_str(), 1, MAX_MULTI_PV_MOVES as i32) {
                 send_message(tx, Message::SetMultiPV(multipv_moves));
             } else {
                 println!("info string error: invalid number of MultiPV moves: {}", value);
@@ -258,7 +285,7 @@ fn set_option(tx: &Sender<Message>, parts: &[&str]) {
 
         "move" => {
             if parts.len() > 2 && parts[2].eq_ignore_ascii_case("overhead") {
-                if let Some(ms) = parse_int_option(value.as_str(), MIN_MOVE_OVERHEAD_MS, MAX_MOVE_OVERHEAD_MS) {
+                if let Some(ms) = parse_numeric_option(value.as_str(), MIN_MOVE_OVERHEAD_MS, MAX_MOVE_OVERHEAD_MS) {
                     send_message(tx, Message::SetMoveOverheadMillis(ms));
                 } else {
                     println!("info string error: invalid move overhead value");
@@ -280,7 +307,7 @@ fn set_option(tx: &Sender<Message>, parts: &[&str]) {
         }
 
         _ => {
-            if let Some(value) = parse_int_option(value.as_str(), i16::MIN, i16::MAX) {
+            if let Some(value) = parse_numeric_option(value.as_str(), i16::MIN, i16::MAX) {
                 send_message(tx, Message::SetParam(name, value));
             } else {
                 println!("info string error: invalid value for param {}: {}", name, value)
@@ -290,7 +317,7 @@ fn set_option(tx: &Sender<Message>, parts: &[&str]) {
     }
 }
 
-fn parse_int_option<T: FromStr + Ord + Display>(value: &str, min_value: T, max_value: T) -> Option<T> {
+fn parse_numeric_option<T: FromStr + PartialOrd + Display>(value: &str, min_value: T, max_value: T) -> Option<T> {
     let value = match T::from_str(value) {
         Ok(v) => v,
         Err(_) => {

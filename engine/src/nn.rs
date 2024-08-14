@@ -63,6 +63,7 @@ static IS_NORMAL_NETWORK: AtomicBool = AtomicBool::new(true);
 static IS_NETWORK_INITIALIZED: AtomicBool = AtomicBool::new(false);
 static NETWORK_LOAD_LOCK: Mutex<()> = Mutex::new(());
 
+#[derive(Clone, Copy)]
 pub enum Style {
     Normal = 0,
     Risky = 1,
