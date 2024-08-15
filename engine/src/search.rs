@@ -732,7 +732,7 @@ impl Search {
                     tt_score_is_upper_bound = matches!(score_type, ScoreType::UpperBound);
                     if tt_depth >= depth && match score_type {
                         ScoreType::Exact => !is_pv || depth <= 0,
-                        ScoreType::UpperBound => !is_pv && tt_score <= alpha,
+                        ScoreType::UpperBound => (!is_pv || depth <= 0) && tt_score <= alpha,
                         ScoreType::LowerBound => (!is_pv || depth <= 0) && tt_score >= beta
                     } {
                         if !tt_score_is_upper_bound && tt_move != NO_MOVE && !tt_move.is_capture() {
