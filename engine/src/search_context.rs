@@ -162,10 +162,6 @@ impl SearchContext {
         self.ply_entry(self.pe_idx).eval
     }
 
-    pub fn is_recapture(&self, opp_m: Move, end: i8) -> bool {
-        opp_m.is_capture() && end == opp_m.end()
-    }
-
     pub fn in_check(&self) -> bool {
         self.ply_entry(self.pe_idx).in_check
     }

@@ -746,8 +746,7 @@ impl Search {
                         && !in_check
                         && !tt_score_is_upper_bound
                         && depth >= 6
-                        && tt_depth >= depth - 3
-                        && !self.ctx.is_recapture(move_history.last_opp, tt_move.end());
+                        && tt_depth >= depth - 3;
                 }
             }
 
