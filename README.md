@@ -8,11 +8,11 @@
 
 **Velvet Chess Engine** is a UCI chess engine written in [Rust](https://www.rust-lang.org).
 
-Version 7.0.0 is currently ranked around 3580 Elo (Blitz) and 3485 Elo (40/15) in the Computer Chess Rating Lists (CCRL):
+Version 7.3.0 is currently ranked around 3625 Elo (Blitz) and 3510 Elo (40/15) in the Computer Chess Rating Lists (CCRL):
 - [CCRL Blitz](https://www.computerchess.org.uk/ccrl/404/cgi/compare_engines.cgi?family=Velvet&print=Rating+list)
 - [CCRL 40/15](https://www.computerchess.org.uk/ccrl/4040/cgi/compare_engines.cgi?family=Velvet&print=Rating+list)
 
-In Fischer Random Chess, the single-threaded rating is around 3750 Elo:
+In Fischer Random Chess, the single-threaded rating is around 3780 Elo:
 - [CCRL 40/2 FRC](https://www.computerchess.org.uk/ccrl/404FRC)
 
 In order to play against Velvet, you need a Chess GUI with support for the UCI protocol.
