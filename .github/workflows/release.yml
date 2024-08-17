@@ -156,7 +156,6 @@ jobs:
           mv velvet-linux-x86_64-avx2 velvet-${tag_name}-x86_64-avx2
           mv velvet-linux-x86_64-sse4-popcnt velvet-${tag_name}-x86_64-sse4-popcnt
           mv velvet-linux-x86_64-nopopcnt velvet-${tag_name}-x86_64-nopopcnt
-          mv velvet-linux-aarch64-rpi velvet-${tag_name}-aarch64-rpi
           mv velvet-macOS-avx2 velvet-${tag_name}-macOS-x86_64-avx2
           mv velvet-macOS-sse4-popcnt velvet-${tag_name}-macOS-x86_64-sse4-popcnt
           mv velvet-macOS-nopopcnt velvet-${tag_name}-macOS-x86_64-nopopcnt
@@ -172,7 +171,6 @@ jobs:
                              "velvet-${tag_name}-x86_64-avx2#Velvet - Linux (x86_64 - AVX2)" \
                              "velvet-${tag_name}-x86_64-sse4-popcnt#Velvet - Linux (x86_64 - SSE4.2+POPCNT)" \
                              "velvet-${tag_name}-x86_64-nopopcnt#Velvet - Linux (x86_64 - No POPCNT)" \
-                             "velvet-${tag_name}-aarch64-rpi#Velvet - Linux (aarch64 - Raspberry Pi)" \
                              "velvet-${tag_name}-macOS-apple-silicon#Velvet - macOS (Apple Silicon)" \
                              "velvet-${tag_name}-macOS-x86_64-avx2#Velvet - macOS (x86_64 - AVX2)" \
                              "velvet-${tag_name}-macOS-x86_64-sse4-popcnt#Velvet - macOS (x86_64 - SSE4.2+POPCNT)" \
