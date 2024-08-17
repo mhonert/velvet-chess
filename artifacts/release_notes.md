@@ -1,5 +1,5 @@
 
-This new major release introduces configurable playing strength, adaptive styles, and expanded platform support
+This new major release introduces configurable playing strength, adaptive styles, and a small strength increase
 
 Estimated strength increase (using the default network): ~ 35 Elo
 
@@ -55,11 +55,6 @@ This is mainly relevant for the TCEC event, where these two options are provided
 
 If desired, this adaptive behavior can be disabled by setting the `RatingAdvAdaptiveStyle` option to `false`.
 
-### New 64-bit Executable for Raspberry Pi Support
-
-Velvet now includes a 64-bit executable for the Linux aarch64 architecture 
-to support for devices like the Raspberry Pi with 64-bit capabilities (e.g., Raspberry Pi 3, Raspberry Pi Zero 2, and similar models).
-
 ## Additional Changes
 
 In addition to the new features, Velvet has undergone several internal improvements:
@@ -90,4 +85,3 @@ If you have a relatively modern CPU (2013+) with AVX2 support, then the *...-x86
 | x86_64-sse4-popcnt | Lower performance, recommended for CPUs without AVX2 support | Intel Nehalem / AMD Bulldozer | SSE4.2, SSE3, POPCNT      |
 | x86_64-nopopcnt    | Lowest performance, but compatible with most x86_64 CPUs     | ---                           | SSE2, CMOV                |
 | apple-silicon      | Native builds for Apple Silicon processors (ARM aarch64)     | Apple M1                      |                           |
-| aarch64-rpi        | Linux aarch64 / for Raspberry Pi with 64-bit support         | ARM Cortex-A53                |                           |

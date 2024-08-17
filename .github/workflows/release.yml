@@ -22,10 +22,6 @@ jobs:
             add_rustflags: "-Ctarget-feature=+crt-static"
             toolchain: "x86_64-unknown-linux-musl"
             cflags: "-march=x86-64 -DTB_CUSTOM_POP_COUNT"
-          - exec_postfix: "aarch64-rpi"
-            add_rustflags: "-Ctarget-feature=+crt-static -Ctarget-cpu=cortex-a53"
-            toolchain: "aarch64-unknown-linux-gnu"
-            cflags: "-march=armv8-a"
 
     steps:
       - name: Checkout code
