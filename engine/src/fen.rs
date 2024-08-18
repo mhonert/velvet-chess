@@ -258,8 +258,8 @@ fn read_enpassant(en_passant: &str) -> Option<i8> {
     let col_offset = (col_char.wrapping_sub(b'a')) as i8;
 
     Some(match row_char {
-        b'3' => WhiteBoardPos::PawnLineStart as i8 + col_offset,
-        b'6' => BlackBoardPos::PawnLineStart as i8 + col_offset,
+        b'3' => WhiteBoardPos::EnPassantLineStart as i8 + col_offset,
+        b'6' => BlackBoardPos::EnPassantLineStart as i8 + col_offset,
         _ => return None,
     })
 }
@@ -378,22 +378,14 @@ fn write_castling(board: &Board) -> String {
 }
 
 fn write_enpassant(board: &Board) -> String {
-    for pos in WhiteBoardPos::EnPassantLineStart as u8..=WhiteBoardPos::EnPassantLineEnd as u8 {
-        if board.can_enpassant(WHITE, pos) {
-            let col = pos % 8;
-            let col_letter = b'a' + col;
-            let col_str = String::from_utf8(vec![col_letter]).expect("Could not convert columm letter");
-            return col_str + "6";
-        }
-    }
-
-    for pos in BlackBoardPos::EnPassantLineStart as u8..=BlackBoardPos::EnPassantLineEnd as u8 {
-        if board.can_enpassant(BLACK, pos) {
-            let col = pos % 8;
-            let col_letter = b'a' + col;
-            let col_str = String::from_utf8(vec![col_letter]).expect("Could not convert columm letter");
-            return col_str + "3";
-        }
+    let en_passant = board.enpassant_target();
+    if en_passant != 0 {
+        let col = en_passant % 8;
+        let col_letter = b'a' + col;
+        let col_str = String::from_utf8(vec![col_letter]).expect("Could not convert columm letter");
+        
+        let row_str = if en_passant <= WhiteBoardPos::EnPassantLineEnd as u8 { "3" } else { "6" };
+        return col_str + row_str;
     }
 
     String::from("-")

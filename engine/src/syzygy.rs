@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2023 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2024 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -86,8 +86,9 @@ pub mod tb {
                 return None;
             }
 
-            let ep = if let Some(target) = self.enpassant_target() {
-                v_mirror_i8(target as i8) as u16
+            let ep_target = self.enpassant_target();
+            let ep = if ep_target != 0 {
+                v_mirror_i8(ep_target as i8) as u16
             } else {
                 0
             };
@@ -111,8 +112,10 @@ pub mod tb {
                 return None;
             }
 
-            let ep = if let Some(target) = self.enpassant_target() {
-                v_mirror_i8(target as i8) as u16
+
+            let ep_target = self.enpassant_target();
+            let ep = if ep_target != 0 {
+                v_mirror_i8(ep_target as i8) as u16
             } else {
                 0
             };

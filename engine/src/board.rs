@@ -70,7 +70,7 @@ pub struct Board {
 #[derive(Copy, Clone)]
 pub struct StateEntry {
     hash: u64,
-    en_passant: u16,
+    en_passant: u8,
     castling: CastlingState,
     halfmove_clock: u8,
     history_start: u8,
@@ -210,16 +210,11 @@ impl Board {
     fn set_enpassant(&mut self, pos: i8) {
         let previous_state = self.state.en_passant;
 
-        if pos >= WhiteBoardPos::PawnLineStart as i8 {
-            self.state.en_passant = 1 << ((pos - WhiteBoardPos::PawnLineStart as i8) as u16 + 8);
-        } else {
-            self.state.en_passant = 1 << ((pos - BlackBoardPos::PawnLineStart as i8) as u16);
-        };
-
+        self.state.en_passant = pos as u8;
         self.update_hash_for_enpassant(previous_state);
     }
 
-    fn update_hash_for_enpassant(&mut self, previous_state: u16) {
+    fn update_hash_for_enpassant(&mut self, previous_state: u8) {
         if previous_state != 0 {
             self.state.hash ^= enpassant_zobrist_key(previous_state);
         }
@@ -257,41 +252,12 @@ impl Board {
         self.state.castling.can_castle_queen_side(color)
     }
 
-    pub fn get_enpassant_state(&self) -> u16 {
-        self.state.en_passant
-    }
-
     pub fn piece_count(&self) -> u32 {
         self.occupancy_bb().piece_count()
     }
 
-    pub fn can_enpassant(&self, color: Color, location: u8) -> bool {
-        if color.is_white()
-            && location >= WhiteBoardPos::EnPassantLineStart as u8
-            && location <= WhiteBoardPos::EnPassantLineEnd as u8
-        {
-            return self.state.en_passant & (1 << (location - WhiteBoardPos::EnPassantLineStart as u8)) != 0;
-        } else if color.is_black()
-            && location >= BlackBoardPos::EnPassantLineStart as u8
-            && location <= BlackBoardPos::EnPassantLineEnd as u8
-        {
-            return self.state.en_passant & (1 << (location - BlackBoardPos::EnPassantLineStart as u8 + 8)) != 0;
-        }
-
-        false
-    }
-
-    pub fn enpassant_target(&self) -> Option<u16> {
-        let state = self.get_enpassant_state();
-        if state == 0 {
-            return None;
-        }
-
-        if self.active_player().is_white() {
-            Some(16 + state.trailing_zeros() as u16)
-        } else {
-            Some(40 + state.trailing_zeros() as u16)
-        }
+    pub fn enpassant_target(&self) -> u8 {
+        self.state.en_passant
     }
 
     pub fn halfmove_clock(&self) -> u8 {
@@ -337,7 +303,7 @@ impl Board {
                 self.nn_eval.remove_add_piece(move_start, own_piece, move_end, own_piece);
                 self.reset_half_move_clock();
 
-                self.set_enpassant(move_start as i8);
+                self.set_enpassant(move_start as i8 + if color.is_white() { -8 } else { 8 } );
                 (own_piece, EMPTY)
             }
             MoveType::PawnEnPassant => {

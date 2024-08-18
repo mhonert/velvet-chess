@@ -17,7 +17,7 @@
  */
 
 use crate::bitboard::{get_king_attacks, get_knight_attacks, BitBoard, PAWN_DOUBLE_MOVE_LINES};
-use crate::board::Board;
+use crate::board::{BlackBoardPos, Board, WhiteBoardPos};
 use crate::colors::{Color, BLACK, WHITE};
 use crate::history_heuristics::{HistoryHeuristics, MIN_HISTORY_SCORE, MoveHistory};
 use crate::moves::{Move, MoveType, NO_MOVE};
@@ -432,23 +432,23 @@ impl MoveList {
     }
 
     fn gen_white_en_passant_moves(&mut self, board: &Board, pawns: BitBoard) {
-        let en_passant = board.get_enpassant_state();
-        if en_passant == 0 {
+        let en_passant = board.enpassant_target();
+        if en_passant < WhiteBoardPos::EnPassantLineStart as u8 || en_passant > WhiteBoardPos::EnPassantLineEnd as u8  {
             return;
         }
 
-        let end = 16 + en_passant.trailing_zeros();
-        if en_passant != 0b10000000 {
+        let end = en_passant as i8;
+        if en_passant != WhiteBoardPos::EnPassantLineEnd as u8 {
             let start = end + 9;
             if (pawns & (1 << start)).is_occupied() {
-                self.add_capture_move(board, MoveType::PawnEnPassant, start as i8, end as i8);
+                self.add_capture_move(board, MoveType::PawnEnPassant, start, end);
             }
         }
 
-        if en_passant != 0b00000001 {
+        if en_passant != WhiteBoardPos::EnPassantLineStart as u8 {
             let start = end + 7;
             if (pawns & (1 << start)).is_occupied() {
-                self.add_capture_move(board, MoveType::PawnEnPassant, start as i8, end as i8);
+                self.add_capture_move(board, MoveType::PawnEnPassant, start, end);
             }
         }
     }
@@ -485,23 +485,23 @@ impl MoveList {
     }
 
     fn gen_black_en_passant_moves(&mut self, board: &Board, pawns: BitBoard) {
-        let en_passant = board.get_enpassant_state() >> 8;
-        if en_passant == 0 {
+        let en_passant = board.enpassant_target();
+        if en_passant < BlackBoardPos::EnPassantLineStart as u8 || en_passant > BlackBoardPos::EnPassantLineEnd as u8 {
             return;
         }
 
-        let end = 40 + en_passant.trailing_zeros();
-        if en_passant != 0b00000001 {
+        let end = en_passant as i8;
+        if en_passant != BlackBoardPos::EnPassantLineStart as u8 {
             let start = end - 9;
             if (pawns & (1 << start)).is_occupied() {
-                self.add_capture_move(board, MoveType::PawnEnPassant, start as i8, end as i8);
+                self.add_capture_move(board, MoveType::PawnEnPassant, start, end);
             }
         }
 
-        if en_passant != 0b10000000 {
+        if en_passant != BlackBoardPos::EnPassantLineEnd as u8 {
             let start = end - 7;
             if (pawns & (1 << start)).is_occupied() {
-                self.add_capture_move(board, MoveType::PawnEnPassant, start as i8, end as i8);
+                self.add_capture_move(board, MoveType::PawnEnPassant, start, end);
             }
         }
     }
@@ -684,55 +684,53 @@ pub fn is_valid_move(board: &Board, active_player: Color, m: Move) -> bool {
             }
 
             if active_player.is_white() {
-                let en_passant = board.get_enpassant_state();
+                let en_passant = board.enpassant_target();
                 if en_passant == 0 {
                     return false;
                 }
-
-                let calc_end = 16 + en_passant.trailing_zeros();
+                let calc_end = en_passant;
                 if calc_end as i8 != end {
                     return false;
                 }
 
-                if en_passant != 0b10000000 {
+                if en_passant != WhiteBoardPos::EnPassantLineEnd as u8 {
                     let start = calc_end + 9;
                     if (pawns & (1 << start)).is_occupied() {
                         return true;
                     }
                 }
 
-                if en_passant != 0b00000001 {
+                if en_passant != WhiteBoardPos::EnPassantLineStart as u8 {
                     let start = calc_end + 7;
                     if (pawns & (1 << start)).is_occupied() {
                         return true;
                     }
                 }
-
                 false
+
             } else {
-                let en_passant = board.get_enpassant_state() >> 8;
+                let en_passant = board.enpassant_target();
                 if en_passant == 0 {
                     return false;
                 }
-
-                let calc_end = 40 + en_passant.trailing_zeros();
-                if calc_end as i8 != end {
+                
+                let calc_end = en_passant as i8;
+                if calc_end != end {
                     return false;
                 }
-                if en_passant != 0b00000001 {
+                if en_passant != BlackBoardPos::EnPassantLineStart as u8 {
                     let start = calc_end - 9;
                     if (pawns & (1 << start)).is_occupied() {
                         return true;
                     }
                 }
 
-                if en_passant != 0b10000000 {
+                if en_passant != BlackBoardPos::EnPassantLineEnd as u8 {
                     let start = calc_end - 7;
                     if (pawns & (1 << start)).is_occupied() {
                         return true;
                     }
                 }
-
                 false
             }
         }
