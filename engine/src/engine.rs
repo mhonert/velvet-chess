@@ -33,7 +33,7 @@ use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{mpsc, Arc};
 use std::thread;
 use std::time::{Instant};
-use crate::{params, syzygy};
+use crate::{syzygy};
 use crate::params::calc_node_limit_from_elo;
 use crate::search_context::SearchContext;
 
@@ -173,7 +173,7 @@ impl Engine {
         }
     }
 
-    fn handle_message(&mut self, msg: Message) -> bool {
+    pub fn handle_message(&mut self, msg: Message) -> bool {
         match msg {
             Message::Bench => self.bench(),
 
@@ -282,7 +282,9 @@ impl Engine {
             Message::ClearHash => self.search.clear_tt(),
 
             Message::SetParam(name, value) => {
-                params::set(name, value);
+                if !self.search.set_param(&name, value) {
+                    println!("info string warning: unknown option: {}", name);
+                }
             }
         }
 

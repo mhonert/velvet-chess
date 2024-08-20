@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2023 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2024 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -19,33 +19,46 @@
 #[cfg(feature = "tune")]
 macro_rules! tunable_params {
     ($($name:ident = $value:literal)+) => {
-        #[allow(non_upper_case_globals)]
-        mod sdecl {
+        #[derive(Copy, Clone)]
+        pub struct SingleParams {
         $(
-            pub static mut $name: i16 = $value;
+            $name: i16,
         )+
         }
 
-        $(
-        pub fn $name() -> i16 { unsafe { sdecl::$name } }
-        )+
-
-        fn set_param(name: String, value: i16) -> bool {
-            match name.as_str() {
+        impl Default for SingleParams {
+            fn default() -> Self {
+                SingleParams {
                 $(
-                stringify!($name) => {
-                    unsafe { sdecl::$name = value };
-                    return true;
-                },
+                    $name: $value,
                 )+
-                _ => {}
+                }
             }
-            false
+        }
+
+        impl SingleParams {
+            $(
+            #[inline(always)]
+            pub fn $name(&self) -> i16 { self.$name }
+            )+
+
+            pub fn set_param(&mut self, name: &str, value: i16) -> bool {
+                match name {
+                    $(
+                    stringify!($name) => {
+                        self.$name = value;
+                        return true;
+                    },
+                    )+
+                    _ => {}
+                }
+                false
+            }
         }
 
         fn print_single_options() {
             $(
-                println!("option name {} type spin default {} min {} max {}", stringify!($name), $name(), i16::MIN, i16::MAX);
+                println!("option name {} type spin default {} min {} max {}", stringify!($name), $value, i16::MIN, i16::MAX);
             )+
         }
     }
@@ -54,16 +67,19 @@ macro_rules! tunable_params {
 #[cfg(not(feature = "tune"))]
 macro_rules! tunable_params {
     ($($name:ident = $value:literal)+) => {
-        #[allow(non_upper_case_globals)]
-        mod sdecl {
-        $(
-            pub const $name: i16 = $value;
-        )+
-        }
+        #[derive(Copy, Clone, Default)]
+        pub struct SingleParams;
 
-        $(
-        pub const fn $name() -> i16 { sdecl::$name }
-        )+
+        impl SingleParams {
+            $(
+            #[inline(always)]
+            pub fn $name(&self) -> i16 { $value }
+            )+
+
+            pub fn set_param(&self, _name: &str, _value: i16) -> bool {
+                false
+            }
+        }
     }
 }
 
@@ -75,38 +91,51 @@ macro_rules! count_elems {
 #[cfg(feature = "tune")]
 macro_rules! tunable_array_params {
     ($($name:ident = [$($value:literal),+])+) => {
-        #[allow(non_upper_case_globals)]
-        mod adecl {
+        #[derive(Copy, Clone)]
+        pub struct ArrayParams {
         $(
-            pub static mut $name: [i16; count_elems!($($value)+)] = [$($value),+];
+            $name: [i16; count_elems!($($value)+)],
         )+
         }
-
-        $(
-        pub fn $name(i: usize) -> i16 { unsafe { *adecl::$name.get_unchecked(i) } }
-        )+
-
-        fn set_array_param(name: String, value: i16) -> bool {
-            if let Some((base_name, idx_str)) = name.rsplit_once('_') {
-                if let Ok(idx) = usize::from_str(idx_str) {
-                    match base_name {
-                        $(
-                        stringify!($name) => {
-                            unsafe { adecl::$name[idx] = value };
-                            return true;
-                        },
-                        )+
-                        _ => {}
-                    }
+        
+        impl Default for ArrayParams {
+            fn default() -> Self {
+                ArrayParams {
+                $(
+                    $name: [$($value),+],
+                )+
                 }
             }
-            false
+        }
+        
+        impl ArrayParams {
+            $(
+            #[inline(always)]
+            pub fn $name(&self, i: usize) -> i16 { self.$name[i] }
+            )+
+        
+            pub fn set_array_param(&mut self, name: &str, value: i16) -> bool {
+                if let Some((base_name, idx_str)) = name.rsplit_once('_') {
+                    if let Ok(idx) = usize::from_str(idx_str) {
+                        match base_name {
+                            $(
+                            stringify!($name) => {
+                                self.$name[idx] = value;
+                                return true;
+                            },
+                            )+
+                            _ => {}
+                        }
+                    }
+                }
+                false
+            }
         }
 
         fn print_array_options() {
             $(
             for i in 0..count_elems!($($value)+) {
-                println!("option name {}_{} type spin default {} min {} max {}", stringify!($name), i, $name(i), i16::MIN, i16::MAX);
+                println!("option name {}_{} type spin default {} min {} max {}", stringify!($name), i, 0, i16::MIN, i16::MAX);
             }
             )+
         }
@@ -123,9 +152,18 @@ macro_rules! tunable_array_params {
         )+
         }
 
-        $(
-        #[inline(always)]
-        pub fn $name(i: usize) -> i16 { unsafe { *adecl::$name.get_unchecked(i) } }
-        )+
+        #[derive(Copy, Clone, Default)]
+        pub struct ArrayParams;
+        
+        impl ArrayParams {
+            $(
+            #[inline(always)]
+            pub fn $name(&self, i: usize) -> i16 { unsafe { *adecl::$name.get_unchecked(i) } }
+            )+
+
+            pub fn set_array_param(&self, _name: &str, _value: i16) -> bool {
+                false
+            }
+        }
     }
 }

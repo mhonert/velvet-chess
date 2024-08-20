@@ -37,10 +37,16 @@ tunable_params!(
     se_double_ext_limit = 12
     prob_cut_margin = 150
     prob_cut_depth = 4
+    
+    nmp_enabled = 1
+    razoring_enabled = 1
+    rfp_enabled = 1
+    prob_cut_enabled = 1
+    fp_enabled = 1
+    se_enabled = 1
 );
 
 tunable_array_params!(
-    see_piece_values = [0, 98, 349, 350, 523, 1016, 8000]
     lmp_improving = [0, 4, 7]
     lmp_not_improving = [0, 2, 3]
 );
@@ -52,22 +58,9 @@ static STRENGTH_NODE_LIMITS: [u16; 72] = [
     12527, 13708, 15000, 16413, 17959, 19435, 21032, 22760, 24629, 26651, 28839, 31527, 34465, 37676,
 ];
 
-#[cfg(not(feature = "tune"))]
-pub fn set(name: String, _value: i16) {
-    println!("Unknown option: {}", name)
-}
 
 #[cfg(not(feature = "tune"))]
 pub fn print_options() {}
-
-#[cfg(feature = "tune")]
-pub fn set(name: String, value: i16) {
-    if !set_param(name.clone(), value) && !set_array_param(name.clone(), value) {
-        println!("Unknown option: {}", name);
-        return;
-    }
-    println!("debug set {} = {}", name, value);
-}
 
 #[cfg(feature = "tune")]
 pub fn print_options() {

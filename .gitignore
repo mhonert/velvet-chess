@@ -6,3 +6,4 @@ epd
 __pycache__
 build*.sh
 pytools/patch-verifier/tmp
+*.log

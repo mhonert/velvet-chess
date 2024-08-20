@@ -40,9 +40,9 @@ use std::thread;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 use LogLevel::Info;
-use crate::{next_ply, same_ply, params};
+use crate::{next_ply, same_ply};
 use crate::nn::io::FastHasher;
-use crate::params::nmp_divider;
+use crate::params::{ArrayParams, SingleParams};
 use crate::search_context::{SearchContext};
 use crate::syzygy::{DEFAULT_TB_PROBE_DEPTH, ProbeTB};
 use crate::syzygy::tb::{TBResult};
@@ -77,13 +77,6 @@ const fn calc_late_move_reductions() -> [i32; MAX_LMR_MOVES] {
     lmr
 }
 
-fn lmp_threshold(improving: bool, depth: i32) -> i16 {
-    if improving {
-        params::lmp_improving(depth as usize)
-    } else {
-        params::lmp_not_improving(depth as usize)
-    }
-}
 
 type MoveSet = HashSet<Move, BuildHasherDefault<FastHasher>>;
 
@@ -101,7 +94,7 @@ pub struct Search {
     last_log_time: Instant,
     next_check_node_count: u64,
     current_depth: i32,
-    max_reached_depth: usize,
+    pub max_reached_depth: usize,
 
     local_total_node_count: u64,
     local_tb_hits: u64,
@@ -125,6 +118,8 @@ pub struct Search {
     is_strength_limited: bool,
 
     gen_bit: u8,
+    params: SingleParams,
+    arr_params: ArrayParams,
 }
 
 impl Search {
@@ -170,25 +165,37 @@ impl Search {
             is_strength_limited: false,
 
             gen_bit: 0,
+
+            params: SingleParams::default(),
+            arr_params: ArrayParams::default(),
         }
+    }
+
+    pub fn set_param(&mut self, name: &str, value: i16) -> bool {
+        self.params.set_param(name, value) || self.arr_params.set_array_param(name, value)
+    }
+
+    pub fn set_params(&mut self, params: SingleParams, arr_params: ArrayParams) {
+        self.params = params;
+        self.arr_params = arr_params;
     }
 
     pub fn resize_tt(&mut self, new_size_mb: i32) {
         // Remove all additional threads, which reference the transposition table
         let thread_count = self.threads.count();
-        self.threads.resize(0, &self.node_count, &self.tb_hits, &self.tt, &self.board, &self.is_stopped);
+        self.threads.resize(0, &self.node_count, &self.tb_hits, &self.tt, &self.board, &self.is_stopped, self.params, self.arr_params);
 
         // Resize transposition table
         Arc::get_mut(&mut self.tt).unwrap().resize(new_size_mb as u64);
 
         // Restart threads
-        self.threads.resize(thread_count, &self.node_count, &self.tb_hits, &self.tt, &self.board, &self.is_stopped);
+        self.threads.resize(thread_count, &self.node_count, &self.tb_hits, &self.tt, &self.board, &self.is_stopped, self.params, self.arr_params);
 
         self.clear_tt();
     }
 
     pub fn reset_threads(&mut self, thread_count: i32) {
-        self.threads.resize((thread_count - 1) as usize, &self.node_count, &self.tb_hits, &self.tt, &self.board, &self.is_stopped);
+        self.threads.resize((thread_count - 1) as usize, &self.node_count, &self.tb_hits, &self.tt, &self.board, &self.is_stopped, self.params, self.arr_params);
     }
 
     pub fn clear_tt(&mut self) {
@@ -797,7 +804,7 @@ impl Search {
         let unreduced_depth = depth;
         if !is_pv && !in_check {
             let static_score = clamp_score(self.ctx.eval(), worst_possible_score, best_possible_score);
-            if !improving && self.current_depth > 7 && depth <= 4 && !is_mate_or_mated_score(alpha) && static_score + (1 << (depth - 1)) * params::razor_margin_multiplier() <= alpha {
+            if is(self.params.razoring_enabled()) && !improving && self.current_depth > 7 && depth <= 4 && !is_mate_or_mated_score(alpha) && static_score + (1 << (depth - 1)) * self.params.razor_margin_multiplier() <= alpha {
                 // Razoring
                 let score = clamp_score(same_ply!(self.ctx, self.quiescence_search(false, active_player, alpha, beta, ply, in_check, pv)), worst_possible_score, best_possible_score);
                 if score <= alpha {
@@ -805,20 +812,20 @@ impl Search {
                 }
             }
 
-            if depth <= 3 {
+            if is(self.params.rfp_enabled()) && depth <= 3 {
                 // Reverse futility pruning
                 let margin = if improving {
-                    (params::rfp_margin_multiplier_improving() << depth) + params::rfp_base_margin_improving()
+                    (self.params.rfp_margin_multiplier_improving() << depth) + self.params.rfp_base_margin_improving()
                 } else {
-                    (params::rfp_margin_multiplier_not_improving() << depth) + params::rfp_base_margin_not_improving()
+                    (self.params.rfp_margin_multiplier_not_improving() << depth) + self.params.rfp_base_margin_not_improving()
                 };
                 if self.current_depth > 7 && static_score - margin >= beta {
                     return static_score;
                 }
             }
 
-            if static_score >= beta {
-                let reduced_depth = depth - null_move_reduction(depth);
+            if is(self.params.nmp_enabled()) && static_score >= beta {
+                let reduced_depth = depth - self.null_move_reduction(depth);
                 if !(tt_score_is_upper_bound && tt_depth >= reduced_depth) && self.board.has_non_pawns(active_player) {
                     // Null move pruning
                     self.board.perform_null_move();
@@ -845,9 +852,9 @@ impl Search {
             }
             
             // ProbCut
-            let prob_cut_beta = beta + params::prob_cut_margin();
-            let prob_cut_depth = depth - params::prob_cut_depth() as i32;
-            if se_move == NO_MOVE && tt_move != NO_MOVE && !tt_score_is_upper_bound && tt_score >= prob_cut_beta && prob_cut_depth > 0 && is_eval_score(beta) {
+            let prob_cut_beta = beta + self.params.prob_cut_margin();
+            let prob_cut_depth = depth - self.params.prob_cut_depth() as i32;
+            if is(self.params.prob_cut_enabled()) && se_move == NO_MOVE && tt_move != NO_MOVE && !tt_score_is_upper_bound && tt_score >= prob_cut_beta && prob_cut_depth > 0 && is_eval_score(beta) {
                 let (previous_piece, removed_piece_id) = self.board.perform_move(tt_move);
                 self.tt.prefetch(self.board.get_hash());
                 if !self.board.is_left_in_check(active_player, false, tt_move) {
@@ -877,8 +884,8 @@ impl Search {
 
         // Futile move pruning
         let mut allow_futile_move_pruning = false;
-        if !is_pv && !improving && depth <= 6 && !in_check && self.current_depth >= 8 {
-            let margin = (params::fp_margin_multiplier() << depth) + params::fp_base_margin();
+        if is(self.params.fp_enabled()) && !is_pv && !improving && depth <= 6 && !in_check && self.current_depth >= 8 {
+            let margin = (self.params.fp_margin_multiplier() << depth) + self.params.fp_base_margin();
             let static_score = self.ctx.eval();
             allow_futile_move_pruning = static_score + margin <= alpha;
         }
@@ -903,7 +910,7 @@ impl Search {
 
             if allow_lmp && !curr_move.is_capture()
                 && !is_killer(curr_move)
-                && !curr_move.is_queen_promotion() && quiet_move_count > lmp_threshold(improving, depth) {
+                && !curr_move.is_queen_promotion() && quiet_move_count > self.lmp_threshold(improving, depth) {
                 continue;
             }
 
@@ -914,7 +921,7 @@ impl Search {
 
             // Check, if the transposition table move is singular and should be extended
             let mut se_extension = 0;
-            if check_se && !gives_check && curr_move == tt_move {
+            if is(self.params.se_enabled()) && check_se && !gives_check && curr_move == tt_move {
                 let se_beta = sanitize_score(tt_score - depth as i16);
                 self.board.undo_move(curr_move, previous_piece, removed_piece_id);
                 let result = same_ply!(self.ctx, self.rec_find_best_move(rx, se_beta - 1, se_beta, ply, depth / 2, &mut PrincipalVariation::default(), true, curr_move));
@@ -925,7 +932,7 @@ impl Search {
 
                 if result < se_beta {
                     is_singular = true;
-                    if !is_pv && result + params::se_double_ext_margin() < se_beta && self.ctx.double_extensions() < params::se_double_ext_limit() {
+                    if !is_pv && result + self.params.se_double_ext_margin() < se_beta && self.ctx.double_extensions() < self.params.se_double_ext_limit() {
                         self.ctx.inc_double_extensions();
                         se_extension = 2;
                     } else {
@@ -1139,8 +1146,6 @@ impl Search {
     }
 
     fn qs<const PV: bool>(&mut self, active_player: Color, mut alpha: i16, beta: i16, ply: usize, in_check: bool, pv: &mut PrincipalVariation) -> i16 {
-        self.max_reached_depth = ply.max(self.max_reached_depth);
-
         let position_score = if in_check { MATED_SCORE + ply as i16 } else {
             self.tt.get_or_calc_eval(self.board.get_hash(), || self.board.eval())
         };
@@ -1393,6 +1398,24 @@ impl Search {
         let active_player = self.board.active_player();
         m.start() == self.board.king_pos(active_player) && m.end() == self.board.king_pos(active_player.flip())
     }
+
+    #[inline]
+    fn null_move_reduction(&self, depth: i32) -> i32 {
+        self.params.nmp_base() as i32 + depth / self.params.nmp_divider() as i32
+    }
+
+    fn lmp_threshold(&self, improving: bool, depth: i32) -> i16 {
+        if improving {
+            self.arr_params.lmp_improving(depth as usize)
+        } else {
+            self.arr_params.lmp_not_improving(depth as usize)
+        }
+    }
+}
+
+#[inline(always)]
+fn is(value: i16) -> bool {
+    value != 0
 }
 
 fn clamp_score(score: i16, worst_possible_score: i16, best_possible_score: i16) -> i16 {
@@ -1464,7 +1487,7 @@ impl HelperThreads {
 
     pub fn resize(
         &mut self, target_count: usize, node_count: &Arc<AtomicU64>, tb_hits: &Arc<AtomicU64>, tt: &Arc<TranspositionTable>, board: &Board,
-        is_stopped: &Arc<AtomicBool>
+        is_stopped: &Arc<AtomicBool>, params: SingleParams, arr_params: ArrayParams,
     ) {
         if target_count < self.threads.len() {
             self.threads.drain(target_count..).for_each(|t| {
@@ -1484,10 +1507,13 @@ impl HelperThreads {
             let tt = tt.clone();
             let board = board.clone();
             let is_stopped = is_stopped.clone();
+            let params = params.clone();
+            let arr_params = arr_params.clone();
 
             let handle = thread::spawn(move || {
                 let limits = SearchLimits::default();
-                let sub_search = Search::new(is_stopped, node_count, tb_hits, LogLevel::Error, limits, tt, board, true);
+                let mut sub_search = Search::new(is_stopped, node_count, tb_hits, LogLevel::Error, limits, tt, board, true);
+                sub_search.set_params(params, arr_params);
 
                 HelperThread::run(to_rx, from_tx, sub_search);
             });
@@ -1783,10 +1809,6 @@ fn get_score_info(score: i16) -> String {
     }
 }
 
-#[inline]
-fn null_move_reduction(depth: i32) -> i32 {
-    params::nmp_base() as i32 + depth / nmp_divider() as i32
-}
 
 #[inline]
 const fn log2(i: u32) -> i32 {

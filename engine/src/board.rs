@@ -30,8 +30,6 @@ use crate::colors::{Color, BLACK, WHITE};
 use crate::magics::{get_bishop_attacks, get_rook_attacks};
 use crate::moves::{Move, MoveType};
 use crate::nn::eval::NeuralNetEval;
-use crate::params;
-use crate::params::see_piece_values;
 use crate::pieces::{B, EMPTY, K, N, P, Q, R};
 use crate::pos_history::PositionHistory;
 use crate::transposition_table::MAX_DEPTH;
@@ -74,6 +72,13 @@ pub struct StateEntry {
     castling: CastlingState,
     halfmove_clock: u8,
     history_start: u8,
+}
+
+static SEE_PIECE_VALUES: [i16; 7] = [0, 98, 349, 350, 523, 1016, 8000];
+
+#[inline(always)]
+fn see_piece_value(piece: i8) -> i16 {
+    unsafe { *SEE_PIECE_VALUES.get_unchecked(piece.abs() as usize) }
 }
 
 impl Board {
@@ -779,9 +784,9 @@ impl Board {
     pub fn has_negative_see(
         &self, mut opp_color: Color, start: usize, end: usize, own_piece_id: i8, captured_piece_id: i8, mut occupied: BitBoard,
     ) -> bool {
-        let mut score = params::see_piece_values(captured_piece_id as usize);
+        let mut score = see_piece_value(captured_piece_id);
         occupied = occupied & !(1 << start as u64);
-        let mut potential_gain = params::see_piece_values(own_piece_id as usize);
+        let mut potential_gain = see_piece_value(own_piece_id);
 
         let mut attackers = self.find_attackers(!occupied, occupied, end);
         let all_bishops = self.get_bitboard(B) | self.get_bitboard(-B);
@@ -811,7 +816,7 @@ impl Board {
                 };
 
             score -= potential_gain;
-            potential_gain = see_piece_values(attacker_piece_id as usize);
+            potential_gain = see_piece_value(attacker_piece_id);
             if score + potential_gain < 0 {
                 break;
             }
