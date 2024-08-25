@@ -717,7 +717,7 @@ impl Search {
         if se_move == NO_MOVE {
             // Check transposition table
             let mut is_tt_hit = false;
-            if let Some(tt_entry) = self.tt.get_entry(hash, self.gen_bit) {
+            if let Some(tt_entry) = self.tt.get_entry(hash) {
                 tt_move = get_tt_move(tt_entry, ply);
                 tt_score = tt_move.score();
 
@@ -1214,7 +1214,7 @@ impl Search {
     }
 
     fn get_tt_move(&self, ply: usize) -> Move {
-        if let Some(entry) = self.tt.get_entry(self.board.get_hash(), self.gen_bit) {
+        if let Some(entry) = self.tt.get_entry(self.board.get_hash()) {
             let tt_move = get_tt_move(entry, ply);
             let active_player = self.board.active_player();
             if is_valid_move(&self.board, active_player, tt_move) {
@@ -1285,7 +1285,7 @@ impl Search {
             return String::new();
         }
 
-        if let Some(entry) = self.tt.get_entry(self.board.get_hash(), self.gen_bit) {
+        if let Some(entry) = self.tt.get_entry(self.board.get_hash()) {
             let active_player = self.board.active_player();
             let hash_move = get_tt_move(entry, 0);
             if hash_move.is_no_move() {

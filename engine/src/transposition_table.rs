@@ -137,17 +137,13 @@ impl TranspositionTable {
         }).unwrap().store(new_entry, Ordering::Relaxed);
     }
 
-    pub fn get_entry(&self, hash: u64, gen_bit: u8) -> Option<u64> {
+    #[inline(always)]
+    pub fn get_entry(&self, hash: u64) -> Option<u64> {
         let index = self.calc_index(hash);
         let slots = unsafe { self.segments.0.get_unchecked(index) };
         let hash_check = hash & HASHCHECK_MASK;
 
-        if let Some((entry, slot)) = slots.iter().skip(1).map(|s| (s.load(Ordering::Relaxed), s)).find(|(e, _)| e & HASHCHECK_MASK == hash_check) {
-            update_gen_bit(entry, slot, gen_bit);
-            Some(entry)
-        } else {
-            None
-        }
+        slots.iter().skip(1).map(|s| s.load(Ordering::Relaxed)).find(|e| e & HASHCHECK_MASK == hash_check)
     }
 
     pub fn get_or_calc_eval<F: FnOnce() -> i16>(&self, hash: u64, calc_eval: F) -> i16 {
@@ -218,12 +214,6 @@ pub fn to_gen_bit(full_move_count: u16) -> u8 {
 
 fn get_gen_bit(entry: u64) -> u8 {
     (entry & (GEN_MASK << GEN_BITSHIFT)) as u8
-}
-
-fn update_gen_bit(entry: u64, slot: &AtomicU64, gen_bit: u8) {
-    if get_gen_bit(entry) != gen_bit {
-        slot.store(entry ^ gen_bit as u64, Ordering::Relaxed);
-    }
 }
 
 fn decode_score(entry: u64) -> i16 {
@@ -304,7 +294,7 @@ mod tests {
 
         tt.write_entry(hash, 0, 0, depth,  m, score, typ);
 
-        let entry = tt.get_entry(hash, 0).expect("entry must exist");
+        let entry = tt.get_entry(hash).expect("entry must exist");
 
         assert_eq!(m.to_u32(), get_tt_move(entry, 0).to_u32());
         assert_eq!(depth, get_depth(entry));
@@ -319,7 +309,7 @@ mod tests {
         let m = NO_MOVE.with_score(score);
         tt.write_entry(hash, 0, 0, 1, m, score, ScoreType::Exact);
 
-        let entry= tt.get_entry(hash, 0).expect("entry must exist");
+        let entry= tt.get_entry(hash).expect("entry must exist");
         assert_eq!(m.to_u32(), get_tt_move(entry, 0).to_u32());
     }
 
@@ -331,7 +321,7 @@ mod tests {
         let m = NO_MOVE.with_score(score);
         tt.write_entry(hash,  0, 0, 1, m, score, ScoreType::Exact);
 
-        let entry = tt.get_entry(hash, 0).expect("entry must exist");
+        let entry = tt.get_entry(hash).expect("entry must exist");
         assert_eq!(m.to_u32(), get_tt_move(entry, 0).to_u32());
     }
 
@@ -343,7 +333,7 @@ mod tests {
         let m = NO_MOVE.with_score(score);
         tt.write_entry(hash, 0, 0, 1, m, score, ScoreType::Exact);
 
-        let entry= tt.get_entry(hash, 0).expect("entry must exist");
+        let entry= tt.get_entry(hash).expect("entry must exist");
         assert_eq!(m.to_u32(), get_tt_move(entry, 0).to_u32());
     }
 
@@ -355,7 +345,7 @@ mod tests {
         let m = NO_MOVE.with_score(score);
         tt.write_entry(hash,  0, 0, 1, m, score, ScoreType::Exact);
 
-        let entry = tt.get_entry(hash, 0).expect("entry must exist");
+        let entry = tt.get_entry(hash).expect("entry must exist");
         assert_eq!(m.to_u32(), get_tt_move(entry, 0).to_u32());
     }
 }
