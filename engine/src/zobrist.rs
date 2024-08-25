@@ -16,63 +16,62 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::random::rand64;
+const PLAYER: u64 = 0x8000000000000001;
+const EP: u64 = 0x42a6344d1227098d;
+const CASTLING: u64 = 0xab28bc31b46cbb3c;
+static PIECE: [u64; 13] = [ 0x7eb5140a57a894c8, 0x467813d5c298de63, 0xc5c1f1e2594b941c, 0xf319da8df6cf96b4, 0xdc8b55eebfca3a40, 0x5418f15d4c08f4e2, 0x1d3350493f26ec1e, 0xd0c4b14bdb230807, 0x73ef23b69de88e14, 0xb9219d4683de93d9, 0xe8c0a3740dbb1c7a, 0x59fd9c7dc2c9298a, 0x1ffc53c9670efd27 ];
 
-const SEED: u64 = 0x4d595df4d0f33173;
-
-const PLAYER_ZOBRIST_KEY: u64 = 1;
-const EP: u128 = 0xeedf589a68d8b723acdd859e243fc895;
-static CASTLING_ZOBRIST_KEYS: [u64; 16] = gen_keys::<16>(0);
-static PIECE_ZOBRIST_KEYS: [u64; 13 * 64] = gen_keys::<832>(16);
-
-#[inline]
+#[inline(always)]
 pub fn player_zobrist_key() -> u64 {
-    PLAYER_ZOBRIST_KEY
+    PLAYER
 }
 
-#[inline]
+#[inline(always)]
 pub fn enpassant_zobrist_key(en_passant_state: u8) -> u64 {
-    (EP >> en_passant_state) as u64
+    EP.rotate_left(en_passant_state as u32)
 }
 
-#[inline]
+#[inline(always)]
 pub fn castling_zobrist_key(castling_state: u8) -> u64 {
-    unsafe { *CASTLING_ZOBRIST_KEYS.get_unchecked(castling_state as usize) }
+    CASTLING.rotate_left(castling_state as u32)
 }
 
-#[inline]
+#[inline(always)]
 pub fn piece_zobrist_key(piece: i8, pos: usize) -> u64 {
-    unsafe { *PIECE_ZOBRIST_KEYS.get_unchecked(((piece + 6) as usize) * 64 + pos) }
-}
-
-const fn gen_keys<const N: usize>(mut skip: usize) -> [u64; N] {
-    let mut state = SEED;
-    while skip > 0 {
-        let (new_state, _) = rand64(state);
-        state = new_state;
-        skip -= 1;
-    }
-    let mut keys = [0u64; N];
-
-    let mut i = 0;
-    while i < N {
-        let (new_state, key) = rand64(state);
-        keys[i] = key;
-        state = new_state;
-        i += 1;
-    }
-
-    keys
+    let piece_key = unsafe { *PIECE.get_unchecked((piece + 6) as usize) };
+    piece_key.rotate_left(pos as u32)
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::board::castling::{Castling, CastlingState};
     use crate::board::{BlackBoardPos, WhiteBoardPos};
-    use super::*;
+    use crate::zobrist::{enpassant_zobrist_key, player_zobrist_key};
 
     #[test]
     fn check_key_quality() {
-        let mut all_keys = vec![PLAYER_ZOBRIST_KEY];
+        let mut all_keys = Vec::new();
+        all_keys.push(player_zobrist_key());
+
+        let mut castlings = Vec::new();
+        for side1 in [Some(Castling::WhiteKingSide), Some(Castling::WhiteQueenSide), Some(Castling::BlackKingSide), Some(Castling::BlackQueenSide), None].iter() {
+            for side2 in [Some(Castling::WhiteKingSide), Some(Castling::WhiteQueenSide), Some(Castling::BlackKingSide), Some(Castling::BlackQueenSide), None].iter() {
+                for side3 in [Some(Castling::WhiteKingSide), Some(Castling::WhiteQueenSide), Some(Castling::BlackKingSide), Some(Castling::BlackQueenSide), None].iter() {
+                    for side4 in [Some(Castling::WhiteKingSide), Some(Castling::WhiteQueenSide), Some(Castling::BlackKingSide), Some(Castling::BlackQueenSide), None].iter() {
+                        let mut cs = CastlingState::ALL;
+                        side1.map(|side| cs.clear_side(side));
+                        side2.map(|side| cs.clear_side(side));
+                        side3.map(|side| cs.clear_side(side));
+                        side4.map(|side| cs.clear_side(side));
+                        castlings.push(cs);
+                    }
+                }
+            }
+        }
+        castlings.sort();
+        castlings.dedup();
+        castlings.iter().for_each(|c| all_keys.push(c.zobrist_key()));
+
         for ep in (WhiteBoardPos::EnPassantLineStart as u8)..=(WhiteBoardPos::EnPassantLineEnd as u8) {
             all_keys.push(enpassant_zobrist_key(ep));
         }
@@ -80,8 +79,15 @@ mod tests {
             all_keys.push(enpassant_zobrist_key(ep));
         }
 
-        CASTLING_ZOBRIST_KEYS.iter().for_each(|&k| all_keys.push(k));
-        PIECE_ZOBRIST_KEYS.iter().for_each(|&k| all_keys.push(k));
+        for piece in -6..=6 {
+            if piece == 0 {
+                continue;
+            }
+            for pos in 0..64 {
+                all_keys.push(super::piece_zobrist_key(piece, pos));
+            }
+        }
+
         let mut duplicates = all_keys.len();
         all_keys.sort_unstable();
         all_keys.dedup();
