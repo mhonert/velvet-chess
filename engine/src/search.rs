@@ -976,10 +976,6 @@ impl Search {
                             reductions -= 1;
                         }
                         
-                        if tt_move != NO_MOVE && tt_move.is_capture() {
-                            reductions += 1;
-                        }
-
                         if curr_move.score() < QUIET_BASE_SCORE && self.board.has_negative_see(active_player.flip(), start as usize, end as usize, target_piece_id, EMPTY, occupied_bb) {
                             reductions += 1;
                         }
@@ -1001,7 +997,7 @@ impl Search {
                         reductions += NEG_SEE_REDUCTIONS;
                     }
 
-                    if is_singular {
+                    if is_singular || (tt_move != NO_MOVE && tt_move.is_capture()) {
                         reductions += 1;
                     }
 
