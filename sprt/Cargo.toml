@@ -11,3 +11,4 @@ velvet = { path = "../engine" }
 rand = "0.8.5"
 core_affinity = "0.8.1"
 libm = "0.2.8"
+thread-priority = "1.1.0"

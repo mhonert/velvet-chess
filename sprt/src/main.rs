@@ -22,8 +22,8 @@ mod sprt;
 
 use std::env::args;
 use std::sync::{Arc};
-use std::thread;
 use core_affinity::CoreId;
+use thread_priority::*;
 use velvet::board::Board;
 use velvet::fen::{create_from_fen, read_fen, START_POS};
 use velvet::init::init;
@@ -71,7 +71,7 @@ fn main() {
 
     println!(" - Using {} CPU cores", core_ids.len());
 
-    assert!(core_affinity::set_for_current(reserved_core_ids[0]), "could not set CPU core affinity");
+    // assert!(core_affinity::set_for_current(reserved_core_ids[0]), "could not set CPU core affinity");
 
     let openings = Arc::new(OpeningBook::new(&book_file));
 
@@ -81,9 +81,17 @@ fn main() {
         let thread_state = state.clone();
         let thread_openings = openings.clone();
         let thread_features = features.clone();
-        thread::spawn(move || {
-            run_thread(id, thread_state, thread_openings, thread_features, time, inc);
-        })
+        
+        ThreadBuilder::default()
+            .name(format!("Worker {:?}", id))
+            .priority(ThreadPriority::Max)
+            .spawn(move |result| {
+                if let Err(e) = result {
+                    eprintln!("Could not set thread priority for worker thread running on {:?}: {}", id, e);
+                }
+                run_thread(id, thread_state.clone(), thread_openings.clone(), thread_features.clone(), time, inc);
+            })
+            .expect("could not spawn thread")
     }).collect();
 
     for handle in handles.into_iter() {
@@ -92,7 +100,9 @@ fn main() {
 }
 
 fn run_thread(id: CoreId, state: Arc<SprtState>, openings: Arc<OpeningBook>, features: Vec<String>, time: i32, inc: i32) {
-    assert!(core_affinity::set_for_current(id), "could not set CPU core affinity for worker thread");
+    if !core_affinity::set_for_current(id) {
+        eprintln!("Could not set CPU core affinity for worker thread running on {:?}", id);
+    }
 
     let mut engine_a = Engine::new(time, inc, true);
     let mut engine_b = Engine::new(time, inc, false);
