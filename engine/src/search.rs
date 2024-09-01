@@ -42,7 +42,7 @@ use std::time::{Duration, Instant};
 use LogLevel::Info;
 use crate::{next_ply, same_ply};
 use crate::nn::io::FastHasher;
-use crate::params::{ArrayParams, SingleParams};
+use crate::params::{lmr_idx, ArrayParams, DerivedArrayParams, SingleParams};
 use crate::search_context::{SearchContext};
 use crate::syzygy::{DEFAULT_TB_PROBE_DEPTH, ProbeTB};
 use crate::syzygy::tb::{TBResult};
@@ -61,22 +61,6 @@ const NEG_SEE_REDUCTIONS: i32 = 2;
 
 const INITIAL_ASPIRATION_WINDOW_SIZE: i16 = 16;
 const INITIAL_ASPIRATION_WINDOW_STEP: i16 = 16;
-
-const MAX_LMR_MOVES: usize = 64;
-
-const LMR: [i32; MAX_LMR_MOVES] = calc_late_move_reductions();
-
-const fn calc_late_move_reductions() -> [i32; MAX_LMR_MOVES] {
-    let mut lmr = [0i32; MAX_LMR_MOVES];
-    let mut moves = 0;
-    while moves < MAX_LMR_MOVES {
-        lmr[moves] = log2(1 + moves as u32 / 4);
-        moves += 1;
-    }
-
-    lmr
-}
-
 
 type MoveSet = HashSet<Move, BuildHasherDefault<FastHasher>>;
 
@@ -120,6 +104,7 @@ pub struct Search {
     gen_bit: u8,
     params: SingleParams,
     arr_params: ArrayParams,
+    derived_params: DerivedArrayParams,
 }
 
 impl Search {
@@ -130,6 +115,9 @@ impl Search {
         let hh = HistoryHeuristics::default();
 
         let time_mgr = TimeManager::new();
+        
+        let params = SingleParams::default();
+        let derived_params = DerivedArrayParams::new(&params);
 
         Search {
             log_level,
@@ -166,13 +154,22 @@ impl Search {
 
             gen_bit: 0,
 
-            params: SingleParams::default(),
+            params,
             arr_params: ArrayParams::default(),
+            derived_params,
         }
     }
 
     pub fn set_param(&mut self, name: &str, value: i16) -> bool {
-        self.params.set_param(name, value) || self.arr_params.set_array_param(name, value)
+        if let Some(updated) = self.params.set_param(name, value) {
+            if updated {
+                self.derived_params.update(&self.params);
+            }
+            
+            return true;
+        } 
+
+        self.arr_params.set_array_param(name, value)
     }
 
     pub fn set_params(&mut self, params: SingleParams, arr_params: ArrayParams) {
@@ -968,7 +965,8 @@ impl Search {
 
                 } else {
                     if allow_lmr && quiet_move_count > LMR_THRESHOLD && !curr_move.is_queen_promotion()  {
-                        reductions += unsafe { *LMR.get_unchecked((quiet_move_count as usize).min(MAX_LMR_MOVES - 1)) } + i32::from(!is_pv);
+                        reductions += self.derived_params.lmr(lmr_idx(quiet_move_count)) as i32 + i32::from(!is_pv);
+                        
                         let history_diff = (curr_move.score() - QUIET_BASE_SCORE) / -MIN_HISTORY_SCORE;
                         if !improving && history_diff < 0  {
                             reductions -= history_diff as i32;
@@ -1000,7 +998,7 @@ impl Search {
                     if is_singular || (tt_move != NO_MOVE && tt_move.is_capture()) {
                         reductions += 1;
                     }
-
+                    
                     quiet_move_count += 1;
 
                     if allow_futile_move_pruning
@@ -1805,12 +1803,6 @@ fn get_score_info(score: i16) -> String {
     }
 }
 
-
-#[inline]
-const fn log2(i: u32) -> i32 {
-    (32 - i.leading_zeros()) as i32 - 1
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::Once;
@@ -1941,12 +1933,5 @@ mod tests {
 
     fn to_fen(active_player: Color, items: &[i8; 64]) -> String {
         write_fen(&Board::new(items, active_player, CastlingState::default(), None, 0, 1, CastlingRules::default()))
-    }
-
-    #[test]
-    fn calc_log2() {
-        for i in 1..65536 {
-            assert_eq!(log2(i), (i as f32).log2() as i32)
-        }
     }
 }

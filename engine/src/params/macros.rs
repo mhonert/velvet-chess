@@ -42,17 +42,18 @@ macro_rules! tunable_params {
             pub fn $name(&self) -> i16 { self.$name }
             )+
 
-            pub fn set_param(&mut self, name: &str, value: i16) -> bool {
+            pub fn set_param(&mut self, name: &str, value: i16) -> Option<bool> {
                 match name {
                     $(
                     stringify!($name) => {
+                        let prev = self.$name;
                         self.$name = value;
-                        return true;
+                        return Some(prev != value);
                     },
                     )+
                     _ => {}
                 }
-                false
+                Some(false)
             }
         }
 
@@ -76,8 +77,8 @@ macro_rules! tunable_params {
             pub fn $name(&self) -> i16 { $value }
             )+
 
-            pub fn set_param(&self, _name: &str, _value: i16) -> bool {
-                false
+            pub fn set_param(&self, _name: &str, _value: i16) -> Option<bool> {
+                None
             }
         }
     }
@@ -164,6 +165,45 @@ macro_rules! tunable_array_params {
             pub fn set_array_param(&self, _name: &str, _value: i16) -> bool {
                 false
             }
+        }
+    }
+}
+
+
+// Creates a struct with array params that are derived from SingleParams using a function.
+// e.g. lmr[MAX_LMR_MOVES] = calc_late_move_reductions
+// There can be multiple derived array params defined within this macro, which will all be represented as fields in a single struct.
+// lmr is the name of the array, MAX_LMR_MOVES is the size of the array, and calc_late_move_reductions(lmr_divider) is the function that derives the array.
+// the function takes a reference to the SingleParams struct as a parameter.
+// The SingleParams struct is passed as a parameter to the new() function and also to the update() function.
+macro_rules! derived_array_params {
+    ($($name:ident: [$size:ident] = $func:ident)*) => {
+        #[derive(Copy, Clone)]
+        pub struct DerivedArrayParams {
+        $(
+            $name: [i16; $size],
+        )+
+        }
+
+        impl DerivedArrayParams {
+            pub fn new(sp: &SingleParams) -> Self {
+                Self {
+                $(
+                    $name: $func(sp),
+                )+
+                }
+            }
+
+            pub fn update(&mut self, sp: &SingleParams) {
+                $(
+                    self.$name = $func(sp);
+                )+
+            }
+
+            $(
+            #[inline(always)]
+            pub fn $name(&self, i: usize) -> i16 { self.$name[i] }
+            )+
         }
     }
 }

@@ -38,6 +38,9 @@ tunable_params!(
     prob_cut_margin = 150
     prob_cut_depth = 4
     
+    lmr_base = 256
+    lmr_divider = 1024
+
     nmp_enabled = 1
     razoring_enabled = 1
     rfp_enabled = 1
@@ -49,6 +52,10 @@ tunable_params!(
 tunable_array_params!(
     lmp_improving = [0, 4, 7]
     lmp_not_improving = [0, 2, 3]
+);
+
+derived_array_params!(
+    lmr: [MAX_LMR_MOVES] = calc_late_move_reductions
 );
 
 static STRENGTH_NODE_LIMITS: [u16; 72] = [
@@ -71,4 +78,24 @@ pub fn print_options() {
 pub fn calc_node_limit_from_elo(elo: i32) -> u64 {
     let elo_normalized = (elo.clamp(1225, 3000) - 1225) / 25;
     STRENGTH_NODE_LIMITS[elo_normalized as usize] as u64
+}
+
+const MAX_LMR_MOVES: usize = 64;
+
+pub fn lmr_idx(moves: i16) -> usize {
+    (moves as usize).min(MAX_LMR_MOVES - 1)
+}
+
+fn calc_late_move_reductions(params: &SingleParams) -> [i16; MAX_LMR_MOVES] {
+    let mut lmr = [0i16; MAX_LMR_MOVES];
+    for moves in 1..MAX_LMR_MOVES {
+        lmr[lmr_idx(moves as i16)] = (from_fp(params.lmr_base()) + (moves as f64) / from_fp(params.lmr_divider())).log2() as i16;
+    }
+
+    lmr
+}
+
+// Convert a fixed point value to a floating point value.
+fn from_fp(fp: i16) -> f64 {
+    (fp as f64) / 256.0
 }
