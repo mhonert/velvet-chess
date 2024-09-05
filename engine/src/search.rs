@@ -42,7 +42,7 @@ use std::time::{Duration, Instant};
 use LogLevel::Info;
 use crate::{next_ply, same_ply};
 use crate::nn::io::FastHasher;
-use crate::params::{lmr_idx, ArrayParams, DerivedArrayParams, SingleParams};
+use crate::params::{lmr_idx, DerivedArrayParams, SingleParams};
 use crate::search_context::{SearchContext};
 use crate::syzygy::{DEFAULT_TB_PROBE_DEPTH, ProbeTB};
 use crate::syzygy::tb::{TBResult};
@@ -103,7 +103,6 @@ pub struct Search {
 
     gen_bit: u8,
     params: SingleParams,
-    arr_params: ArrayParams,
     derived_params: DerivedArrayParams,
 }
 
@@ -155,7 +154,6 @@ impl Search {
             gen_bit: 0,
 
             params,
-            arr_params: ArrayParams::default(),
             derived_params,
         }
     }
@@ -167,32 +165,30 @@ impl Search {
             }
             
             return true;
-        } 
-
-        self.arr_params.set_array_param(name, value)
+        }
+        false
     }
 
-    pub fn set_params(&mut self, params: SingleParams, arr_params: ArrayParams) {
+    pub fn set_params(&mut self, params: SingleParams) {
         self.params = params;
-        self.arr_params = arr_params;
     }
 
     pub fn resize_tt(&mut self, new_size_mb: i32) {
         // Remove all additional threads, which reference the transposition table
         let thread_count = self.threads.count();
-        self.threads.resize(0, &self.node_count, &self.tb_hits, &self.tt, &self.board, &self.is_stopped, self.params, self.arr_params);
+        self.threads.resize(0, &self.node_count, &self.tb_hits, &self.tt, &self.board, &self.is_stopped, self.params);
 
         // Resize transposition table
         Arc::get_mut(&mut self.tt).unwrap().resize(new_size_mb as u64);
 
         // Restart threads
-        self.threads.resize(thread_count, &self.node_count, &self.tb_hits, &self.tt, &self.board, &self.is_stopped, self.params, self.arr_params);
+        self.threads.resize(thread_count, &self.node_count, &self.tb_hits, &self.tt, &self.board, &self.is_stopped, self.params);
 
         self.clear_tt();
     }
 
     pub fn reset_threads(&mut self, thread_count: i32) {
-        self.threads.resize((thread_count - 1) as usize, &self.node_count, &self.tb_hits, &self.tt, &self.board, &self.is_stopped, self.params, self.arr_params);
+        self.threads.resize((thread_count - 1) as usize, &self.node_count, &self.tb_hits, &self.tt, &self.board, &self.is_stopped, self.params);
     }
 
     pub fn clear_tt(&mut self) {
@@ -894,7 +890,7 @@ impl Search {
         let mut is_singular = false;
 
         let has_non_pawns = self.board.has_non_pawns(active_player);
-        let allow_lmp = !is_pv && !in_check && has_non_pawns && depth <= 2 && self.current_depth >= 7;
+        let allow_lmp = !is_pv && !in_check && has_non_pawns && depth <= self.params.lmp_max_depth() as i32 && self.current_depth >= 7;
 
         self.hh.clear_killers(ply + 1);
 
@@ -907,7 +903,7 @@ impl Search {
 
             if allow_lmp && !curr_move.is_capture()
                 && !is_killer(curr_move)
-                && !curr_move.is_queen_promotion() && quiet_move_count > self.lmp_threshold(improving, depth) {
+                && !curr_move.is_queen_promotion() && quiet_move_count > self.params.lmp(improving, depth) as i16 {
                 continue;
             }
 
@@ -1395,15 +1391,7 @@ impl Search {
 
     #[inline]
     fn null_move_reduction(&self, depth: i32) -> i32 {
-        self.params.nmp_base() as i32 + depth / self.params.nmp_divider() as i32
-    }
-
-    fn lmp_threshold(&self, improving: bool, depth: i32) -> i16 {
-        if improving {
-            self.arr_params.lmp_improving(depth as usize)
-        } else {
-            self.arr_params.lmp_not_improving(depth as usize)
-        }
+        (self.params.nmp_base() as i32 + (depth * 256 * 256) / self.params.nmp_divider() as i32) / 256
     }
 }
 
@@ -1481,7 +1469,7 @@ impl HelperThreads {
 
     pub fn resize(
         &mut self, target_count: usize, node_count: &Arc<AtomicU64>, tb_hits: &Arc<AtomicU64>, tt: &Arc<TranspositionTable>, board: &Board,
-        is_stopped: &Arc<AtomicBool>, params: SingleParams, arr_params: ArrayParams,
+        is_stopped: &Arc<AtomicBool>, params: SingleParams,
     ) {
         if target_count < self.threads.len() {
             self.threads.drain(target_count..).for_each(|t| {
@@ -1501,13 +1489,11 @@ impl HelperThreads {
             let tt = tt.clone();
             let board = board.clone();
             let is_stopped = is_stopped.clone();
-            let params = params.clone();
-            let arr_params = arr_params.clone();
 
             let handle = thread::spawn(move || {
                 let limits = SearchLimits::default();
                 let mut sub_search = Search::new(is_stopped, node_count, tb_hits, LogLevel::Error, limits, tt, board, true);
-                sub_search.set_params(params, arr_params);
+                sub_search.set_params(params);
 
                 HelperThread::run(to_rx, from_tx, sub_search);
             });

@@ -15,23 +15,18 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-mod engine;
-mod openings;
-mod pentanomial;
 mod sprt;
 
 use std::env::args;
 use std::sync::{Arc};
 use core_affinity::CoreId;
 use thread_priority::*;
-use velvet::board::Board;
+use selfplay::openings::OpeningBook;
+use selfplay::pentanomial::PentanomialCount;
+use selfplay::selfplay::{play_match, SearchControl};
 use velvet::fen::{create_from_fen, read_fen, START_POS};
 use velvet::init::init;
-use velvet::moves::{NO_MOVE};
 use velvet::nn::init_nn_params;
-use crate::engine::Engine;
-use crate::openings::OpeningBook;
-use crate::pentanomial::{Outcome, PentanomialCount};
 use crate::sprt::SprtState;
 
 const PAIRS: usize = 8;
@@ -53,10 +48,14 @@ fn main() {
     let book_file = args().nth(1).expect("No book file parameter provided");
     let time = args().nth(2).expect("No base time parameter provided").parse::<i32>().expect("Invalid base time parameter") * 1000;
     let inc = time / 100;
-    let features: Vec<String> = args().skip(3).collect();
+    
+    let params: Vec<(String, i16, i16)> = args().skip(3).map(|f| {
+        let parts: Vec<&str> = f.split(',').collect();
+        (parts[0].to_string(), parts[1].parse::<i16>().expect("Invalid parameter value A"), parts[2].parse::<i16>().expect("Invalid parameter value B"))
+    }).collect();
 
     println!("Velvet SPRT Tool");
-    println!(" - Testing Elo gain using TC {}+{} for features {:?} ", time as f64 / 1000.0, inc as f64 / 1000.0, features);
+    println!(" - Testing Elo gain using TC {}+{} for params {:?} ", time as f64 / 1000.0, inc as f64 / 1000.0, params);
 
     let mut reserved_core_ids = Vec::new();
     let mut core_ids = core_affinity::get_core_ids().expect("Could not retrieve CPU core IDs");
@@ -80,7 +79,7 @@ fn main() {
     let handles: Vec<_> = core_ids.into_iter().map(|id| {
         let thread_state = state.clone();
         let thread_openings = openings.clone();
-        let thread_features = features.clone();
+        let thread_params = params.clone();
         
         ThreadBuilder::default()
             .name(format!("Worker {:?}", id))
@@ -89,7 +88,7 @@ fn main() {
                 if let Err(e) = result {
                     eprintln!("Could not set thread priority for worker thread running on {:?}: {}", id, e);
                 }
-                run_thread(id, thread_state.clone(), thread_openings.clone(), thread_features.clone(), time, inc);
+                run_thread(id, thread_state.clone(), thread_openings.clone(), thread_params.clone(), time, inc);
             })
             .expect("could not spawn thread")
     }).collect();
@@ -99,16 +98,22 @@ fn main() {
     }
 }
 
-fn run_thread(id: CoreId, state: Arc<SprtState>, openings: Arc<OpeningBook>, features: Vec<String>, time: i32, inc: i32) {
+fn run_thread(id: CoreId, state: Arc<SprtState>, openings: Arc<OpeningBook>, params: Vec<(String, i16, i16)>, time: i32, inc: i32) {
     if !core_affinity::set_for_current(id) {
         eprintln!("Could not set CPU core affinity for worker thread running on {:?}", id);
     }
 
-    let mut engine_a = Engine::new(time, inc, true);
-    let mut engine_b = Engine::new(time, inc, false);
+    let mut engine_a = SearchControl::new(time, inc);
+    let mut engine_b = SearchControl::new(time, inc);
 
     let mut board = create_from_fen(START_POS);
+
+    let params_a = params.iter().map(|(name, a, _)| (name.clone(), *a)).collect::<Vec<_>>();
+    let params_b = params.iter().map(|(name, _, b)| (name.clone(), *b)).collect::<Vec<_>>();
     
+    engine_a.set_params(&params_a);
+    engine_b.set_params(&params_b);
+
     while !state.stopped() {
         engine_a.reset();
         engine_b.reset();
@@ -120,14 +125,14 @@ fn run_thread(id: CoreId, state: Arc<SprtState>, openings: Arc<OpeningBook>, fea
             let opening = openings.get_random();
 
             read_fen(&mut board, &opening).expect("Could not read FEN");
-            let (first_result, add_time_losses) = play_match(&mut board, &mut [&mut engine_a, &mut engine_b], &features, time, inc);
+            let (first_result, add_time_losses) = play_match(&mut board, &mut [&mut engine_a, &mut engine_b], time, inc);
             if state.stopped() {
                 return;
             }
             time_losses += add_time_losses;
 
             read_fen(&mut board, &opening).expect("Could not read FEN");
-            let (second_result, add_time_losses) = play_match(&mut board, &mut [&mut engine_b, &mut engine_a], &features, time, inc);
+            let (second_result, add_time_losses) = play_match(&mut board, &mut [&mut engine_b, &mut engine_a], time, inc);
             if state.stopped() {
                 return;
             }
@@ -140,33 +145,3 @@ fn run_thread(id: CoreId, state: Arc<SprtState>, openings: Arc<OpeningBook>, fea
         state.update(&p, avg_depth, time_losses);
     }
 }
-
-fn play_match(board: &mut Board, engines: &mut [&mut Engine; 2], features: &[String], time: i32, inc: i32) -> (Outcome, usize) {
-    let mut time_losses = 0;
-    loop {
-        engines[0].new_game(board, time, inc);
-        engines[1].new_game(board, time, inc);
-
-        let mut i = 0;
-        loop {
-            let (bm, time_loss) = engines[i].next_move(features);
-            if bm == NO_MOVE || time_loss {
-                if time_loss {
-                    time_losses += 1;
-                    break;
-                }
-                return (if i == 0 { Outcome::Loss } else { Outcome::Win }, time_losses);
-            }
-
-            board.perform_move(bm);
-            if board.is_insufficient_material_draw() || board.is_repetition_draw() || board.is_fifty_move_draw() {
-                return (Outcome::Draw, time_losses);
-            }
-
-            engines[i].perform_move(bm);
-            i = (i + 1) % 2;
-            engines[i].perform_move(bm);
-        }
-    }
-}
-

@@ -22,12 +22,12 @@ use std::time::Instant;
 use velvet::board::Board;
 use velvet::engine::{LogLevel, Message};
 use velvet::fen::{create_from_fen, START_POS};
-use velvet::moves::Move;
+use velvet::moves::{Move, NO_MOVE};
 use velvet::search::Search;
 use velvet::time_management::SearchLimits;
 use velvet::transposition_table::TranspositionTable;
 
-pub struct Engine {
+pub struct SearchControl {
     search: Search,
     limits: SearchLimits,
     time: i32,
@@ -36,11 +36,10 @@ pub struct Engine {
     rx: Receiver<Message>,
     depths: usize,
     depth_count: usize,
-    features_enabled: bool,
 }
 
-impl Engine {
-    pub fn new(time: i32, inc: i32, features_enabled: bool) -> Engine {
+impl SearchControl {
+    pub fn new(time: i32, inc: i32) -> SearchControl {
         let mut board = create_from_fen(START_POS);
         board.reset_nn_eval();
 
@@ -52,14 +51,14 @@ impl Engine {
             Arc::new(AtomicU64::new(0)),
             LogLevel::Error,
             SearchLimits::default(),
-            TranspositionTable::new(32),
+            TranspositionTable::new(16),
             board.clone(),
             false,
         );
 
         let limits = SearchLimits::new(None, None, Some(time), Some(inc), Some(inc), Some(inc), None, None, None).expect("Invalid search limits");
 
-        Engine{
+        SearchControl {
             search,
             limits,
             time,
@@ -68,7 +67,6 @@ impl Engine {
             rx,
             depths: 0,
             depth_count: 0,
-            features_enabled,
         }
     }
 
@@ -85,15 +83,17 @@ impl Engine {
         self.depths = 0;
         self.depth_count = 0;
     }
-
-    // Returns the best move and a boolean indicating if the time was exceeded
-    pub fn next_move(&mut self, features: &[String]) -> (Move, bool) {
-        for param in features.iter() {
-            if !self.search.set_param(param, i16::from(self.features_enabled)) {
-                panic!("Invalid feature option: {}", param);
+    
+    pub fn set_params(&mut self, params: &[(String, i16)]) {
+        for (name, value) in params.iter() {
+            if !self.search.set_param(name, *value) {
+                panic!("Invalid feature option: {}", name);
             }
         }
+    }
 
+    // Returns the best move and a boolean indicating if the time was exceeded
+    pub fn next_move(&mut self) -> (Move, bool) {
         let active_player = self.search.board.active_player();
 
         self.limits = SearchLimits::new(None, None, Some(self.time), Some(self.time), Some(self.inc), Some(self.inc), None, None, None).expect("Invalid search limits");
@@ -123,3 +123,49 @@ impl Engine {
         self.depths / self.depth_count
     }
 }
+
+pub enum Outcome {
+    Win,
+    Loss,
+    Draw,
+}
+
+impl Outcome {
+    pub fn invert(&self) -> Outcome {
+        match self {
+            Outcome::Win => Outcome::Loss,
+            Outcome::Loss => Outcome::Win,
+            Outcome::Draw => Outcome::Draw,
+        }
+    }
+}
+
+pub fn play_match(board: &mut Board, engines: &mut [&mut SearchControl; 2], time: i32, inc: i32) -> (Outcome, usize) {
+    let mut time_losses = 0;
+    loop {
+        engines[0].new_game(board, time, inc);
+        engines[1].new_game(board, time, inc);
+
+        let mut i = 0;
+        loop {
+            let (bm, time_loss) = engines[i].next_move();
+            if bm == NO_MOVE || time_loss {
+                if time_loss {
+                    time_losses += 1;
+                    break;
+                }
+                return (if i == 0 { Outcome::Loss } else { Outcome::Win }, time_losses);
+            }
+
+            board.perform_move(bm);
+            if board.is_insufficient_material_draw() || board.is_repetition_draw() || board.is_fifty_move_draw() {
+                return (Outcome::Draw, time_losses);
+            }
+
+            engines[i].perform_move(bm);
+            i = (i + 1) % 2;
+            engines[i].perform_move(bm);
+        }
+    }
+}
+

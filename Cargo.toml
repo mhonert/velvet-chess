@@ -8,8 +8,10 @@ members = [
     "genmagics",
     "cputrainer",
     "gputrainer",
+    "selfplay",
     "sprt",
     "traincommon",
+    "tuner",
 ]
 
 [profile.release]

@@ -951,6 +951,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "selfplay"
+version = "1.0.0"
+dependencies = [
+ "rand",
+ "velvet",
+]
+
+[[package]]
 name = "serde"
 version = "1.0.193"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1016,6 +1024,7 @@ dependencies = [
  "core_affinity",
  "libm",
  "rand",
+ "selfplay",
  "thread-priority",
  "velvet",
 ]
@@ -1146,6 +1155,17 @@ dependencies = [
  "fathomrs",
  "lz4_flex",
  "rand",
+ "velvet",
+]
+
+[[package]]
+name = "tuner"
+version = "1.0.0"
+dependencies = [
+ "core_affinity",
+ "rand",
+ "selfplay",
+ "thread-priority",
  "velvet",
 ]
 

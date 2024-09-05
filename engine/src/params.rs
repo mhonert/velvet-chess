@@ -26,20 +26,31 @@ use std::str::FromStr;
 tunable_params!(
     fp_base_margin = 17
     fp_margin_multiplier = 22
+    
     razor_margin_multiplier = 200
+    
     rfp_base_margin_improving = 19
     rfp_margin_multiplier_improving = 22
     rfp_base_margin_not_improving = 23
     rfp_margin_multiplier_not_improving = 28
-    nmp_base = 3
-    nmp_divider = 3
+    
+    nmp_base = 768
+    nmp_divider = 672
+    
     se_double_ext_margin = 4
     se_double_ext_limit = 12
+    
     prob_cut_margin = 150
     prob_cut_depth = 4
     
     lmr_base = 256
     lmr_divider = 1024
+
+    lmp_max_depth = 4
+    lmp_improving_base = 3
+    lmp_improving_multiplier = 65
+    lmp_not_improving_base = 2
+    lmp_not_improving_multiplier = 35
 
     nmp_enabled = 1
     razoring_enabled = 1
@@ -47,11 +58,6 @@ tunable_params!(
     prob_cut_enabled = 1
     fp_enabled = 1
     se_enabled = 1
-);
-
-tunable_array_params!(
-    lmp_improving = [0, 4, 7]
-    lmp_not_improving = [0, 2, 3]
 );
 
 derived_array_params!(
@@ -72,7 +78,6 @@ pub fn print_options() {}
 #[cfg(feature = "tune")]
 pub fn print_options() {
     print_single_options();
-    print_array_options();
 }
 
 pub fn calc_node_limit_from_elo(elo: i32) -> u64 {
@@ -94,6 +99,18 @@ fn calc_late_move_reductions(params: &SingleParams) -> [i16; MAX_LMR_MOVES] {
 
     lmr
 }
+
+impl SingleParams {
+    #[inline]
+    pub fn lmp(&self, improving: bool, depth: i32) -> i32 {
+        if improving {
+            (depth * depth + self.lmp_improving_base() as i32) * self.lmp_improving_multiplier() as i32 / 64
+        } else {
+            (depth * depth + self.lmp_not_improving_base() as i32) * self.lmp_not_improving_multiplier() as i32 / 64
+        }
+    }
+}
+
 
 // Convert a fixed point value to a floating point value.
 fn from_fp(fp: i16) -> f64 {

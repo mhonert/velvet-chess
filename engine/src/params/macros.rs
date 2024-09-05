@@ -48,12 +48,11 @@ macro_rules! tunable_params {
                     stringify!($name) => {
                         let prev = self.$name;
                         self.$name = value;
-                        return Some(prev != value);
+                        Some(prev != value)
                     },
                     )+
-                    _ => {}
+                    _ => None
                 }
-                Some(false)
             }
         }
 
@@ -84,98 +83,8 @@ macro_rules! tunable_params {
     }
 }
 
-macro_rules! count_elems {
-    () => { 0usize };
-    ($_head:literal $($tail:literal)*) => { 1usize + count_elems!($($tail)*)};
-}
-
-#[cfg(feature = "tune")]
-macro_rules! tunable_array_params {
-    ($($name:ident = [$($value:literal),+])+) => {
-        #[derive(Copy, Clone)]
-        pub struct ArrayParams {
-        $(
-            $name: [i16; count_elems!($($value)+)],
-        )+
-        }
-        
-        impl Default for ArrayParams {
-            fn default() -> Self {
-                ArrayParams {
-                $(
-                    $name: [$($value),+],
-                )+
-                }
-            }
-        }
-        
-        impl ArrayParams {
-            $(
-            #[inline(always)]
-            pub fn $name(&self, i: usize) -> i16 { self.$name[i] }
-            )+
-        
-            pub fn set_array_param(&mut self, name: &str, value: i16) -> bool {
-                if let Some((base_name, idx_str)) = name.rsplit_once('_') {
-                    if let Ok(idx) = usize::from_str(idx_str) {
-                        match base_name {
-                            $(
-                            stringify!($name) => {
-                                self.$name[idx] = value;
-                                return true;
-                            },
-                            )+
-                            _ => {}
-                        }
-                    }
-                }
-                false
-            }
-        }
-
-        fn print_array_options() {
-            $(
-            for i in 0..count_elems!($($value)+) {
-                println!("option name {}_{} type spin default {} min {} max {}", stringify!($name), i, 0, i16::MIN, i16::MAX);
-            }
-            )+
-        }
-    }
-}
-
-#[cfg(not(feature = "tune"))]
-macro_rules! tunable_array_params {
-    ($($name:ident = [$($value:literal),+])+) => {
-        #[allow(non_upper_case_globals)]
-        mod adecl {
-        $(
-            pub static $name: [i16; count_elems!($($value)+)] = [$($value),+];
-        )+
-        }
-
-        #[derive(Copy, Clone, Default)]
-        pub struct ArrayParams;
-        
-        impl ArrayParams {
-            $(
-            #[inline(always)]
-            pub fn $name(&self, i: usize) -> i16 { unsafe { *adecl::$name.get_unchecked(i) } }
-            )+
-
-            pub fn set_array_param(&self, _name: &str, _value: i16) -> bool {
-                false
-            }
-        }
-    }
-}
-
-
 // Creates a struct with array params that are derived from SingleParams using a function.
 // e.g. lmr[MAX_LMR_MOVES] = calc_late_move_reductions
-// There can be multiple derived array params defined within this macro, which will all be represented as fields in a single struct.
-// lmr is the name of the array, MAX_LMR_MOVES is the size of the array, and calc_late_move_reductions(lmr_divider) is the function that derives the array.
-// the function takes a reference to the SingleParams struct as a parameter.
-// The SingleParams struct is passed as a parameter to the new() function and also to the update() function.
 macro_rules! derived_array_params {
     ($($name:ident: [$size:ident] = $func:ident)*) => {
         #[derive(Copy, Clone)]

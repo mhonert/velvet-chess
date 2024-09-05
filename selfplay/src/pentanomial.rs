@@ -15,8 +15,9 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+use crate::selfplay::Outcome;
 
-#[derive(Default)]
+#[derive(Copy, Clone, Default, Debug)]
 pub struct PentanomialCount {
     pub ll: usize, // Loss-Loss
     pub ld: usize, // Loss-Draw or Draw-Loss
@@ -39,23 +40,37 @@ impl PentanomialCount {
             (Outcome::Draw, Outcome::Draw) => self.d2 += 1,
         }
     }
-}
+    
+    pub fn clear(&mut self) {
+        self.ll = 0;
+        self.ld = 0;
+        self.d2 = 0;
+        self.wd = 0;
+        self.ww = 0;
+    }
 
-pub enum Outcome {
-    Win,
-    Loss,
-    Draw,
-}
+    pub fn add_all(&mut self, counts: PentanomialCount) {
+        self.ll += counts.ll;
+        self.ld += counts.ld;
+        self.d2 += counts.d2;
+        self.wd += counts.wd;
+        self.ww += counts.ww;
+    }
+    
+    pub fn score(&self) -> f64 {
+        self.ld as f64 * 0.25 + self.d2 as f64 * 0.5 + self.wd as f64 * 0.75 + self.ww as f64
+    }
 
-impl Outcome {
-    pub fn invert(&self) -> Outcome {
-        match self {
-            Outcome::Win => Outcome::Loss,
-            Outcome::Loss => Outcome::Win,
-            Outcome::Draw => Outcome::Draw,
-        }
+    pub fn total(&self) -> usize {
+        self.ll + self.ld + self.d2 + self.wd + self.ww
+    }
+
+    pub fn gradient(&self) -> f64 {
+        let total = self.total() as f64;
+        (self.score() / total - 0.5) * 2.0
     }
 }
+
 
 #[derive(Default)]
 pub struct PentanomialModel {
@@ -86,3 +101,15 @@ impl PentanomialModel {
     }
 }
 
+impl From<PentanomialCount> for PentanomialModel {
+    fn from(counts: PentanomialCount) -> Self {
+        let total = counts.total() as f64;
+        PentanomialModel {
+            ll: counts.ll as f64 / total,
+            ld: counts.ld as f64 / total,
+            d2: counts.d2 as f64 / total,
+            wd: counts.wd as f64 / total,
+            ww: counts.ww as f64 / total,
+        }
+    }
+}

@@ -1,5 +1,5 @@
 [package]
-name = "sprt"
+name = "selfplay"
 version = "1.0.0"
 edition = "2021"
 
@@ -7,9 +7,5 @@ edition = "2021"
 
 [dependencies]
 velvet = { path = "../engine" }
-selfplay = { path = "../selfplay" }
 
 rand = "0.8.5"
-core_affinity = "0.8.1"
-libm = "0.2.8"
-thread-priority = "1.1.0"

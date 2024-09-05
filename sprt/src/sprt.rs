@@ -16,8 +16,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use selfplay::pentanomial::{PentanomialCount, PentanomialModel};
 use crate::{SPRT_ALPHA, SPRT_BETA};
-use crate::pentanomial::{PentanomialModel, PentanomialCount};
 
 #[derive(Default)]
 pub struct SprtState {
@@ -92,12 +92,13 @@ impl SprtState {
 
         let elo_diff = score_to_norm_elo(score, variance);
         let elo_error = (score_to_norm_elo(upper_bound, variance) - score_to_norm_elo(lower_bound, variance)) / 2.0;
+        
+        let llr = self.llr(total as f64, variance, &p);
 
         let avg_depths = self.avg_depths.fetch_add(add_avg_depth, Ordering::Relaxed) + add_avg_depth;
         let depth_counts = self.depth_counts.fetch_add(1, Ordering::Relaxed) + 1;
         let avg_depth = avg_depths / depth_counts;
 
-        let llr = self.llr(total as f64, variance, &p);
         println!("Norm. Elo: {:>6.2} (+/- {:>5.2}) / Draw ratio: {:>5.2}% / Avg. depth {:2} / Time losses: {:>5.3}% / Game pairs: {} / LLR: {:>5.2}",
                  elo_diff, elo_error, draw_ratio * 100.0, avg_depth, ((total_time_losses * 100000) as f64 / total as f64) / 1000.0, total, llr);
 
