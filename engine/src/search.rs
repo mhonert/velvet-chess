@@ -991,7 +991,7 @@ impl Search {
                         reductions += NEG_SEE_REDUCTIONS;
                     }
 
-                    if is_singular || (tt_move != NO_MOVE && tt_move.is_capture()) {
+                    if is_singular || tt_move.is_capture() || tt_move.is_queen_promotion() {
                         reductions += 1;
                     }
                     
