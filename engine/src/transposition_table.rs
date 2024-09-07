@@ -178,17 +178,27 @@ impl TranspositionTable {
     }
 
     #[inline(always)]
+    #[allow(unused_variables)]
     pub fn prefetch(&self, hash: u64) {
         #[cfg(target_feature = "sse")]
         {
-            use core::arch::x86_64::{_MM_HINT_NTA, _mm_prefetch};
+            use core::arch::x86_64::{_MM_HINT_T0, _mm_prefetch};
             let index = self.calc_index(hash);
             unsafe {
-                _mm_prefetch::<{ _MM_HINT_NTA }>(self.segments.0.as_ptr().add(index) as *const i8);
+                _mm_prefetch::<{ _MM_HINT_T0 }>(self.segments.0.as_ptr().add(index) as *const i8);
+            }
+        }
+        
+        #[cfg(target_feature = "fp-armv8")]
+        {
+            use core::arch::aarch64::__prefetch;
+            let index = self.calc_index(hash);
+            unsafe {
+                __prefetch(self.segments.0.as_ptr().add(index) as *const i8);
             }
         }
 
-        #[cfg(not(target_feature = "sse"))]
+        #[cfg(all(not(target_feature = "sse"), not(target_feature = "fp-armv8")))]
         {
             // No op
         }

@@ -19,7 +19,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex};
 
-use crate::align::A32;
+use crate::align::A64;
 use crate::nn::io::{read_quantized, read_u8};
 
 pub mod eval;
@@ -47,12 +47,12 @@ pub const FP_OUT_MULTIPLIER: i64 = 1 << FP_OUT_PRECISION_BITS;
 
 pub const SCORE_SCALE: i16 = 1024;
 
-pub static mut IN_TO_H1_WEIGHTS: A32<[i16; INPUT_WEIGHT_COUNT]> = A32([0; INPUT_WEIGHT_COUNT]);
-pub static mut H1_BIASES: A32<[i16; HL1_NODES]> = A32([0; HL1_NODES]);
+pub static mut IN_TO_H1_WEIGHTS: A64<[i16; INPUT_WEIGHT_COUNT]> = A64([0; INPUT_WEIGHT_COUNT]);
+pub static mut H1_BIASES: A64<[i16; HL1_NODES]> = A64([0; HL1_NODES]);
 
-pub static mut H1_TO_OUT_WEIGHTS: A32<[i16; HL1_NODES]> = A32([0; HL1_NODES]);
+pub static mut H1_TO_OUT_WEIGHTS: A64<[i16; HL1_NODES]> = A64([0; HL1_NODES]);
 
-pub static mut OUT_BIASES: A32<[i16; 1]> = A32([0; 1]);
+pub static mut OUT_BIASES: A64<[i16; 1]> = A64([0; 1]);
 
 pub const fn piece_idx(piece_id: i8) -> u16 {
     (piece_id - 1) as u16

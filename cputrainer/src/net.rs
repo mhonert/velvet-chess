@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2023 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2024 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -28,7 +28,7 @@ const K_DIV: f64 = K / (400.0 / SCORE_SCALE as f64);
 
 #[derive(Copy, Clone)]
 #[repr(align(32))]
-pub struct A32<T>(pub T); // Wrapper to ensure 32 Byte alignment of the wrapped type (e.g. for SIMD load/store instructions)
+pub struct A64<T>(pub T); // Wrapper to ensure 32 Byte alignment of the wrapped type (e.g. for SIMD load/store instructions)
 
 #[derive(Copy, Clone, Debug, Default)]
 pub struct NetworkStats {
@@ -52,10 +52,10 @@ pub struct Network {
 
 #[derive(Copy, Clone)]
 struct NetWeights {
-    in_to_h1_weights: A32<[f32; INPUT_WEIGHT_COUNT]>,
-    h1_biases: A32<[f32; HL1_NODES]>,
+    in_to_h1_weights: A64<[f32; INPUT_WEIGHT_COUNT]>,
+    h1_biases: A64<[f32; HL1_NODES]>,
 
-    h1_to_out_weights: A32<[f32; HL1_NODES]>,
+    h1_to_out_weights: A64<[f32; HL1_NODES]>,
     out_bias: f32,
 }
 
@@ -65,8 +65,8 @@ impl Network {
     }
 
     pub fn test(
-        &self, sample: &DataSample, white_hidden_values: &mut A32<[f32; HL1_HALF_NODES]>,
-        black_hidden_values: &mut A32<[f32; HL1_HALF_NODES]>,
+        &self, sample: &DataSample, white_hidden_values: &mut A64<[f32; HL1_HALF_NODES]>,
+        black_hidden_values: &mut A64<[f32; HL1_HALF_NODES]>,
     ) -> f64 {
         // Error calculation
         let out = self.forward(sample, white_hidden_values, black_hidden_values);
@@ -74,8 +74,8 @@ impl Network {
     }
 
     pub fn stats(
-        &self, sample: &DataSample, white_hidden_values: &mut A32<[f32; HL1_HALF_NODES]>,
-        black_hidden_values: &mut A32<[f32; HL1_HALF_NODES]>,
+        &self, sample: &DataSample, white_hidden_values: &mut A64<[f32; HL1_HALF_NODES]>,
+        black_hidden_values: &mut A64<[f32; HL1_HALF_NODES]>,
     ) -> NetworkStats {
         let mut stats = NetworkStats::default();
 
@@ -133,8 +133,8 @@ impl Network {
     }
 
     fn forward(
-        &self, sample: &DataSample, white_hidden_values: &mut A32<[f32; HL1_HALF_NODES]>,
-        black_hidden_values: &mut A32<[f32; HL1_HALF_NODES]>,
+        &self, sample: &DataSample, white_hidden_values: &mut A64<[f32; HL1_HALF_NODES]>,
+        black_hidden_values: &mut A64<[f32; HL1_HALF_NODES]>,
     ) -> f32 {
         let (own_inputs, own_hidden_values, opp_inputs, opp_hidden_values) = if sample.wtm {
             (&sample.wpov_inputs, &mut white_hidden_values.0, &sample.bpov_inputs, &mut black_hidden_values.0)

@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2022 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2024 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -17,9 +17,13 @@
  */
 
 #[derive(Clone)]
-#[repr(align(32))]
-pub struct A32<T>(pub T); // Wrapper to ensure 32 Byte alignment of the wrapped type (e.g. for SIMD load/store instructions)
-
-#[derive(Clone)]
 #[repr(align(64))]
 pub struct A64<T>(pub T); // Wrapper to ensure 64 Byte alignment (e.g. for cache line alignment)
+
+pub fn unsafe_get<T>(data: &[T], idx: usize) -> &T {
+    unsafe { data.get_unchecked(idx) }
+}
+
+pub fn unsafe_get_mut<T>(data: &mut [T], idx: usize) -> &mut T {
+    unsafe { data.get_unchecked_mut(idx) }
+}
