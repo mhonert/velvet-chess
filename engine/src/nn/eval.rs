@@ -686,7 +686,6 @@ pub fn sub_add_add_weights<const N: usize>(
 mod base {
     use crate::nn::{FP_IN_PRECISION_BITS, FP_MAX_RELU, FP_OUT_PRECISION_BITS, H1_BIASES, H1_TO_OUT_WEIGHTS};
     use core::arch::x86_64::*;
-    use std::intrinsics::transmute;
 
     const WORDS_PER_REG: usize = size_of::<__m512i>() / 2;
 
@@ -725,12 +724,12 @@ mod base {
 
     #[inline(always)]
     pub fn load(data: &[i16], offset: usize) -> __m512i {
-        unsafe { _mm512_load_si512(transmute::<*const i16, *const __m512i>(data.as_ptr().add(offset))) }
+        unsafe { _mm512_load_si512(data.as_ptr().add(offset).cast()) }
     }
 
     #[inline(always)]
     pub fn store(data: &mut [i16], offset: usize, value: __m512i) {
-        unsafe { _mm512_store_si512(transmute::<*const i16, *mut __m512i>(data.as_ptr().add(offset)), value) }
+        unsafe { _mm512_store_si512(data.as_mut_ptr().add(offset).cast(), value) }
     }
 }
 
@@ -743,7 +742,6 @@ mod base {
 mod base {
     use crate::nn::{FP_IN_PRECISION_BITS, FP_MAX_RELU, FP_OUT_PRECISION_BITS};
     use core::arch::x86_64::*;
-    use std::intrinsics::transmute;
 
     pub const WORDS_PER_REG: usize = size_of::<__m256i>() / 2;
 
@@ -786,12 +784,12 @@ mod base {
 
     #[inline(always)]
     pub fn load(data: &[i16], offset: usize) -> __m256i {
-        unsafe { _mm256_load_si256(transmute::<*const i16, *const __m256i>(data.as_ptr().add(offset))) }
+        unsafe { _mm256_load_si256(data.as_ptr().add(offset).cast()) }
     }
 
     #[inline(always)]
     pub fn store(data: &mut [i16], offset: usize, value: __m256i) {
-        unsafe { _mm256_store_si256(transmute::<*const i16, *mut __m256i>(data.as_ptr().add(offset)), value) }
+        unsafe { _mm256_store_si256(data.as_mut_ptr().add(offset).cast(), value) }
     }
 
     #[inline(always)]
@@ -814,7 +812,6 @@ mod base {
 mod base {
     use crate::nn::{FP_IN_PRECISION_BITS, FP_MAX_RELU, FP_OUT_PRECISION_BITS};
     use core::arch::x86_64::*;
-    use std::intrinsics::transmute;
 
     pub type Accum = __m128i;
 
@@ -857,12 +854,12 @@ mod base {
 
     #[inline(always)]
     pub fn load(data: &[i16], offset: usize) -> __m128i {
-        unsafe { _mm_load_si128(transmute::<*const i16, *const __m128i>(data.as_ptr().add(offset))) }
+        unsafe { _mm_load_si128(data.as_ptr().add(offset).cast()) }
     }
 
     #[inline(always)]
     pub fn store(data: &mut [i16], offset: usize, value: __m128i) {
-        unsafe { _mm_store_si128(transmute::<*const i16, *mut __m128i>(data.as_ptr().add(offset)), value) }
+        unsafe { _mm_store_si128(data.as_mut_ptr().add(offset).cast(), value) }
     }
 
     #[inline(always)]
