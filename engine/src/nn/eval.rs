@@ -684,10 +684,10 @@ pub fn sub_add_add_weights<const N: usize>(
 // AVX-512
 #[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
 mod base {
-    use crate::nn::{FP_IN_PRECISION_BITS, FP_MAX_RELU, FP_OUT_PRECISION_BITS, H1_BIASES, H1_TO_OUT_WEIGHTS};
+    use crate::nn::{FP_IN_PRECISION_BITS, FP_MAX_RELU, FP_OUT_PRECISION_BITS};
     use core::arch::x86_64::*;
 
-    const WORDS_PER_REG: usize = size_of::<__m512i>() / 2;
+    pub const WORDS_PER_REG: usize = size_of::<__m512i>() / 2;
 
     pub type Accum = __m512i;
 
@@ -702,7 +702,10 @@ mod base {
 
     #[inline(always)]
     pub fn multiply_add_epi16(accum: __m512i, factor1: __m512i, factor2: __m512i) -> __m512i {
-        unsafe { _mm512_fmadd_epi16(factor1, factor2, accum) }
+        unsafe {
+            let mul = _mm512_madd_epi16(factor1, factor2);
+            _mm512_add_epi32(accum, mul)
+        }
     }
 
     #[inline(always)]
@@ -717,7 +720,7 @@ mod base {
     pub fn square(v: __m512i) -> __m512i {
         unsafe {
             let v_scaled =
-                _mm512_slli_epi16::<{ (FP_OUT_PRECISION_BITS as i32 + 16) / 2 - FP_IN_PRECISION_BITS as i32 }>(v);
+                _mm512_slli_epi16::<{ (FP_OUT_PRECISION_BITS as u32 + 16) / 2 - FP_IN_PRECISION_BITS as u32 }>(v);
             _mm512_mulhi_epu16(v_scaled, v_scaled)
         }
     }
@@ -730,6 +733,16 @@ mod base {
     #[inline(always)]
     pub fn store(data: &mut [i16], offset: usize, value: __m512i) {
         unsafe { _mm512_store_si512(data.as_mut_ptr().add(offset).cast(), value) }
+    }
+
+    #[inline(always)]
+    pub fn add_epi16(a: __m512i, b: __m512i) -> __m512i {
+        unsafe { _mm512_add_epi16(a, b) }
+    }
+
+    #[inline(always)]
+    pub fn sub_epi16(a: __m512i, b: __m512i) -> __m512i {
+        unsafe { _mm512_sub_epi16(a, b) }
     }
 }
 
