@@ -120,6 +120,9 @@ impl SearchControl {
     }
 
     pub fn avg_depth(&self) -> usize {
+        if self.depth_count == 0 {
+            return 0;
+        }
         self.depths / self.depth_count
     }
 }
