@@ -127,6 +127,7 @@ impl SearchControl {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
 pub enum Outcome {
     Win,
     Loss,

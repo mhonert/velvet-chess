@@ -19,27 +19,51 @@ use std::collections::HashMap;
 use serde::Deserialize;
 
 #[derive(Clone, Debug, Deserialize)]
-pub struct EngineConfigs(HashMap<String, EngineConfig>);
+pub struct EngineConfigs(pub HashMap<String, EngineConfig>);
+
+impl EngineConfigs {
+    pub fn merge_default_options(&mut self, default_options: &HashMap<String, String>) {
+        self.0.iter_mut().for_each(|(_, e)| {
+            e.merge_default_options(default_options);
+        });
+    }
+}
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct EngineConfig {
     #[serde(skip)]
-    pub id: usize,
+    pub id: u32,
 
-    cmd: String,
+    #[serde(skip)]
+    pub name: String,
+
+    pub cmd: String,
 
     #[serde(default)]
-    options: Vec<(String, String)>,
+    pub options: HashMap<String, String>,
 
     #[serde(default)]
-    init_commands: Vec<String>,
+    pub init_commands: Vec<String>,
 }
 
-pub fn read_engine_configs(file_path: String) -> anyhow::Result<EngineConfigs> {
+impl EngineConfig {
+    pub fn merge_default_options(&mut self, default_options: &HashMap<String, String>) {
+        for (opt, val) in default_options.iter() {
+            if !self.options.contains_key(opt) {
+                self.options.insert(opt.clone(), val.clone());
+            }
+        }
+    }
+}
+
+pub fn read_engine_configs(file_path: &String) -> anyhow::Result<EngineConfigs> {
     let config_str = std::fs::read_to_string(file_path)?;
     let mut config: EngineConfigs = toml::from_str(&config_str)?;
 
-    config.0.iter_mut().enumerate().for_each(|(i, (_, v))| v.id = i + 1);
+    config.0.iter_mut().enumerate().for_each(|(i, (name, v))| {
+        v.id = i as u32 + 1;
+        v.name = name.clone();
+    });
     Ok(config)
 }
 
@@ -54,12 +78,15 @@ pub struct TournamentConfig {
     pub engines: String,
     pub challenger: String,
     pub opponents: Vec<String>,
+
+    #[serde(default)]
+    pub default_options: HashMap<String, String>,
 }
 
 pub fn read_tournament_config(file_path: String) -> anyhow::Result<TournamentConfig> {
     let config_str = std::fs::read_to_string(file_path)?;
     let mut config: TournamentConfig = toml::from_str(&config_str)?;
-    
+
     config.inc = config.tc / 100.0;
     Ok(config)
 }

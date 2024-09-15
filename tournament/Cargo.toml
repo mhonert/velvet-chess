@@ -15,3 +15,4 @@ thread-priority = "1.1.0"
 anyhow = "1.0.89"
 serde = { version = "1.0.210", features = ["derive"] }
 toml = "0.8.19"
+chrono = "0.4.38"
