@@ -99,16 +99,18 @@ impl SharedState {
     }
 
     fn print_results(&self) {
-        println!("_______________________________________________________________________________________");
-        println!("Results after {} games:", self.finished_games);
+        println!("----------------------------------------------------------------------------------------------------");
+        println!("Results after {} games:\n", self.finished_games);
         
         let longest_name = self.opponents.values().map(|opponent| opponent.config.name.len()).max().unwrap_or(0);
+
+        let mut results = Vec::with_capacity(self.opponents.len());
 
         for (_, opponent) in self.opponents.iter() {
             let p = PentanomialModel::from(opponent.results);
             let total = opponent.results.total() * 2;
             if total == 0 {
-                println!(" - {} No games finished yet", opponent.config.name);
+                results.push((0, format!("{} No games finished yet", opponent.config.name)));
                 continue;
             }
             let score = p.score();
@@ -126,8 +128,13 @@ impl SharedState {
             
             let name_with_padding = format!("{:width$}", opponent.config.name, width = longest_name);
 
-            println!(" - {}: Norm. Elo: {:>6.2} (+/- {:>5.2}) / Draw ratio: {:>5.2}% / Games: {} ({})",
-                     name_with_padding, elo_diff, elo_error, draw_ratio * 100.0, total, opponent.matches);
+            results.push((elo_diff as i32, format!("{}: {:>6.2} (+/- {:>5.2}) / {:>5.2}% / {} ({})",
+                                                   name_with_padding, elo_diff, elo_error, draw_ratio * 100.0, total, opponent.matches * 2)));
+        }
+
+        results.sort_by_key(|(elo_diff, _)| -elo_diff);
+        for (_, result) in results.iter() {
+            println!(" - {}", result);
         }
     }
 }
