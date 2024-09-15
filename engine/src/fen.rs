@@ -258,8 +258,8 @@ fn read_enpassant(en_passant: &str) -> Option<i8> {
     let col_offset = (col_char.wrapping_sub(b'a')) as i8;
 
     Some(match row_char {
-        b'3' => WhiteBoardPos::EnPassantLineStart as i8 + col_offset,
-        b'6' => BlackBoardPos::EnPassantLineStart as i8 + col_offset,
+        b'3' => BlackBoardPos::EnPassantLineStart as i8 + col_offset,
+        b'6' => WhiteBoardPos::EnPassantLineStart as i8 + col_offset,
         _ => return None,
     })
 }

@@ -141,7 +141,6 @@ fn run_thread(id: CoreId, state: Arc<TournamentState>, tournament_path: String, 
 
     while !state.stopped() {
         let mut p = PentanomialCount::default();
-        let mut time_losses = 0;
 
         let (opponent_cfg, round) = state.next_opponent().expect("No opponents found");
 
@@ -163,7 +162,7 @@ fn run_thread(id: CoreId, state: Arc<TournamentState>, tournament_path: String, 
         pgn1.set_result(first_result);
 
         read_fen(&mut board, &opening).expect("Could not read FEN");
-        let mut pgn2 = PgnGame::new(challenger_cfg.name.clone(), opponent_cfg.name.clone(), time, inc, round, opening.clone(), start_move_count);
+        let mut pgn2 = PgnGame::new(opponent_cfg.name.clone(), challenger_cfg.name.clone(), time, inc, round, opening.clone(), start_move_count);
         let second_result = controller.play(&mut board, &mut pgn2, &opening, &mut [opponent, &mut challenger], time, inc).expect("Could not play UCI match");
         pgn2.set_result(second_result);
 
@@ -171,7 +170,7 @@ fn run_thread(id: CoreId, state: Arc<TournamentState>, tournament_path: String, 
         pgn_writer.write_game(pgn2).expect("Could not write PGN game");
         pgn_writer.flush().expect("Could not flush PGN writer");
 
-        p.add((first_result, second_result.invert()));
+        p.add((first_result.invert(), second_result));
 
         state.update(opponent_cfg.id, p);
     }
@@ -213,8 +212,8 @@ impl MatchController {
             }
 
             let m = UCIMove::from_uci(&bm).context("Could not parse best move")?.to_move(board);
-            if !self.is_valid(m) {
-                println!(" - Engine {} played invalid move: {} in position {}", i, bm, write_fen(board));
+            if !is_valid_move(board, board.active_player(), m) {
+                println!(" - Engine {} played invalid move: {} ({:?}) in position {}", i, bm, m, write_fen(board));
                 return Ok(if i == 0 { Outcome::Loss } else { Outcome::Win });
             }
             board.perform_move(m);
@@ -240,9 +239,5 @@ impl MatchController {
         while let Some(m) = self.move_gen.next_root_move(&self.hh, board, false) {
             self.moves.push(m);
         }
-    }
-
-    fn is_valid(&self, m: Move) -> bool {
-        self.moves.iter().any(|&mv| mv == m)
     }
 }
