@@ -253,7 +253,7 @@ fn read_enpassant(en_passant: &str) -> Option<i8> {
     }
 
     let mut bytes = en_passant.bytes();
-    let (col_char, row_char) = (bytes.next().unwrap(), bytes.next().unwrap());
+    let (col_char, row_char) = (bytes.next()?, bytes.next()?);
 
     let col_offset = (col_char.wrapping_sub(b'a')) as i8;
 
@@ -384,7 +384,7 @@ fn write_enpassant(board: &Board) -> String {
         let col_letter = b'a' + col;
         let col_str = String::from_utf8(vec![col_letter]).expect("Could not convert columm letter");
         
-        let row_str = if en_passant <= WhiteBoardPos::EnPassantLineEnd as u8 { "3" } else { "6" };
+        let row_str = if en_passant <= WhiteBoardPos::EnPassantLineEnd as u8 { "6" } else { "3" };
         return col_str + row_str;
     }
 
