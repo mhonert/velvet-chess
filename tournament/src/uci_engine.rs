@@ -132,8 +132,11 @@ impl UciEngine {
 
 impl Drop for UciEngine {
     fn drop(&mut self) {
-        if let Err(e) = self.child.kill() {
-            eprintln!("Could not kill engine process: {}", e);
+        if let Err(e) = self.quit() {
+            eprintln!("Could not quit engine process: {}", e);
+            if let Err(e) = self.child.kill() {
+                eprintln!("Could not kill engine process: {}", e);
+            }
         }
     }
 }

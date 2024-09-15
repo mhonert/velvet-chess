@@ -23,33 +23,25 @@ mod san;
 
 use std::collections::HashMap;
 use std::env::args;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc};
 use anyhow::Context;
 use core_affinity::CoreId;
 use thread_priority::*;
 use selfplay::openings::OpeningBook;
 use selfplay::pentanomial::PentanomialCount;
-use selfplay::selfplay::{play_match, Outcome};
+use selfplay::selfplay::{ Outcome};
 use velvet::board::Board;
 use velvet::fen::{create_from_fen, read_fen, write_fen, START_POS};
 use velvet::history_heuristics::{HistoryHeuristics, MoveHistory};
 use velvet::init::init;
 use velvet::move_gen::{is_valid_move, MoveList};
 use velvet::moves::{Move, NO_MOVE};
-use velvet::nn::init_nn_params;
 use velvet::uci_move::UCIMove;
 use crate::config::EngineConfig;
-use crate::pgn::{PgnGame, PgnWriter};
+use crate::pgn::{PgnGame};
 use crate::san::move_to_san;
 use crate::tournament::TournamentState;
 use crate::uci_engine::UciEngine;
-
-const PAIRS: usize = 8;
-
-const SPRT_ELO_BOUNDS: (f64, f64) = (0.0, 3.0);
-
-const SPRT_ALPHA: f64 = 0.05;
-const SPRT_BETA: f64 = 0.05;
 
 fn main() {
     if args().len() < 2 {
