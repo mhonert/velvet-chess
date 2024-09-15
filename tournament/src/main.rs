@@ -213,7 +213,7 @@ impl MatchController {
             }
 
             let m = UCIMove::from_uci(&bm).context("Could not parse best move")?.to_move(board);
-            if !is_valid_move(board, board.active_player(), m) {
+            if !self.is_valid(m) {
                 println!(" - Engine {} played invalid move: {} in position {}", i, bm, write_fen(board));
                 return Ok(if i == 0 { Outcome::Loss } else { Outcome::Win });
             }
@@ -240,5 +240,9 @@ impl MatchController {
         while let Some(m) = self.move_gen.next_root_move(&self.hh, board, false) {
             self.moves.push(m);
         }
+    }
+
+    fn is_valid(&self, m: Move) -> bool {
+        self.moves.iter().any(|&mv| mv == m)
     }
 }
