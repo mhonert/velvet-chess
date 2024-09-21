@@ -129,6 +129,12 @@ impl MoveType {
     pub fn is_tb_move(self) -> bool {
         matches!(self, MoveType::TableBaseMarker)
     }
+    
+    pub fn is_pawn_capture(self) -> bool {
+        matches!(self, MoveType::PawnCapture | MoveType::PawnEnPassant |
+            MoveType::KnightCapturePromotion | MoveType::BishopCapturePromotion | MoveType::RookCapturePromotion|
+            MoveType::QueenCapturePromotion)
+    }
 }
 
 
