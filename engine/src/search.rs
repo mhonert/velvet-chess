@@ -250,7 +250,7 @@ impl Search {
         }
 
         let active_player = self.board.active_player();
-        let eval = same_ply!(self.ctx, self.qs::<false>(active_player, MIN_SCORE, MAX_SCORE, 1, self.board.is_in_check(active_player), &mut PrincipalVariation::default()));
+        let eval = same_ply!(self.ctx, self.qs::<false>(active_player, MIN_SCORE, MAX_SCORE, 1, self.board.is_in_check(active_player), false, &mut PrincipalVariation::default()));
         if eval >= 2000 {
             self.limits.set_node_limit(self.limits.node_limit().max(200) * 4);
         }
@@ -307,11 +307,11 @@ impl Search {
         let active_player = self.board.active_player();
         let gives_check = self.board.is_in_check(active_player);
         let mut pv = PrincipalVariation::default();
-        let qs_score = next_ply!(self.ctx, -self.quiescence_search(false, active_player, MIN_SCORE, MAX_SCORE, 0, gives_check, &mut PrincipalVariation::default()));
+        let qs_score = next_ply!(self.ctx, -self.quiescence_search(false, active_player, MIN_SCORE, MAX_SCORE, 0, gives_check, false, &mut PrincipalVariation::default()));
 
         self.ctx.update_next_ply_entry(m, gives_check);
         self.set_stopped(false);
-        let score = next_ply!(self.ctx, -self.rec_find_best_move(None, MIN_SCORE, MAX_SCORE, 1, 1, &mut pv, false, NO_MOVE));
+        let score = next_ply!(self.ctx, -self.rec_find_best_move(None, MIN_SCORE, MAX_SCORE, 1, 1, &mut pv, false, self.is_tb_root, NO_MOVE));
         let has_captures = pv.moves().iter().any(|m| m.is_capture());
         self.board.undo_move(m, previous_piece, removed_piece_id);
         
@@ -389,7 +389,7 @@ impl Search {
 
         let mut multi_pv_state = vec![
             (
-                self.board.eval(),
+                self.board.clock_scaled_eval(self.is_tb_root),
                 INITIAL_ASPIRATION_WINDOW_SIZE,
                 INITIAL_ASPIRATION_WINDOW_STEP
             );
@@ -495,7 +495,7 @@ impl Search {
         let mut alpha = if depth > 7 { score - window_size } else { MIN_SCORE };
         let mut beta = if depth > 7 { score + window_size } else { MAX_SCORE };
 
-        self.ctx.set_eval(if self.board.is_in_check(self.board.active_player()) { MIN_SCORE } else { self.board.eval() });
+        self.ctx.set_eval(if self.board.is_in_check(self.board.active_player()) { MIN_SCORE } else { self.board.clock_scaled_eval(self.is_tb_root) });
 
         let mut step = window_step;
         let original_depth = depth;
@@ -578,12 +578,12 @@ impl Search {
             self.inc_node_count();
             self.ctx.update_next_ply_entry(m, gives_check);
 
-            let mut result = next_ply!(self.ctx, self.rec_find_best_move(rx, a, -alpha, 1, depth - 1, &mut local_pv, false, NO_MOVE));
+            let mut result = next_ply!(self.ctx, self.rec_find_best_move(rx, a, -alpha, 1, depth - 1, &mut local_pv, false, self.is_tb_root, NO_MOVE));
             if result == CANCEL_SEARCH {
                 iteration_cancelled = true;
             } else if -result > alpha && a != -beta {
                 // Repeat search if it falls outside the search window
-                result = next_ply!(self.ctx, self.rec_find_best_move(rx, -beta, -alpha, 1, depth - 1, &mut local_pv, false, NO_MOVE));
+                result = next_ply!(self.ctx, self.rec_find_best_move(rx, -beta, -alpha, 1, depth - 1, &mut local_pv, false, self.is_tb_root, NO_MOVE));
                 if result == CANCEL_SEARCH {
                     iteration_cancelled = true;
                 }
@@ -644,7 +644,7 @@ impl Search {
     // find the best possible move in response to the current board position.
     fn rec_find_best_move(
         &mut self, rx: Option<&Receiver<Message>>, mut alpha: i16, mut beta: i16, ply: usize, mut depth: i32,
-        pv: &mut PrincipalVariation, in_se_search: bool, se_move: Move
+        pv: &mut PrincipalVariation, in_se_search: bool, mut in_tb_pos: bool, se_move: Move
     ) -> i16 {
         self.max_reached_depth = ply.max(self.max_reached_depth);
 
@@ -762,9 +762,11 @@ impl Search {
                         },
                         TBResult::Win => {
                             worst_possible_score = 400;
+                            in_tb_pos = true;
                         }
                         TBResult::Loss => {
                             best_possible_score = -400;
+                            in_tb_pos = true;
                         },
                         TBResult::CursedWin => {
                             self.tt.write_entry(hash, self.gen_bit, ply, MAX_DEPTH as i32, self.tb_move(), 1, ScoreType::Exact);
@@ -786,11 +788,11 @@ impl Search {
 
         // Quiescence search
         if depth <= 0 || ply >= (MAX_DEPTH - 16) {
-            return clamp_score(same_ply!(self.ctx, self.quiescence_search(is_pv, active_player, alpha, beta, ply, in_check, pv)), worst_possible_score, best_possible_score);
+            return clamp_score(same_ply!(self.ctx, self.quiescence_search(is_pv, active_player, alpha, beta, ply, in_check, in_tb_pos, pv)), worst_possible_score, best_possible_score);
         }
 
         self.ctx.set_eval(if in_check { MIN_SCORE } else {
-            self.tt.get_or_calc_eval(self.board.get_hash(), || self.board.eval())
+            self.tt.get_or_calc_eval(self.board.get_hash(), self.board.halfmove_clock(), in_tb_pos, || self.board.eval())
         });
         let improving = self.ctx.is_improving();
 
@@ -799,7 +801,7 @@ impl Search {
             let static_score = clamp_score(self.ctx.eval(), worst_possible_score, best_possible_score);
             if is(self.params.razoring_enabled()) && !improving && self.current_depth > 7 && depth <= 4 && !is_mate_or_mated_score(alpha) && static_score + (1 << (depth - 1)) * self.params.razor_margin_multiplier() <= alpha {
                 // Razoring
-                let score = clamp_score(same_ply!(self.ctx, self.quiescence_search(false, active_player, alpha, beta, ply, in_check, pv)), worst_possible_score, best_possible_score);
+                let score = clamp_score(same_ply!(self.ctx, self.quiescence_search(false, active_player, alpha, beta, ply, in_check, in_tb_pos, pv)), worst_possible_score, best_possible_score);
                 if score <= alpha {
                     return score;
                 }
@@ -826,7 +828,7 @@ impl Search {
 
                     self.ctx.update_next_ply_entry(NO_MOVE, false);
 
-                    let result = next_ply!(self.ctx, self.rec_find_best_move(rx, -beta, -beta + 1, ply + 1, reduced_depth, &mut PrincipalVariation::default(), in_se_search, NO_MOVE));
+                    let result = next_ply!(self.ctx, self.rec_find_best_move(rx, -beta, -beta + 1, ply + 1, reduced_depth, &mut PrincipalVariation::default(), in_se_search, in_tb_pos, NO_MOVE));
                     self.board.undo_null_move();
                     if result == CANCEL_SEARCH {
                         return CANCEL_SEARCH;
@@ -854,7 +856,7 @@ impl Search {
                     let gives_check = self.board.is_in_check(active_player.flip());
                     self.ctx.update_next_ply_entry(tt_move, gives_check);
             
-                    let result = next_ply!(self.ctx, self.rec_find_best_move(rx, -prob_cut_beta, -prob_cut_beta + 1, ply + 1, prob_cut_depth, &mut PrincipalVariation::default(), in_se_search, NO_MOVE));
+                    let result = next_ply!(self.ctx, self.rec_find_best_move(rx, -prob_cut_beta, -prob_cut_beta + 1, ply + 1, prob_cut_depth, &mut PrincipalVariation::default(), in_se_search, in_tb_pos, NO_MOVE));
                     if result == CANCEL_SEARCH {
                         self.board.undo_move(tt_move, previous_piece, removed_piece_id);
                         return CANCEL_SEARCH;
@@ -917,7 +919,7 @@ impl Search {
             if is(self.params.se_enabled()) && check_se && !gives_check && curr_move == tt_move {
                 let se_beta = sanitize_score(tt_score - depth as i16);
                 self.board.undo_move(curr_move, previous_piece, removed_piece_id);
-                let result = same_ply!(self.ctx, self.rec_find_best_move(rx, se_beta - 1, se_beta, ply, depth / 2, &mut PrincipalVariation::default(), true, curr_move));
+                let result = same_ply!(self.ctx, self.rec_find_best_move(rx, se_beta - 1, se_beta, ply, depth / 2, &mut PrincipalVariation::default(), true, in_tb_pos, curr_move));
 
                 if result == CANCEL_SEARCH {
                     return CANCEL_SEARCH;
@@ -1022,7 +1024,7 @@ impl Search {
                 self.inc_node_count();
                 self.ctx.update_next_ply_entry(curr_move, gives_check);
 
-                let mut result = next_ply!(self.ctx, self.rec_find_best_move(rx, a, -alpha, ply + 1, depth + se_extension - reductions - 1, &mut local_pv, in_se_search, NO_MOVE));
+                let mut result = next_ply!(self.ctx, self.rec_find_best_move(rx, a, -alpha, ply + 1, depth + se_extension - reductions - 1, &mut local_pv, in_se_search, in_tb_pos, NO_MOVE));
                 if result == CANCEL_SEARCH {
                     self.board.undo_move(curr_move, previous_piece, removed_piece_id);
                     return CANCEL_SEARCH;
@@ -1031,7 +1033,7 @@ impl Search {
                 if -result > alpha && (reductions > 0 || a != -beta) {
                     // Repeat search without reduction and with full window
                     depth = unreduced_depth;
-                    result = next_ply!(self.ctx, self.rec_find_best_move(rx, -beta, -alpha, ply + 1, depth + se_extension - 1, &mut local_pv, in_se_search, NO_MOVE));
+                    result = next_ply!(self.ctx, self.rec_find_best_move(rx, -beta, -alpha, ply + 1, depth + se_extension - 1, &mut local_pv, in_se_search, in_tb_pos, NO_MOVE));
                     if result == CANCEL_SEARCH {
                         self.board.undo_move(curr_move, previous_piece, removed_piece_id);
                         return CANCEL_SEARCH;
@@ -1127,17 +1129,17 @@ impl Search {
     }
 
     #[inline]
-    pub fn quiescence_search(&mut self, is_pv: bool, active_player: Color, alpha: i16, beta: i16, ply: usize, in_check: bool, pv: &mut PrincipalVariation) -> i16 {
+    pub fn quiescence_search(&mut self, is_pv: bool, active_player: Color, alpha: i16, beta: i16, ply: usize, in_check: bool, in_tb_pos: bool, pv: &mut PrincipalVariation) -> i16 {
         if is_pv && !self.is_helper_thread {
-            self.qs::<true>(active_player, alpha, beta, ply, in_check, pv)
+            self.qs::<true>(active_player, alpha, beta, ply, in_check, in_tb_pos, pv)
         } else {
-            self.qs::<false>(active_player, alpha, beta, ply, in_check, pv)
+            self.qs::<false>(active_player, alpha, beta, ply, in_check, in_tb_pos, pv)
         }
     }
 
-    fn qs<const PV: bool>(&mut self, active_player: Color, mut alpha: i16, beta: i16, ply: usize, in_check: bool, pv: &mut PrincipalVariation) -> i16 {
+    fn qs<const PV: bool>(&mut self, active_player: Color, mut alpha: i16, beta: i16, ply: usize, in_check: bool, in_tb_pos: bool, pv: &mut PrincipalVariation) -> i16 {
         let position_score = if in_check { MATED_SCORE + ply as i16 } else {
-            self.tt.get_or_calc_eval(self.board.get_hash(), || self.board.eval())
+            self.tt.get_or_calc_eval(self.board.get_hash(), self.board.halfmove_clock(), in_tb_pos, || self.board.eval())
         };
 
         if ply >= MAX_DEPTH || (self.is_strength_limited && self.local_total_node_count >= self.limits.node_limit()) {
@@ -1180,7 +1182,7 @@ impl Search {
             let score = if self.board.is_insufficient_material_draw() {
                 -self.effective_draw_score()
             } else {
-                -next_ply!(self.ctx, self.qs::<PV>(opp_player, -beta, -alpha, ply + 1, self.board.is_in_check(opp_player), &mut local_pv))
+                -next_ply!(self.ctx, self.qs::<PV>(opp_player, -beta, -alpha, ply + 1, self.board.is_in_check(opp_player), in_tb_pos, &mut local_pv))
             };
             self.board.undo_move(m, previous_piece, captured_piece_id);
 
@@ -1714,7 +1716,7 @@ impl HelperThread {
 
                     let mut multi_pv_state = vec![
                         (
-                            sub_search.board.eval(),
+                            sub_search.board.clock_scaled_eval(is_tb_root),
                             INITIAL_ASPIRATION_WINDOW_SIZE,
                             INITIAL_ASPIRATION_WINDOW_STEP
                         );

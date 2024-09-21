@@ -32,6 +32,7 @@ use crate::moves::{Move, MoveType};
 use crate::nn::eval::NeuralNetEval;
 use crate::pieces::{B, EMPTY, K, N, P, Q, R};
 use crate::pos_history::PositionHistory;
+use crate::scores::clock_scaled_eval;
 use crate::transposition_table::MAX_DEPTH;
 use crate::zobrist::{enpassant_zobrist_key, piece_zobrist_key, player_zobrist_key};
 
@@ -892,7 +893,12 @@ impl Board {
             self.king_pos(BLACK),
         )
     }
+
+    pub fn clock_scaled_eval(&mut self, is_tb_pos: bool) -> i16 {
+        clock_scaled_eval(self.halfmove_clock(), is_tb_pos, self.eval())
+    }
 }
+
 
 #[cfg(test)]
 mod tests {

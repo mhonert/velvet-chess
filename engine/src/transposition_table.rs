@@ -18,7 +18,7 @@
 
 use crate::align::A64;
 use crate::moves::{Move};
-use crate::scores::{is_mate_score, is_mated_score, sanitize_mate_score, sanitize_mated_score};
+use crate::scores::{is_mate_score, is_mated_score, sanitize_mate_score, sanitize_mated_score, clock_scaled_eval};
 use std::intrinsics::transmute;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -146,21 +146,21 @@ impl TranspositionTable {
         slots.iter().skip(1).map(|s| s.load(Ordering::Relaxed)).find(|e| e & HASHCHECK_MASK == hash_check)
     }
 
-    pub fn get_or_calc_eval<F: FnOnce() -> i16>(&self, hash: u64, calc_eval: F) -> i16 {
+    pub fn get_or_calc_eval<E: FnOnce() -> i16>(&self, hash: u64, halfmove_clock: u8, is_tb_pos: bool, calc_eval: E) -> i16 {
         let index = self.calc_index(hash);
         let slots = unsafe { self.segments.0.get_unchecked(index) };
         let hash_check = hash & EVAL_HASHCHECK_MASK;
         let slot = slots.first().unwrap();
         let entry = slot.load(Ordering::Relaxed);
         if entry & EVAL_HASHCHECK_MASK == hash_check {
-            return decode_score(entry);
+            return clock_scaled_eval(halfmove_clock, is_tb_pos, decode_score(entry));
         }
 
         let score = calc_eval();
         let entry = hash_check | encode_score(score);
         slot.store(entry, Ordering::Relaxed);
 
-        score
+        clock_scaled_eval(halfmove_clock, is_tb_pos, score)
     }
 
     fn calc_index(&self, hash: u64) -> usize {
