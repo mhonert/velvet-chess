@@ -19,13 +19,10 @@
 use crate::align::A64;
 use crate::bitboard::{v_mirror_i8, BitBoards};
 use crate::colors::Color;
-use crate::nn::eval::base::{
-    add_epi16, clipped_relu, horizontal_sum_32, load, multiply_add_epi16, square, store, sub_epi16, zero, Accum,
-    WORDS_PER_REG,
-};
+use crate::nn::eval::base::{add_epi16, horizontal_sum_32, load_i8, load_i16, multiply_add_epi16, square, store_i16, sub_epi16, zero, Accum, WORDS_PER_REG, clipped_relu};
 use crate::nn::{
-    king_bucket, piece_idx, BUCKETS, BUCKET_SIZE, FP_OUT_MULTIPLIER, FP_OUT_PRECISION_BITS, H1_BIASES,
-    H1_TO_OUT_WEIGHTS, HL1_HALF_NODES, IN_TO_H1_WEIGHTS, OUT_BIASES, SCORE_SCALE,
+    king_bucket, piece_idx, BUCKETS, BUCKET_SIZE, FP_OUT_MULTIPLIER, H1_BIASES,
+    H1_TO_OUT_WEIGHTS, HL1_HALF_NODES, IN_TO_H1_WEIGHTS, OUT_BIASES,
 };
 use crate::pieces::P;
 use crate::scores::{sanitize_eval_score, MAX_EVAL, MIN_EVAL};
@@ -345,9 +342,9 @@ impl NeuralNetEval {
             (&self.hidden_nodes_black.0[self.black_bucket], &self.hidden_nodes_white.0[self.white_bucket])
         };
 
-        let output = ((forward_pass(own_hidden_nodes, opp_hidden_nodes) as i64
-            + (unsafe { *OUT_BIASES.0.get_unchecked(0) } as i64))
-            * SCORE_SCALE as i64)
+        let raw_output = forward_pass(own_hidden_nodes, opp_hidden_nodes) as i64;
+        let output = (raw_output
+            + (unsafe { *OUT_BIASES.0.get_unchecked(0) } as i64 * FP_OUT_MULTIPLIER))
             / FP_OUT_MULTIPLIER;
 
         scale_eval(output as i32)
@@ -601,83 +598,153 @@ pub fn forward_pass(own_nodes: &[i16], opp_nodes: &[i16]) -> i32 {
         out_accum = calc_hidden_layer(out_accum, opp_nodes, i, HL1_HALF_NODES);
     }
 
-    horizontal_sum_32(out_accum) >> FP_OUT_PRECISION_BITS as i32
+    horizontal_sum_32(out_accum)
 }
 
 #[inline(always)]
 pub fn calc_hidden_layer(accum: Accum, nodes: &[i16], i: usize, offset: usize) -> Accum {
     unsafe {
-        let h1 = load(nodes, i);
-        let h1_bias = load(&H1_BIASES.0, i + offset);
+        let h1 = load_i16(nodes, i);
+        let h1_bias = load_i8(&H1_BIASES.0, i + offset);
         let h1_relu = square(clipped_relu(add_epi16(h1, h1_bias)));
-        let w = load(&H1_TO_OUT_WEIGHTS.0, i + offset);
+        let w = load_i16(&H1_TO_OUT_WEIGHTS.0, i + offset);
         multiply_add_epi16(accum, h1_relu, w)
     }
 }
 
 #[inline(always)]
-pub fn add_weights<const N: usize>(nodes: &mut [i16], weights: &[i16], weight_idx: usize) {
+pub fn add_weights<const N: usize>(nodes: &mut [i16], weights: &[i8], weight_idx: usize) {
     let weight_offset = weight_idx * N;
     for i in (0..N).step_by(WORDS_PER_REG) {
-        let w = load(weights, weight_offset + i);
-        let n = load(nodes, i);
-        store(nodes, i, add_epi16(n, w));
+        let w = load_i8(weights, weight_offset + i);
+        let n = load_i16(nodes, i);
+        store_i16(nodes, i, add_epi16(n, w));
     }
 }
 
 #[inline(always)]
-pub fn sub_weights<const N: usize>(nodes: &mut [i16], weights: &[i16], weight_idx: usize) {
+pub fn sub_weights<const N: usize>(nodes: &mut [i16], weights: &[i8], weight_idx: usize) {
     let weight_offset = weight_idx * N;
     for i in (0..N).step_by(WORDS_PER_REG) {
-        let w = load(weights, weight_offset + i);
-        let n = load(nodes, i);
-        store(nodes, i, sub_epi16(n, w));
+        let w = load_i8(weights, weight_offset + i);
+        let n = load_i16(nodes, i);
+        store_i16(nodes, i, sub_epi16(n, w));
     }
 }
 
 #[inline(always)]
 pub fn sub_add_weights<const N: usize>(
-    nodes: &mut [i16], weights: &[i16], sub_weight_idx: usize, add_weight_idx: usize,
+    nodes: &mut [i16], weights: &[i8], sub_weight_idx: usize, add_weight_idx: usize,
 ) {
     let sub_weight_offset = sub_weight_idx * N;
     let add_weight_offset = add_weight_idx * N;
     for i in (0..N).step_by(WORDS_PER_REG) {
-        let sub_w = load(weights, sub_weight_offset + i);
-        let add_w = load(weights, add_weight_offset + i);
-        let n = load(nodes, i);
-        store(nodes, i, add_epi16(sub_epi16(n, sub_w), add_w));
+        let sub_w = load_i8(weights, sub_weight_offset + i);
+        let add_w = load_i8(weights, add_weight_offset + i);
+        let n = load_i16(nodes, i);
+        store_i16(nodes, i, add_epi16(sub_epi16(n, sub_w), add_w));
     }
 }
 
 #[inline(always)]
 pub fn sub_sub_add_weights<const N: usize>(
-    nodes: &mut [i16], weights: &[i16], sub1_weight_idx: usize, sub2_weight_idx: usize, add_weight_idx: usize,
+    nodes: &mut [i16], weights: &[i8], sub1_weight_idx: usize, sub2_weight_idx: usize, add_weight_idx: usize,
 ) {
     let sub1_weight_offset = sub1_weight_idx * N;
     let sub2_weight_offset = sub2_weight_idx * N;
     let add_weight_offset = add_weight_idx * N;
     for i in (0..N).step_by(WORDS_PER_REG) {
-        let sub1_w = load(weights, sub1_weight_offset + i);
-        let sub2_w = load(weights, sub2_weight_offset + i);
-        let add_w = load(weights, add_weight_offset + i);
-        let n = load(nodes, i);
-        store(nodes, i, add_epi16(sub_epi16(sub_epi16(n, sub1_w), sub2_w), add_w));
+        let sub1_w = load_i8(weights, sub1_weight_offset + i);
+        let sub2_w = load_i8(weights, sub2_weight_offset + i);
+        let add_w = load_i8(weights, add_weight_offset + i);
+        let n = load_i16(nodes, i);
+        store_i16(nodes, i, add_epi16(sub_epi16(sub_epi16(n, sub1_w), sub2_w), add_w));
     }
 }
 
 #[inline(always)]
 pub fn sub_add_add_weights<const N: usize>(
-    nodes: &mut [i16], weights: &[i16], sub_weight_idx: usize, add1_weight_idx: usize, add2_weight_idx: usize,
+    nodes: &mut [i16], weights: &[i8], sub_weight_idx: usize, add1_weight_idx: usize, add2_weight_idx: usize,
 ) {
     let sub_weight_offset = sub_weight_idx * N;
     let add1_weight_offset = add1_weight_idx * N;
     let add2_weight_offset = add2_weight_idx * N;
     for i in (0..N).step_by(WORDS_PER_REG) {
-        let sub_w = load(weights, sub_weight_offset + i);
-        let add1_w = load(weights, add1_weight_offset + i);
-        let add2_w = load(weights, add2_weight_offset + i);
-        let n = load(nodes, i);
-        store(nodes, i, add_epi16(add_epi16(sub_epi16(n, sub_w), add1_w), add2_w));
+        let sub_w = load_i8(weights, sub_weight_offset + i);
+        let add1_w = load_i8(weights, add1_weight_offset + i);
+        let add2_w = load_i8(weights, add2_weight_offset + i);
+        let n = load_i16(nodes, i);
+        store_i16(nodes, i, add_epi16(add_epi16(sub_epi16(n, sub_w), add1_w), add2_w));
+    }
+}
+
+// AVX-512
+#[cfg(all(target_arch = "x86_64", target_feature = "avx512f", feature="avx512"))]
+mod base {
+    use crate::nn::{FP_IN_PRECISION_BITS, FP_MAX_RELU, FP_OUT_PRECISION_BITS};
+    use core::arch::x86_64::*;
+
+    pub const WORDS_PER_REG: usize = size_of::<__m512i>() / 2;
+
+    pub type Accum = __m512i;
+
+    pub fn zero() -> __m512i {
+        unsafe { _mm512_setzero_si512() }
+    }
+
+    #[inline(always)]
+    pub fn horizontal_sum_32(v: __m512i) -> i32 {
+        unsafe { _mm512_reduce_add_epi32(v) }
+    }
+
+    #[inline(always)]
+    pub fn multiply_add_epi16(accum: __m512i, factor1: __m512i, factor2: __m512i) -> __m512i {
+        unsafe {
+            let mul = _mm512_madd_epi16(factor1, factor2);
+            _mm512_add_epi32(accum, mul)
+        }
+    }
+
+    #[inline(always)]
+    pub fn clipped_relu(v: __m512i) -> __m512i {
+        unsafe {
+            let relu = _mm512_max_epi16(v, _mm512_setzero_si512());
+            _mm512_min_epu16(relu, _mm512_set1_epi16(FP_MAX_RELU))
+        }
+    }
+
+    #[inline(always)]
+    pub fn square(v: __m512i) -> __m512i {
+        unsafe {
+            let v_scaled =
+                _mm512_slli_epi16::<{ (FP_OUT_PRECISION_BITS as u32 + 16) / 2 - FP_IN_PRECISION_BITS as u32 }>(v);
+            _mm512_mulhi_epu16(v_scaled, v_scaled)
+        }
+    }
+
+    #[inline(always)]
+    pub fn load_i16(data: &[i16], offset: usize) -> __m512i {
+        unsafe { _mm512_load_si512(data.as_ptr().add(offset).cast()) }
+    }
+
+    #[inline(always)]
+    pub fn load_i8(data: &[i8], offset: usize) -> __m512i {
+        unsafe { _mm512_cvtepi8_epi16(_mm256_load_si256(data.as_ptr().add(offset).cast())) }
+    }
+
+    #[inline(always)]
+    pub fn store_i16(data: &mut [i16], offset: usize, value: __m512i) {
+        unsafe { _mm512_store_si512(data.as_mut_ptr().add(offset).cast(), value) }
+    }
+
+    #[inline(always)]
+    pub fn add_epi16(a: __m512i, b: __m512i) -> __m512i {
+        unsafe { _mm512_add_epi16(a, b) }
+    }
+
+    #[inline(always)]
+    pub fn sub_epi16(a: __m512i, b: __m512i) -> __m512i {
+        unsafe { _mm512_sub_epi16(a, b) }
     }
 }
 
@@ -685,7 +752,7 @@ pub fn sub_add_add_weights<const N: usize>(
 #[cfg(all(
     target_arch = "x86_64",
     target_feature = "avx2",
-    not(any(target_feature = "avx512f", target_feature = "neon"))
+    not(any(all(target_feature = "avx512f", feature="avx512"), target_feature = "neon"))
 ))]
 mod base {
     use crate::nn::{FP_IN_PRECISION_BITS, FP_MAX_RELU, FP_OUT_PRECISION_BITS};
@@ -731,12 +798,16 @@ mod base {
     }
 
     #[inline(always)]
-    pub fn load(data: &[i16], offset: usize) -> __m256i {
+    pub fn load_i8(data: &[i8], offset: usize) -> __m256i {
+        unsafe { _mm256_cvtepi8_epi16(_mm_load_si128(data.as_ptr().add(offset).cast())) }
+    }
+
+    pub fn load_i16(data: &[i16], offset: usize) -> __m256i {
         unsafe { _mm256_load_si256(data.as_ptr().add(offset).cast()) }
     }
 
     #[inline(always)]
-    pub fn store(data: &mut [i16], offset: usize, value: __m256i) {
+    pub fn store_i16(data: &mut [i16], offset: usize, value: __m256i) {
         unsafe { _mm256_store_si256(data.as_mut_ptr().add(offset).cast(), value) }
     }
 
@@ -751,10 +822,10 @@ mod base {
     }
 }
 
-// SSE-2
+// SSE-4.1
 #[cfg(all(
     target_arch = "x86_64",
-    target_feature = "sse2",
+    target_feature = "sse4.1",
     not(any(target_feature = "avx2", target_feature = "avx512f", target_feature = "neon"))
 ))]
 mod base {
@@ -801,12 +872,17 @@ mod base {
     }
 
     #[inline(always)]
-    pub fn load(data: &[i16], offset: usize) -> __m128i {
+    pub fn load_i8(data: &[i8], offset: usize) -> __m128i {
+        unsafe { _mm_cvtepi8_epi16(_mm_loadl_epi64(data.as_ptr().add(offset).cast())) }
+    }
+
+    #[inline(always)]
+    pub fn load_i16(data: &[i16], offset: usize) -> __m128i {
         unsafe { _mm_load_si128(data.as_ptr().add(offset).cast()) }
     }
 
     #[inline(always)]
-    pub fn store(data: &mut [i16], offset: usize, value: __m128i) {
+    pub fn store_i16(data: &mut [i16], offset: usize, value: __m128i) {
         unsafe { _mm_store_si128(data.as_mut_ptr().add(offset).cast(), value) }
     }
 
@@ -847,8 +923,8 @@ mod base {
     #[inline(always)]
     pub fn clipped_relu(v: int16x8_t) -> int16x8_t {
         unsafe {
-            let relu = vmaxq_s16(v, vdupq_n_s16(0)); // ReLU: max(v, 0)
-            vminq_s16(relu, vdupq_n_s16(FP_MAX_RELU)) // Clip at FP_MAX_RELU
+            let relu = vmaxq_s16(v, vdupq_n_s16(0));
+            vminq_s16(relu, vdupq_n_s16(FP_MAX_RELU))
         }
     }
 
@@ -864,17 +940,22 @@ mod base {
     #[inline(always)]
     pub fn horizontal_sum_32(v: int32x4_t) -> i32 {
         unsafe {
-            vaddvq_s32(v) // Sum all elements in the 128-bit register
+            vaddvq_s32(v)
         }
     }
 
     #[inline(always)]
-    pub fn load(data: &[i16], offset: usize) -> int16x8_t {
+    pub fn load_i8(data: &[i8], offset: usize) -> int16x8_t {
+        unsafe { vmovl_s8(vld1_s8(data.as_ptr().add(offset))) }
+    }
+
+    #[inline(always)]
+    pub fn load_i16(data: &[i16], offset: usize) -> int16x8_t {
         unsafe { vld1q_s16(data.as_ptr().add(offset)) }
     }
 
     #[inline(always)]
-    pub fn store(data: &mut [i16], offset: usize, value: int16x8_t) {
+    pub fn store_i16(data: &mut [i16], offset: usize, value: int16x8_t) {
         unsafe { vst1q_s16(data.as_mut_ptr().add(offset), value) }
     }
 
@@ -891,10 +972,10 @@ mod base {
 
 // Fallback
 #[cfg(not(any(
-    target_feature = "sse2",
+    target_feature = "sse4.1",
     target_feature = "avx2",
     target_feature = "neon",
-    target_feature = "avx512f"
+    all(feature = "avx512", target_feature = "avx512f")
 )))]
 mod base {
     use crate::nn::{FP_IN_PRECISION_BITS, FP_MAX_RELU, FP_OUT_PRECISION_BITS};
@@ -912,28 +993,34 @@ mod base {
         v
     }
 
+    #[inline(always)]
     pub fn multiply_add_epi16(accum: i32, factor1: i16, factor2: i16) -> i32 {
         accum.wrapping_add((factor1 as i32).wrapping_mul(factor2 as i32))
     }
 
     #[inline(always)]
     pub fn clipped_relu(v: i16) -> i16 {
-        v.clamp(0, FP_MAX_RELU)
+        v.clamp(0, FP_MAX_RELU as i16)
     }
 
     #[inline(always)]
     pub fn square(v: i16) -> i16 {
         let v_scaled = (v << ((FP_OUT_PRECISION_BITS as i32 + 16) / 2 - FP_IN_PRECISION_BITS as i32)) as i32;
-        (v_scaled * v_scaled).wrapping_shr(16) as i16
+        v_scaled.wrapping_pow(2).wrapping_shr(16) as i16
     }
 
     #[inline(always)]
-    pub fn load(data: &[i16], offset: usize) -> i16 {
+    pub fn load_i8(data: &[i8], offset: usize) -> i16 {
+        unsafe { *data.get_unchecked(offset) as i16 }
+    }
+
+    #[inline(always)]
+    pub fn load_i16(data: &[i16], offset: usize) -> i16 {
         unsafe { *data.get_unchecked(offset) }
     }
 
     #[inline(always)]
-    pub fn store(data: &mut [i16], offset: usize, value: i16) {
+    pub fn store_i16(data: &mut [i16], offset: usize, value: i16) {
         unsafe { *data.get_unchecked_mut(offset) = value }
     }
 

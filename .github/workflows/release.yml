@@ -10,6 +10,10 @@ jobs:
     strategy:
       matrix:
         include:
+          - exec_postfix: "x86_64-avx512"
+            add_rustflags: "-Ctarget-feature=+crt-static,-bmi2 -Ctarget-cpu=x86-64-v4"
+            toolchain: "x86_64-unknown-linux-musl"
+            cflags: "-march=x86-64-v4"
           - exec_postfix: "x86_64-avx2"
             add_rustflags: "-Ctarget-feature=+crt-static,-bmi2 -Ctarget-cpu=x86-64-v3"
             toolchain: "x86_64-unknown-linux-musl"
@@ -29,13 +33,20 @@ jobs:
 
       - name: Build
         env:
-          RUSTFLAGS: '${{ matrix.add_rustflags }} -Cinline-threshold=500'
+          RUSTFLAGS: '${{ matrix.add_rustflags }}'
           CFLAGS: '${{ matrix.cflags }}'
         run: |
           sudo apt-get install -y musl-tools
-          rustup override set 1.80.0
-          rustup target add ${{ matrix.toolchain }}
-          cargo build --release --target ${{ matrix.toolchain }} --bin velvet
+          if [ "${{ matrix.exec_postfix }}" == "x86_64-avx512" ]; then
+            rustup toolchain install nightly-2024-09-20
+            rustup override set nightly-2024-09-20
+            rustup target add ${{ matrix.toolchain }}
+            cargo build --release --target ${{ matrix.toolchain }} --bin velvet --features=fathomrs,avx512
+          else
+            rustup override set 1.81.0
+            rustup target add ${{ matrix.toolchain }}
+            cargo build --release --target ${{ matrix.toolchain }} --bin velvet
+          fi
           mv target/${{ matrix.toolchain }}/release/velvet velvet-linux-${{ matrix.exec_postfix }}
 
       - name: Upload artifacts
@@ -49,6 +60,9 @@ jobs:
     strategy:
       matrix:
         include:
+          - exec_postfix: "avx512"
+            add_rustflags: "-Ctarget-feature=+crt-static -Ctarget-cpu=x86-64-v4"
+            cflags: "-march=x86-64-v4"
           - exec_postfix: "avx2"
             add_rustflags: "-Ctarget-feature=+crt-static,-bmi2 -Ctarget-cpu=x86-64-v3"
             cflags: "-march=x86-64-v3"
@@ -65,11 +79,18 @@ jobs:
 
       - name: Build
         env:
-          RUSTFLAGS: '${{ matrix.add_rustflags }} -Cinline-threshold=500'
+          RUSTFLAGS: '${{ matrix.add_rustflags }}'
           CFLAGS: '${{ matrix.cflags }}'
         run: |
-          rustup override set 1.80.0
-          cargo build --release --bin velvet
+          // Use nightly toolchain if exec_postfix is "avx512":
+          if [ "${{ matrix.exec_postfix }}" == "avx512" ]; then
+            rustup toolchain install nightly-2024-09-20
+            rustup override set nightly-2024-09-20
+            cargo build --release --bin velvet --features=fathomrs,avx512
+          else
+            rustup override set 1.81.0
+            cargo build --release --bin velvet
+          fi
           mv .\target\release\velvet.exe velvet-windows-x86_64-${{ matrix.exec_postfix }}.exe
 
       - name: Upload artifacts
@@ -106,10 +127,10 @@ jobs:
 
       - name: Build
         env:
-          RUSTFLAGS: '${{ matrix.add_rustflags }} -Cinline-threshold=500'
+          RUSTFLAGS: '${{ matrix.add_rustflags }}'
           CFLAGS: '${{ matrix.cflags }}'
         run: |
-          rustup override set 1.80.0
+          rustup override set 1.81.0
           rustup target add ${{ matrix.toolchain }}
           cargo build --release --target ${{ matrix.toolchain }} --bin velvet
           mv target/${{ matrix.toolchain }}/release/velvet velvet-macOS-${{ matrix.exec_postfix }}
@@ -150,9 +171,11 @@ jobs:
           chmod +x velvet-linux-x86_64-avx2
           chmod +x velvet-linux-x86_64-sse4-popcnt
           chmod +x velvet-linux-x86_64-nopopcnt
+          mv velvet-windows-x86_64-avx512.exe velvet-${tag_name}-x86_64-avx512.exe
           mv velvet-windows-x86_64-avx2.exe velvet-${tag_name}-x86_64-avx2.exe
           mv velvet-windows-x86_64-sse4-popcnt.exe velvet-${tag_name}-x86_64-sse4-popcnt.exe
           mv velvet-windows-x86_64-nopopcnt.exe velvet-${tag_name}-x86_64-nopopcnt.exe
+          mv velvet-linux-x86_64-avx512 velvet-${tag_name}-x86_64-avx512
           mv velvet-linux-x86_64-avx2 velvet-${tag_name}-x86_64-avx2
           mv velvet-linux-x86_64-sse4-popcnt velvet-${tag_name}-x86_64-sse4-popcnt
           mv velvet-linux-x86_64-nopopcnt velvet-${tag_name}-x86_64-nopopcnt
@@ -165,9 +188,11 @@ jobs:
                              --title "$tag_name" \
                              --notes-file artifacts/release_notes.md \
                              "checksums.txt#Checksums" \
+                             "velvet-${tag_name}-x86_64-avx512.exe#Velvet - Windows (x86_64 - AVX512)" \
                              "velvet-${tag_name}-x86_64-avx2.exe#Velvet - Windows (x86_64 - AVX2)" \
                              "velvet-${tag_name}-x86_64-sse4-popcnt.exe#Velvet - Windows (x86_64 - SSE4.2+POPCNT)" \
                              "velvet-${tag_name}-x86_64-nopopcnt.exe#Velvet - Windows (x86_64 - No POPCNT)" \
+                             "velvet-${tag_name}-x86_64-avx512#Velvet - Linux (x86_64 - AVX512)" \
                              "velvet-${tag_name}-x86_64-avx2#Velvet - Linux (x86_64 - AVX2)" \
                              "velvet-${tag_name}-x86_64-sse4-popcnt#Velvet - Linux (x86_64 - SSE4.2+POPCNT)" \
                              "velvet-${tag_name}-x86_64-nopopcnt#Velvet - Linux (x86_64 - No POPCNT)" \

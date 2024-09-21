@@ -20,7 +20,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex};
 
 use crate::align::A64;
-use crate::nn::io::{read_quantized, read_u8};
+use crate::nn::io::{read_quantized16, read_quantized8, read_u8};
 
 pub mod eval;
 pub mod io;
@@ -39,16 +39,16 @@ pub const FP_MAX_RELU: i16 = (MAX_RELU * FP_IN_MULTIPLIER as f32) as i16;
 pub const INPUT_WEIGHT_COUNT: usize = INPUTS * HL1_HALF_NODES;
 
 // Fixed point number precision
-pub const FP_IN_PRECISION_BITS: u8 = 10;
+pub const FP_IN_PRECISION_BITS: u8 = 6;
 pub const FP_IN_MULTIPLIER: i64 = 1 << FP_IN_PRECISION_BITS;
 
 pub const FP_OUT_PRECISION_BITS: u8 = 10; // must be an even number
 pub const FP_OUT_MULTIPLIER: i64 = 1 << FP_OUT_PRECISION_BITS;
 
-pub const SCORE_SCALE: i16 = 1024;
+pub const SCORE_SCALE: i16 = 64;
 
-pub static mut IN_TO_H1_WEIGHTS: A64<[i16; INPUT_WEIGHT_COUNT]> = A64([0; INPUT_WEIGHT_COUNT]);
-pub static mut H1_BIASES: A64<[i16; HL1_NODES]> = A64([0; HL1_NODES]);
+pub static mut IN_TO_H1_WEIGHTS: A64<[i8; INPUT_WEIGHT_COUNT]> = A64([0; INPUT_WEIGHT_COUNT]);
+pub static mut H1_BIASES: A64<[i8; HL1_NODES]> = A64([0; HL1_NODES]);
 
 pub static mut H1_TO_OUT_WEIGHTS: A64<[i16; HL1_NODES]> = A64([0; HL1_NODES]);
 
@@ -95,11 +95,11 @@ pub fn init_nn_params() {
                 FP_OUT_PRECISION_BITS, out_precision_bits
             );
 
-            read_quantized(&mut reader, unsafe { &mut IN_TO_H1_WEIGHTS.0 }).expect("Could not read weights");
-            read_quantized(&mut reader, unsafe { &mut H1_BIASES.0 }).expect("Could not read biases");
+            read_quantized8(&mut reader, unsafe { &mut IN_TO_H1_WEIGHTS.0 }).expect("Could not read weights");
+            read_quantized8(&mut reader, unsafe { &mut H1_BIASES.0 }).expect("Could not read biases");
 
-            read_quantized(&mut reader, unsafe { &mut H1_TO_OUT_WEIGHTS.0 }).expect("Could not read weights");
-            read_quantized(&mut reader, unsafe { &mut OUT_BIASES.0 }).expect("Could not read biases");
+            read_quantized16(&mut reader, unsafe { &mut H1_TO_OUT_WEIGHTS.0 }).expect("Could not read weights");
+            read_quantized16(&mut reader, unsafe { &mut OUT_BIASES.0 }).expect("Could not read biases");
 
             IS_NETWORK_INITIALIZED.store(true, Ordering::Release);
         }

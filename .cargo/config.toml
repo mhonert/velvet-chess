@@ -2,7 +2,7 @@
 linker = "aarch64-linux-gnu-gcc"
 
 [build]
-rustflags = ["-Ctarget-cpu=native", "-Cllvm-args=--inline-threshold=500"]
+rustflags = ["-Ctarget-cpu=native"]
 
 [env]
 CFLAGS = "-march=native"
