@@ -15,7 +15,7 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-use velvet::moves::{Move};
+use velvet::moves::{Move, MoveType};
 use velvet::pieces::P;
 
 static PIECES: [char; 7] = ['_', 'P', 'N', 'B', 'R', 'Q', 'K'];
@@ -24,6 +24,12 @@ static RANKS: [char; 8] = ['1', '2', '3', '4', '5', '6', '7', '8'];
 
 // Convert a Move to a SAN (Standard Algebraic Notation) string
 pub fn move_to_san(m: Move, all_moves: &[Move], gives_check: bool) -> String {
+    if matches!(m.move_type(), MoveType::KingKSCastling) {
+        return "O-O".to_string();
+    } else if matches!(m.move_type(), MoveType::KingQSCastling) {
+        return "O-O-O".to_string();
+    }
+    
     let target_piece = m.move_type().piece_id();
     let source_piece = if m.move_type().is_promotion() { P } else { target_piece };
     let (start_file_required, start_rank_required) = determine_required_disambiguation(m, all_moves);
@@ -197,6 +203,22 @@ mod tests {
         let all_moves = vec![m1, m2];
 
         assert_eq!(move_to_san(m1, &all_moves, false), "a8=Q");
+    }
+    
+    #[test]
+    fn test_move_to_san_king_side_castling() {
+        let m = Move::new(MoveType::KingKSCastling, pos("e1"), pos("g1"));
+        let all_moves = vec![m];
+
+        assert_eq!(move_to_san(m, &all_moves, false), "O-O");
+    }
+    
+    #[test]
+    fn test_move_to_san_queen_side_castling() {
+        let m = Move::new(MoveType::KingQSCastling, pos("e1"), pos("c1"));
+        let all_moves = vec![m];
+
+        assert_eq!(move_to_san(m, &all_moves, false), "O-O-O");
     }
 
     fn pos(file_rank: &str) -> i8 {
