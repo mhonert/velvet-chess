@@ -26,9 +26,9 @@ use crate::move_gen::{is_killer, NEGATIVE_HISTORY_SCORE, QUIET_BASE_SCORE, is_va
 use crate::moves::{Move, MoveType, NO_MOVE};
 use crate::pieces::{EMPTY, P};
 use crate::pos_history::PositionHistory;
-use crate::scores::{mate_in, sanitize_score, MATED_SCORE, MATE_SCORE, MAX_SCORE, MIN_SCORE, is_mate_or_mated_score, MAX_EVAL, MIN_EVAL, is_eval_score};
+use crate::scores::{mate_in, sanitize_score, MATED_SCORE, MATE_SCORE, MAX_SCORE, MIN_SCORE, is_mate_or_mated_score, MAX_EVAL, MIN_EVAL, is_eval_score, clock_scaled_eval};
 use crate::time_management::{SearchLimits, TimeManager};
-use crate::transposition_table::{ScoreType, TranspositionTable, MAX_DEPTH, get_tt_move, get_depth, get_score_type, to_gen_bit};
+use crate::transposition_table::{ScoreType, TranspositionTable, MAX_DEPTH, get_tt_move, get_depth, get_score_type};
 use crate::uci_move::UCIMove;
 use std::cmp::Reverse;
 use std::collections::HashSet;
@@ -101,7 +101,6 @@ pub struct Search {
     pondering: bool,
     is_strength_limited: bool,
 
-    gen_bit: u8,
     params: SingleParams,
     derived_params: DerivedArrayParams,
 }
@@ -150,8 +149,6 @@ impl Search {
 
             pondering: false,
             is_strength_limited: false,
-
-            gen_bit: 0,
 
             params,
             derived_params,
@@ -341,8 +338,6 @@ impl Search {
         self.tb_hits.store(0, Ordering::Relaxed);
 
         self.next_check_node_count = self.limits.node_limit().min(1000);
-
-        self.gen_bit = to_gen_bit(self.board.fullmove_count());
 
         let mut last_best_move: Move = NO_MOVE;
 
@@ -710,7 +705,7 @@ impl Search {
         if se_move == NO_MOVE {
             // Check transposition table
             let mut is_tt_hit = false;
-            if let Some(tt_entry) = self.tt.get_entry(hash) {
+            if let Some((tt_entry, matching_clock)) = self.tt.get_entry(hash, self.board.halfmove_clock()) {
                 tt_move = get_tt_move(tt_entry, ply);
                 tt_score = tt_move.score();
 
@@ -730,15 +725,42 @@ impl Search {
                     let score_type = get_score_type(tt_entry);
 
                     tt_score_is_upper_bound = matches!(score_type, ScoreType::UpperBound);
-                    if tt_depth >= depth && match score_type {
-                        ScoreType::Exact => !is_pv || depth <= 0,
-                        ScoreType::UpperBound => (!is_pv || depth <= 0) && tt_score <= alpha,
-                        ScoreType::LowerBound => (!is_pv || depth <= 0) && tt_score >= beta
-                    } {
-                        if !tt_score_is_upper_bound && tt_move != NO_MOVE && !tt_move.is_capture() {
-                            self.hh.update(ply, active_player, move_history, tt_move, true);
+
+                    if matching_clock || is_tb_move || is_mate_or_mated_score(tt_score) {
+                        if tt_depth >= depth && match score_type {
+                            ScoreType::Exact => !is_pv || depth <= 0,
+                            ScoreType::UpperBound => (!is_pv || depth <= 0) && tt_score <= alpha,
+                            ScoreType::LowerBound => (!is_pv || depth <= 0) && tt_score >= beta
+                        } {
+                            if !tt_score_is_upper_bound && tt_move != NO_MOVE && !tt_move.is_capture() {
+                                self.hh.update(ply, active_player, move_history, tt_move, true);
+                            }
+                            return tt_score;
                         }
-                        return tt_score;
+                    } else if tt_depth >= depth && (!is_pv || depth <= 0) {
+                        match score_type {
+                            ScoreType::Exact => {
+                                if tt_score <= alpha {
+                                    return tt_score;
+                                }
+
+                                let adj_tt_score = clock_scaled_eval(self.board.halfmove_clock(), false, tt_score);
+                                if adj_tt_score >= beta {
+                                    return adj_tt_score;
+                                }
+                            },
+                            ScoreType::UpperBound => {
+                                if tt_score <= alpha {
+                                    return tt_score;
+                                }
+                            },
+                            ScoreType::LowerBound => {
+                                let adj_tt_score = clock_scaled_eval(self.board.halfmove_clock(), false, tt_score);
+                                if adj_tt_score >= beta {
+                                    return adj_tt_score;
+                                }
+                            }
+                        }
                     }
 
                     check_se = !in_se_search
@@ -757,7 +779,7 @@ impl Search {
 
                     match tb_result {
                         TBResult::Draw => {
-                            self.tt.write_entry(hash, self.gen_bit, ply, MAX_DEPTH as i32, self.tb_move(), 0, ScoreType::Exact);
+                            self.tt.write_entry(hash, ply, MAX_DEPTH as i32, self.tb_move(), 0, ScoreType::Exact, 100);
                             return 0;
                         },
                         TBResult::Win => {
@@ -769,11 +791,11 @@ impl Search {
                             in_tb_pos = true;
                         },
                         TBResult::CursedWin => {
-                            self.tt.write_entry(hash, self.gen_bit, ply, MAX_DEPTH as i32, self.tb_move(), 1, ScoreType::Exact);
+                            self.tt.write_entry(hash, ply, MAX_DEPTH as i32, self.tb_move(), 1, ScoreType::Exact, 100);
                             return 1;
                         },
                         TBResult::BlessedLoss => {
-                            self.tt.write_entry(hash, self.gen_bit, ply, MAX_DEPTH as i32, self.tb_move(), -1, ScoreType::Exact);
+                            self.tt.write_entry(hash, ply, MAX_DEPTH as i32, self.tb_move(), -1, ScoreType::Exact, 100);
                             return -1;
                         }
                     }
@@ -1050,7 +1072,7 @@ impl Search {
                     // Alpha-beta pruning
                     if best_score >= beta {
                         if se_move == NO_MOVE {
-                            self.tt.write_entry(hash, self.gen_bit, ply, depth, best_move, best_score, ScoreType::LowerBound);
+                            self.tt.write_entry(hash, ply, depth, best_move, best_score, ScoreType::LowerBound, self.board.halfmove_clock());
                         }
 
                         if !curr_move.is_capture() {
@@ -1092,7 +1114,7 @@ impl Search {
         best_score = best_score.clamp(worst_possible_score, best_possible_score);
 
         if se_move == NO_MOVE {
-            self.tt.write_entry(hash, self.gen_bit, ply, depth, best_move, best_score, score_type);
+            self.tt.write_entry(hash, ply, depth, best_move, best_score, score_type, self.board.halfmove_clock());
         }
 
         best_score
@@ -1206,7 +1228,7 @@ impl Search {
     }
 
     fn get_tt_move(&self, ply: usize) -> Move {
-        if let Some(entry) = self.tt.get_entry(self.board.get_hash()) {
+        if let Some((entry, _)) = self.tt.get_entry(self.board.get_hash(), self.board.halfmove_clock()) {
             let tt_move = get_tt_move(entry, ply);
             let active_player = self.board.active_player();
             if is_valid_move(&self.board, active_player, tt_move) {
@@ -1277,7 +1299,7 @@ impl Search {
             return String::new();
         }
 
-        if let Some(entry) = self.tt.get_entry(self.board.get_hash()) {
+        if let Some((entry, _)) = self.tt.get_entry(self.board.get_hash(), self.board.halfmove_clock()) {
             let active_player = self.board.active_player();
             let hash_move = get_tt_move(entry, 0);
             if hash_move.is_no_move() {
@@ -1708,7 +1730,6 @@ impl HelperThread {
                     sub_search.set_tb_probe_depth(tb_probe_depth);
                     sub_search.draw_score = draw_score;
                     sub_search.player_pov = sub_search.board.active_player();
-                    sub_search.gen_bit = to_gen_bit(sub_search.board.fullmove_count());
                     sub_search.is_tb_root = is_tb_root;
                     
                     let active_player = sub_search.board.active_player();

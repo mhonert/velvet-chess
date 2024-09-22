@@ -26,15 +26,18 @@ use std::sync::Arc;
 pub const MAX_HASH_SIZE_MB: i32 = 512 * 1024;
 
 // Transposition table entry
-// Bits 63 - 42: 22 highest bits of the hash
-const HASHCHECK_MASK: u64 = 0b1111111111111111111111000000000000000000000000000000000000000000;
+// Bits 63 - 43: 21 highest bits of the hash
+const HASHCHECK_MASK: u64 = 0b1111111111111111111110000000000000000000000000000000000000000000;
 
-// Bits 41 - 10: Move + Score
-const MOVE_BITSHIFT: u32 = 10;
+// Bits 42 - 11: Move + Score
+const MOVE_BITSHIFT: u32 = 11;
 const MOVE_MASK: u64 = 0b11111111111111111111111111111111;
 
+// Bits 10 - 9: Clock bits
+const CLOCK_BITSHIFT: u32 = 9;
+const CLOCK_MASK: u64 = 0b11;
 
-// Bits 9 - 8: Score Type
+// Bits 8 - 7: Score Type
 #[repr(u8)]
 #[derive(Clone, Copy)]
 pub enum ScoreType {
@@ -50,12 +53,8 @@ impl ScoreType {
     }
 }
 
-const SCORE_TYPE_BITSHIFT: u32 = 8;
+const SCORE_TYPE_BITSHIFT: u32 = 7;
 const SCORE_TYPE_MASK: u64 = 0b11;
-
-// Bit 7: Generation Bit
-const GEN_MASK: u64 = 0b1;
-const GEN_BITSHIFT: u64 = 7;
 
 // Bits 6 - 0: Depth
 pub const MAX_DEPTH: usize = 127;
@@ -65,7 +64,7 @@ const EVAL_SCORE_MASK: u64 = 0b111111111111111;
 const EVAL_HASHCHECK_MASK: u64 = !EVAL_SCORE_MASK;
 
 
-const SLOTS_PER_SEGMENT: usize = 4;
+const SLOTS_PER_SEGMENT: usize = 8;
 
 pub const DEFAULT_SIZE_MB: u64 = 32;
 const SEGMENT_BYTE_SIZE: u64 = (64 / 8) * SLOTS_PER_SEGMENT as u64;
@@ -104,46 +103,45 @@ impl TranspositionTable {
     }
 
     // Important: mate scores must be stored relative to the current node, not relative to the root node
-    pub fn write_entry(&self, hash: u64, gen_bit: u8, ply: usize, new_depth: i32, m: Move, score: i16, typ: ScoreType) {
+    pub fn write_entry(&self, hash: u64, ply: usize, new_depth: i32, m: Move, score: i16, typ: ScoreType, halfmove_clock: u8) {
         let index = self.calc_index(hash);
         let segment = unsafe { self.segments.0.get_unchecked(index) };
         let hash_check = hash & HASHCHECK_MASK;
 
         let mut new_entry = hash_check;
         new_entry |= new_depth as u64;
-        new_entry |= gen_bit as u64;
         new_entry |= (typ as u64) << SCORE_TYPE_BITSHIFT;
         new_entry |= (m.with_score(from_root_relative_score(ply, score)).to_u32() as u64) << MOVE_BITSHIFT;
 
-        for slot in segment.iter().skip(1) {
-            let entry = slot.load(Ordering::Relaxed);
-            if entry == 0 {
+        let (slot_id, clock_bits) = calc_slot_id(hash, halfmove_clock);
+        new_entry |= (clock_bits as u64) << CLOCK_BITSHIFT;
+
+        let slot = unsafe { segment.get_unchecked(slot_id as usize) };
+        let entry = slot.load(Ordering::Relaxed);
+        if entry & HASHCHECK_MASK == hash_check {
+            if matches!(typ, ScoreType::Exact) || new_depth >= get_depth(entry) - 4 {
                 slot.store(new_entry, Ordering::Relaxed);
-                return;
             }
-            if entry & HASHCHECK_MASK == hash_check {
-                if matches!(typ, ScoreType::Exact) || new_depth >= get_depth(entry) - 3 {
-                    slot.store(new_entry, Ordering::Relaxed);
-                }
-                return;
-            }
+            return;
         }
 
-        segment.iter().skip(1).min_by_key(|&slot| {
-            let entry = slot.load(Ordering::Relaxed);
-            let entry_type = get_score_type(entry);
-            let gen_diff = u16::from(get_gen_bit(entry) == gen_bit);
-            get_depth(entry) as u16 + (entry_type as u16 & 1) * (MAX_DEPTH as u16 + 1) + gen_diff * (MAX_DEPTH as u16 + 1) * 2
-        }).unwrap().store(new_entry, Ordering::Relaxed);
+        slot.store(new_entry, Ordering::Relaxed);
     }
 
     #[inline(always)]
-    pub fn get_entry(&self, hash: u64) -> Option<u64> {
+    pub fn get_entry(&self, hash: u64, halfmove_clock: u8) -> Option<(u64, bool)> {
         let index = self.calc_index(hash);
         let slots = unsafe { self.segments.0.get_unchecked(index) };
         let hash_check = hash & HASHCHECK_MASK;
 
-        slots.iter().skip(1).map(|s| s.load(Ordering::Relaxed)).find(|e| e & HASHCHECK_MASK == hash_check)
+        let (slot_id, clock_bits) = calc_slot_id(hash, halfmove_clock);
+        let slot = unsafe { slots.get_unchecked(slot_id as usize) };
+        let entry = slot.load(Ordering::Relaxed);
+        if entry & HASHCHECK_MASK == hash_check {
+            return Some((entry, get_clock_bits(entry) == clock_bits));
+        }
+
+        slots.iter().skip(1).map(|s| s.load(Ordering::Relaxed)).find(|e| e & HASHCHECK_MASK == hash_check).map(|e| (e, false))
     }
 
     pub fn get_or_calc_eval<E: FnOnce() -> i16>(&self, hash: u64, halfmove_clock: u8, is_tb_pos: bool, calc_eval: E) -> i16 {
@@ -218,12 +216,8 @@ impl TranspositionTable {
     }
 }
 
-pub fn to_gen_bit(full_move_count: u16) -> u8 {
-    ((full_move_count & 1) as u8) << GEN_BITSHIFT as u8
-}
-
-fn get_gen_bit(entry: u64) -> u8 {
-    (entry & (GEN_MASK << GEN_BITSHIFT)) as u8
+fn get_clock_bits(entry: u64) -> u8 {
+    ((entry >> CLOCK_BITSHIFT) & CLOCK_MASK) as u8
 }
 
 fn decode_score(entry: u64) -> i16 {
@@ -280,6 +274,18 @@ pub fn get_score_type(entry: u64) -> ScoreType {
     ScoreType::from(((entry >> SCORE_TYPE_BITSHIFT) & SCORE_TYPE_MASK) as u8)
 }
 
+#[inline(always)]
+fn calc_slot_id(hash: u64, clock: u8) -> (u8, u8) {
+    let bits = (clock >> 2) & 0b11;
+
+    let slot_base = (clock >> 2) >> 2;
+    if hash & (0b1 << 40) == 0 {
+        (slot_base + 1, bits)
+    } else {
+        (7 - slot_base, bits)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::bitboard::BitBoards;
@@ -302,9 +308,9 @@ mod tests {
         let mut bitboards = BitBoards::default();
         bitboards.flip(WHITE, Q, 32);
 
-        tt.write_entry(hash, 0, 0, depth,  m, score, typ);
+        tt.write_entry(hash, 0, depth,  m, score, typ, 0);
 
-        let entry = tt.get_entry(hash).expect("entry must exist");
+        let (entry, _) = tt.get_entry(hash, 0).expect("entry must exist");
 
         assert_eq!(m.to_u32(), get_tt_move(entry, 0).to_u32());
         assert_eq!(depth, get_depth(entry));
@@ -317,9 +323,9 @@ mod tests {
         let score = MIN_EVAL;
         let hash = u64::MAX;
         let m = NO_MOVE.with_score(score);
-        tt.write_entry(hash, 0, 0, 1, m, score, ScoreType::Exact);
+        tt.write_entry(hash, 0, 1, m, score, ScoreType::Exact, 0);
 
-        let entry= tt.get_entry(hash).expect("entry must exist");
+        let (entry, _) = tt.get_entry(hash, 0).expect("entry must exist");
         assert_eq!(m.to_u32(), get_tt_move(entry, 0).to_u32());
     }
 
@@ -329,9 +335,9 @@ mod tests {
         let score = MAX_EVAL;
         let hash = u64::MAX;
         let m = NO_MOVE.with_score(score);
-        tt.write_entry(hash,  0, 0, 1, m, score, ScoreType::Exact);
+        tt.write_entry(hash,  0, 1, m, score, ScoreType::Exact, 0);
 
-        let entry = tt.get_entry(hash).expect("entry must exist");
+        let (entry, _) = tt.get_entry(hash, 0).expect("entry must exist");
         assert_eq!(m.to_u32(), get_tt_move(entry, 0).to_u32());
     }
 
@@ -341,9 +347,9 @@ mod tests {
         let score = MATED_SCORE;
         let hash = u64::MAX;
         let m = NO_MOVE.with_score(score);
-        tt.write_entry(hash, 0, 0, 1, m, score, ScoreType::Exact);
+        tt.write_entry(hash, 0, 1, m, score, ScoreType::Exact, 0);
 
-        let entry= tt.get_entry(hash).expect("entry must exist");
+        let (entry, _) = tt.get_entry(hash, 0).expect("entry must exist");
         assert_eq!(m.to_u32(), get_tt_move(entry, 0).to_u32());
     }
 
@@ -353,9 +359,9 @@ mod tests {
         let score = MATE_SCORE;
         let hash = u64::MAX;
         let m = NO_MOVE.with_score(score);
-        tt.write_entry(hash,  0, 0, 1, m, score, ScoreType::Exact);
+        tt.write_entry(hash,  0, 1, m, score, ScoreType::Exact, 0);
 
-        let entry = tt.get_entry(hash).expect("entry must exist");
+        let (entry, _) = tt.get_entry(hash, 0).expect("entry must exist");
         assert_eq!(m.to_u32(), get_tt_move(entry, 0).to_u32());
     }
 }
