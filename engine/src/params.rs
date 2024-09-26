@@ -35,15 +35,15 @@ tunable_params!(
     rfp_margin_multiplier_not_improving = 28
     
     nmp_base = 768
-    nmp_divider = 672
+    nmp_divider = 668
     
     se_double_ext_margin = 4
     se_double_ext_limit = 12
     
-    prob_cut_margin = 150
+    prob_cut_margin = 152
     prob_cut_depth = 4
     
-    lmr_base = 256
+    lmr_base = 253
     lmr_divider = 1024
 
     lmp_max_depth = 4
