@@ -156,7 +156,7 @@ jobs:
           pattern: velvet-windows-*
           merge-multiple: true
 
-      - uses: actions/download-artifact@v2
+      - uses: actions/download-artifact@v4
         with:
           pattern: velvet-macOS-*
           merge-multiple: true
