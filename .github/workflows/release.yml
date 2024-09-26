@@ -83,14 +83,14 @@ jobs:
           CFLAGS: '${{ matrix.cflags }}'
         run: |
           // Use nightly toolchain if exec_postfix is "avx512":
-          if [ "${{ matrix.exec_postfix }}" == "avx512" ]; then
+          if ("${{ matrix.exec_postfix }}" -match "avx512") {
             rustup toolchain install nightly-2024-09-20
             rustup override set nightly-2024-09-20
             cargo build --release --bin velvet --features=fathomrs,avx512
-          else
+          } else {
             rustup override set 1.81.0
             cargo build --release --bin velvet
-          fi
+          }
           mv .\target\release\velvet.exe velvet-windows-x86_64-${{ matrix.exec_postfix }}.exe
 
       - name: Upload artifacts
