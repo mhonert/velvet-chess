@@ -169,7 +169,6 @@ jobs:
           ls -l
           chmod +x velvet-linux-x86_64*
           chmod +x velvet-macOS*
-          mv velvet-windows-x86_64-avx512.exe velvet-${tag_name}-x86_64-avx512.exe
           mv velvet-windows-x86_64-avx2.exe velvet-${tag_name}-x86_64-avx2.exe
           mv velvet-windows-x86_64-sse4-popcnt.exe velvet-${tag_name}-x86_64-sse4-popcnt.exe
           mv velvet-windows-x86_64-nopopcnt.exe velvet-${tag_name}-x86_64-nopopcnt.exe
@@ -186,7 +185,6 @@ jobs:
                              --title "$tag_name" \
                              --notes-file artifacts/release_notes.md \
                              "checksums.txt#Checksums" \
-                             "velvet-${tag_name}-x86_64-avx512.exe#Velvet - Windows (x86_64 - AVX512)" \
                              "velvet-${tag_name}-x86_64-avx2.exe#Velvet - Windows (x86_64 - AVX2)" \
                              "velvet-${tag_name}-x86_64-sse4-popcnt.exe#Velvet - Windows (x86_64 - SSE4.2+POPCNT)" \
                              "velvet-${tag_name}-x86_64-nopopcnt.exe#Velvet - Windows (x86_64 - No POPCNT)" \
