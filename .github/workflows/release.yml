@@ -82,7 +82,6 @@ jobs:
           RUSTFLAGS: '${{ matrix.add_rustflags }}'
           CFLAGS: '${{ matrix.cflags }}'
         run: |
-          // Use nightly toolchain if exec_postfix is "avx512":
           if ("${{ matrix.exec_postfix }}" -match "avx512") {
             rustup toolchain install nightly-2024-09-20
             rustup override set nightly-2024-09-20
