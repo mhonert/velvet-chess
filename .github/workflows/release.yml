@@ -50,9 +50,9 @@ jobs:
           mv target/${{ matrix.toolchain }}/release/velvet velvet-linux-${{ matrix.exec_postfix }}
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v4
         with:
-          name: velvet-linux
+          name: velvet-linux-${{ matrix.exec_postfix }}
           path: velvet-linux-${{ matrix.exec_postfix }}
 
   build-windows:
@@ -94,9 +94,9 @@ jobs:
           mv .\target\release\velvet.exe velvet-windows-x86_64-${{ matrix.exec_postfix }}.exe
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v4
         with:
-          name: velvet-windows
+          name: velvet-windows-${{ matrix.exec_postfix }}
           path: velvet-windows-x86_64-${{ matrix.exec_postfix }}.exe
 
   build-macos:
@@ -136,9 +136,9 @@ jobs:
           mv target/${{ matrix.toolchain }}/release/velvet velvet-macOS-${{ matrix.exec_postfix }}
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v4
         with:
-          name: velvet-macos
+          name: velvet-macOS-${{ matrix.exec_postfix }}
           path: velvet-macOS-${{ matrix.exec_postfix }}
 
   release:
@@ -150,17 +150,20 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v2
 
-      - uses: actions/download-artifact@v2
+      - uses: actions/download-artifact@v4
         with:
-          name: velvet-linux
+          pattern: velvet-linux-*
+          merge-multiple: true
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: velvet-windows-*
+          merge-multiple: true
 
       - uses: actions/download-artifact@v2
         with:
-          name: velvet-windows
-
-      - uses: actions/download-artifact@v2
-        with:
-          name: velvet-macos
+          pattern: velvet-macOS-*
+          merge-multiple: true
 
       - name: Create Release
         env:
@@ -168,9 +171,8 @@ jobs:
         run: |
           tag_name="${GITHUB_REF##*/}"
           ls -l
-          chmod +x velvet-linux-x86_64-avx2
-          chmod +x velvet-linux-x86_64-sse4-popcnt
-          chmod +x velvet-linux-x86_64-nopopcnt
+          chmod +x velvet-linux-x86_64*
+          chmod +x velvet-macOS*
           mv velvet-windows-x86_64-avx512.exe velvet-${tag_name}-x86_64-avx512.exe
           mv velvet-windows-x86_64-avx2.exe velvet-${tag_name}-x86_64-avx2.exe
           mv velvet-windows-x86_64-sse4-popcnt.exe velvet-${tag_name}-x86_64-sse4-popcnt.exe
