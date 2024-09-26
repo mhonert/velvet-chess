@@ -143,7 +143,7 @@ impl Engine {
             simulate_thinking_time: true,
             style: Style::Normal,
             rating_adv: 0,
-            rating_adv_adaptive_style: true,
+            rating_adv_adaptive_style: false,
             rating_adv_risky_style_threshold: DEFAULT_RISKY_STYLE_THRESHOLD,
             elo: MIN_ELO,
         }

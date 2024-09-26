@@ -129,7 +129,7 @@ fn uci() {
     println!("option name Move Overhead type spin default {} min {} max {}", DEFAULT_MOVE_OVERHEAD_MS, MIN_MOVE_OVERHEAD_MS, MAX_MOVE_OVERHEAD_MS);
     println!("option name MultiPV type spin default 1 min 1 max {}", MAX_MULTI_PV_MOVES);
     println!("option name Ponder type check default false");
-    println!("option name RatingAdvAdaptiveStyle type check default true");
+    println!("option name RatingAdvAdaptiveStyle type check default false");
     println!("option name RatingAdvRiskyStyleThreshold type spin default {} min -10000 max 10000", DEFAULT_RISKY_STYLE_THRESHOLD);
     println!("option name SimulateThinkingTime type check default true");
     println!("option name Style type combo default Normal var Normal var Risky");

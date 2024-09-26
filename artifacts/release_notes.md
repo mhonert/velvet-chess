@@ -9,6 +9,7 @@ This is just a preview release not intended for rating lists
 - New SPRT testing tool
 - New tournament (gauntlet) testing tool
 - New tuning tool
+- Changed default value for UCI option `RatingAdvAdaptiveStyle` from `true` to `false`
 
 ## Notes
 
