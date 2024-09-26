@@ -60,9 +60,6 @@ jobs:
     strategy:
       matrix:
         include:
-          - exec_postfix: "avx512"
-            add_rustflags: "-Ctarget-feature=+crt-static -Ctarget-cpu=x86-64-v4"
-            cflags: "-march=x86-64-v4"
           - exec_postfix: "avx2"
             add_rustflags: "-Ctarget-feature=+crt-static,-bmi2 -Ctarget-cpu=x86-64-v3"
             cflags: "-march=x86-64-v3"

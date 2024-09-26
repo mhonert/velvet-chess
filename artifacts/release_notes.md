@@ -5,7 +5,7 @@ This is just a preview release not intended for rating lists
 
 - Switch from 16- to 8-bit quantized weights in the input layer
 - Search improvements
-- Support for AVX-512
+- Support for AVX-512 (Linux only at the moment)
 - New SPRT testing tool
 - New tournament (gauntlet) testing tool
 - New tuning tool
