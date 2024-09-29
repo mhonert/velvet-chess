@@ -60,7 +60,6 @@ const NEG_HISTORY_REDUCTIONS: i32 = 2;
 const NEG_SEE_REDUCTIONS: i32 = 2;
 
 const INITIAL_ASPIRATION_WINDOW_SIZE: i16 = 16;
-const INITIAL_ASPIRATION_WINDOW_STEP: i16 = 16;
 
 type MoveSet = HashSet<Move, BuildHasherDefault<FastHasher>>;
 
@@ -382,14 +381,7 @@ impl Search {
         self.draw_score = draw_score;
         self.threads.start_search(&self.board, &skipped_moves, self.multi_pv_count, self.tb_probe_depth, draw_score, self.is_tb_root);
 
-        let mut multi_pv_state = vec![
-            (
-                self.board.clock_scaled_eval(self.is_tb_root),
-                INITIAL_ASPIRATION_WINDOW_SIZE,
-                INITIAL_ASPIRATION_WINDOW_STEP
-            );
-            self.multi_pv_count
-        ];
+        let mut multi_pv_state = vec![self.board.clock_scaled_eval(self.is_tb_root); self.multi_pv_count];
 
         // Use iterative deepening, i.e. increase the search depth after each iteration
         for depth in 1..=self.limits.depth_limit() {
@@ -402,17 +394,10 @@ impl Search {
             let mut local_skipped_moves = skipped_moves.clone();
             for multi_pv_num in 1..=self.multi_pv_count {
                 let mut local_pv = PrincipalVariation::default();
-                let (score, mut window_step, mut window_size) = multi_pv_state[multi_pv_num - 1];
+                let score = multi_pv_state[multi_pv_num - 1];
 
-                let (cancelled, best_move, current_pv, new_window_step) =
-                    self.root_search(rx, &local_skipped_moves, window_step, window_size, score, depth, &mut local_pv);
-                if new_window_step > window_step {
-                    window_step = new_window_step;
-                    window_size = new_window_step;
-                } else if window_step > INITIAL_ASPIRATION_WINDOW_STEP {
-                    window_step /= 2;
-                    window_size /= 2;
-                }
+                let (cancelled, best_move, current_pv) =
+                    self.root_search(rx, &local_skipped_moves, score, depth, &mut local_pv);
 
                 if cancelled {
                     iteration_cancelled = true;
@@ -422,7 +407,7 @@ impl Search {
                     break;
                 }
 
-                if !iteration_cancelled {
+                if best_move != NO_MOVE {
                     analysis_result.update_result(depth, self.max_reached_depth as i32, best_move, current_pv, local_pv);
 
                     let now = Instant::now();
@@ -445,7 +430,7 @@ impl Search {
                 }
 
                 local_skipped_moves.push(best_move.without_score());
-                multi_pv_state[multi_pv_num - 1] = (best_move.score(), window_size, window_step);
+                multi_pv_state[multi_pv_num - 1] = best_move.score();
 
                 if iteration_cancelled {
                     break;
@@ -485,15 +470,20 @@ impl Search {
     }
 
     fn root_search(
-        &mut self, rx: Option<&Receiver<Message>>, skipped_moves: &[Move], window_step: i16, window_size: i16,
-        score: i16, mut depth: i32, pv: &mut PrincipalVariation) -> (bool, Move, Option<String>, i16) {
-        let mut alpha = if depth > 7 { score - window_size } else { MIN_SCORE };
-        let mut beta = if depth > 7 { score + window_size } else { MAX_SCORE };
+        &mut self, rx: Option<&Receiver<Message>>, skipped_moves: &[Move], score: i16, mut depth: i32, pv: &mut PrincipalVariation) -> (bool, Move, Option<String>) {
+
+        let aspiration_window_size = calc_aspiration_window(0, 0, score, score);
+        let mut alpha = if depth > 7 { score.saturating_sub(aspiration_window_size) } else { MIN_SCORE };
+        let mut beta = if depth > 7 { score.saturating_add(aspiration_window_size) } else { MAX_SCORE };
 
         self.ctx.set_eval(if self.board.is_in_check(self.board.active_player()) { MIN_SCORE } else { self.board.clock_scaled_eval(self.is_tb_root) });
 
-        let mut step = window_step;
         let original_depth = depth;
+        let mut attempt = 0;
+        let initial_score = score;
+        let mut step = 0;
+        
+        let mut fail_high_move = NO_MOVE;
         loop {
             pv.clear();
 
@@ -511,22 +501,28 @@ impl Search {
             }
 
             if best_move == NO_MOVE || cancelled {
-                return (cancelled, best_move, current_pv, step);
+                return (cancelled, fail_high_move, current_pv);
             }
 
             let best_score = best_move.score();
             if best_score <= alpha {
-                beta = (alpha + beta) / 2;
-                alpha = MIN_SCORE.max(alpha.saturating_sub(step));
+                fail_high_move = NO_MOVE;
+                attempt += 1;
                 depth = original_depth;
+                beta = (alpha + beta) / 2;
+                step = calc_aspiration_window(attempt, step, initial_score, best_score);
+                alpha = best_score.saturating_sub(step).clamp(MIN_SCORE, MAX_SCORE);
             } else if best_score >= beta {
-                beta = MAX_SCORE.min(beta.saturating_add(step));
-                depth = (depth - 1).max(original_depth - 5);
+                fail_high_move = best_move;
+                attempt += 1;
+                step = calc_aspiration_window(attempt, step, initial_score, best_score);
+                beta = best_score.saturating_add(step).clamp(MIN_SCORE, MAX_SCORE);
+                if !is_mate_or_mated_score(best_score) {
+                    depth = (depth - 1).max(original_depth - 5);
+                }
             } else {
-                return (false, best_move, current_pv, step);
+                return (false, best_move, current_pv);
             }
-
-            step = (MATE_SCORE / 2).min(step.saturating_mul(2));
         }
     }
 
@@ -1735,37 +1731,21 @@ impl HelperThread {
                     let active_player = sub_search.board.active_player();
                     sub_search.ctx.prepare_moves(active_player, sub_search.get_tt_move(0), EMPTY_HISTORY);
 
-                    let mut multi_pv_state = vec![
-                        (
-                            sub_search.board.clock_scaled_eval(is_tb_root),
-                            INITIAL_ASPIRATION_WINDOW_SIZE,
-                            INITIAL_ASPIRATION_WINDOW_STEP
-                        );
-                        multi_pv_count
-                    ];
+                    let mut multi_pv_state = vec![sub_search.board.clock_scaled_eval(is_tb_root); multi_pv_count];
 
                     let mut found_moves = false;
                     for depth in 1..MAX_DEPTH {
                         sub_search.current_depth = depth as i32;
                         let mut local_skipped_moves = skipped_moves.clone();
                         for multi_pv_num in 1..=multi_pv_count {
-                            let (score, mut window_size, mut window_step) = multi_pv_state[multi_pv_num - 1];
-                            let (_, best_move, _, new_window_step) = sub_search.root_search(
+                            let score= multi_pv_state[multi_pv_num - 1];
+                            let (_, best_move, _) = sub_search.root_search(
                                 None,
                                 &local_skipped_moves,
-                                window_step,
-                                window_size,
                                 score,
                                 depth as i32,
                                 &mut PrincipalVariation::default(),
                             );
-                            if new_window_step > window_step {
-                                window_step = new_window_step;
-                                window_size = new_window_step;
-                            } else if window_step > 16 {
-                                window_step /= 2;
-                                window_size /= 2;
-                            }
 
                             if sub_search.ctx.root_move_count() == 0 {
                                 break;
@@ -1777,7 +1757,7 @@ impl HelperThread {
                                 break;
                             }
 
-                            multi_pv_state[multi_pv_num - 1] = (best_move.score(), window_size, window_step);
+                            multi_pv_state[multi_pv_num - 1] = best_move.score();
                             local_skipped_moves.push(best_move.without_score());
                         }
 
@@ -1810,6 +1790,18 @@ fn get_score_info(score: i16) -> String {
     } else {
         format!("mate {}", (MATE_SCORE - score + 1) / 2)
     }
+}
+
+fn calc_aspiration_window(attempt: usize, prev_step: i16, prev_score: i16, curr_score: i16) -> i16 {
+    if is_mate_or_mated_score(curr_score) && is_mate_or_mated_score(prev_score) {
+        return MAX_SCORE;
+    } else if attempt == 0 {
+        return INITIAL_ASPIRATION_WINDOW_SIZE;
+    }
+
+    let delta = (curr_score - prev_score).abs() as i32;
+
+    (((delta as f32).max(prev_step as f32) * (4.0f32 / 3.0f32).powi(attempt as i32)) as i32).clamp(MIN_SCORE as i32, MAX_SCORE as i32) as i16
 }
 
 #[cfg(test)]
