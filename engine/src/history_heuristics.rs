@@ -22,11 +22,14 @@ use crate::transposition_table::MAX_DEPTH;
 
 pub const MIN_HISTORY_SCORE: i16 = -128;
 
+pub const CORR_HISTORY_SIZE: usize = 16384;
+
 #[derive(Clone)]
 pub struct HistoryHeuristics {
     killers: Vec<(Move, Move)>,
     counters: Vec<Move>,
     history: Box<HistoryTable>,
+    pawn_corr_history: Box<[[CorrHistoryValue; CORR_HISTORY_SIZE]; 2]>,
 }
 
 impl Default for HistoryHeuristics {
@@ -35,6 +38,7 @@ impl Default for HistoryHeuristics {
             killers: vec![(NO_MOVE, NO_MOVE); MAX_DEPTH],
             counters: vec![NO_MOVE; 512],
             history: Default::default(),
+            pawn_corr_history: Box::new([[CorrHistoryValue(0); CORR_HISTORY_SIZE]; 2]),
         }
     }
 }
@@ -45,6 +49,7 @@ impl HistoryHeuristics {
         self.killers.fill((NO_MOVE, NO_MOVE));
         self.counters.fill(NO_MOVE);
         self.history.clear();
+        self.pawn_corr_history.iter_mut().for_each(|e| e.fill(CorrHistoryValue(0)));
     }
 
     pub fn is_empty(&self) -> bool {
@@ -103,6 +108,11 @@ impl HistoryHeuristics {
     pub fn update_played_moves(&mut self, active_player: Color, move_history: MoveHistory, m: Move) {
         self.update_history(active_player, move_history, m, -1);
     }
+    
+    #[inline(always)]
+    pub fn update_pawn_corr_history(&mut self, active_player: Color, depth: i32, pawn_hash: u16, score_diff: i16) {
+        self.pawn_corr_history[active_player.idx()][pawn_hash as usize & (CORR_HISTORY_SIZE - 1)].update(score_diff, depth);
+    }
 
     #[inline(always)]
     pub fn score(&self, active_player: Color, move_history: MoveHistory, m: Move) -> i16 {
@@ -110,6 +120,11 @@ impl HistoryHeuristics {
         let counter_score = self.history.counter_score(active_player, move_history.last_opp, m);
 
         follow_up_score + counter_score
+    }
+    
+    #[inline(always)]
+    pub fn corr_eval(&self, active_player: Color, pawn_hash: u16) -> i16 {
+        self.pawn_corr_history[active_player.idx()][pawn_hash as usize & (CORR_HISTORY_SIZE - 1)].score()
     }
 }
 
@@ -125,6 +140,27 @@ impl HistoryValue {
     #[inline(always)]
     fn score(&self) -> i16 {
         self.0 as i16
+    }
+}
+
+const CORR_HISTORY_GRAIN: i32 = 256;
+const CORR_HISTORY_MAX: i32 = 64 * CORR_HISTORY_GRAIN;
+const CORR_HISTORY_MAX_WEIGHT: i32 = MAX_DEPTH as i32 + 1;
+
+#[derive(Default, Clone, Copy)]
+struct CorrHistoryValue(i16);
+
+impl CorrHistoryValue {
+    #[inline(always)]
+    fn update(&mut self, diff: i16, depth: i32) {
+        let weight = depth;
+        let weighted_diff = diff as i32 * weight * CORR_HISTORY_GRAIN;
+        self.0 = (((CORR_HISTORY_MAX_WEIGHT - weight) * self.0 as i32 + weighted_diff) / CORR_HISTORY_MAX_WEIGHT).clamp(-CORR_HISTORY_MAX, CORR_HISTORY_MAX) as i16;
+    }
+
+    #[inline(always)]
+    fn score(&self) -> i16 {
+        self.0 / CORR_HISTORY_GRAIN as i16
     }
 }
 

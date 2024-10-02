@@ -810,7 +810,8 @@ impl Search {
         }
 
         self.ctx.set_eval(if in_check { MIN_SCORE } else {
-            self.tt.get_or_calc_eval(self.board.get_hash(), self.board.halfmove_clock(), in_tb_pos, || self.board.eval())
+            let corr_eval = self.hh.corr_eval(active_player, self.board.pawn_hash());
+            self.tt.get_or_calc_eval(self.board.get_hash(), self.board.halfmove_clock(), in_tb_pos, || self.board.eval(), corr_eval)
         });
         let improving = self.ctx.is_improving();
 
@@ -928,6 +929,7 @@ impl Search {
             }
 
             let (previous_piece, removed_piece_id) = self.board.perform_move(curr_move);
+
             self.tt.prefetch(self.board.get_hash());
 
             let gives_check = self.board.is_in_check(active_player.flip());
@@ -1069,6 +1071,9 @@ impl Search {
                     if best_score >= beta {
                         if se_move == NO_MOVE {
                             self.tt.write_entry(hash, ply, depth, best_move, best_score, ScoreType::LowerBound, self.board.halfmove_clock());
+                            if !(in_check || best_move.is_capture() || is_mate_or_mated_score(best_score) || best_score <= self.ctx.eval()) {
+                                self.hh.update_pawn_corr_history(active_player, depth, self.board.pawn_hash(), best_score - self.ctx.eval());
+                            }
                         }
 
                         if !curr_move.is_capture() {
@@ -1111,6 +1116,10 @@ impl Search {
 
         if se_move == NO_MOVE {
             self.tt.write_entry(hash, ply, depth, best_move, best_score, score_type, self.board.halfmove_clock());
+
+            if !(in_check || best_move.is_capture() || is_mate_or_mated_score(best_score) || matches!(score_type, ScoreType::UpperBound) && best_score >= self.ctx.eval()) {
+                self.hh.update_pawn_corr_history(active_player, depth, self.board.pawn_hash(), best_score - self.ctx.eval());
+            }
         }
 
         best_score
@@ -1157,7 +1166,8 @@ impl Search {
 
     fn qs<const PV: bool>(&mut self, active_player: Color, mut alpha: i16, beta: i16, ply: usize, in_check: bool, in_tb_pos: bool, pv: &mut PrincipalVariation) -> i16 {
         let position_score = if in_check { MATED_SCORE + ply as i16 } else {
-            self.tt.get_or_calc_eval(self.board.get_hash(), self.board.halfmove_clock(), in_tb_pos, || self.board.eval())
+            let corr_eval = self.hh.corr_eval(active_player, self.board.pawn_hash());
+            self.tt.get_or_calc_eval(self.board.get_hash(), self.board.halfmove_clock(), in_tb_pos, || self.board.eval(), corr_eval)
         };
 
         if ply >= MAX_DEPTH || (self.is_strength_limited && self.local_total_node_count >= self.limits.node_limit()) {

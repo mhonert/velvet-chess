@@ -69,6 +69,7 @@ pub struct Board {
 #[derive(Copy, Clone)]
 pub struct StateEntry {
     hash: u64,
+    pawn_hash: u16,
     en_passant: u8,
     castling: CastlingState,
     halfmove_clock: u8,
@@ -100,6 +101,7 @@ impl Board {
                 castling: CastlingState::default(),
                 halfmove_clock: 0,
                 hash: 0,
+                pawn_hash: 0,
                 history_start: 0,
             },
             halfmove_count: 0,
@@ -187,11 +189,15 @@ impl Board {
 
     pub fn recalculate_hash(&mut self) {
         self.state.hash = 0;
+        self.state.pawn_hash = 0;
 
         for pos in 0..64 {
             let piece = self.items[pos];
             if piece != EMPTY {
                 self.state.hash ^= piece_zobrist_key(piece, pos);
+            }
+            if piece.abs() == P {
+                self.state.pawn_hash ^= (piece_zobrist_key(piece, pos) & 0xFFFF) as u16;
             }
         }
 
@@ -282,6 +288,11 @@ impl Board {
         self.state.hash ^= player_zobrist_key();
     }
 
+    #[inline(always)]
+    fn update_pawn_hash(&mut self, piece: i8, pos: usize) {
+        self.state.pawn_hash ^= (piece_zobrist_key(piece, pos) & 0xFFFF) as u16;
+    }
+
     pub fn perform_move(&mut self, m: Move) -> (i8, i8) {
         self.nn_eval.start_move();
         self.pos_history.push(self.state.hash);
@@ -299,6 +310,8 @@ impl Board {
             MoveType::PawnQuiet => {
                 let own_piece = color.piece(P);
                 self.move_piece(color, own_piece, move_start, move_end);
+                self.update_pawn_hash(own_piece, move_start);
+                self.update_pawn_hash(own_piece, move_end);
                 self.nn_eval.remove_add_piece(move_start, own_piece, move_end, own_piece);
                 self.reset_half_move_clock();
                 (own_piece, EMPTY)
@@ -306,6 +319,8 @@ impl Board {
             MoveType::PawnDoubleQuiet => {
                 let own_piece = color.piece(P);
                 self.move_piece(color, own_piece, move_start, move_end);
+                self.update_pawn_hash(own_piece, move_start);
+                self.update_pawn_hash(own_piece, move_end);
                 self.nn_eval.remove_add_piece(move_start, own_piece, move_end, own_piece);
                 self.reset_half_move_clock();
 
@@ -314,6 +329,8 @@ impl Board {
             }
             MoveType::PawnEnPassant => {
                 let own_piece = self.remove_piece(move_start);
+                self.update_pawn_hash(own_piece, move_start);
+                self.update_pawn_hash(own_piece, move_end);
                 self.reset_half_move_clock();
                 self.add_piece(color, target_piece_id, move_end);
                 if own_piece == P {
@@ -321,10 +338,12 @@ impl Board {
                     if move_start - move_end == 7 {
                         self.nn_eval.remove_remove_add_piece(move_start + 1, -P, move_start, own_piece, move_end, own_piece);
                         self.remove_piece(move_start + 1);
+                        self.update_pawn_hash(-P, move_start + 1);
                         (own_piece, P)
                     } else {
                         self.nn_eval.remove_remove_add_piece(move_start - 1, -P, move_start, own_piece, move_end, own_piece);
                         self.remove_piece(move_start - 1);
+                        self.update_pawn_hash(-P, move_start - 1);
                         (own_piece, P)
                     }
                 } else {
@@ -332,10 +351,12 @@ impl Board {
                     if (move_start as i64) - (move_end as i64) == -7 {
                         self.nn_eval.remove_remove_add_piece(move_start - 1, P, move_start , own_piece, move_end, own_piece);
                         self.remove_piece(move_start - 1);
+                        self.update_pawn_hash(P, move_start - 1);
                         (own_piece, P)
                     } else {
                         self.nn_eval.remove_remove_add_piece(move_start + 1, P, move_start, own_piece, move_end, own_piece);
                         self.remove_piece(move_start + 1);
+                        self.update_pawn_hash(P, move_start + 1);
                         (own_piece, P)
                     }
                 }
@@ -357,9 +378,27 @@ impl Board {
                 self.nn_eval.remove_add_piece(move_start, own_piece, move_end, own_piece);
                 (own_piece, EMPTY)
             }
-            MoveType::PawnCapture | MoveType::KnightCapture | MoveType::BishopCapture => {
+            MoveType::PawnCapture => {
+                let own_piece = self.remove_piece(move_start);
+                self.update_pawn_hash(own_piece, move_start);
+                self.update_pawn_hash(own_piece, move_end);
+                let removed_piece = self.remove_piece(move_end);
+                if removed_piece.abs() == P {
+                    self.update_pawn_hash(removed_piece, move_end);
+                }
+                self.update_rook_castling_state(color.flip(), removed_piece.abs(), move_end as i8);
+                self.nn_eval.remove_remove_add_piece(move_end, removed_piece, move_start, own_piece, move_end, own_piece);
+                self.add_piece(color, target_piece_id, move_end);
+
+                self.reset_half_move_clock();
+                (own_piece, removed_piece.abs())
+            }
+            MoveType::KnightCapture | MoveType::BishopCapture => {
                 let own_piece = self.remove_piece(move_start);
                 let removed_piece = self.remove_piece(move_end);
+                if removed_piece.abs() == P {
+                    self.update_pawn_hash(removed_piece, move_end);
+                }
                 self.update_rook_castling_state(color.flip(), removed_piece.abs(), move_end as i8);
                 self.nn_eval.remove_remove_add_piece(move_end, removed_piece, move_start, own_piece, move_end, own_piece);
                 self.add_piece(color, target_piece_id, move_end);
@@ -376,6 +415,9 @@ impl Board {
                 }
 
                 let removed_piece = self.remove_piece(move_end);
+                if removed_piece.abs() == P {
+                    self.update_pawn_hash(removed_piece, move_end);
+                }
                 self.update_rook_castling_state(color.flip(), removed_piece.abs(), move_end as i8);
                 self.nn_eval.remove_remove_add_piece(move_end, removed_piece, move_start, own_piece, move_end, own_piece);
                 self.add_piece(color, target_piece_id, move_end);
@@ -386,6 +428,9 @@ impl Board {
             MoveType::QueenCapture => {
                 let own_piece = self.remove_piece(move_start);
                 let removed_piece = self.remove_piece(move_end);
+                if removed_piece.abs() == P {
+                    self.update_pawn_hash(removed_piece, move_end);
+                }
                 self.update_rook_castling_state(color.flip(), removed_piece.abs(), move_end as i8);
                 self.nn_eval.remove_remove_add_piece(move_end, removed_piece, move_start, own_piece, move_end, own_piece);
                 self.add_piece(color, target_piece_id, move_end);
@@ -395,6 +440,7 @@ impl Board {
             }
             MoveType::KnightQuietPromotion | MoveType::BishopQuietPromotion | MoveType::RookQuietPromotion | MoveType::QueenQuietPromotion => {
                 let own_piece = self.remove_piece(move_start);
+                self.update_pawn_hash(own_piece, move_start);
                 self.reset_half_move_clock();
                 self.add_piece(color, target_piece_id, move_end);
                 self.nn_eval.remove_add_piece(move_start, own_piece, move_end, color.piece(target_piece_id));
@@ -404,7 +450,11 @@ impl Board {
                 let own_piece = self.remove_piece(move_start);
                 self.reset_half_move_clock();
 
+                self.update_pawn_hash(own_piece, move_start);
                 let removed_piece = self.remove_piece(move_end);
+                if removed_piece.abs() == P {
+                    self.update_pawn_hash(removed_piece, move_end);
+                }
                 self.update_rook_castling_state(color.flip(), removed_piece.abs(), move_end as i8);
                 self.nn_eval.remove_remove_add_piece(move_end, removed_piece, move_start, own_piece, move_end, color.piece(target_piece_id));
                 self.add_piece(color, target_piece_id, move_end);
@@ -421,6 +471,9 @@ impl Board {
             MoveType::KingCapture => {
                 let own_piece = self.remove_piece(move_start);
                 let removed_piece = self.remove_piece(move_end);
+                if removed_piece.abs() == P {
+                    self.update_pawn_hash(removed_piece, move_end);
+                }
                 self.update_rook_castling_state(color.flip(), removed_piece.abs(), move_end as i8);
                 self.nn_eval.remove_remove_add_piece(move_end, removed_piece, move_start, own_piece, move_end, own_piece);
                 self.add_piece(color, target_piece_id, move_end);
@@ -571,6 +624,10 @@ impl Board {
         }
     }
 
+    pub fn pawn_hash(&self) -> u16 {
+        self.state.pawn_hash
+    }
+
     pub fn undo_null_move(&mut self) {
         self.halfmove_count -= 1;
         self.restore_state();
@@ -596,7 +653,7 @@ impl Board {
         self.bitboards.flip(color, piece, pos as u32);
     }
 
-    #[inline]
+    #[inline(always)]
     fn move_piece(&mut self, color: Color, piece: i8, start: usize, end: usize) {
         unsafe {
             *self.items.get_unchecked_mut(start) = EMPTY;
