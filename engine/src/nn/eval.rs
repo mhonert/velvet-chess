@@ -100,6 +100,12 @@ impl NeuralNetEval {
 
     pub fn init_pos(&mut self, bitboards: &BitBoards, white_king: i8, black_king: i8) {
         self.updates.clear();
+        for buckets in 0..BUCKETS {
+            self.hidden_nodes_white.0[buckets].fill(0);
+            self.hidden_nodes_black.0[buckets].fill(0);
+            self.bb_white[buckets] = BitBoards::default();
+            self.bb_black[buckets] = BitBoards::default();
+        }
 
         let (white_bucket, black_bucket, xor_white_pov, xor_black_pov, white_offset, black_offset) =
             calc_bucket_offsets(bitboards, white_king, black_king);

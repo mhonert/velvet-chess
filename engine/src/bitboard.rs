@@ -178,6 +178,10 @@ impl BitBoards {
             *self.0.get_unchecked_mut(BY_COLOR + color.idx()) ^= mask;
         }
     }
+
+    pub fn clear(&mut self) {
+        self.0.fill(0);
+    }
 }
 
 /// Mirrors the given bitboard position index vertically
