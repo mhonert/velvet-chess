@@ -129,7 +129,18 @@ impl MoveList {
     #[inline]
     pub fn add_move(&mut self, hh: &HistoryHeuristics, typ: MoveType, start: i8, end: i8) {
         let m = Move::new(typ, start, end);
-        let score = QUIET_BASE_SCORE + hh.score(self.active_player, self.move_history, m);
+        let score = QUIET_BASE_SCORE + hh.score(self.active_player, self.move_history, m) + i16::from(typ.is_queen_promotion());
+        self.moves.push(m.with_initial_score(score));
+    }
+    
+    #[inline]
+    pub fn add_promotion_move(&mut self, hh: &HistoryHeuristics, typ: MoveType, start: i8, end: i8, underpromotion: bool) {
+        let m = Move::new(typ, start, end);
+        let mut score = QUIET_BASE_SCORE + hh.score(self.active_player, self.move_history, m);
+        if underpromotion {
+            score -= 1;
+        }
+        
         self.moves.push(m.with_initial_score(score));
     }
 
@@ -152,10 +163,14 @@ impl MoveList {
     }
 
     #[inline]
-    pub fn add_capture_promotion_move(&mut self, board: &Board, typ: MoveType, start: i8, end: i8) {
+    pub fn add_capture_promotion_move(&mut self, board: &Board, typ: MoveType, start: i8, end: i8, underpromotion: bool) {
         let m = Move::new(typ, start, end);
-        let score = evaluate_capture_move_order(board, end, typ.piece_id()) + typ.piece_id() as i16 * 128;
-        self.capture_moves.push(m.with_initial_score(score));
+        let score = evaluate_capture_move_order(board, end, P) + typ.piece_id() as i16 * 128;
+        if underpromotion {
+            self.bad_capture_moves.push(m.with_initial_score(score));
+        } else {
+            self.capture_moves.push(m.with_initial_score(score));
+        }
     }
 
     #[inline(always)]
@@ -166,7 +181,6 @@ impl MoveList {
                 return;
             }
         }
-
     }
 
     #[inline(always)]
@@ -274,6 +288,7 @@ impl MoveList {
     pub fn next_root_move(&mut self, hh: &HistoryHeuristics, board: &mut Board, randomize: bool) -> Option<Move> {
         if !self.moves_generated {
             self.gen_capture_moves::<true>(board);
+            self.capture_moves.append(&mut self.bad_capture_moves);
             swap(&mut self.moves, &mut self.capture_moves);
             self.gen_quiet_moves(hh, board);
 
@@ -510,10 +525,10 @@ impl MoveList {
         // Promotions
         for end in target_bb & 0xFF000000000000FF {
             let start = end as i8 + direction;
-            self.add_move(hh, MoveType::QueenQuietPromotion, start, end as i8);
-            self.add_move(hh, MoveType::KnightQuietPromotion, start, end as i8);
-            self.add_move(hh, MoveType::RookQuietPromotion, start, end as i8);
-            self.add_move(hh, MoveType::BishopQuietPromotion, start, end as i8);
+            self.add_promotion_move(hh, MoveType::QueenQuietPromotion, start, end as i8, false);
+            self.add_promotion_move(hh, MoveType::KnightQuietPromotion, start, end as i8, true);
+            self.add_promotion_move(hh, MoveType::RookQuietPromotion, start, end as i8, true);
+            self.add_promotion_move(hh, MoveType::BishopQuietPromotion, start, end as i8, true);
         }
 
         // Normal quiet moves
@@ -527,11 +542,11 @@ impl MoveList {
         // Promotions
         for end in target_bb & 0xFF000000000000FF {
             let start = end as i8 + direction;
-            self.add_capture_promotion_move(board, MoveType::QueenCapturePromotion, start, end as i8);
+            self.add_capture_promotion_move(board, MoveType::QueenCapturePromotion, start, end as i8, false);
             if MINOR_PROMOTIONS {
-                self.add_capture_promotion_move(board, MoveType::KnightCapturePromotion, start, end as i8);
-                self.add_capture_promotion_move(board, MoveType::RookCapturePromotion, start, end as i8);
-                self.add_capture_promotion_move(board, MoveType::BishopCapturePromotion, start, end as i8);
+                self.add_capture_promotion_move(board, MoveType::KnightCapturePromotion, start, end as i8, true);
+                self.add_capture_promotion_move(board, MoveType::RookCapturePromotion, start, end as i8, true);
+                self.add_capture_promotion_move(board, MoveType::BishopCapturePromotion, start, end as i8, true);
             }
         }
 
