@@ -20,6 +20,7 @@ mod config;
 mod uci_engine;
 mod pgn;
 mod san;
+mod affinity;
 
 use std::collections::HashMap;
 use std::env::args;
@@ -37,6 +38,7 @@ use velvet::init::init;
 use velvet::move_gen::{is_valid_move, MoveList};
 use velvet::moves::{Move, NO_MOVE};
 use velvet::uci_move::UCIMove;
+use crate::affinity::pin_thread;
 use crate::config::EngineConfig;
 use crate::pgn::{PgnGame};
 use crate::san::move_to_san;
@@ -69,18 +71,24 @@ fn main() {
     println!("Velvet Tournament Tool");
     println!(" - Starting tournament {} with TC {}+{} ", tournament_id, tournament_config.tc, tournament_config.inc);
 
-    let mut reserved_core_ids = Vec::new();
     let mut core_ids = core_affinity::get_core_ids().expect("Could not retrieve CPU core IDs");
-
     core_ids.sort();
 
-    // Keep one "full" CPU core free
+    let mut core_pairs = Vec::new();
+    for i in 0..core_ids.len() / 2 {
+        core_pairs.push((core_ids[i], core_ids[i + core_ids.len() / 2]));
+    }
+
+    // Keep at least one "full" CPU core free
     // Assumes that HT is enabled and that there are two logical CPU cores per physical CPU core
     // (core_affinity library currently does not return the CPU core type)
-    reserved_core_ids.push(core_ids.remove(0));
-    reserved_core_ids.push(core_ids.remove(core_ids.len() / 2 + 1));
+    let mut reserved_core_count = 1;
+    reserved_core_count += (core_pairs.len() - reserved_core_count) % tournament_config.engine_threads as usize;
+    for _ in 0..reserved_core_count {
+        core_pairs.pop();
+    }
 
-    println!(" - Using {} CPU cores", core_ids.len());
+    println!(" - Using 2x{} logical CPU cores (reserved 2x{} logical CPU cores)", core_pairs.len(), reserved_core_count);
 
     // assert!(core_affinity::set_for_current(reserved_core_ids[0]), "could not set CPU core affinity");
 
@@ -88,21 +96,24 @@ fn main() {
     let inc = (tournament_config.inc * 1000.0) as i32;
     let state = TournamentState::new(&tournament_config, &engine_configs).expect("Could not create tournament state");
     let challenger = engine_configs.0.get(&tournament_config.challenger).expect("Could not find challenger engine in config").clone();
+    
+    let available_cores = core_pairs.iter().flat_map(|(a, b)| [*a, *b]).collect::<Vec<_>>();
 
-    let handles: Vec<_> = core_ids.into_iter().map(|id| {
+    let handles: Vec<_> = available_cores.chunks(tournament_config.engine_threads as usize).map(|ids| {
+        let ids = ids.to_vec();
         let thread_state = state.clone();
         let thread_openings = openings.clone();
         let thread_challenger = challenger.clone();
         let thread_tournament_path = tournament_path.clone();
 
         ThreadBuilder::default()
-            .name(format!("Worker {:?}", id))
+            .name(format!("Worker {:?}", ids))
             .priority(ThreadPriority::Max)
             .spawn(move |result| {
                 if let Err(e) = result {
-                    eprintln!("Could not set thread priority for worker thread running on {:?}: {}", id, e);
+                    eprintln!("Could not set thread priority for worker thread running on {:?}: {}", ids, e);
                 }
-                run_thread(id, thread_state, thread_tournament_path.clone(), thread_openings, thread_challenger, time, inc);
+                run_thread(&ids, thread_state, thread_tournament_path.clone(), thread_openings, thread_challenger, time, inc);
             })
             .expect("could not spawn thread")
     }).collect();
@@ -112,10 +123,8 @@ fn main() {
     }
 }
 
-fn run_thread(id: CoreId, state: Arc<TournamentState>, tournament_path: String, openings: Arc<OpeningBook>, challenger_cfg: EngineConfig, time: i32, inc: i32) {
-    if !core_affinity::set_for_current(id) {
-        eprintln!("Could not set CPU core affinity for worker thread running on {:?}", id);
-    }
+fn run_thread(ids: &[CoreId], state: Arc<TournamentState>, tournament_path: String, openings: Arc<OpeningBook>, challenger_cfg: EngineConfig, time: i32, inc: i32) {
+    pin_thread(ids).expect("Could not set CPU core affinity for worker thread");
 
     let mut challenger = UciEngine::start(&challenger_cfg).unwrap_or_else(|_| panic!("Could not start challenger engine: {}", challenger_cfg.name));
     challenger.init().expect("Could not initialize engine");
@@ -123,7 +132,7 @@ fn run_thread(id: CoreId, state: Arc<TournamentState>, tournament_path: String, 
     challenger.uci_newgame().expect("Could not start new game in engine");
     challenger.ready().expect("Could not ready engine");
 
-    let pgn_file = format!("./{}/{}.pgn", tournament_path, id.id);
+    let pgn_file = format!("./{}/{}.pgn", tournament_path, ids[0].id);
     let mut pgn_writer = pgn::PgnWriter::new(&pgn_file).expect("Could not create PGN writer");
 
     let mut board = create_from_fen(START_POS);

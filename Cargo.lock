@@ -1319,6 +1319,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "core_affinity",
+ "libc",
  "rand",
  "selfplay",
  "serde",

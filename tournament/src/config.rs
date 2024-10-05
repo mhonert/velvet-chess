@@ -73,6 +73,9 @@ pub struct TournamentConfig {
     
     #[serde(skip)]
     pub inc: f32,
+
+    #[serde(default)]
+    pub engine_threads: u32,
     
     pub book: String,
     pub engines: String,
@@ -86,7 +89,12 @@ pub struct TournamentConfig {
 pub fn read_tournament_config(file_path: String) -> anyhow::Result<TournamentConfig> {
     let config_str = std::fs::read_to_string(file_path)?;
     let mut config: TournamentConfig = toml::from_str(&config_str)?;
-
+    
+    config.engine_threads = config.engine_threads.max(1);
+    if config.engine_threads > 1 {
+        config.default_options.insert("Threads".to_string(), config.engine_threads.to_string());
+    }
+    
     config.inc = config.tc / 100.0;
     Ok(config)
 }
