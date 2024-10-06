@@ -145,9 +145,9 @@ impl SprtState {
 }
 
 fn score_to_norm_elo(score: f64, variance: f64) -> f64 {
-    (score - 0.5) / (variance * 2.0).sqrt() * (800.0 / 10.0f64.ln())
+    (score - 0.5) / (variance * 2.0).sqrt() * (400.0 / 10.0f64.ln())
 }
 
 fn norm_elo_to_score(nelo: f64, variance: f64) -> f64 {
-    nelo * variance.sqrt() / (800.0 / 10.0f64.ln()) + 0.5
+    nelo * variance.sqrt() / (400.0 / 10.0f64.ln()) + 0.5
 }

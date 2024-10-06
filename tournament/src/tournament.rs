@@ -124,7 +124,7 @@ impl SharedState {
             let draw_ratio = p.d2;
 
             let elo_diff = score_to_norm_elo(score, variance);
-            let elo_error = (score_to_norm_elo(upper_bound, variance) - score_to_norm_elo(lower_bound, variance)) / 2.0;
+            let elo_error = score_to_norm_elo(upper_bound, variance) - score_to_norm_elo(lower_bound, variance);
             
             let name_with_padding = format!("{:width$}", opponent.config.name, width = longest_name);
 
@@ -140,7 +140,7 @@ impl SharedState {
 }
 
 fn score_to_norm_elo(score: f64, variance: f64) -> f64 {
-    (score - 0.5) / (variance * 2.0).sqrt() * (800.0 / 10.0f64.ln())
+    (score - 0.5) / (variance * 2.0).sqrt() * (400.0 / 10.0f64.ln())
 }
 
 #[derive(Clone)]
