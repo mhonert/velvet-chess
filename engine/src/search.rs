@@ -818,7 +818,12 @@ impl Search {
         let unreduced_depth = depth;
         if !is_pv && !in_check {
             let static_score = clamp_score(self.ctx.eval(), worst_possible_score, best_possible_score);
-            if is(self.params.razoring_enabled()) && !improving && self.current_depth > 7 && depth <= 4 && !is_mate_or_mated_score(alpha) && static_score + (1 << (depth - 1)) * self.params.razor_margin_multiplier() <= alpha {
+            let ref_score = if tt_move == NO_MOVE || tt_score_is_upper_bound {
+                static_score
+            } else {
+                tt_score
+            };
+            if is(self.params.razoring_enabled()) && !improving && self.current_depth > 7 && depth <= 4 && !is_mate_or_mated_score(alpha) && !is_mate_or_mated_score(ref_score) && ref_score + (1 << (depth - 1)) * self.params.razor_margin_multiplier() <= alpha {
                 // Razoring
                 let score = clamp_score(same_ply!(self.ctx, self.quiescence_search(false, active_player, alpha, beta, ply, in_check, in_tb_pos, pv)), worst_possible_score, best_possible_score);
                 if score <= alpha {
@@ -826,15 +831,15 @@ impl Search {
                 }
             }
 
-            if is(self.params.rfp_enabled()) && depth <= 3 {
+            if is(self.params.rfp_enabled()) && depth <= 3 && !is_mate_or_mated_score(beta) && !is_mate_or_mated_score(ref_score) {
                 // Reverse futility pruning
                 let margin = if improving {
                     (self.params.rfp_margin_multiplier_improving() << depth) + self.params.rfp_base_margin_improving()
                 } else {
                     (self.params.rfp_margin_multiplier_not_improving() << depth) + self.params.rfp_base_margin_not_improving()
                 };
-                if self.current_depth > 7 && static_score - margin >= beta {
-                    return static_score;
+                if self.current_depth > 7 && ref_score - margin >= beta {
+                    return beta + (ref_score - beta) / 2;
                 }
             }
 
@@ -899,9 +904,15 @@ impl Search {
         // Futile move pruning
         let mut allow_futile_move_pruning = false;
         if is(self.params.fp_enabled()) && !is_pv && !improving && depth <= 6 && !in_check && self.current_depth >= 8 {
-            let margin = (self.params.fp_margin_multiplier() << depth) + self.params.fp_base_margin();
             let static_score = self.ctx.eval();
-            allow_futile_move_pruning = static_score + margin <= alpha;
+            let ref_score = if tt_move == NO_MOVE || tt_score_is_upper_bound {
+                static_score
+            } else {
+                tt_score
+            };
+            
+            let margin = (self.params.fp_margin_multiplier() << depth) + self.params.fp_base_margin();
+            allow_futile_move_pruning = ref_score + margin <= alpha;
         }
 
         self.ctx.prepare_moves(active_player, tt_move, move_history);
