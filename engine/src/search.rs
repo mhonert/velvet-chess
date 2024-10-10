@@ -1434,6 +1434,10 @@ impl Search {
     fn null_move_reduction(&self, depth: i32) -> i32 {
         (self.params.nmp_base() as i32 + (depth * 256 * 256) / self.params.nmp_divider() as i32) / 256
     }
+    
+    pub fn set_expected_best_move(&mut self, m: Move) {
+        self.time_mgr.set_expected_best_move(m);
+    }
 }
 
 #[inline(always)]

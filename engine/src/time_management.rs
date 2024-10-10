@@ -39,6 +39,8 @@ pub struct TimeManager {
     next_index: usize,
     current_depth: i32,
     history: Vec<Move>,
+    
+    expected_best_move: Move,
 }
 
 impl TimeManager {
@@ -51,6 +53,7 @@ impl TimeManager {
             next_index: 0,
             current_depth: 0,
             history: vec![NO_MOVE; MAX_DEPTH],
+            expected_best_move: NO_MOVE,
         }
     }
 
@@ -77,8 +80,19 @@ impl TimeManager {
         if self.time_extended && !(self.score_dropped() || self.best_move_changed()) {
             return false;
         }
+
         let duration_ms = previous_iteration_time.as_millis() as i32;
-        self.remaining_time_ms(now) >= duration_ms * 7 / 4
+        let estimated_iteration_duration = duration_ms * 7 / 4;
+        let remaining_time = self.remaining_time_ms(now);
+        if remaining_time <= estimated_iteration_duration * 7 / 4 && self.best_move_consistent() {
+            return false;
+        }
+
+        remaining_time >= estimated_iteration_duration
+    }
+    
+    fn best_move_consistent(&self) -> bool {
+        self.expected_best_move != NO_MOVE && !self.history.is_empty() && self.history.iter().take(self.next_index - 1).all(|&m| m == self.expected_best_move)
     }
 
     pub fn search_duration_ms(&self, now: Instant) -> i32 {
@@ -131,6 +145,10 @@ impl TimeManager {
     pub fn reduce_timelimit(&mut self) {
         self.allow_time_extension = false;
         self.timelimit_ms /= 32;
+    }
+    
+    pub fn set_expected_best_move(&mut self, m: Move) {
+        self.expected_best_move = m;
     }
 }
 

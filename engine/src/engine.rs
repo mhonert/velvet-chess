@@ -348,6 +348,7 @@ impl Engine {
             self.search.find_best_move_with_full_strength(Some(&self.rx), &skipped_moves)
         };
         let ponder_m = *pv.moves().get(1).unwrap_or(&NO_MOVE);
+        self.search.set_expected_best_move(*pv.moves().get(2).unwrap_or(&NO_MOVE));
         (m, ponder_m)
     }
 
@@ -411,6 +412,7 @@ impl Engine {
     pub fn reset(&mut self) {
         self.search.clear_tt();
         self.search.hh.clear();
+        self.search.set_expected_best_move(NO_MOVE);
     }
 
     fn perft(&mut self, depth: i32) {
