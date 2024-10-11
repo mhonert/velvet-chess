@@ -696,7 +696,7 @@ impl Search {
         let move_history = self.ctx.move_history();
 
         let active_player = self.board.active_player();
-        let mut tt_score_is_upper_bound = false;
+        let mut tt_score_type = ScoreType::Exact;
         let mut tt_depth = 0;
         if se_move == NO_MOVE {
             // Check transposition table
@@ -718,12 +718,12 @@ impl Search {
                 if tt_move != NO_MOVE || is_tb_move {
                     is_tt_hit = true;
                     tt_depth = get_depth(tt_entry);
-                    let score_type = get_score_type(tt_entry);
+                    tt_score_type = get_score_type(tt_entry);
 
-                    tt_score_is_upper_bound = matches!(score_type, ScoreType::UpperBound);
+                    let tt_score_is_upper_bound = matches!(tt_score_type, ScoreType::UpperBound);
 
                     if matching_clock || is_tb_move || is_mate_or_mated_score(tt_score) {
-                        if tt_depth >= depth && match score_type {
+                        if tt_depth >= depth && match tt_score_type {
                             ScoreType::Exact => !is_pv || depth <= 0,
                             ScoreType::UpperBound => (!is_pv || depth <= 0) && tt_score <= alpha,
                             ScoreType::LowerBound => (!is_pv || depth <= 0) && tt_score >= beta
@@ -734,7 +734,7 @@ impl Search {
                             return tt_score;
                         }
                     } else if tt_depth >= depth && (!is_pv || depth <= 0) {
-                        match score_type {
+                        match tt_score_type {
                             ScoreType::Exact => {
                                 if tt_score <= alpha {
                                     return tt_score;
@@ -815,14 +815,18 @@ impl Search {
         });
         let improving = self.ctx.is_improving();
 
+        let mut ref_score = self.ctx.eval();
+        if tt_move != NO_MOVE {
+            ref_score = match tt_score_type {
+                ScoreType::Exact => tt_score,
+                ScoreType::UpperBound => ref_score.min(tt_score),
+                ScoreType::LowerBound => ref_score.max(tt_score)
+            }
+        }
+        ref_score = clamp_score(ref_score, worst_possible_score, best_possible_score);
+
         let unreduced_depth = depth;
         if !is_pv && !in_check {
-            let static_score = clamp_score(self.ctx.eval(), worst_possible_score, best_possible_score);
-            let ref_score = if tt_move == NO_MOVE || tt_score_is_upper_bound {
-                static_score
-            } else {
-                tt_score
-            };
             if is(self.params.rfp_enabled()) && self.current_depth > 7 && depth <= 8 && !is_mate_or_mated_score(beta) && !is_mate_or_mated_score(ref_score) {
                 // Reverse futility pruning
                 let margin = self.params.rfp_margin_multiplier() * (depth as i16 - i16::from(improving));
@@ -839,9 +843,9 @@ impl Search {
                 }
             }
 
-            if is(self.params.nmp_enabled()) && static_score >= beta {
+            if is(self.params.nmp_enabled()) && ref_score >= beta {
                 let reduced_depth = depth - self.null_move_reduction(depth);
-                if !(tt_score_is_upper_bound && tt_depth >= reduced_depth) && self.board.has_non_pawns(active_player) {
+                if !(matches!(tt_score_type, ScoreType::UpperBound) && tt_depth >= reduced_depth) && self.board.has_non_pawns(active_player) {
                     // Null move pruning
                     self.board.perform_null_move();
                     self.tt.prefetch(self.board.get_hash());
@@ -869,7 +873,7 @@ impl Search {
             // ProbCut
             let prob_cut_beta = beta + self.params.prob_cut_margin();
             let prob_cut_depth = depth - self.params.prob_cut_depth() as i32;
-            if is(self.params.prob_cut_enabled()) && se_move == NO_MOVE && tt_move != NO_MOVE && !tt_score_is_upper_bound && tt_score >= prob_cut_beta && prob_cut_depth > 0 && is_eval_score(beta) {
+            if is(self.params.prob_cut_enabled()) && se_move == NO_MOVE && tt_move != NO_MOVE && !matches!(tt_score_type, ScoreType::UpperBound) && tt_score >= prob_cut_beta && prob_cut_depth > 0 && is_eval_score(beta) {
                 let (previous_piece, removed_piece_id) = self.board.perform_move(tt_move);
                 self.tt.prefetch(self.board.get_hash());
                 if !self.board.is_left_in_check(active_player, false, tt_move) {
@@ -900,13 +904,6 @@ impl Search {
         // Futile move pruning
         let mut allow_futile_move_pruning = false;
         if is(self.params.fp_enabled()) && !is_pv && !improving && depth <= 6 && !in_check && self.current_depth >= 8 {
-            let static_score = self.ctx.eval();
-            let ref_score = if tt_move == NO_MOVE || tt_score_is_upper_bound {
-                static_score
-            } else {
-                tt_score
-            };
-            
             let margin = (self.params.fp_margin_multiplier() << depth) + self.params.fp_base_margin();
             allow_futile_move_pruning = ref_score + margin <= alpha;
         }
