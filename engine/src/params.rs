@@ -28,11 +28,7 @@ tunable_params!(
     fp_margin_multiplier = 22
     
     razor_margin_multiplier = 200
-    
-    rfp_base_margin_improving = 19
-    rfp_margin_multiplier_improving = 22
-    rfp_base_margin_not_improving = 23
-    rfp_margin_multiplier_not_improving = 28
+    rfp_margin_multiplier = 64
     
     nmp_base = 768
     nmp_divider = 668
