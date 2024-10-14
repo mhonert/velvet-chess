@@ -988,7 +988,11 @@ impl Search {
                 } else {
                     if allow_lmr && quiet_move_count > LMR_THRESHOLD && !curr_move.is_queen_promotion()  {
                         reductions += self.derived_params.lmr(lmr_idx(quiet_move_count)) as i32 + i32::from(!is_pv);
-                        
+
+                        if is_singular || tt_move.is_capture() || tt_move.is_queen_promotion() {
+                            reductions += 1;
+                        }
+
                         let history_diff = (curr_move.score() - QUIET_BASE_SCORE) / -MIN_HISTORY_SCORE;
                         if !improving && history_diff < 0  {
                             reductions -= history_diff as i32;
@@ -998,6 +1002,10 @@ impl Search {
                         
                         if curr_move.score() < QUIET_BASE_SCORE && self.board.has_negative_see(active_player.flip(), start as usize, end as usize, target_piece_id, EMPTY, occupied_bb) {
                             reductions += 1;
+                        } 
+                        
+                        if curr_move.score() >= QUIET_BASE_SCORE && target_piece_id == P && is_passed_pawn(end as usize, active_player, self.board.get_bitboard(active_player.flip().piece(P))) {
+                            reductions -= 1;
                         }
 
                     } else if allow_futile_move_pruning && !gives_check && !curr_move.is_queen_promotion() {
@@ -1017,10 +1025,6 @@ impl Search {
                         reductions += NEG_SEE_REDUCTIONS;
                     }
 
-                    if is_singular || tt_move.is_capture() || tt_move.is_queen_promotion() {
-                        reductions += 1;
-                    }
-                    
                     quiet_move_count += 1;
 
                     if allow_futile_move_pruning
