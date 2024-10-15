@@ -895,7 +895,7 @@ impl Search {
                 self.board.undo_move(tt_move, previous_piece, removed_piece_id);
             }
         }
-
+        
         let mut evaluated_move_count = 0;
         let mut quiet_move_count = 0;
 
@@ -1052,19 +1052,22 @@ impl Search {
                 self.inc_node_count();
                 self.ctx.update_next_ply_entry(curr_move, gives_check);
 
-                let mut result = next_ply!(self.ctx, self.rec_find_best_move(rx, a, -alpha, ply + 1, depth + se_extension - reductions - 1, &mut local_pv, in_se_search, in_tb_pos, NO_MOVE));
+                let reduced_depth = depth + se_extension - reductions - 1;
+                let mut result = next_ply!(self.ctx, self.rec_find_best_move(rx, a, -alpha, ply + 1, reduced_depth, &mut local_pv, in_se_search, in_tb_pos, NO_MOVE));
                 if result == CANCEL_SEARCH {
                     self.board.undo_move(curr_move, previous_piece, removed_piece_id);
                     return CANCEL_SEARCH;
                 }
 
-                if -result > alpha && (reductions > 0 || a != -beta) {
-                    // Repeat search without reduction and with full window
-                    depth = unreduced_depth;
-                    result = next_ply!(self.ctx, self.rec_find_best_move(rx, -beta, -alpha, ply + 1, depth + se_extension - 1, &mut local_pv, in_se_search, in_tb_pos, NO_MOVE));
-                    if result == CANCEL_SEARCH {
-                        self.board.undo_move(curr_move, previous_piece, removed_piece_id);
-                        return CANCEL_SEARCH;
+                if -result > alpha {
+                    let full_depth = unreduced_depth + se_extension - 1;
+                    if -result > alpha && (a != -beta || full_depth > reduced_depth) {
+                        // Repeat search without reduction and with full window
+                        result = next_ply!(self.ctx, self.rec_find_best_move(rx, -beta, -alpha, ply + 1, full_depth, &mut local_pv, in_se_search, in_tb_pos, NO_MOVE));
+                        if result == CANCEL_SEARCH {
+                            self.board.undo_move(curr_move, previous_piece, removed_piece_id);
+                            return CANCEL_SEARCH;
+                        }
                     }
                 }
 
@@ -1077,6 +1080,7 @@ impl Search {
 
                     // Alpha-beta pruning
                     if best_score >= beta {
+                        depth = unreduced_depth;
                         if se_move == NO_MOVE {
                             self.tt.write_entry(hash, ply, depth, best_move, best_score, ScoreType::LowerBound, self.board.halfmove_clock());
                             if !(in_check || best_move.is_capture() || is_mate_or_mated_score(best_score) || best_score <= self.ctx.eval()) {
@@ -1096,6 +1100,7 @@ impl Search {
                     }
 
                     if best_score > alpha {
+                        depth = unreduced_depth;
                         alpha = best_score;
                         score_type = ScoreType::Exact;
                         if is_pv {
