@@ -94,7 +94,6 @@ pub struct Search {
     threads: HelperThreads,
     is_helper_thread: bool,
 
-    draw_score: i16,
     player_pov: Color,
 
     pondering: bool,
@@ -140,7 +139,6 @@ impl Search {
             tb_probe_root: true,
             is_tb_root: false,
 
-            draw_score: 0,
             player_pov: WHITE,
 
             threads: HelperThreads::new(),
@@ -355,31 +353,21 @@ impl Search {
 
         self.is_tb_root = false;
         // Probe tablebases
-        let (draw_score, tb_result) = if self.tb_probe_root {
+        let tb_result = if self.tb_probe_root {
             if let Some((tb_result, mut tb_skip_moves)) = self.board.probe_root() {
                 self.local_tb_hits += 1;
-                // Adjust draw score based upon the tablebase result to prevent
-                // accidental draws in winning TB positions when the eval is <= 0
-                let draw_score = match tb_result {
-                    TBResult::Loss => MATE_SCORE,
-                    TBResult::BlessedLoss => 1,
-                    TBResult::Draw => 0,
-                    TBResult::CursedWin => -1,
-                    TBResult::Win => MATED_SCORE,
-                };
                 self.is_tb_root = true;
                 skipped_moves.append(&mut tb_skip_moves);
-                (draw_score, Some(tb_result))
+                Some(tb_result)
             } else {
-                (0, None)
+                None
             }
         } else {
-            (0, None)
+            None
         };
 
         self.player_pov = self.board.active_player();
-        self.draw_score = draw_score;
-        self.threads.start_search(&self.board, &skipped_moves, self.multi_pv_count, self.tb_probe_depth, draw_score, self.is_tb_root);
+        self.threads.start_search(&self.board, &skipped_moves, self.multi_pv_count, self.tb_probe_depth, self.is_tb_root);
 
         let mut multi_pv_state = vec![self.board.clock_scaled_eval(self.is_tb_root); self.multi_pv_count];
 
@@ -668,7 +656,7 @@ impl Search {
         let is_pv = (alpha + 1) < beta; // in a principal variation search, non-PV nodes are searched with a zero-window
 
         if alpha < 0 && self.board.has_upcoming_repetition() {
-            alpha = 0;
+            alpha = self.effective_draw_score();
             if alpha >= beta {
                 return alpha;
             }
@@ -1418,11 +1406,7 @@ impl Search {
     }
 
     fn effective_draw_score(&self) -> i16 {
-        if self.board.active_player().0 == self.player_pov.0 {
-            self.draw_score
-        } else {
-            -self.draw_score
-        }
+        -1 + (self.local_node_count & 2) as i16
     }
 
     fn tb_move(&self) -> Move {
@@ -1501,7 +1485,6 @@ enum ToThreadMessage {
         skipped_moves: Vec<Move>,
         multi_pv_count: usize,
         tb_probe_depth: i32,
-        draw_score: i16,
         is_tb_root: bool,
     },
     ClearTT {
@@ -1561,9 +1544,9 @@ impl HelperThreads {
         self.threads.len()
     }
 
-    pub fn start_search(&self, board: &Board, skipped_moves: &[Move], multi_pv_count: usize, tb_probe_depth: i32, draw_score: i16, is_tb_root: bool) {
+    pub fn start_search(&self, board: &Board, skipped_moves: &[Move], multi_pv_count: usize, tb_probe_depth: i32, is_tb_root: bool) {
         for t in self.threads.iter() {
-            t.search(board, skipped_moves, multi_pv_count, tb_probe_depth, draw_score, is_tb_root);
+            t.search(board, skipped_moves, multi_pv_count, tb_probe_depth, is_tb_root);
         }
     }
 
@@ -1694,7 +1677,7 @@ struct HelperThread {
 }
 
 impl HelperThread {
-    pub fn search(&self, board: &Board, skipped_moves: &[Move], multi_pv_count: usize, tb_probe_depth: i32, draw_score: i16, is_tb_root: bool) {
+    pub fn search(&self, board: &Board, skipped_moves: &[Move], multi_pv_count: usize, tb_probe_depth: i32, is_tb_root: bool) {
         match self.to_tx.send(ToThreadMessage::Search {
             pos_history: board.pos_history.clone(),
             bitboards: board.bitboards,
@@ -1704,7 +1687,6 @@ impl HelperThread {
             skipped_moves: Vec::from(skipped_moves),
             multi_pv_count,
             tb_probe_depth,
-            draw_score,
             is_tb_root,
         }) {
             Ok(_) => {}
@@ -1752,14 +1734,12 @@ impl HelperThread {
                     skipped_moves,
                     multi_pv_count,
                     tb_probe_depth,
-                    draw_score,
                     is_tb_root
 
                 } => {
                     sub_search.reset();
                     sub_search.board.reset(pos_history, bitboards, halfmove_count, state, castling_rules);
                     sub_search.set_tb_probe_depth(tb_probe_depth);
-                    sub_search.draw_score = draw_score;
                     sub_search.player_pov = sub_search.board.active_player();
                     sub_search.is_tb_root = is_tb_root;
                     
