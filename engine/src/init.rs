@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2023 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2024 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -15,9 +15,15 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+use std::sync::Once;
+use crate::board::cycledetection;
+use crate::magics;
 
-use crate::magics::initialize_attack_tables;
+static INIT: Once = Once::new();
 
 pub fn init() {
-    initialize_attack_tables();
+    INIT.call_once(|| {
+        magics::init();
+        cycledetection::init();
+    });
 }

@@ -328,7 +328,7 @@ impl Search {
         self.reset();
         self.time_mgr.reset(self.limits);
 
-        self.board.pos_history.mark_root();
+        self.board.pos_history.mark_root(self.board.halfmove_clock());
 
         self.last_log_time = Instant::now();
 
@@ -667,6 +667,13 @@ impl Search {
 
         let is_pv = (alpha + 1) < beta; // in a principal variation search, non-PV nodes are searched with a zero-window
 
+        if alpha < 0 && self.board.has_upcoming_repetition() {
+            alpha = 0;
+            if alpha >= beta {
+                return alpha;
+            }
+        }
+
         // Mate distance pruning
         let mut best_possible_score = MATE_SCORE - (ply as i16 + 1);
         let mut worst_possible_score = MATED_SCORE + (ply as i16);
@@ -921,6 +928,7 @@ impl Search {
 
         let mut score_type = ScoreType::UpperBound;
         let mut a = -beta;
+        
         while let Some(curr_move) = self.ctx.next_move(ply, &self.hh, &mut self.board) {
             if se_move == curr_move {
                 continue;
@@ -1833,7 +1841,6 @@ fn calc_aspiration_window(attempt: usize, prev_step: i16, prev_score: i16, curr_
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Once;
     use super::*;
     use crate::board::castling::{CastlingRules, CastlingState};
     use crate::board::Board;
@@ -1842,14 +1849,6 @@ mod tests {
     use crate::init::init;
     use crate::moves::NO_MOVE;
     use crate::pieces::{K, R};
-
-    static INIT: Once = Once::new();
-
-    pub fn initialize() {
-        INIT.call_once(|| {
-            init();
-        })
-    }
 
     #[test]
     fn finds_mate_in_one() {
@@ -1945,7 +1944,7 @@ mod tests {
     }
 
     fn new_search(tt: Arc<TranspositionTable>, limits: SearchLimits, board: Board) -> Search {
-        initialize();
+        init();
 
         Search::new(
             Arc::new(AtomicBool::new(false)),

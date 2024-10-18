@@ -115,7 +115,19 @@ static mut ATTACKS: A64<[u64; 99947]> = A64([0; 99947]);
 
 static mut MAGICS: A64<[Magic; 64]> = A64([EMPTY_MAGIC; 64]);
 
-pub fn initialize_attack_tables() {
+static mut RAYS: A64<[u64; 4096]> = A64([0; 4096]);
+
+pub fn init() {
+    init_attack_tables();
+    init_ray_tables();
+}
+
+#[inline(always)]
+pub fn get_ray(idx: u16) -> BitBoard {
+    unsafe { BitBoard(*RAYS.0.get_unchecked(idx as usize)) }
+}
+
+fn init_attack_tables() {
     for pos in 0..64 {
         // Rook
         let r_move_mask = gen_rook_attacks(0, pos);
@@ -161,9 +173,31 @@ pub fn initialize_attack_tables() {
 
         let b_inv_block_mask = !b_block_mask;
 
-        unsafe { MAGICS.0[pos as usize] = Magic {
-            r_mask: r_inv_block_mask, r_number: r_magic_num, r_offset: r_magic_offset as usize,
-            b_mask: b_inv_block_mask, b_number: b_magic_num, b_offset: b_magic_offset as usize,
-        } };
+        unsafe {
+            MAGICS.0[pos as usize] = Magic {
+                r_mask: r_inv_block_mask,
+                r_number: r_magic_num,
+                r_offset: r_magic_offset as usize,
+                b_mask: b_inv_block_mask,
+                b_number: b_magic_num,
+                b_offset: b_magic_offset as usize,
+            }
+        };
     }
 }
+
+fn init_ray_tables() {
+    for start in 0..64 {
+        for end in 0..64 {
+            let idx = (start << 6) | end;
+            if get_bishop_attacks(!0, start).is_set(end) {
+                let ray = get_bishop_attacks(!(1 << end), start).0 & get_bishop_attacks(!(1 << start), end).0;
+                unsafe { RAYS.0[idx] = ray }
+            } else if get_rook_attacks(!0, start).is_set(end) {
+                let ray = get_rook_attacks(!(1 << end), start).0 & get_rook_attacks(!(1 << start), end).0; 
+                unsafe { RAYS.0[idx] = ray }
+            }
+        }
+    }
+}
+

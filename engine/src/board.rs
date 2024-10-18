@@ -17,6 +17,7 @@
  */
 
 pub mod castling;
+pub mod cycledetection;
 
 use std::cmp::max;
 
@@ -800,7 +801,11 @@ impl Board {
     pub fn is_repetition_draw(&self) -> bool {
         self.pos_history.is_repetition_draw(self.state.hash, self.state.history_start)
     }
-
+    
+    pub fn has_upcoming_repetition(&self) -> bool {
+        self.pos_history.has_upcoming_repetition(self.occupancy_bb(), self.state.hash, self.state.history_start)
+    }
+    
     pub fn is_fifty_move_draw(&self) -> bool {
         self.state.halfmove_clock >= 100
     }
@@ -959,23 +964,13 @@ impl Board {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Once;
     use crate::init::init;
     use crate::moves::MoveType;
-
     use super::*;
-
-    static INIT: Once = Once::new();
-
-    pub fn initialize() {
-        INIT.call_once(|| {
-            init();
-        })
-    }
 
     #[test]
     fn update_hash_when_piece_moves() {
-        initialize();
+        init();
         #[rustfmt::skip]
             let items: [i8; 64] = [
             0,  0,  0, -K,  0,  0,  0,  0,
@@ -1005,7 +1000,7 @@ mod tests {
 
     #[test]
     fn incrementally_updates_hash() {
-        initialize();
+        init();
         #[rustfmt::skip]
         let items: [i8; 64] = [
             0,  0,  0, -K,  0,  0,  0,  0,
@@ -1035,7 +1030,7 @@ mod tests {
 
     #[test]
     fn performs_and_undos_white_castling_moves() {
-        initialize();
+        init();
         #[rustfmt::skip]
         let items: [i8; 64] = [
             -R,  0,  0,  0, -K,  0,  0, -R,
@@ -1074,7 +1069,7 @@ mod tests {
 
     #[test]
     fn performs_and_undos_black_castling_moves() {
-        initialize();
+        init();
         #[rustfmt::skip]
         let items: [i8; 64] = [
             -R,  0,  0,  0, -K,  0,  0, -R,
@@ -1114,7 +1109,7 @@ mod tests {
 
     #[test]
     fn recognizes_white_in_check() {
-        initialize();
+        init();
         #[rustfmt::skip]
         let items: [i8; 64] = [
             0,  0,  0, -K,  0,  0,  0,  0,
@@ -1134,7 +1129,7 @@ mod tests {
 
     #[test]
     fn recognizes_black_in_check() {
-        initialize();
+        init();
         #[rustfmt::skip]
         let items: [i8; 64] = [
             0,  0,  0, -K,  0,  0,  0,  0,
@@ -1154,7 +1149,7 @@ mod tests {
 
     #[test]
     fn see_white_discovered_attacks() {
-        initialize();
+        init();
         #[rustfmt::skip]
         let items: [i8; 64] = [
             0,  0,  0,  0,  0,  0, -K,  0,
@@ -1173,7 +1168,7 @@ mod tests {
 
     #[test]
     fn see_black_discovered_attacks() {
-        initialize();
+        init();
         #[rustfmt::skip]
         let items: [i8; 64] = [
             0,  0,  0,  0,  0,  0, -K,  0,
@@ -1192,7 +1187,7 @@ mod tests {
 
     #[test]
     fn updates_hash_for_piece_movements() {
-        initialize();
+        init();
         #[rustfmt::skip]
             let items: [i8; 64] = [
             0,  0,  0, -K,  0,  0,  0,  0,
@@ -1221,7 +1216,7 @@ mod tests {
 
     #[test]
     fn updates_hash_for_en_passant_changes() {
-        initialize();
+        init();
         #[rustfmt::skip]
             let items: [i8; 64] = [
             0,  0,  0, -K,  0,  0,  0,  0,

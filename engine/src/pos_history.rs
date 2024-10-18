@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2023 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2024 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -15,11 +15,21 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+use crate::bitboard::BitBoard;
+use crate::board::cycledetection;
+use crate::zobrist::player_zobrist_key;
 
 #[derive(Clone)]
 pub struct PositionHistory {
-    positions: Vec<u64>,
+    positions: Vec<Entry>,
     root: usize,
+}
+
+#[derive(Clone)]
+struct Entry {
+    hash: u64,
+    is_after_root: bool,
+    is_repetition: bool,
 }
 
 impl Default for PositionHistory {
@@ -30,7 +40,7 @@ impl Default for PositionHistory {
 
 impl PositionHistory {
     pub fn push(&mut self, hash: u64) {
-        self.positions.push(hash);
+        self.positions.push(Entry{hash, is_after_root: true, is_repetition: false});
     }
 
     pub fn pop(&mut self) {
@@ -38,19 +48,36 @@ impl PositionHistory {
     }
 
     pub fn is_repetition_draw(&self, hash: u64, halfmove_clock: u8) -> bool {
-        let mut found_repetition = false;
-        for (i, &pos) in self.positions.iter().enumerate().rev().skip(1).step_by(2).take(halfmove_clock as usize / 2) {
-            if pos == hash {
-                if i >= self.root {
-                    return true;
-                }
-                if found_repetition {
-                    return true;
-                }
-                found_repetition = true;
+        for entry in self.positions.iter().rev().skip(1).step_by(2).take(halfmove_clock as usize / 2) {
+            if entry.hash == hash && (entry.is_after_root || entry.is_repetition) {
+                return true;
             }
         }
 
+        false
+    }
+
+    pub fn has_upcoming_repetition(&self, occupancy: BitBoard, hash: u64, halfmove_clock: u8) -> bool {
+        if halfmove_clock < 3 {
+            return false;
+        }
+            
+        let last_opp = self.positions.last().unwrap();
+        let mut other = hash ^ last_opp.hash ^ player_zobrist_key();
+
+        for (own, opp) in self.positions.iter().rev().skip(1).step_by(2)
+            .zip(self.positions.iter().rev().skip(2).step_by(2)).take(halfmove_clock as usize / 2) {
+            
+            other ^= own.hash ^ opp.hash ^ player_zobrist_key();
+            if other != 0 {
+                continue;
+            }
+
+            if (opp.is_after_root || opp.is_repetition) && cycledetection::has_cycle_move(hash ^ opp.hash, occupancy) {
+                return true;
+            }
+        }
+        
         false
     }
 
@@ -59,8 +86,37 @@ impl PositionHistory {
         self.root = 0;
     }
 
-    pub fn mark_root(&mut self) {
+    pub fn mark_root(&mut self, halfmove_clock: u8) {
         self.root = self.positions.len();
+        let mut existing = StackSet::new();
+        for entry in self.positions.iter_mut().rev().take(halfmove_clock as usize) {
+            entry.is_after_root = false;
+            if !existing.insert(entry.hash) {
+                entry.is_repetition = true;
+            }
+        }
+    }
+}
+
+struct StackSet([u64; 256]);
+
+impl StackSet {
+    pub fn new() -> Self {
+        StackSet([0; 256])
+    }
+
+    fn insert(&mut self, hash: u64) -> bool {
+        let mut idx = (hash as usize) & 255;
+        loop {
+            let existing_value = self.0[idx];
+            if existing_value == 0 {
+                self.0[idx] = hash;
+                return true;
+            } else if existing_value == hash {
+                return false;
+            }
+            idx = (idx + 1) & 255;
+        }
     }
 }
 
