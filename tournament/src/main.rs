@@ -148,12 +148,10 @@ fn run_thread(ids: &[CoreId], state: Arc<TournamentState>, tournament_path: Stri
         let opponent = engines.entry(opponent_cfg.id).or_insert_with(|| {
             let mut engine = UciEngine::start(&opponent_cfg).with_context(|| opponent_cfg.name.clone()).expect("Could not start opponent engine");
             engine.init().expect("Could not initialize engine");
-            engine.uci_newgame().expect("Could not start new game in engine");
-            engine.ready().expect("Could not ready engine");
 
             engine
         });
-
+        
         let opening = openings.get_random();
 
         read_fen(&mut board, &opening).expect("Could not read FEN");
@@ -188,6 +186,11 @@ struct MatchController {
 
 impl MatchController {
     pub fn play(&mut self, board: &mut Board, pgn: &mut PgnGame, opening: &str, engines: &mut [&mut UciEngine; 2], time: i32, inc: i32) -> anyhow::Result<Outcome> {
+        for engine in engines.iter_mut() {
+            engine.uci_newgame().expect("Could not start new game in engine");
+            engine.ready().expect("Could not ready engine");
+        }
+
         let mut i = 0;
         let mut remaining_time = [time, time];
         let mut moves = String::with_capacity(2048);
