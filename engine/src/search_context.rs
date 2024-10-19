@@ -91,6 +91,10 @@ impl SearchContext {
     pub fn generate_qs_captures(&mut self, board: &mut Board) {
         self.movelist_mut().generate_qs_captures(board);
     }
+    
+    pub fn generate_qs_captures_if_required(&mut self, board: &mut Board) {
+        self.movelist_mut().generate_qs_captures_if_required(board);
+    }
 
     pub fn next_good_capture_move(&mut self, board: &mut Board) -> Option<Move> {
         self.movelist_mut().next_good_capture_move(board)

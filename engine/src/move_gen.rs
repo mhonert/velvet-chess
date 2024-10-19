@@ -321,6 +321,15 @@ impl MoveList {
         self.gen_capture_moves::<false>(board);
         self.capture_moves.sort_unstable_by_key(Move::score);
     }
+    
+    #[inline(always)]
+    pub fn generate_qs_captures_if_required(&mut self, board: &mut Board) {
+        if self.moves_generated {
+            return;
+        }
+        self.gen_capture_moves::<false>(board);
+        self.capture_moves.sort_unstable_by_key(Move::score);
+    }
 
     #[inline(always)]
     pub fn next_good_capture_move(&mut self, board: &mut Board) -> Option<Move> {

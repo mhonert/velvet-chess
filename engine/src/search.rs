@@ -1190,9 +1190,11 @@ impl Search {
             alpha = position_score;
         }
 
-        self.ctx.prepare_moves(active_player, NO_MOVE, EMPTY_HISTORY);
-
-        if !in_check {
+        if in_check {
+            self.ctx.prepare_moves(active_player, self.get_tt_move(ply), self.ctx.move_history());
+            
+        } else {
+            self.ctx.prepare_moves(active_player, NO_MOVE, EMPTY_HISTORY);
             self.ctx.generate_qs_captures(&mut self.board);
         }
 
@@ -1219,7 +1221,9 @@ impl Search {
             let score = if self.board.is_insufficient_material_draw() {
                 -self.effective_draw_score()
             } else {
-                -next_ply!(self.ctx, self.qs::<PV>(opp_player, -beta, -alpha, ply + 1, self.board.is_in_check(opp_player), in_tb_pos, &mut local_pv))
+                let gives_check = self.board.is_in_check(opp_player);
+                self.ctx.update_next_ply_entry(m, gives_check);
+                -next_ply!(self.ctx, self.qs::<PV>(opp_player, -beta, -alpha, ply + 1, gives_check, in_tb_pos, &mut local_pv))
             };
             self.board.undo_move(m, previous_piece, captured_piece_id);
 
@@ -1228,13 +1232,16 @@ impl Search {
                 if PV {
                     pv.update(m.with_score(score), &mut local_pv);
                 }
-                search_check_evasion = false;
                 if best_score > alpha {
                     if best_score >= beta {
                         break;
                     }
 
                     alpha = best_score;
+                }
+                if search_check_evasion {
+                    search_check_evasion = false;
+                    self.ctx.generate_qs_captures_if_required(&mut self.board);
                 }
             }
         }
