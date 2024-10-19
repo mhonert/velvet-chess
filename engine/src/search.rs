@@ -340,7 +340,8 @@ impl Search {
 
         let active_player = self.board.active_player();
 
-        self.ctx.prepare_moves(active_player, self.get_tt_move(0), EMPTY_HISTORY);
+        let (tt_move, _) = self.get_tt_move(0);
+        self.ctx.prepare_moves(active_player, tt_move, EMPTY_HISTORY);
         self.ctx.reset_root_moves();
 
         self.set_stopped(false);
@@ -1164,7 +1165,6 @@ impl Search {
         }
     }
 
-    #[inline]
     pub fn quiescence_search(&mut self, is_pv: bool, active_player: Color, alpha: i16, beta: i16, ply: usize, in_check: bool, in_tb_pos: bool, pv: &mut PrincipalVariation) -> i16 {
         if is_pv && !self.is_helper_thread {
             self.qs::<true>(active_player, alpha, beta, ply, in_check, in_tb_pos, pv)
@@ -1174,7 +1174,7 @@ impl Search {
     }
 
     fn qs<const PV: bool>(&mut self, active_player: Color, mut alpha: i16, beta: i16, ply: usize, in_check: bool, in_tb_pos: bool, pv: &mut PrincipalVariation) -> i16 {
-        let position_score = if in_check { MATED_SCORE + ply as i16 } else {
+        let mut position_score = if in_check { MATED_SCORE + ply as i16 } else {
             let corr_eval = self.hh.corr_eval(active_player, self.board.pawn_hash());
             self.tt.get_or_calc_eval(self.board.get_hash(), self.board.halfmove_clock(), in_tb_pos, || self.board.eval(), corr_eval)
         };
@@ -1183,82 +1183,146 @@ impl Search {
             return position_score;
         }
 
+        let opp_player = active_player.flip();
+        let mut search_evasions = in_check;
+
+        let (tt_move, score_type) = self.get_tt_move(ply);
+        if tt_move != NO_MOVE {
+            let tt_score = tt_move.score();
+            match score_type {
+                ScoreType::Exact => {
+                    return tt_score;
+                },
+                ScoreType::UpperBound => {
+                    if tt_score <= alpha {
+                        return tt_score;
+                    }
+                    if !in_check {
+                        position_score = position_score.min(tt_score);
+                    }
+                },
+                ScoreType::LowerBound => {
+                    if tt_score >= beta {
+                        return tt_score;
+                    }
+                    alpha = alpha.max(tt_score);
+                    if !in_check {
+                        position_score = position_score.max(tt_score);
+                    }
+                }
+            }
+        }
+        
         if position_score > alpha {
-            if !in_check && position_score >= beta {
+            if position_score >= beta {
                 return position_score;
             }
             alpha = position_score;
         }
 
-        if in_check {
-            self.ctx.prepare_moves(active_player, self.get_tt_move(ply), self.ctx.move_history());
-            
-        } else {
-            self.ctx.prepare_moves(active_player, NO_MOVE, EMPTY_HISTORY);
-            self.ctx.generate_qs_captures(&mut self.board);
-        }
-
         let mut best_score = position_score;
 
-        let opp_player = active_player.flip();
-        let mut search_check_evasion = in_check;
-
-        while let Some(m) = if search_check_evasion {
-            self.ctx.next_move(ply, &self.hh, &mut self.board)
-        } else {
-            self.ctx.next_good_capture_move(&mut self.board)
-        } {
-            let (previous_piece, captured_piece_id) = self.board.perform_move(m);
-            self.tt.prefetch(self.board.get_hash());
-            if self.board.is_left_in_check(active_player, in_check, m) {
-                self.board.undo_move(m, previous_piece, captured_piece_id);
-                continue;
-            }
-            self.inc_node_count();
-
-            let mut local_pv = PrincipalVariation::default();
-
-            let score = if self.board.is_insufficient_material_draw() {
-                -self.effective_draw_score()
-            } else {
-                let gives_check = self.board.is_in_check(opp_player);
-                self.ctx.update_next_ply_entry(m, gives_check);
-                -next_ply!(self.ctx, self.qs::<PV>(opp_player, -beta, -alpha, ply + 1, gives_check, in_tb_pos, &mut local_pv))
-            };
-            self.board.undo_move(m, previous_piece, captured_piece_id);
-
-            if score > best_score {
-                best_score = score;
-                if PV {
-                    pv.update(m.with_score(score), &mut local_pv);
+        if tt_move != NO_MOVE {
+            if let Some(score) = self.check_qs_move::<PV>(active_player, best_score, alpha, beta, ply, in_check, in_tb_pos, pv, opp_player, tt_move) {
+                if score > best_score {
+                    search_evasions = false;
+                    best_score = score;
+                    alpha = alpha.max(score);
+                    if alpha >= beta {
+                        return alpha;
+                    }
                 }
-                if best_score > alpha {
-                    if best_score >= beta {
+            }
+        }
+
+        self.ctx.prepare_moves(active_player, NO_MOVE, self.ctx.move_history());
+        if search_evasions {
+            while let Some(m) = self.ctx.next_move(ply, &self.hh, &self.board) {
+                if m == tt_move {
+                    continue;
+                }
+                if let Some(score) = self.check_qs_move::<PV>(active_player, best_score, alpha, beta, ply, in_check, in_tb_pos, pv, opp_player, m) {
+                    if score > best_score {
+                        best_score = score;
+                        alpha = alpha.max(score);
+                        if alpha >= beta {
+                            self.tt.write_entry(self.board.get_hash(), ply, 0, m, alpha, ScoreType::LowerBound, self.board.halfmove_clock());
+                            return alpha;
+                        }
                         break;
                     }
-
-                    alpha = best_score;
-                }
-                if search_check_evasion {
-                    search_check_evasion = false;
-                    self.ctx.generate_qs_captures_if_required(&mut self.board);
                 }
             }
+        }
+
+        self.ctx.generate_qs_captures(&self.board);
+        let mut best_move = NO_MOVE;
+        while let Some(m) = self.ctx.next_good_capture_move(&self.board) {
+            if m == tt_move {
+                continue;
+            }
+            if let Some(score) = self.check_qs_move::<PV>(active_player, best_score, alpha, beta, ply, in_check, in_tb_pos, pv, opp_player, m) {
+                if score > best_score {
+                    best_score = score;
+                    best_move = m;
+                    alpha = alpha.max(score);
+                    if alpha >= beta {
+                        self.tt.write_entry(self.board.get_hash(), ply, 0, m, alpha, ScoreType::LowerBound, self.board.halfmove_clock());
+                        return alpha;
+                    }
+                }
+            }
+        }
+        if best_move != NO_MOVE {
+            let score_type = if best_score == alpha { ScoreType::Exact } else { ScoreType::UpperBound };
+            self.tt.write_entry(self.board.get_hash(), ply, 0, best_move, alpha, score_type, self.board.halfmove_clock());
         }
 
         best_score
     }
 
-    fn get_tt_move(&self, ply: usize) -> Move {
+    #[inline(always)]
+    fn check_qs_move<const PV: bool>(&mut self, active_player: Color, best_score: i16, alpha: i16, beta: i16, ply: usize, in_check: bool, in_tb_pos: bool, pv: &mut PrincipalVariation, opp_player: Color, m: Move) -> Option<i16> {
+        let (previous_piece, captured_piece_id) = self.board.perform_move(m);
+        self.tt.prefetch(self.board.get_hash());
+        if self.board.is_left_in_check(active_player, in_check, m) {
+            self.board.undo_move(m, previous_piece, captured_piece_id);
+            return None;
+        }
+        self.inc_node_count();
+
+        let mut local_pv = PrincipalVariation::default();
+
+        let score = if self.board.is_insufficient_material_draw() || self.board.is_repetition_draw() || self.board.is_fifty_move_draw() {
+            -self.effective_draw_score()
+        } else {
+            let gives_check = self.board.is_in_check(opp_player);
+            self.ctx.update_next_ply_entry(m, gives_check);
+            -next_ply!(self.ctx, self.qs::<PV>(opp_player, -beta, -alpha, ply + 1, gives_check, in_tb_pos, &mut local_pv))
+        };
+        self.board.undo_move(m, previous_piece, captured_piece_id);
+
+        if score > best_score {
+            if PV {
+                pv.update(m.with_score(score), &mut local_pv);
+            }
+            
+            Some(score)
+        } else {
+            None
+        }
+    }
+
+    fn get_tt_move(&self, ply: usize) -> (Move, ScoreType) {
         if let Some((entry, _)) = self.tt.get_entry(self.board.get_hash(), self.board.halfmove_clock()) {
             let tt_move = get_tt_move(entry, ply);
             let active_player = self.board.active_player();
             if is_valid_move(&self.board, active_player, tt_move) {
-                return tt_move;
+                return (tt_move, get_score_type(entry));
             }
         }
 
-        NO_MOVE
+        (NO_MOVE, ScoreType::LowerBound)
     }
 
     pub fn determine_skipped_moves(&mut self, search_moves: Vec<String>) -> Vec<Move> {
@@ -1751,7 +1815,8 @@ impl HelperThread {
                     sub_search.is_tb_root = is_tb_root;
                     
                     let active_player = sub_search.board.active_player();
-                    sub_search.ctx.prepare_moves(active_player, sub_search.get_tt_move(0), EMPTY_HISTORY);
+                    let (tt_move, _) = sub_search.get_tt_move(0);
+                    sub_search.ctx.prepare_moves(active_player, tt_move, EMPTY_HISTORY);
 
                     let mut multi_pv_state = vec![sub_search.board.clock_scaled_eval(is_tb_root); multi_pv_count];
 

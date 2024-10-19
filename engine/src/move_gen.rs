@@ -184,7 +184,7 @@ impl MoveList {
     }
 
     #[inline(always)]
-    pub fn next_move(&mut self, ply: usize, hh: &HistoryHeuristics, board: &mut Board) -> Option<Move> {
+    pub fn next_move(&mut self, ply: usize, hh: &HistoryHeuristics, board: &Board) -> Option<Move> {
         loop {
             match self.stage {
                 Stage::HashMove => {
@@ -317,13 +317,7 @@ impl MoveList {
     }
 
     #[inline(always)]
-    pub fn generate_qs_captures(&mut self, board: &mut Board) {
-        self.gen_capture_moves::<false>(board);
-        self.capture_moves.sort_unstable_by_key(Move::score);
-    }
-    
-    #[inline(always)]
-    pub fn generate_qs_captures_if_required(&mut self, board: &mut Board) {
+    pub fn generate_qs_captures(&mut self, board: &Board) {
         if self.moves_generated {
             return;
         }
@@ -332,7 +326,7 @@ impl MoveList {
     }
 
     #[inline(always)]
-    pub fn next_good_capture_move(&mut self, board: &mut Board) -> Option<Move> {
+    pub fn next_good_capture_move(&mut self, board: &Board) -> Option<Move> {
         while let Some(m) = self.capture_moves.pop() {
             if !is_bad_capture(m, board) {
                 return Some(m);
