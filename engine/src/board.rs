@@ -956,8 +956,8 @@ impl Board {
         )
     }
 
-    pub fn clock_scaled_eval(&mut self, is_tb_pos: bool) -> i16 {
-        clock_scaled_eval(self.halfmove_clock(), is_tb_pos, self.eval())
+    pub fn clock_scaled_eval(&mut self) -> i16 {
+        clock_scaled_eval(self.halfmove_clock(), self.eval())
     }
 }
 

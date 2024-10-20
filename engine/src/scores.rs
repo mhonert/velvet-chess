@@ -73,8 +73,8 @@ pub fn sanitize_mated_score(score: i16) -> i16 {
 }
 
 // clock_scaled_eval scales the evaluation by the remaining halfmove clock (50-move counter).
-pub fn clock_scaled_eval(halfmove_clock: u8, is_tb_pos: bool, eval: i16) -> i16 {
-    if is_tb_pos {
+pub fn clock_scaled_eval(halfmove_clock: u8, eval: i16) -> i16 {
+    if is_mate_or_mated_score(eval) {
         return eval;
     }
     ((eval as i32) * (128 - halfmove_clock as i32) / 128) as i16
