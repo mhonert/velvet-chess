@@ -1181,6 +1181,13 @@ impl Search {
     }
 
     fn qs<const PV: bool>(&mut self, active_player: Color, mut alpha: i16, beta: i16, ply: usize, in_check: bool, pv: &mut PrincipalVariation) -> i16 {
+        if alpha < 0 && self.board.has_upcoming_repetition() {
+            alpha = self.effective_draw_score();
+            if alpha >= beta {
+                return alpha;
+            }
+        }
+        
         let mut position_score = if in_check { MATED_SCORE + ply as i16 } else {
             let corr_eval = self.hh.corr_eval(active_player, self.board.pawn_hash());
             self.tt.get_or_calc_eval(self.board.get_hash(), self.board.halfmove_clock(), || self.board.eval(), corr_eval)
