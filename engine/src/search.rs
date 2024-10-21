@@ -208,6 +208,7 @@ impl Search {
             board.castling_rules,
         );
         self.limits = limits;
+        self.time_mgr.reset(self.limits);
     }
 
     pub fn update_limits(&mut self, limits: SearchLimits) {
@@ -324,7 +325,6 @@ impl Search {
 
     fn find_best_move(&mut self, rx: Option<&Receiver<Message>>, skipped_moves: &[Move]) -> (Move, PrincipalVariation) {
         self.reset();
-        self.time_mgr.reset(self.limits);
 
         self.board.pos_history.mark_root(self.board.halfmove_clock());
 
@@ -574,7 +574,7 @@ impl Search {
             if iteration_cancelled {
                 break;
             }
-
+            
             let score = -result;
             if score > best_score {
                 best_score = score;
