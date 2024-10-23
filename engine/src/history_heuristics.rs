@@ -15,7 +15,7 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-
+use crate::board::PieceHashes;
 use crate::colors::{Color, BLACK, WHITE};
 use crate::moves::{Move, NO_MOVE};
 use crate::transposition_table::MAX_DEPTH;
@@ -113,10 +113,10 @@ impl HistoryHeuristics {
     }
     
     #[inline(always)]
-    pub fn update_corr_histories(&mut self, active_player: Color, depth: i32, pawn_hash: u16, non_pawn_hashes: (u16, u16), score_diff: i16) {
-        self.pawn_corr_history[active_player.idx()][pawn_hash as usize & (CORR_HISTORY_SIZE - 1)].update(score_diff, depth);
-        self.non_pawn_corr_history[active_player.idx()][WHITE.idx()][non_pawn_hashes.0 as usize & (CORR_HISTORY_SIZE - 1)].update(score_diff, depth);
-        self.non_pawn_corr_history[active_player.idx()][BLACK.idx()][non_pawn_hashes.1 as usize & (CORR_HISTORY_SIZE - 1)].update(score_diff, depth);
+    pub fn update_corr_histories(&mut self, active_player: Color, depth: i32, hashes: PieceHashes, score_diff: i16) {
+        self.pawn_corr_history[active_player.idx()][hashes.pawn as usize & (CORR_HISTORY_SIZE - 1)].update(score_diff, depth);
+        self.non_pawn_corr_history[active_player.idx()][WHITE.idx()][hashes.white_non_pawn as usize & (CORR_HISTORY_SIZE - 1)].update(score_diff, depth);
+        self.non_pawn_corr_history[active_player.idx()][BLACK.idx()][hashes.black_non_pawn as usize & (CORR_HISTORY_SIZE - 1)].update(score_diff, depth);
     }
 
     #[inline(always)]
@@ -128,10 +128,10 @@ impl HistoryHeuristics {
     }
     
     #[inline(always)]
-    pub fn corr_eval(&self, active_player: Color, pawn_hash: u16, non_pawn_hashes: (u16, u16)) -> i16 {
-        let white_non_pawn_corr = self.non_pawn_corr_history[active_player.idx()][WHITE.idx()][non_pawn_hashes.0 as usize & (CORR_HISTORY_SIZE - 1)].score();
-        let black_non_pawn_corr = self.non_pawn_corr_history[active_player.idx()][BLACK.idx()][non_pawn_hashes.1 as usize & (CORR_HISTORY_SIZE - 1)].score();
-        let pawn_corr = self.pawn_corr_history[active_player.idx()][pawn_hash as usize & (CORR_HISTORY_SIZE - 1)].score();
+    pub fn corr_eval(&self, active_player: Color, hashes: PieceHashes) -> i16 {
+        let pawn_corr = self.pawn_corr_history[active_player.idx()][hashes.pawn as usize & (CORR_HISTORY_SIZE - 1)].score();
+        let white_non_pawn_corr = self.non_pawn_corr_history[active_player.idx()][WHITE.idx()][hashes.white_non_pawn as usize & (CORR_HISTORY_SIZE - 1)].score();
+        let black_non_pawn_corr = self.non_pawn_corr_history[active_player.idx()][BLACK.idx()][hashes.black_non_pawn as usize & (CORR_HISTORY_SIZE - 1)].score();
         pawn_corr + white_non_pawn_corr + black_non_pawn_corr
     }
 }
