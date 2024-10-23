@@ -71,6 +71,8 @@ pub struct Board {
 pub struct StateEntry {
     hash: u64,
     pawn_hash: u16,
+    white_non_pawn_hash: u16,
+    black_non_pawn_hash: u16,
     en_passant: u8,
     castling: CastlingState,
     halfmove_clock: u8,
@@ -103,6 +105,8 @@ impl Board {
                 halfmove_clock: 0,
                 hash: 0,
                 pawn_hash: 0,
+                white_non_pawn_hash: 0,
+                black_non_pawn_hash: 0,
                 history_start: 0,
             },
             halfmove_count: 0,
@@ -191,6 +195,8 @@ impl Board {
     pub fn recalculate_hash(&mut self) {
         self.state.hash = 0;
         self.state.pawn_hash = 0;
+        self.state.white_non_pawn_hash = 0;
+        self.state.black_non_pawn_hash = 0;
 
         for pos in 0..64 {
             let piece = self.items[pos];
@@ -199,6 +205,10 @@ impl Board {
             }
             if piece.abs() == P {
                 self.state.pawn_hash ^= (piece_zobrist_key(piece, pos) & 0xFFFF) as u16;
+            } else if piece < -1 {
+                self.state.black_non_pawn_hash ^= (piece_zobrist_key(piece, pos) & 0xFFFF) as u16;
+            } else if piece > 1 {
+                self.state.white_non_pawn_hash ^= (piece_zobrist_key(piece, pos) & 0xFFFF) as u16;
             }
         }
 
@@ -596,7 +606,7 @@ impl Board {
             }
             MoveType::KingCapture => {
                 self.nn_eval.remove_add_add_piece(move_end , piece, move_start , piece, move_end , color.flip().piece(removed_piece_id));
-                self.remove_piece_without_inc_update(move_end );
+                self.remove_piece_without_inc_update(move_end);
                 self.add_piece_without_inc_update(color, piece, move_start);
                 self.add_piece_without_inc_update(color.flip(), color.flip().piece(removed_piece_id), move_end);
             }
@@ -629,6 +639,10 @@ impl Board {
         self.state.pawn_hash
     }
 
+    pub fn non_pawn_hashes(&self) -> (u16, u16) {
+        (self.state.white_non_pawn_hash, self.state.black_non_pawn_hash)
+    }
+
     pub fn undo_null_move(&mut self) {
         self.halfmove_count -= 1;
         self.restore_state();
@@ -649,7 +663,13 @@ impl Board {
             *self.items.get_unchecked_mut(pos) = piece;
         }
 
-        self.state.hash ^= piece_zobrist_key(piece, pos);
+        let piece_key = piece_zobrist_key(piece, pos);
+        self.state.hash ^= piece_key;
+        if piece < -1 {
+            self.state.black_non_pawn_hash ^= (piece_key & 0xFFFF) as u16;
+        } else if piece > 1 {
+            self.state.white_non_pawn_hash ^= (piece_key & 0xFFFF) as u16;
+        }
 
         self.bitboards.flip(color, piece, pos as u32);
     }
@@ -661,8 +681,19 @@ impl Board {
             *self.items.get_unchecked_mut(end) = piece;
         }
 
-        self.state.hash ^= piece_zobrist_key(piece, start);
-        self.state.hash ^= piece_zobrist_key(piece, end);
+        let from_key = piece_zobrist_key(piece, start);
+        let to_key = piece_zobrist_key(piece, end);
+
+        self.state.hash ^= from_key;
+        self.state.hash ^= to_key;
+
+        if piece < -1 {
+            self.state.black_non_pawn_hash ^= (from_key & 0xFFFF) as u16;
+            self.state.black_non_pawn_hash ^= (to_key & 0xFFFF) as u16;
+        } else if piece > 1 {
+            self.state.white_non_pawn_hash ^= (from_key & 0xFFFF) as u16;
+            self.state.white_non_pawn_hash ^= (to_key & 0xFFFF) as u16;
+        }
 
         self.bitboards.flip2(color, piece, start as u32, end as u32);
     }
@@ -689,7 +720,13 @@ impl Board {
     #[inline(always)]
     pub fn remove_piece(&mut self, pos: usize) -> i8 {
         let piece = self.get_item(pos);
-        self.state.hash ^= piece_zobrist_key(piece, pos);
+        let piece_key = piece_zobrist_key(piece, pos);
+        self.state.hash ^= piece_key;
+        if piece < -1 {
+            self.state.black_non_pawn_hash ^= (piece_key & 0xFFFF) as u16;
+        } else if piece > 1 {
+            self.state.white_non_pawn_hash ^= (piece_key & 0xFFFF) as u16;
+        }
 
         let color = Color::from_piece(piece);
 

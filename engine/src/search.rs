@@ -812,7 +812,7 @@ impl Search {
         }
 
         self.ctx.set_eval(if in_check { MIN_SCORE } else {
-            let corr_eval = self.hh.corr_eval(active_player, self.board.pawn_hash());
+            let corr_eval = self.hh.corr_eval(active_player, self.board.pawn_hash(), self.board.non_pawn_hashes());
             self.tt.get_or_calc_eval(self.board.get_hash(), self.board.halfmove_clock(), || self.board.eval(), corr_eval)
         });
         let improving = self.ctx.is_improving();
@@ -1087,7 +1087,7 @@ impl Search {
                         if se_move == NO_MOVE {
                             self.tt.write_entry(hash, ply, depth, best_move, best_score, ScoreType::LowerBound, self.board.halfmove_clock());
                             if !(in_check || best_move.is_capture() || is_mate_or_mated_score(best_score) || best_score <= self.ctx.eval()) {
-                                self.hh.update_pawn_corr_history(active_player, depth, self.board.pawn_hash(), best_score - self.ctx.eval());
+                                self.hh.update_corr_histories(active_player, depth, self.board.pawn_hash(), self.board.non_pawn_hashes(), best_score - self.ctx.eval());
                             }
                         }
 
@@ -1134,7 +1134,7 @@ impl Search {
             self.tt.write_entry(hash, ply, depth, best_move, best_score, score_type, self.board.halfmove_clock());
 
             if !(in_check || best_move.is_capture() || is_mate_or_mated_score(best_score) || matches!(score_type, ScoreType::UpperBound) && best_score >= self.ctx.eval()) {
-                self.hh.update_pawn_corr_history(active_player, depth, self.board.pawn_hash(), best_score - self.ctx.eval());
+                self.hh.update_corr_histories(active_player, depth, self.board.pawn_hash(), self.board.non_pawn_hashes(), best_score - self.ctx.eval());
             }
         }
 
@@ -1187,9 +1187,9 @@ impl Search {
                 return alpha;
             }
         }
-        
+
         let mut position_score = if in_check { MATED_SCORE + ply as i16 } else {
-            let corr_eval = self.hh.corr_eval(active_player, self.board.pawn_hash());
+            let corr_eval = self.hh.corr_eval(active_player, self.board.pawn_hash(), self.board.non_pawn_hashes());
             self.tt.get_or_calc_eval(self.board.get_hash(), self.board.halfmove_clock(), || self.board.eval(), corr_eval)
         };
 
