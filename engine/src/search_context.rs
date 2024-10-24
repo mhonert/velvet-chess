@@ -23,6 +23,7 @@ use crate::history_heuristics::{EMPTY_HISTORY, HistoryHeuristics, MoveHistory};
 use crate::move_gen::{MoveList};
 use crate::moves::{Move, NO_MOVE};
 use crate::transposition_table::MAX_DEPTH;
+use crate::zobrist::piece_zobrist_key;
 
 pub struct SearchContext {
     ply: usize,
@@ -130,6 +131,13 @@ impl SearchContext {
             prev_own: prev_opp.opp_move,
         }
     }
+    
+    pub fn move_history_hash(&self) -> u16 {
+        let curr = self.ply_entry(self.pe_idx);
+        let prev_opp = self.ply_entry(self.pe_idx - 1);
+
+        ((opp_move_hash(curr.opp_move) ^ own_move_hash(prev_opp.opp_move)) & 0xFFFF) as u16
+    }
 
     pub fn root_move_count(&self) -> usize {
         self.movelist().root_move_count()
@@ -202,6 +210,16 @@ impl SearchContext {
 
         false
     }
+}
+
+#[inline(always)]
+fn own_move_hash(m: Move) -> u64 {
+    piece_zobrist_key(m.move_type().piece_id(), m.end() as usize)
+}
+
+#[inline(always)]
+fn opp_move_hash(m: Move) -> u64 {
+    piece_zobrist_key(-m.move_type().piece_id(), m.end() as usize)
 }
 
 #[derive(Copy, Clone, Default)]

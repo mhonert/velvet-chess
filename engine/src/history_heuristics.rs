@@ -31,6 +31,7 @@ pub struct HistoryHeuristics {
     history: Box<HistoryTable>,
     pawn_corr_history: Box<[[CorrHistoryValue; CORR_HISTORY_SIZE]; 2]>,
     non_pawn_corr_history:Box<[[[CorrHistoryValue; CORR_HISTORY_SIZE]; 2]; 2]>,
+    move_corr_history: Box<[[CorrHistoryValue; CORR_HISTORY_SIZE]; 2]>,
 }
 
 impl Default for HistoryHeuristics {
@@ -41,6 +42,7 @@ impl Default for HistoryHeuristics {
             history: Default::default(),
             pawn_corr_history: Box::new([[CorrHistoryValue(0); CORR_HISTORY_SIZE]; 2]),
             non_pawn_corr_history: Box::new([[[CorrHistoryValue(0); CORR_HISTORY_SIZE]; 2]; 2]),
+            move_corr_history: Box::new([[CorrHistoryValue(0); CORR_HISTORY_SIZE]; 2]),
         }
     }
 }
@@ -53,6 +55,7 @@ impl HistoryHeuristics {
         self.history.clear();
         self.pawn_corr_history.iter_mut().for_each(|e| e.fill(CorrHistoryValue(0)));
         self.non_pawn_corr_history.iter_mut().for_each(|e| e.iter_mut().for_each(|e| e.fill(CorrHistoryValue(0))));
+        self.move_corr_history.iter_mut().for_each(|e| e.fill(CorrHistoryValue(0)));
     }
 
     pub fn is_empty(&self) -> bool {
@@ -113,10 +116,11 @@ impl HistoryHeuristics {
     }
     
     #[inline(always)]
-    pub fn update_corr_histories(&mut self, active_player: Color, depth: i32, hashes: PieceHashes, score_diff: i16) {
+    pub fn update_corr_histories(&mut self, active_player: Color, depth: i32, hashes: PieceHashes, move_history_hash: u16, score_diff: i16) {
         self.pawn_corr_history[active_player.idx()][hashes.pawn as usize & (CORR_HISTORY_SIZE - 1)].update(score_diff, depth);
         self.non_pawn_corr_history[active_player.idx()][WHITE.idx()][hashes.white_non_pawn as usize & (CORR_HISTORY_SIZE - 1)].update(score_diff, depth);
         self.non_pawn_corr_history[active_player.idx()][BLACK.idx()][hashes.black_non_pawn as usize & (CORR_HISTORY_SIZE - 1)].update(score_diff, depth);
+        self.move_corr_history[active_player.idx()][(move_history_hash as usize) & (CORR_HISTORY_SIZE - 1)].update(score_diff, depth);
     }
 
     #[inline(always)]
@@ -128,11 +132,13 @@ impl HistoryHeuristics {
     }
     
     #[inline(always)]
-    pub fn corr_eval(&self, active_player: Color, hashes: PieceHashes) -> i16 {
+    pub fn corr_eval(&self, active_player: Color, hashes: PieceHashes, move_history_hash: u16) -> i16 {
         let pawn_corr = self.pawn_corr_history[active_player.idx()][hashes.pawn as usize & (CORR_HISTORY_SIZE - 1)].score();
         let white_non_pawn_corr = self.non_pawn_corr_history[active_player.idx()][WHITE.idx()][hashes.white_non_pawn as usize & (CORR_HISTORY_SIZE - 1)].score();
         let black_non_pawn_corr = self.non_pawn_corr_history[active_player.idx()][BLACK.idx()][hashes.black_non_pawn as usize & (CORR_HISTORY_SIZE - 1)].score();
-        pawn_corr + white_non_pawn_corr + black_non_pawn_corr
+        let move_corr = self.move_corr_history[active_player.idx()][(move_history_hash as usize) & (CORR_HISTORY_SIZE - 1)].score();
+
+        pawn_corr + white_non_pawn_corr + black_non_pawn_corr + move_corr
     }
 }
 
