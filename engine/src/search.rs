@@ -997,9 +997,9 @@ impl Search {
                         }
 
                         let history_diff = (curr_move.score() - QUIET_BASE_SCORE) / -MIN_HISTORY_SCORE;
-                        if !improving && history_diff < 0  {
+                        if !is_pv && !improving && history_diff < 0  {
                             reductions -= history_diff as i32;
-                        } else if improving && history_diff > 0 && reductions > 0 {
+                        } else if is_pv && improving && history_diff > 0 && reductions > 0 {
                             reductions -= 1;
                         }
                         
