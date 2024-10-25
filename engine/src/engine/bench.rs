@@ -81,5 +81,7 @@ impl Engine {
         println!("\ninfo string bench total time    : {}ms", duration_ms);
         println!("info string bench nodes         : {}", nodes);
         println!("info string bench NPS           : {}", nps);
+        
+        self.tt_clean = false;
     }
 }

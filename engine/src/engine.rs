@@ -96,6 +96,8 @@ pub struct Engine {
     rating_adv_adaptive_style: bool,
     rating_adv_risky_style_threshold: i32,
     elo: i32,
+
+    tt_clean: bool,
 }
 
 pub const DEFAULT_RISKY_STYLE_THRESHOLD: i32 = 150;
@@ -146,6 +148,7 @@ impl Engine {
             rating_adv_adaptive_style: false,
             rating_adv_risky_style_threshold: DEFAULT_RISKY_STYLE_THRESHOLD,
             elo: MIN_ELO,
+            tt_clean: false,
         }
     }
 
@@ -279,7 +282,9 @@ impl Engine {
 
             Message::PonderHit => println!("info string warning: received 'ponderhit' outside ongoing search"),
 
-            Message::ClearHash => self.search.clear_tt(),
+            Message::ClearHash => {
+                self.reset();
+            },
 
             Message::SetParam(name, value) => {
                 if !self.search.set_param(&name, value) {
@@ -302,6 +307,7 @@ impl Engine {
     }
 
     fn go(&mut self, mut limits: SearchLimits, ponder: bool, search_moves: Option<Vec<String>>) {
+        self.tt_clean = false;
         if self.limit_strength {
             let node_limit = calc_node_limit_from_elo(self.elo);
             println!("info string use node limit {} for elo {}", node_limit, self.elo);
@@ -375,6 +381,7 @@ impl Engine {
             self.search.resize_tt(new_tt_size);
             self.current_tt_size = new_tt_size;
             self.new_tt_size = None;
+            self.tt_clean = true;
         }
     }
 
@@ -409,7 +416,10 @@ impl Engine {
     }
 
     pub fn reset(&mut self) {
-        self.search.clear_tt();
+        if !self.tt_clean {
+            self.tt_clean = true;
+            self.search.clear_tt();
+        }
         self.search.hh.clear();
         self.search.reset_threads();
         self.search.set_expected_best_move(NO_MOVE);
