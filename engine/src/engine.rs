@@ -364,7 +364,7 @@ impl Engine {
 
     fn update_thread_count(&mut self) {
         if let Some(count) = self.new_thread_count {
-            self.search.reset_threads(count);
+            self.search.adjust_thread_count(count);
             self.current_thread_count = count;
             self.new_thread_count = None;
         }
@@ -411,6 +411,7 @@ impl Engine {
     pub fn reset(&mut self) {
         self.search.clear_tt();
         self.search.hh.clear();
+        self.search.reset_threads();
         self.search.set_expected_best_move(NO_MOVE);
     }
 

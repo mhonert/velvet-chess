@@ -181,13 +181,17 @@ impl Search {
         self.clear_tt();
     }
 
-    pub fn reset_threads(&mut self, thread_count: i32) {
+    pub fn adjust_thread_count(&mut self, thread_count: i32) {
         self.threads.resize((thread_count - 1) as usize, &self.node_count, &self.tb_hits, &self.tt, &self.board, &self.is_stopped, self.params);
     }
 
     pub fn clear_tt(&mut self) {
         self.threads.clear_tt();
         TranspositionTable::clear(&self.tt, 0, self.threads.count() + 1);
+    }
+    
+    pub fn reset_threads(&mut self) {
+        self.threads.reset();
     }
 
     pub fn set_multi_pv_count(&mut self, count: i32) {
@@ -1574,6 +1578,7 @@ enum ToThreadMessage {
         tb_probe_depth: i32,
         is_tb_root: bool,
     },
+    Reset,
     ClearTT {
         thread_no: usize,
         total_threads: usize,
@@ -1641,6 +1646,14 @@ impl HelperThreads {
         let total_count = self.threads.len() + 1;
         for (i, t) in self.threads.iter().enumerate() {
             t.clear_tt(i + 1, total_count);
+        }
+
+        self.wait_for_completion();
+    }
+    
+    pub fn reset(&self) {
+        for t in self.threads.iter() {
+            t.reset();
         }
 
         self.wait_for_completion();
@@ -1791,6 +1804,10 @@ impl HelperThread {
     pub fn clear_tt(&self, thread_no: usize, total_threads: usize) {
         self.to_tx.send(ToThreadMessage::ClearTT { thread_no, total_threads }).unwrap();
     }
+    
+    pub fn reset(&self) {
+        self.to_tx.send(ToThreadMessage::Reset).unwrap();
+    }
 
     pub fn wait_for_completion(&self) {
         match self.from_rx.recv() {
@@ -1874,6 +1891,11 @@ impl HelperThread {
 
                 ToThreadMessage::ClearTT { thread_no, total_threads } => {
                     sub_search.tt.clear(thread_no, total_threads);
+                    tx.send(()).unwrap();
+                }
+                
+                ToThreadMessage::Reset => {
+                    sub_search.hh.clear();
                     tx.send(()).unwrap();
                 }
 
