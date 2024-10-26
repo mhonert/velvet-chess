@@ -210,6 +210,18 @@ impl SearchContext {
 
         false
     }
+    
+    pub fn clear_cutoff_count(&mut self) {
+        self.ply_entry_mut(self.pe_idx + 2).cutoff_count = 0;
+    }
+    
+    pub fn inc_cutoff_count(&mut self) {
+        self.ply_entry_mut(self.pe_idx).cutoff_count += 1;
+    }
+    
+    pub fn next_ply_cutoff_count(&self) -> u32 {
+        self.ply_entry(self.pe_idx + 1).cutoff_count
+    }
 }
 
 #[inline(always)]
@@ -228,6 +240,7 @@ pub struct PlyEntry {
     in_check: bool,
     opp_move: Move,
     double_extensions: i16,
+    cutoff_count: u32,
 }
 
 #[macro_export]

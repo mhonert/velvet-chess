@@ -924,6 +924,7 @@ impl Search {
         let allow_lmp = !is_pv && !in_check && has_non_pawns && depth <= self.params.lmp_max_depth() as i32 && self.current_depth >= 7;
 
         self.hh.clear_killers(ply + 1);
+        self.ctx.clear_cutoff_count();
 
         let mut score_type = ScoreType::UpperBound;
         let mut a = -beta;
@@ -983,8 +984,11 @@ impl Search {
             let mut skip = self.board.is_left_in_check(active_player, in_check, curr_move); // skip if move would put own king in check
 
             let mut reductions = 0;
-
             if !skip && evaluated_move_count > 0 {
+                if !is_pv && self.ctx.next_ply_cutoff_count() > 3 {
+                    reductions += 1;
+                }
+
                 let target_piece_id = curr_move.move_type().piece_id();
 
                 if curr_move.is_capture() {
@@ -1102,6 +1106,8 @@ impl Search {
                         if is_pv {
                             pv.update(best_move, &mut local_pv);
                         }
+                        
+                        self.ctx.inc_cutoff_count();
 
                         return best_score;
                     }
