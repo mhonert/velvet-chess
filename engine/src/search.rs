@@ -1057,6 +1057,9 @@ impl Search {
                 self.board.undo_move(curr_move, previous_piece, removed_piece_id);
             } else {
                 evaluated_move_count += 1;
+                if curr_move == tt_move && curr_move.is_quiet() {
+                    quiet_move_count += 1;
+                }
 
                 let mut local_pv = PrincipalVariation::default();
 
