@@ -677,7 +677,7 @@ impl Search {
             return alpha;
         }
 
-        if in_check && se_move == NO_MOVE {
+        if in_check && se_move == NO_MOVE && (depth == 0 || (ply as i32) <= self.current_depth * 2) {
             // Extend search when in check
             depth = (depth + 1).max(1);
         }
@@ -761,6 +761,7 @@ impl Search {
 
                     check_se = !in_se_search
                         && tt_move != NO_MOVE
+                        && (ply as i32) <= self.current_depth * 2
                         && !in_check
                         && !tt_score_is_upper_bound
                         && depth >= 6
