@@ -96,6 +96,7 @@ pub struct Engine {
     rating_adv_adaptive_style: bool,
     rating_adv_risky_style_threshold: i32,
     elo: i32,
+    last_startpos_hash: u64,
 
     tt_clean: bool,
 }
@@ -129,6 +130,8 @@ impl Engine {
             false,
         );
 
+        let startpos_hash = board.get_hash();
+
         Engine {
             rx,
             board,
@@ -149,6 +152,7 @@ impl Engine {
             rating_adv_risky_style_threshold: DEFAULT_RISKY_STYLE_THRESHOLD,
             elo: MIN_ELO,
             tt_clean: false,
+            last_startpos_hash: startpos_hash,
         }
     }
 
@@ -338,7 +342,7 @@ impl Engine {
 
     fn search(&mut self, mut limits: SearchLimits, ponder: bool, search_moves: Option<Vec<String>>) -> (Move, Move) {
         init_nn_params();
-        
+
         limits.update(self.board.active_player(), self.move_overhead_ms);
         self.search.update(&self.board, limits, ponder);
 
@@ -409,11 +413,20 @@ impl Engine {
             Err(err) => println!("position cmd: {}", err),
         }
 
+        let new_startpos_hash = self.board.get_hash();
+
         for m in moves {
             self.board.perform_move(m.to_move(&self.board));
         }
 
         self.board.reset_nn_eval();
+
+        if new_startpos_hash != self.last_startpos_hash {
+            self.last_startpos_hash = new_startpos_hash;
+            self.search.hh.clear();
+            self.search.reset_threads();
+            self.search.set_expected_best_move(NO_MOVE);
+        }
     }
 
     pub fn reset(&mut self) {
