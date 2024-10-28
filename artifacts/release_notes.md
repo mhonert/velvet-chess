@@ -1,15 +1,20 @@
+This new major release introduces configurable playing strength, adaptive styles, and expanded platform support
 
-This is just a preview release not intended for rating lists
+Estimated strength increase (using the default network): ~ 40 Elo
+
+- 40 Elo - 60+0.6s TC against a gauntlet of other engines with unbalanced openings
+- 60 Elo - 60+0.6s TC against the previous version 8.0.0
+
+Results may vary depending upon time control, opponents and opening selection.
 
 ## Changes
 
 - Switch from 16- to 8-bit quantized weights in the input layer
-- Search improvements
+- Several search improvements
+- Minor time management improvement
 - Support for AVX-512 (Linux only at the moment)
-- New SPRT testing tool
-- New tournament (gauntlet) testing tool
-- New tuning tool
 - Changed default value for UCI option `RatingAdvAdaptiveStyle` from `true` to `false`
+- Update to Rust 1.82.0
 
 ## Notes
 

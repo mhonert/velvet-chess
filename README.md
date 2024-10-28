@@ -85,6 +85,8 @@ you can pass the `no-default-features` flag:
 cargo build --no-default-features --release --bin velvet
 ```
 
+Note: the AVX-512 compiles require a Rust nightly version and the feature 'avx512'.
+
 ### :scroll: License
 This project is licensed under the GNU General Public License - see the [LICENSE](LICENSE) for details.
 
