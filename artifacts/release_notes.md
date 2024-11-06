@@ -1,20 +1,11 @@
-This new major release introduces configurable playing strength, adaptive styles, and expanded platform support
+This patch release fixes two ponder and PV info related bugs
 
-Estimated strength increase (using the default network): ~ 40 Elo
-
-- 40 Elo - 60+0.6s TC against a gauntlet of other engines with unbalanced openings
-- 60 Elo - 60+0.6s TC against the previous version 8.0.0
-
-Results may vary depending upon time control, opponents and opening selection.
 
 ## Changes
 
-- Switch from 16- to 8-bit quantized weights in the input layer
-- Several search improvements
-- Minor time management improvement
-- Support for AVX-512 (Linux only at the moment)
-- Changed default value for UCI option `RatingAdvAdaptiveStyle` from `true` to `false`
-- Update to Rust 1.82.0
+- Fixed a bug where the PV info did not fit to the returned bestmove
+- Fixed a bug where the ponder move did not fit to the returned bestmove
+- Fixed a bug where bestmove 0000 was returned, if the search limit was not sufficient to complete at least one iteration (e.g. go nodes 1)
 
 ## Notes
 

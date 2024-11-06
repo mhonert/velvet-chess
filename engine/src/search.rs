@@ -477,6 +477,8 @@ impl Search {
         let mut step = 0;
         
         let mut fail_high_move = NO_MOVE;
+        let mut fail_high_pv_str = None;
+        let mut fail_high_pv = pv.clone();
         loop {
             pv.clear();
 
@@ -494,12 +496,15 @@ impl Search {
             }
 
             if best_move == NO_MOVE || cancelled {
-                return (cancelled, fail_high_move, current_pv);
+                pv.clone_from(&fail_high_pv);
+                return (cancelled, fail_high_move, fail_high_pv_str);
             }
 
             let best_score = best_move.score();
             if best_score <= alpha {
                 fail_high_move = NO_MOVE;
+                fail_high_pv_str = None;
+                fail_high_pv = pv.clone();
                 attempt += 1;
                 depth = original_depth;
                 beta = (alpha + beta) / 2;
@@ -507,6 +512,7 @@ impl Search {
                 alpha = best_score.saturating_sub(step).clamp(MIN_SCORE, MAX_SCORE);
             } else if best_score >= beta {
                 fail_high_move = best_move;
+                fail_high_pv_str = current_pv.clone();
                 attempt += 1;
                 step = calc_aspiration_window(attempt, step, initial_score, best_score);
                 beta = best_score.saturating_add(step).clamp(MIN_SCORE, MAX_SCORE);
@@ -1155,7 +1161,7 @@ impl Search {
     }
 
     fn check_search_limits(&mut self, rx: &Receiver<Message>) {
-        if self.local_total_node_count >= self.next_check_node_count {
+        if self.local_total_node_count >= self.next_check_node_count && self.current_depth > 1 {
             self.next_check_node_count = if self.limits.node_limit() != u64::MAX {
                 self.limits.node_limit()
             } else {
@@ -1345,7 +1351,7 @@ impl Search {
             let tt_move = get_tt_move(entry, ply);
             let active_player = self.board.active_player();
             if self.is_tb_move(tt_move) {
-                return (tt_move, ScoreType::Exact, true);
+                return (NO_MOVE, ScoreType::Exact, true);
             } else if is_valid_move(&self.board, active_player, tt_move) {
                 return (tt_move, get_score_type(entry), false);
             }
