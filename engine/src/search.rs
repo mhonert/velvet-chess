@@ -275,7 +275,7 @@ impl Search {
             };
 
         let mut result = AnalysisResult::new();
-        result.update_result(self.max_reached_depth as i32, self.max_reached_depth as i32, m, Some(self.pv_info(&pv.0, false)), pv.clone());
+        result.update_result(self.max_reached_depth as i32, self.max_reached_depth as i32, m, Some(self.pv_info(&pv.0)), pv.clone());
         result.print(self.board.halfmove_clock(), None, self.multi_pv_count, self.get_base_stats(self.time_mgr.search_duration(Instant::now())));
 
         if simulate_thinking_time && self.limits.has_time_limit() {
@@ -597,7 +597,7 @@ impl Search {
                 if !self.is_helper_thread {
                     self.time_mgr.update_best_move(best_move, depth);
                     pv.update(best_move, &mut local_pv);
-                    current_pv = Some(self.pv_info(&pv.moves(), is_mate_or_mated_score(best_score)));
+                    current_pv = Some(self.pv_info(&pv.moves()));
                 }
 
                 if best_score <= alpha || best_score >= beta {
@@ -1415,47 +1415,18 @@ impl Search {
         }
     }
 
-    fn pv_info(&mut self, pv: &[Move], enhance_from_tt: bool) -> String {
+    fn pv_info(&mut self, pv: &[Move]) -> String {
         if let Some((&m, rest_pv)) = pv.split_first() {
             let uci_move = UCIMove::from_move(&self.board, m);
             let (previous_piece, move_state) = self.board.perform_move(m);
 
-            let followup_moves = self.pv_info(rest_pv, enhance_from_tt);
+            let followup_moves = self.pv_info(rest_pv);
 
             self.board.undo_move(m, previous_piece, move_state);
             format!("{} {}", uci_move, followup_moves)
-        } else if enhance_from_tt {
-            self.pv_info_from_tt()
         } else {
             String::new()
         }
-    }
-
-    fn pv_info_from_tt(&mut self) -> String {
-        if self.board.is_insufficient_material_draw() || self.board.is_repetition_draw() || self.board.is_fifty_move_draw() {
-            return String::new();
-        }
-
-        if let Some((entry, _)) = self.tt.get_entry(self.board.get_hash(), self.board.halfmove_clock()) {
-            let active_player = self.board.active_player();
-            let hash_move = get_tt_move(entry, 0);
-            if hash_move.is_no_move() {
-                return String::new();
-            }
-            if !is_valid_move(&self.board, active_player, hash_move) {
-                return String::new();
-            }
-
-            let uci_move = UCIMove::from_move(&self.board, hash_move);
-            let (previous_piece, move_state) = self.board.perform_move(hash_move);
-
-            let followup_moves = self.pv_info_from_tt();
-
-            self.board.undo_move(hash_move, previous_piece, move_state);
-            return format!("{} {}", uci_move, followup_moves);
-        }
-
-        String::new()
     }
 
     fn log(&self, log_level: LogLevel) -> bool {
