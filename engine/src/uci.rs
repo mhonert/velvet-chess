@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2024 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2025 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -16,7 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::engine::{DEFAULT_RISKY_STYLE_THRESHOLD, MAX_ELO, Message, MIN_ELO};
+use crate::engine::{MAX_ELO, Message, MIN_ELO};
 use crate::fen::START_POS;
 use crate::search::{DEFAULT_SEARCH_THREADS, MAX_SEARCH_THREADS};
 use crate::time_management::{DEFAULT_MOVE_OVERHEAD_MS, MAX_MOVE_OVERHEAD_MS, MIN_MOVE_OVERHEAD_MS, SearchLimits};
@@ -129,10 +129,10 @@ fn uci() {
     println!("option name Move Overhead type spin default {} min {} max {}", DEFAULT_MOVE_OVERHEAD_MS, MIN_MOVE_OVERHEAD_MS, MAX_MOVE_OVERHEAD_MS);
     println!("option name MultiPV type spin default 1 min 1 max {}", MAX_MULTI_PV_MOVES);
     println!("option name Ponder type check default false");
-    println!("option name RatingAdvAdaptiveStyle type check default false");
-    println!("option name RatingAdvRiskyStyleThreshold type spin default {} min -10000 max 10000", DEFAULT_RISKY_STYLE_THRESHOLD);
+    // println!("option name RatingAdvAdaptiveStyle type check default false");
+    // println!("option name RatingAdvRiskyStyleThreshold type spin default {} min -10000 max 10000", DEFAULT_RISKY_STYLE_THRESHOLD);
     println!("option name SimulateThinkingTime type check default true");
-    println!("option name Style type combo default Normal var Normal var Risky");
+    println!("option name Style type combo default Normal var Normal");
     if HAS_TB_SUPPORT {
         println!("option name SyzygyPath type string default");
         println!("option name SyzygyProbeDepth type spin default {} min 0 max {}", DEFAULT_TB_PROBE_DEPTH, MAX_DEPTH);
@@ -262,18 +262,18 @@ fn set_option(tx: &Sender<Message>, parts: &[&str]) {
             }
         }
 
-        "ratingadvadaptivestyle" => {
-            let adaptive = value.as_str().eq_ignore_ascii_case("true");
-            send_message(tx, Message::SetRatingAdvAdaptiveStyle(adaptive));
-        }
-
-        "ratingadvriskystylethreshold" => {
-            if let Some(threshold) = parse_numeric_option(value.as_str(), -10000.0, 10000.0) {
-                send_message(tx, Message::SetRatingAdvRiskyStyleThreshold(threshold as i32));
-            } else {
-                println!("info string error: invalid RatingAdvRiskyStyleThreshold value: {}", value);
-            }
-        }
+        // "ratingadvadaptivestyle" => {
+        //     let adaptive = value.as_str().eq_ignore_ascii_case("true");
+        //     send_message(tx, Message::SetRatingAdvAdaptiveStyle(adaptive));
+        // }
+        //
+        // "ratingadvriskystylethreshold" => {
+        //     if let Some(threshold) = parse_numeric_option(value.as_str(), -10000.0, 10000.0) {
+        //         send_message(tx, Message::SetRatingAdvRiskyStyleThreshold(threshold as i32));
+        //     } else {
+        //         println!("info string error: invalid RatingAdvRiskyStyleThreshold value: {}", value);
+        //     }
+        // }
 
         "multipv" => {
             if let Some(multipv_moves) = parse_numeric_option(value.as_str(), 1, MAX_MULTI_PV_MOVES as i32) {
@@ -301,7 +301,7 @@ fn set_option(tx: &Sender<Message>, parts: &[&str]) {
         "style" => {
             match value.to_ascii_lowercase().as_str() {
                 "normal" => send_message(tx, Message::SetStyle(Style::Normal)),
-                "risky" => send_message(tx, Message::SetStyle(Style::Risky)),
+                // "risky" => send_message(tx, Message::SetStyle(Style::Risky)),
                 _ => println!("info string error: unknown style: {}", value)
             };
         }

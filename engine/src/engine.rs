@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2024 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2025 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -301,13 +301,7 @@ impl Engine {
     }
 
     fn adapt_style_for_rating_adv(&self) {
-        let style = if self.rating_adv >= self.rating_adv_risky_style_threshold {
-            Style::Risky
-        } else {
-            Style::Normal
-        };
-        
-        set_network_style(style);
+        set_network_style(Style::Normal);
     }
 
     fn go(&mut self, mut limits: SearchLimits, ponder: bool, search_moves: Option<Vec<String>>) {

@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2024 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2025 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -20,10 +20,7 @@ use crate::align::A64;
 use crate::bitboard::{v_mirror_i8, BitBoards};
 use crate::colors::Color;
 use crate::nn::eval::base::{add_epi16, horizontal_sum_32, load_i8, load_i16, multiply_add_epi16, square, store_i16, sub_epi16, zero, Accum, WORDS_PER_REG, clipped_relu};
-use crate::nn::{
-    king_bucket, piece_idx, BUCKETS, BUCKET_SIZE, FP_OUT_MULTIPLIER, H1_BIASES,
-    H1_TO_OUT_WEIGHTS, HL1_HALF_NODES, IN_TO_H1_WEIGHTS, OUT_BIASES,
-};
+use crate::nn::{king_bucket, piece_idx, BUCKETS, BUCKET_SIZE, FP_OUT_MULTIPLIER, H1_BIASES, H1_TO_OUT_WEIGHTS, HL1_HALF_NODES, IN_TO_H1_WEIGHTS, OUT_BIASES, SCORE_SCALE};
 use crate::pieces::P;
 use crate::scores::{sanitize_eval_score, MAX_EVAL, MIN_EVAL};
 
@@ -351,7 +348,7 @@ impl NeuralNetEval {
         let raw_output = forward_pass(own_hidden_nodes, opp_hidden_nodes) as i64;
         let output = (raw_output
             + (unsafe { *OUT_BIASES.0.get_unchecked(0) } as i64 * FP_OUT_MULTIPLIER))
-            / FP_OUT_MULTIPLIER;
+            / (FP_OUT_MULTIPLIER * FP_OUT_MULTIPLIER / SCORE_SCALE as i64);
 
         scale_eval(output as i32)
     }

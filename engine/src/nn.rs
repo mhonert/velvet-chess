@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2024 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2025 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -31,7 +31,7 @@ pub const BUCKET_SIZE: usize = 6 * 64 * 2;
 pub const INPUTS: usize = BUCKET_SIZE * BUCKETS;
 
 pub const HL1_NODES: usize = 2 * HL1_HALF_NODES;
-pub const HL1_HALF_NODES: usize = 1024;
+pub const HL1_HALF_NODES: usize = 1280;
 
 pub const MAX_RELU: f32 = 2.499;
 pub const FP_MAX_RELU: i16 = (MAX_RELU * FP_IN_MULTIPLIER as f32) as i16;
@@ -45,7 +45,7 @@ pub const FP_IN_MULTIPLIER: i64 = 1 << FP_IN_PRECISION_BITS;
 pub const FP_OUT_PRECISION_BITS: u8 = 10; // must be an even number
 pub const FP_OUT_MULTIPLIER: i64 = 1 << FP_OUT_PRECISION_BITS;
 
-pub const SCORE_SCALE: i16 = 64;
+pub const SCORE_SCALE: i16 = 1024;
 
 pub static mut IN_TO_H1_WEIGHTS: A64<[i8; INPUT_WEIGHT_COUNT]> = A64([0; INPUT_WEIGHT_COUNT]);
 pub static mut H1_BIASES: A64<[i8; HL1_NODES]> = A64([0; HL1_NODES]);
@@ -66,20 +66,13 @@ static NETWORK_LOAD_LOCK: Mutex<()> = Mutex::new(());
 #[derive(Clone, Copy)]
 pub enum Style {
     Normal = 0,
-    Risky = 1,
 }
 
 pub fn init_nn_params() {
     if !IS_NETWORK_INITIALIZED.load(Ordering::Acquire) {
         let _lock = NETWORK_LOAD_LOCK.lock();
         if !IS_NETWORK_INITIALIZED.load(Ordering::Relaxed) {
-            let mut reader = if IS_NORMAL_NETWORK.load(Ordering::Acquire) {
-                println!("info string Loading neural network weights for normal style");
-                &include_bytes!("../nets/velvet_nml.qnn")[..]
-            } else {
-                println!("info string Loading neural network weights for risky style");
-                &include_bytes!("../nets/velvet_rsk.qnn")[..]
-            };
+            let mut reader = &include_bytes!("../nets/velvet_nml.qnn")[..];
 
             let in_precision_bits = read_u8(&mut reader).expect("Could not read input fixed point precision bits");
             assert_eq!(

@@ -6,7 +6,6 @@ members = [
     "fathomrs",
     "gensets",
     "genmagics",
-    "cputrainer",
     "gputrainer",
     "selfplay",
     "sprt",
