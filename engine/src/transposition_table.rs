@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2024 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2025 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -23,7 +23,7 @@ use std::intrinsics::transmute;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-pub const MAX_HASH_SIZE_MB: i32 = 512 * 1024;
+pub const MAX_HASH_SIZE_MB: i32 = 8192 * 1024;
 
 // Transposition table entry
 // Bits 63 - 43: 21 highest bits of the hash
