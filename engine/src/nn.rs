@@ -31,7 +31,7 @@ pub const BUCKET_SIZE: usize = 6 * 64 * 2;
 pub const INPUTS: usize = BUCKET_SIZE * BUCKETS;
 
 pub const HL1_NODES: usize = 2 * HL1_HALF_NODES;
-pub const HL1_HALF_NODES: usize = 1280;
+pub const HL1_HALF_NODES: usize = 1536;
 
 pub const MAX_RELU: f32 = 2.499;
 pub const FP_MAX_RELU: i16 = (MAX_RELU * FP_IN_MULTIPLIER as f32) as i16;
