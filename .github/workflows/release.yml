@@ -96,7 +96,7 @@ jobs:
           path: velvet-windows-x86_64-${{ matrix.exec_postfix }}.exe
 
   build-macos:
-    runs-on: macos-12
+    runs-on: macos-latest
     strategy:
       matrix:
         include:
