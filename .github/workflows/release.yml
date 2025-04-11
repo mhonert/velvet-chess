@@ -38,12 +38,12 @@ jobs:
         run: |
           sudo apt-get install -y musl-tools
           if [ "${{ matrix.exec_postfix }}" == "x86_64-avx512" ]; then
-            rustup toolchain install nightly-2024-10-28
-            rustup override set nightly-2024-10-28
+            rustup toolchain install nightly-2025-04-05
+            rustup override set nightly-2025-04-05
             rustup target add ${{ matrix.toolchain }}
             cargo build --release --target ${{ matrix.toolchain }} --bin velvet --features=fathomrs,avx512
           else
-            rustup override set 1.82.0
+            rustup override set 1.86.0
             rustup target add ${{ matrix.toolchain }}
             cargo build --release --target ${{ matrix.toolchain }} --bin velvet
           fi
@@ -80,11 +80,11 @@ jobs:
           CFLAGS: '${{ matrix.cflags }}'
         run: |
           if ("${{ matrix.exec_postfix }}" -match "avx512") {
-            rustup toolchain install nightly-2024-10-28
-            rustup override set nightly-2024-10-28
+            rustup toolchain install nightly-2025-04-05
+            rustup override set nightly-2025-04-05
             cargo build --release --bin velvet --features=fathomrs,avx512
           } else {
-            rustup override set 1.82.0
+            rustup override set 1.86.0
             cargo build --release --bin velvet
           }
           mv .\target\release\velvet.exe velvet-windows-x86_64-${{ matrix.exec_postfix }}.exe
@@ -126,7 +126,7 @@ jobs:
           RUSTFLAGS: '${{ matrix.add_rustflags }}'
           CFLAGS: '${{ matrix.cflags }}'
         run: |
-          rustup override set 1.82.0
+          rustup override set 1.86.0
           rustup target add ${{ matrix.toolchain }}
           cargo build --release --target ${{ matrix.toolchain }} --bin velvet
           mv target/${{ matrix.toolchain }}/release/velvet velvet-macOS-${{ matrix.exec_postfix }}

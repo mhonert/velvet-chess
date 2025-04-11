@@ -1,11 +1,12 @@
-This patch release fixes two ponder and PV info related bugs
-
+Preview release for TCEC - not intended for rating lists
 
 ## Changes
 
-- Fixed a bug where the PV info did not fit to the returned bestmove
-- Fixed a bug where the ponder move did not fit to the returned bestmove
-- Fixed a bug where bestmove 0000 was returned, if the search limit was not sufficient to complete at least one iteration (e.g. go nodes 1)
+- New default network with increased hidden layer size (2x1024 => 2x1536) trained using new generated training data
+- Temporarily removed the "Risky" style net, as a new version has not yet been trained for the increased hidden layer size
+- Increased maximum thread count
+- Increased maximum hash size
+- Some refactorings
 
 ## Notes
 
