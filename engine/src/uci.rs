@@ -29,7 +29,6 @@ use std::str::FromStr;
 use std::sync::mpsc::Sender;
 use std::thread::sleep;
 use std::time::Duration;
-use crate::nn::Style;
 use crate::params;
 use crate::syzygy::{DEFAULT_TB_PROBE_DEPTH, HAS_TB_SUPPORT};
 
@@ -129,8 +128,6 @@ fn uci() {
     println!("option name Move Overhead type spin default {} min {} max {}", DEFAULT_MOVE_OVERHEAD_MS, MIN_MOVE_OVERHEAD_MS, MAX_MOVE_OVERHEAD_MS);
     println!("option name MultiPV type spin default 1 min 1 max {}", MAX_MULTI_PV_MOVES);
     println!("option name Ponder type check default false");
-    // println!("option name RatingAdvAdaptiveStyle type check default false");
-    // println!("option name RatingAdvRiskyStyleThreshold type spin default {} min -10000 max 10000", DEFAULT_RISKY_STYLE_THRESHOLD);
     println!("option name SimulateThinkingTime type check default true");
     println!("option name Style type combo default Normal var Normal");
     if HAS_TB_SUPPORT {
@@ -298,14 +295,6 @@ fn set_option(tx: &Sender<Message>, parts: &[&str]) {
             send_message(tx, Message::SetSimulateThinkingTime(simulate_thinking_time));
         }
         
-        "style" => {
-            match value.to_ascii_lowercase().as_str() {
-                "normal" => send_message(tx, Message::SetStyle(Style::Normal)),
-                // "risky" => send_message(tx, Message::SetStyle(Style::Risky)),
-                _ => println!("info string error: unknown style: {}", value)
-            };
-        }
-
         _ => {
             if let Some(value) = parse_numeric_option(value.as_str(), i16::MIN, i16::MAX) {
                 send_message(tx, Message::SetParam(name, value));

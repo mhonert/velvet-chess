@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2024 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2025 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -26,7 +26,6 @@ use selfplay::pentanomial::PentanomialCount;
 use selfplay::selfplay::{play_match, SearchControl};
 use velvet::fen::{create_from_fen, read_fen, START_POS};
 use velvet::init::init;
-use velvet::nn::init_nn_params;
 use crate::sprt::SprtState;
 
 const PAIRS: usize = 8;
@@ -43,7 +42,6 @@ fn main() {
     }
 
     init();
-    init_nn_params();
 
     let book_file = args().nth(1).expect("No book file parameter provided");
     let time = args().nth(2).expect("No base time parameter provided").parse::<i32>().expect("Invalid base time parameter") * 1000;

@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2024 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2025 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -31,7 +31,6 @@ use velvet::engine::{LogLevel, Message};
 use velvet::fen::{create_from_fen, read_fen, write_fen, START_POS};
 use velvet::init::init;
 use velvet::moves::{Move, NO_MOVE};
-use velvet::nn::init_nn_params;
 use velvet::random::Random;
 use velvet::search::{Search};
 use velvet::syzygy;
@@ -112,7 +111,6 @@ fn generate(args: GenerateArgs) {
     let (tx, rx) = mpsc::channel::<Command>();
 
     init();
-    init_nn_params();
     println!("Starting worker threads ...");
     let stop = Arc::new(AtomicBool::default());
     let id_source = Arc::new(NextIDSource::new());

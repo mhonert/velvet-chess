@@ -15,12 +15,7 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Mutex};
-
 use crate::align::A64;
-use crate::nn::io::{read_quantized16, read_quantized8, read_u8};
 
 pub mod eval;
 pub mod io;
@@ -47,64 +42,24 @@ pub const FP_OUT_MULTIPLIER: i64 = 1 << FP_OUT_PRECISION_BITS;
 
 pub const SCORE_SCALE: i16 = 1024;
 
-pub static mut IN_TO_H1_WEIGHTS: A64<[i8; INPUT_WEIGHT_COUNT]> = A64([0; INPUT_WEIGHT_COUNT]);
-pub static mut H1_BIASES: A64<[i8; HL1_NODES]> = A64([0; HL1_NODES]);
+macro_rules! include_layer {
+    ($file:expr, $T:ty, $S:expr) => {{
+        let layer_bytes = include_bytes!($file);
+        let layer: A64<[$T; $S]> = A64(unsafe { std::mem::transmute_copy(layer_bytes) });
+        layer
+    }};
+}
 
-pub static mut H1_TO_OUT_WEIGHTS: A64<[i16; HL1_NODES]> = A64([0; HL1_NODES]);
+pub static IN_TO_H1_WEIGHTS: A64<[i8; INPUT_WEIGHT_COUNT]> = include_layer!("../nets/velvet_layer_in_weights.qnn", i8, INPUT_WEIGHT_COUNT);
 
-pub static mut OUT_BIASES: A64<[i16; 1]> = A64([0; 1]);
+pub static H1_BIASES: A64<[i8; HL1_NODES]> = include_layer!("../nets/velvet_layer_in_bias.qnn", i8, HL1_NODES);
+
+pub static H1_TO_OUT_WEIGHTS: A64<[i16; HL1_NODES]> = include_layer!("../nets/velvet_layer_out_weights.qnn", i16, HL1_NODES);
+
+pub static OUT_BIASES: A64<[i16; 1]> = include_layer!("../nets/velvet_layer_out_bias.qnn", i16, 1);
 
 pub const fn piece_idx(piece_id: i8) -> u16 {
     (piece_id - 1) as u16
-}
-
-static IS_NORMAL_NETWORK: AtomicBool = AtomicBool::new(true);
-
-static IS_NETWORK_INITIALIZED: AtomicBool = AtomicBool::new(false);
-static NETWORK_LOAD_LOCK: Mutex<()> = Mutex::new(());
-
-#[derive(Clone, Copy)]
-pub enum Style {
-    Normal = 0,
-}
-
-pub fn init_nn_params() {
-    if !IS_NETWORK_INITIALIZED.load(Ordering::Acquire) {
-        let _lock = NETWORK_LOAD_LOCK.lock();
-        if !IS_NETWORK_INITIALIZED.load(Ordering::Relaxed) {
-            let mut reader = &include_bytes!("../nets/velvet_nml.qnn")[..];
-
-            let in_precision_bits = read_u8(&mut reader).expect("Could not read input fixed point precision bits");
-            assert_eq!(
-                in_precision_bits, FP_IN_PRECISION_BITS,
-                "NN hidden layer has been quantized with a different (input) fixed point precision, expected: {}, got: {}",
-                FP_IN_PRECISION_BITS, in_precision_bits
-            );
-
-            let out_precision_bits = read_u8(&mut reader).expect("Could not read output fixed point precision bits");
-            assert_eq!(
-                out_precision_bits, FP_OUT_PRECISION_BITS,
-                "NN hidden layer has been quantized with a different (input) fixed point precision, expected: {}, got: {}",
-                FP_OUT_PRECISION_BITS, out_precision_bits
-            );
-
-            read_quantized8(&mut reader, unsafe { &mut IN_TO_H1_WEIGHTS.0 }).expect("Could not read weights");
-            read_quantized8(&mut reader, unsafe { &mut H1_BIASES.0 }).expect("Could not read biases");
-
-            read_quantized16(&mut reader, unsafe { &mut H1_TO_OUT_WEIGHTS.0 }).expect("Could not read weights");
-            read_quantized16(&mut reader, unsafe { &mut OUT_BIASES.0 }).expect("Could not read biases");
-
-            IS_NETWORK_INITIALIZED.store(true, Ordering::Release);
-        }
-    }
-}
-
-pub fn set_network_style(style: Style) {
-    let is_normal = matches!(style, Style::Normal);
-    
-    if IS_NORMAL_NETWORK.swap(is_normal, Ordering::AcqRel) != is_normal {
-        IS_NETWORK_INITIALIZED.store(false, Ordering::Release);
-    }
 }
 
 #[inline(always)]

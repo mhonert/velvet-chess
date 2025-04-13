@@ -22,7 +22,6 @@ use crate::board::Board;
 use crate::fen::{create_from_fen, read_fen, write_fen, START_POS};
 use crate::history_heuristics::HistoryHeuristics;
 use crate::moves::{Move, NO_MOVE};
-use crate::nn::{init_nn_params, set_network_style, Style};
 use crate::perft::perft;
 use crate::search::{Search, DEFAULT_SEARCH_THREADS};
 use crate::time_management::{DEFAULT_MOVE_OVERHEAD_MS, SearchLimits};
@@ -57,10 +56,7 @@ pub enum Message {
     SetMultiPV(i32),
     SetMoveOverheadMillis(i32),
     SetRatingAdv(i32),
-    SetRatingAdvAdaptiveStyle(bool),
-    SetRatingAdvRiskyStyleThreshold(i32),
     SetSimulateThinkingTime(bool),
-    SetStyle(Style),
     SetTranspositionTableSize(i32),
     Stop,
     PonderHit,
@@ -91,17 +87,12 @@ pub struct Engine {
     move_overhead_ms: i32,
     limit_strength: bool,
     simulate_thinking_time: bool,
-    style: Style,
     rating_adv: i32,
-    rating_adv_adaptive_style: bool,
-    rating_adv_risky_style_threshold: i32,
     elo: i32,
     last_startpos_hash: u64,
 
     tt_clean: bool,
 }
-
-pub const DEFAULT_RISKY_STYLE_THRESHOLD: i32 = 150;
 
 pub fn spawn_engine_thread() -> Sender<Message> {
     let (tx, rx) = mpsc::channel::<Message>();
@@ -146,10 +137,7 @@ impl Engine {
             move_overhead_ms: DEFAULT_MOVE_OVERHEAD_MS,
             limit_strength: false,
             simulate_thinking_time: true,
-            style: Style::Normal,
             rating_adv: 0,
-            rating_adv_adaptive_style: false,
-            rating_adv_risky_style_threshold: DEFAULT_RISKY_STYLE_THRESHOLD,
             elo: MIN_ELO,
             tt_clean: false,
             last_startpos_hash: startpos_hash,
@@ -233,34 +221,10 @@ impl Engine {
                 self.simulate_thinking_time = flag;
             }
             
-            Message::SetStyle(style) => {
-                self.style = style;
-                set_network_style(style);
-            }
-
             Message::SetRatingAdv(adv) => {
                 self.rating_adv = adv;
-                if self.rating_adv_adaptive_style {
-                    self.adapt_style_for_rating_adv();
-                }
             }
             
-            Message::SetRatingAdvAdaptiveStyle(adaptive) => {
-                self.rating_adv_adaptive_style = adaptive;
-                if !adaptive {
-                    set_network_style(self.style);
-                } else {
-                    self.adapt_style_for_rating_adv();
-                }
-            }
-
-            Message::SetRatingAdvRiskyStyleThreshold(threshold) => {
-                self.rating_adv_risky_style_threshold = threshold;
-                if self.rating_adv_adaptive_style {
-                    self.adapt_style_for_rating_adv();
-                }
-            }
-
             Message::SetElo(elo) => {
                 self.elo = elo;
             }
@@ -300,10 +264,6 @@ impl Engine {
         true
     }
 
-    fn adapt_style_for_rating_adv(&self) {
-        set_network_style(Style::Normal);
-    }
-
     fn go(&mut self, mut limits: SearchLimits, ponder: bool, search_moves: Option<Vec<String>>) {
         self.tt_clean = false;
         if self.limit_strength {
@@ -335,8 +295,6 @@ impl Engine {
     }
 
     fn search(&mut self, mut limits: SearchLimits, ponder: bool, search_moves: Option<Vec<String>>) -> (Move, Move) {
-        init_nn_params();
-
         limits.update(self.board.active_player(), self.move_overhead_ms);
         self.search.update(&self.board, limits, ponder);
 
@@ -358,7 +316,6 @@ impl Engine {
 
     fn check_readiness(&mut self) {
         // Peform postponed initializations
-        init_nn_params();
         self.update_thread_count();
         self.update_tt_size();
         self.update_tb();

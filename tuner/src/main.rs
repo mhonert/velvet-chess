@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2024 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2025 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -27,7 +27,6 @@ use selfplay::pentanomial::PentanomialCount;
 use selfplay::selfplay::{play_match, SearchControl};
 use velvet::fen::{create_from_fen, read_fen, START_POS};
 use velvet::init::init;
-use velvet::nn::init_nn_params;
 
 const TIME: i32 = 60000;
 const INC: i32 = TIME / 100;
@@ -44,7 +43,6 @@ const SPSA_GAMMA: f64 = 0.101;
 
 fn main() {
     init();
-    init_nn_params();
     let book_file = args().nth(1).expect("No book file parameter provided");
 
     println!("Velvetune");

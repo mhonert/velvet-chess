@@ -19,7 +19,7 @@
 use crate::align::A64;
 use crate::moves::{Move};
 use crate::scores::{is_mate_score, is_mated_score, sanitize_mate_score, sanitize_mated_score, clock_scaled_eval, sanitize_eval_score};
-use std::intrinsics::transmute;
+use std::mem::transmute;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 

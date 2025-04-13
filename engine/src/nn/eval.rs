@@ -251,22 +251,22 @@ impl NeuralNetEval {
 
     fn add_piece_now_wpov(&mut self, pos: usize, piece_offset: usize) {
         let white_pov_idx = piece_offset + (pos ^ self.xor_white_pov);
-        add_weights::<HL1_HALF_NODES>(self.hidden_nodes_white_mut(), unsafe { &IN_TO_H1_WEIGHTS.0 }, white_pov_idx);
+        add_weights::<HL1_HALF_NODES>(self.hidden_nodes_white_mut(), &IN_TO_H1_WEIGHTS.0, white_pov_idx);
     }
 
     fn add_piece_now_bpov(&mut self, pos: usize, piece_offset: usize) {
         let black_pov_idx = piece_offset + (pos ^ self.xor_black_pov);
-        add_weights::<HL1_HALF_NODES>(self.hidden_nodes_black_mut(), unsafe { &IN_TO_H1_WEIGHTS.0 }, black_pov_idx);
+        add_weights::<HL1_HALF_NODES>(self.hidden_nodes_black_mut(), &IN_TO_H1_WEIGHTS.0, black_pov_idx);
     }
 
     fn remove_piece_now_wpov(&mut self, pos: usize, piece_offset: usize) {
         let white_pov_idx = piece_offset + (pos ^ self.xor_white_pov);
-        sub_weights::<HL1_HALF_NODES>(self.hidden_nodes_white_mut(), unsafe { &IN_TO_H1_WEIGHTS.0 }, white_pov_idx);
+        sub_weights::<HL1_HALF_NODES>(self.hidden_nodes_white_mut(), &IN_TO_H1_WEIGHTS.0, white_pov_idx);
     }
 
     fn remove_piece_now_bpov(&mut self, pos: usize, piece_offset: usize) {
         let black_pov_idx = piece_offset + (pos ^ self.xor_black_pov);
-        sub_weights::<HL1_HALF_NODES>(self.hidden_nodes_black_mut(), unsafe { &IN_TO_H1_WEIGHTS.0 }, black_pov_idx);
+        sub_weights::<HL1_HALF_NODES>(self.hidden_nodes_black_mut(), &IN_TO_H1_WEIGHTS.0, black_pov_idx);
     }
 
     #[inline(always)]
@@ -381,13 +381,13 @@ impl NeuralNetEval {
 
                         sub_add_weights::<HL1_HALF_NODES>(
                             unsafe { self.hidden_nodes_white.0.get_unchecked_mut(self.white_bucket) },
-                            unsafe { &IN_TO_H1_WEIGHTS.0 },
+                            &IN_TO_H1_WEIGHTS.0,
                             rem_white_pov_idx,
                             add_white_pov_idx,
                         );
                         sub_add_weights::<HL1_HALF_NODES>(
                             unsafe { self.hidden_nodes_black.0.get_unchecked_mut(self.black_bucket) },
-                            unsafe { &IN_TO_H1_WEIGHTS.0 },
+                            &IN_TO_H1_WEIGHTS.0,
                             rem_black_pov_idx,
                             add_black_pov_idx,
                         );
@@ -400,14 +400,14 @@ impl NeuralNetEval {
 
                         sub_sub_add_weights::<HL1_HALF_NODES>(
                             unsafe { self.hidden_nodes_white.0.get_unchecked_mut(self.white_bucket) },
-                            unsafe { &IN_TO_H1_WEIGHTS.0 },
+                            &IN_TO_H1_WEIGHTS.0,
                             rem1_white_pov_idx,
                             rem2_white_pov_idx,
                             add_white_pov_idx,
                         );
                         sub_sub_add_weights::<HL1_HALF_NODES>(
                             unsafe { self.hidden_nodes_black.0.get_unchecked_mut(self.black_bucket) },
-                            unsafe { &IN_TO_H1_WEIGHTS.0 },
+                            &IN_TO_H1_WEIGHTS.0,
                             rem1_black_pov_idx,
                             rem2_black_pov_idx,
                             add_black_pov_idx,
@@ -421,14 +421,14 @@ impl NeuralNetEval {
 
                         sub_add_add_weights::<HL1_HALF_NODES>(
                             unsafe { self.hidden_nodes_white.0.get_unchecked_mut(self.white_bucket) },
-                            unsafe { &IN_TO_H1_WEIGHTS.0 },
+                            &IN_TO_H1_WEIGHTS.0,
                             rem_white_pov_idx,
                             add1_white_pov_idx,
                             add2_white_pov_idx,
                         );
                         sub_add_add_weights::<HL1_HALF_NODES>(
                             unsafe { self.hidden_nodes_black.0.get_unchecked_mut(self.black_bucket) },
-                            unsafe { &IN_TO_H1_WEIGHTS.0 },
+                            &IN_TO_H1_WEIGHTS.0,
                             rem_black_pov_idx,
                             add1_black_pov_idx,
                             add2_black_pov_idx,
@@ -445,7 +445,7 @@ impl NeuralNetEval {
 
                         sub_add_weights::<HL1_HALF_NODES>(
                             unsafe { self.hidden_nodes_white.0.get_unchecked_mut(self.white_bucket) },
-                            unsafe { &IN_TO_H1_WEIGHTS.0 },
+                            &IN_TO_H1_WEIGHTS.0,
                             rem_white_pov_idx,
                             add_white_pov_idx,
                         );
@@ -458,7 +458,7 @@ impl NeuralNetEval {
 
                         sub_sub_add_weights::<HL1_HALF_NODES>(
                             unsafe { self.hidden_nodes_white.0.get_unchecked_mut(self.white_bucket) },
-                            unsafe { &IN_TO_H1_WEIGHTS.0 },
+                            &IN_TO_H1_WEIGHTS.0,
                             rem1_white_pov_idx,
                             rem2_white_pov_idx,
                             add_white_pov_idx,
@@ -472,7 +472,7 @@ impl NeuralNetEval {
 
                         sub_add_add_weights::<HL1_HALF_NODES>(
                             unsafe { self.hidden_nodes_white.0.get_unchecked_mut(self.white_bucket) },
-                            unsafe { &IN_TO_H1_WEIGHTS.0 },
+                             &IN_TO_H1_WEIGHTS.0,
                             rem_white_pov_idx,
                             add1_white_pov_idx,
                             add2_white_pov_idx,
@@ -489,7 +489,7 @@ impl NeuralNetEval {
 
                         sub_add_weights::<HL1_HALF_NODES>(
                             unsafe { self.hidden_nodes_black.0.get_unchecked_mut(self.black_bucket) },
-                            unsafe { &IN_TO_H1_WEIGHTS.0 },
+                            &IN_TO_H1_WEIGHTS.0,
                             rem_black_pov_idx,
                             add_black_pov_idx,
                         );
@@ -502,7 +502,7 @@ impl NeuralNetEval {
 
                         sub_sub_add_weights::<HL1_HALF_NODES>(
                             unsafe { self.hidden_nodes_black.0.get_unchecked_mut(self.black_bucket) },
-                            unsafe { &IN_TO_H1_WEIGHTS.0 },
+                            &IN_TO_H1_WEIGHTS.0,
                             rem1_black_pov_idx,
                             rem2_black_pov_idx,
                             add_black_pov_idx,
@@ -516,7 +516,7 @@ impl NeuralNetEval {
 
                         sub_add_add_weights::<HL1_HALF_NODES>(
                             unsafe { self.hidden_nodes_black.0.get_unchecked_mut(self.black_bucket) },
-                            unsafe { &IN_TO_H1_WEIGHTS.0 },
+                            &IN_TO_H1_WEIGHTS.0,
                             rem_black_pov_idx,
                             add1_black_pov_idx,
                             add2_black_pov_idx,
@@ -606,13 +606,11 @@ pub fn forward_pass(own_nodes: &[i16], opp_nodes: &[i16]) -> i32 {
 
 #[inline(always)]
 pub fn calc_hidden_layer(accum: Accum, nodes: &[i16], i: usize, offset: usize) -> Accum {
-    unsafe {
-        let h1 = load_i16(nodes, i);
-        let h1_bias = load_i8(&H1_BIASES.0, i + offset);
-        let h1_relu = square(clipped_relu(add_epi16(h1, h1_bias)));
-        let w = load_i16(&H1_TO_OUT_WEIGHTS.0, i + offset);
-        multiply_add_epi16(accum, h1_relu, w)
-    }
+    let h1 = load_i16(nodes, i);
+    let h1_bias = load_i8(&H1_BIASES.0, i + offset);
+    let h1_relu = square(clipped_relu(add_epi16(h1, h1_bias)));
+    let w = load_i16(&H1_TO_OUT_WEIGHTS.0, i + offset);
+    multiply_add_epi16(accum, h1_relu, w)
 }
 
 #[inline(always)]

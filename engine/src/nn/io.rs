@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2024 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2025 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -17,40 +17,7 @@
  */
 
 use std::hash::{Hasher};
-use std::io::{Error, ErrorKind, Read, Write};
-
-pub fn read_quantized8(reader: &mut dyn Read, target: &mut [i8]) -> Result<(), Error> {
-    let size = read_u32(reader)? as usize;
-    if size != target.len() {
-        return Err(Error::new(
-            ErrorKind::InvalidData,
-            format!("Size mismatch: expected {}, but got {}", target.len(), size),
-        ));
-    }
-
-    for t in target.iter_mut() {
-        *t = read_i8(reader)?;
-    }
-
-    Ok(())
-}
-
-pub fn read_quantized16(reader: &mut dyn Read, target: &mut [i16]) -> Result<(), Error> {
-    let size = read_u32(reader)? as usize;
-    if size != target.len() {
-        return Err(Error::new(
-            ErrorKind::InvalidData,
-            format!("Size mismatch: expected {}, but got {}", target.len(), size),
-        ));
-    }
-
-    for t in target.iter_mut() {
-        *t = read_i16(reader)?;
-    }
-
-    Ok(())
-}
-
+use std::io::{Error, Read, Write};
 
 #[derive(Default)]
 pub struct FastHasher(u64);
