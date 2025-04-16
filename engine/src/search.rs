@@ -823,9 +823,7 @@ impl Search {
 
         // Quiescence search
         if depth <= 0 || self.ctx.max_search_depth_reached() {
-            let Some(qs_score) = same_ply!(self.ctx, self.quiescence_search(active_player, alpha, beta, ply, in_check)) else {
-                return None;
-            };
+            let qs_score = same_ply!(self.ctx, self.quiescence_search(active_player, alpha, beta, ply, in_check))?;
             return Some(clamp_score(qs_score, worst_possible_score, best_possible_score));
         }
 
@@ -857,9 +855,7 @@ impl Search {
 
             if is(self.params.razoring_enabled()) && !improving && self.current_depth > 7 && depth <= 4 && !is_mate_or_mated_score(alpha) && !is_mate_or_mated_score(ref_score) && ref_score + (1 << (depth - 1)) * self.params.razor_margin_multiplier() <= alpha {
                 // Razoring
-                let Some(result) = same_ply!(self.ctx, self.quiescence_search(active_player, alpha, beta, ply, in_check)) else {
-                    return None;
-                };
+                let result = same_ply!(self.ctx, self.quiescence_search(active_player, alpha, beta, ply, in_check))?;
                 let score = clamp_score(result, worst_possible_score, best_possible_score);
                 if score <= alpha {
                     return Some(score);
@@ -946,7 +942,7 @@ impl Search {
         let mut score_type = ScoreType::UpperBound;
         let mut a = -beta;
         
-        while let Some(curr_move) = self.ctx.next_move(ply, &self.hh, &mut self.board) {
+        while let Some(curr_move) = self.ctx.next_move(ply, &self.hh, &self.board) {
             if se_move == curr_move {
                 continue;
             }
@@ -968,9 +964,7 @@ impl Search {
             if is(self.params.se_enabled()) && check_se && !gives_check && curr_move == tt_move {
                 let se_beta = sanitize_score(tt_score - depth as i16);
                 self.board.undo_move(curr_move, previous_piece, removed_piece_id);
-                let Some(result) = same_ply!(self.ctx, self.rec_find_best_move(rx, se_beta - 1, se_beta, ply, depth / 2, &mut PrincipalVariation::default(), true, curr_move)) else {
-                    return None;
-                };
+                let result = same_ply!(self.ctx, self.rec_find_best_move(rx, se_beta - 1, se_beta, ply, depth / 2, &mut PrincipalVariation::default(), true, curr_move))?;
 
                 if result < se_beta {
                     is_singular = true;
