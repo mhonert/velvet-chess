@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2024 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2025 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -19,26 +19,34 @@ use crate::align::A64;
 use crate::bitboard::{BitBoard, create_blocker_permutations, gen_bishop_attacks, gen_rook_attacks, mask_without_outline};
 
 pub fn get_bishop_attacks(empty_bb: u64, pos: usize) -> BitBoard {
-    let magic = unsafe { MAGICS.0.get_unchecked(pos) };
     unsafe {
-        BitBoard(*ATTACKS.0.get_unchecked(magic.b_offset + ((empty_bb | magic.b_mask).wrapping_mul(magic.b_number) >> (64 - 9)) as usize))
+        let magics_ptr = &raw const MAGICS.0;
+        let &Magic { b_offset, b_mask, b_number, .. } = (*magics_ptr).get_unchecked(pos);
+        let attacks_ptr = &raw const ATTACKS.0;
+        BitBoard(*(*attacks_ptr).get_unchecked(b_offset + ((empty_bb | b_mask).wrapping_mul(b_number) >> (64 - 9)) as usize))
     }
 }
 
 #[inline]
 pub fn get_rook_attacks(empty_bb: u64, pos: usize) -> BitBoard {
-    let magic = unsafe { MAGICS.0.get_unchecked(pos) };
     unsafe {
-        BitBoard(*ATTACKS.0.get_unchecked(magic.r_offset + ((empty_bb | magic.r_mask).wrapping_mul(magic.r_number) >> (64 - 12)) as usize))
+        let magics_ptr = &raw const MAGICS.0;
+        let &Magic { r_offset, r_mask, r_number, .. } = (*magics_ptr).get_unchecked(pos);
+        let attacks_ptr = &raw const ATTACKS.0;
+        
+        BitBoard(*(*attacks_ptr).get_unchecked(r_offset + ((empty_bb | r_mask).wrapping_mul(r_number) >> (64 - 12)) as usize))
     }
 }
 
 #[inline]
 pub fn get_queen_attacks(empty_bb: u64, pos: usize) -> BitBoard {
-    let magic = unsafe { MAGICS.0.get_unchecked(pos) };
     unsafe {
-        BitBoard(*ATTACKS.0.get_unchecked(magic.b_offset + ((empty_bb | magic.b_mask).wrapping_mul(magic.b_number) >> (64 - 9)) as usize)
-            | *ATTACKS.0.get_unchecked(magic.r_offset + ((empty_bb | magic.r_mask).wrapping_mul(magic.r_number) >> (64 - 12)) as usize))
+        let magics_ptr = &raw const MAGICS.0;
+        let &Magic { b_offset, r_offset, r_mask, b_mask, r_number, b_number } = (*magics_ptr).get_unchecked(pos);
+        let attacks_ptr = &raw const ATTACKS.0;
+        
+        BitBoard(*(*attacks_ptr).get_unchecked(b_offset + ((empty_bb | b_mask).wrapping_mul(b_number) >> (64 - 9)) as usize)
+            | *(*attacks_ptr).get_unchecked(r_offset  + ((empty_bb | r_mask).wrapping_mul(r_number) >> (64 - 12)) as usize))
     }
 }
 
@@ -124,7 +132,10 @@ pub fn init() {
 
 #[inline(always)]
 pub fn get_ray(idx: u16) -> BitBoard {
-    unsafe { BitBoard(*RAYS.0.get_unchecked(idx as usize)) }
+    unsafe {
+        let ptr = &raw const RAYS.0;
+        BitBoard(*(*ptr).get_unchecked(idx as usize))
+    }
 }
 
 fn init_attack_tables() {

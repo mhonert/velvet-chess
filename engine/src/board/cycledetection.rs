@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2024 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2025 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -27,19 +27,33 @@ static mut CUCKOO_MOVES: [u16; 8192] = [0; 8192];
 #[inline(always)]
 pub fn has_cycle_move(key: u64, occupancy: BitBoard) -> bool {
     let mut i = cuckoo_hash1(key);
-    if key != unsafe { *CUCKOO_KEYS.get_unchecked(i) } {
+    if key != get_cuckoo_key(i) {
         i = cuckoo_hash2(key);
-        if key != unsafe { *CUCKOO_KEYS.get_unchecked(i) } {
+        if key != get_cuckoo_key(i) {
             return false;
         }
     }
 
-    let m = unsafe { *CUCKOO_MOVES.get_unchecked(i) };
+    let m = get_cuckoo_move(i);
     if (occupancy & get_ray(m)).is_occupied() {
         return false
     }
 
     true
+}
+
+fn get_cuckoo_key(i: usize) -> u64 {
+    unsafe {
+        let ptr = &raw const CUCKOO_KEYS;
+        *(*ptr).get_unchecked(i)
+    }
+}
+
+fn get_cuckoo_move(i: usize) -> u16 {
+    unsafe {
+        let ptr = &raw const CUCKOO_MOVES;
+        *(*ptr).get_unchecked(i)
+    }
 }
 
 fn cuckoo_hash1(hash: u64) -> usize {
