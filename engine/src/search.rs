@@ -845,7 +845,7 @@ impl Search {
 
         let unreduced_depth = depth;
         if !is_pv && !in_check {
-            if is(self.params.rfp_enabled()) && depth <= 8 && !is_mate_or_mated_score(beta) && !is_mate_or_mated_score(ref_score) {
+            if is(self.params.rfp_enabled()) && ply > 3 && depth <= 8 && !is_mate_or_mated_score(beta) && !is_mate_or_mated_score(ref_score) {
                 // Reverse futility pruning
                 let margin = self.params.rfp_margin_multiplier() * (depth as i16 - i16::from(improving));
                 if ref_score - margin >= beta {
@@ -853,7 +853,7 @@ impl Search {
                 }
             }
 
-            if is(self.params.razoring_enabled()) && !improving && depth <= 4 && !is_mate_or_mated_score(alpha) && !is_mate_or_mated_score(ref_score) && ref_score + (1 << (depth - 1)) * self.params.razor_margin_multiplier() <= alpha {
+            if is(self.params.razoring_enabled()) && !improving && ply > 3 && depth <= 4 && !is_mate_or_mated_score(alpha) && !is_mate_or_mated_score(ref_score) && ref_score + (1 << (depth - 1)) * self.params.razor_margin_multiplier() <= alpha {
                 // Razoring
                 let result = same_ply!(self.ctx, self.quiescence_search(active_player, alpha, beta, ply, in_check))?;
                 let score = clamp_score(result, worst_possible_score, best_possible_score);
@@ -881,7 +881,7 @@ impl Search {
                     if score >= beta {
                         if is_mate_or_mated_score(score) {
                             return Some(beta);
-                        } else if reduced_depth >= 8 {
+                        } else if reduced_depth >= 14 {
                             depth = reduced_depth; // verify null move result with reduced regular search
                         } else {
                             return Some(score);
@@ -934,7 +934,7 @@ impl Search {
         let mut is_singular = false;
 
         let has_non_pawns = self.board.has_non_pawns(active_player);
-        let allow_lmp = !is_pv && !in_check && has_non_pawns && depth <= self.params.lmp_max_depth() as i32;
+        let allow_lmp = !is_pv && !in_check && has_non_pawns && depth <= self.params.lmp_max_depth() as i32 && ply > 3;
 
         self.hh.clear_killers(ply + 1);
         self.ctx.clear_cutoff_count();
