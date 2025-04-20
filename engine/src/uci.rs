@@ -74,7 +74,6 @@ pub fn start_uci_loop(tx: &Sender<Message>) {
 
                 "profile" => {
                     profile(tx);
-                    return;
                 }
                 
                 "bench" => send_message(tx, Message::Bench),
@@ -418,10 +417,7 @@ fn fen(tx: &Sender<Message>) {
 
 fn set_cmd_arg<T: FromStr>(parts: &[&str], target: &mut Option<T>, pos: usize) -> usize {
     if let Some(value) = parts.get(pos) {
-        *target = match T::from_str(value) {
-            Ok(value) => Some(value),
-            Err(_) => None,
-        };
+        *target = T::from_str(value).ok();
     }
 
     pos + 1

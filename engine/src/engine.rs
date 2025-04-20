@@ -410,6 +410,7 @@ impl Engine {
     }
     pub fn profile(&mut self) {
         println!("info string Profiling ...");
-        self.go(SearchLimits::nodes(100_000), false, None);
+        self.bench();
+        std::process::exit(0);
     }
 }

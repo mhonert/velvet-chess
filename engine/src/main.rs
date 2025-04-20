@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2023 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2025 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -18,10 +18,28 @@
 extern crate velvet;
 
 use velvet::engine;
+use velvet::engine::Message;
 use velvet::init::init;
 use velvet::uci;
 
 fn main() {
     init();
-    uci::start_uci_loop(&engine::spawn_engine_thread());
+    let tx = engine::spawn_engine_thread();
+
+    if let Some(arg) = std::env::args().nth(1) {
+        match arg.as_str() {
+            "bench" | "profile" => {
+                tx.send(Message::Profile).expect("Failed to send message");
+            }
+            "multibench" => {
+                tx.send(Message::SetThreadCount(2)).expect("Failed to send message");
+                tx.send(Message::SetTranspositionTableSize(64)).expect("Failed to send message");
+                tx.send(Message::IsReady).expect("Failed to send message");
+                tx.send(Message::Profile).expect("Failed to send message");
+            }
+            _ => {}
+        }
+    }
+
+    uci::start_uci_loop(&tx);
 }
