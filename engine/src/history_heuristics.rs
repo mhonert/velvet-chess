@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2024 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2025 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -138,7 +138,7 @@ impl HistoryHeuristics {
         let black_non_pawn_corr = self.non_pawn_corr_history[active_player.idx()][BLACK.idx()][hashes.black_non_pawn as usize & (CORR_HISTORY_SIZE - 1)].score();
         let move_corr = self.move_corr_history[active_player.idx()][(move_history_hash as usize) & (CORR_HISTORY_SIZE - 1)].score();
 
-        pawn_corr + white_non_pawn_corr + black_non_pawn_corr + move_corr
+        (pawn_corr + white_non_pawn_corr + black_non_pawn_corr + move_corr).clamp(-255, 255)
     }
 }
 
