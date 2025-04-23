@@ -2,11 +2,7 @@ Preview release for TCEC - not intended for rating lists
 
 ## Changes
 
-- New default network with increased hidden layer size (2x1024 => 2x1536) trained using new generated training data
-- Temporarily removed the "Risky" style net, as a new version has not yet been trained for the increased hidden layer size
-- Increased maximum thread count
-- Increased maximum hash size
-- Some refactorings
+- Bugfix for movelists out of bound access, which caused segfault in TCEC test game
 
 ## Notes
 
