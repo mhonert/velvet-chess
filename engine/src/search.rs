@@ -822,7 +822,7 @@ impl Search {
         }
 
         // Quiescence search
-        if depth <= 0 || ply >= (MAX_DEPTH - 16) {
+        if depth <= 0 || self.ctx.max_search_depth_reached() {
             let Some(qs_score) = same_ply!(self.ctx, self.quiescence_search(active_player, alpha, beta, ply, in_check)) else {
                 return None;
             };
@@ -1230,7 +1230,7 @@ impl Search {
             self.tt.get_or_calc_eval(self.board.get_hash(), self.board.halfmove_clock(), || self.board.eval(), corr_eval)
         };
 
-        if ply >= MAX_DEPTH || (self.is_strength_limited && self.local_total_node_count >= self.limits.node_limit()) {
+        if self.ctx.max_qs_depth_reached() || (self.is_strength_limited && self.local_total_node_count >= self.limits.node_limit()) {
             return Some(position_score);
         }
 

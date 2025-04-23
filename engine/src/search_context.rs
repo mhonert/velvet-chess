@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2024 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2025 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -35,6 +35,9 @@ pub struct SearchContext {
     ply_entries: [PlyEntry; MAX_DEPTH + 4],
     
     root_move_randomization: bool,
+}
+
+impl SearchContext {
 }
 
 impl Default for SearchContext {
@@ -73,12 +76,20 @@ impl SearchContext {
         self.ml_idx -= 1;
     }
 
+    pub fn max_qs_depth_reached(&self) -> bool {
+        self.ml_idx >= self.movelists.len() - 1
+    }
+
+    pub fn max_search_depth_reached(&self) -> bool {
+        self.ml_idx >= (self.movelists.len() - (16 + 1))
+    }
+
     fn movelist_mut(&mut self) -> &mut MoveList {
-        unsafe { self.movelists.get_unchecked_mut(self.ml_idx) }
+        &mut self.movelists[self.ml_idx]
     }
 
     fn movelist(&self) -> &MoveList {
-        unsafe { self.movelists.get_unchecked(self.ml_idx) }
+        &self.movelists[self.ml_idx]
     }
     
     pub fn set_root_move_randomization(&mut self, state: bool) {
