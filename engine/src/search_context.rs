@@ -77,11 +77,11 @@ impl SearchContext {
     }
 
     pub fn max_qs_depth_reached(&self) -> bool {
-        self.ml_idx >= self.movelists.len() - 1
+        self.ml_idx >= self.movelists.len() - 1 || self.pe_idx >= self.ply_entries.len() - 1
     }
 
     pub fn max_search_depth_reached(&self) -> bool {
-        self.ml_idx >= (self.movelists.len() - (16 + 1))
+        self.ml_idx >= (self.movelists.len() - (16 + 1)) || self.pe_idx >= self.ply_entries.len() - 1
     }
 
     fn movelist_mut(&mut self) -> &mut MoveList {
@@ -155,7 +155,7 @@ impl SearchContext {
     }
 
     fn ply_entry(&self, idx: usize) -> &PlyEntry {
-        unsafe { self.ply_entries.get_unchecked(idx) }
+         &self.ply_entries[idx]
     }
 
     pub fn is_improving(&self) -> bool {
@@ -186,7 +186,7 @@ impl SearchContext {
     }
 
     fn ply_entry_mut(&mut self, idx: usize) -> &mut PlyEntry {
-        unsafe { self.ply_entries.get_unchecked_mut(idx) }
+        &mut self.ply_entries[idx]
     }
 
     pub fn update_next_ply_entry(&mut self, opp_m: Move, gives_check: bool) {
