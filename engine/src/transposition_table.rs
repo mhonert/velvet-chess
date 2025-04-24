@@ -26,18 +26,18 @@ use std::sync::Arc;
 pub const MAX_HASH_SIZE_MB: i32 = 8192 * 1024;
 
 // Transposition table entry
-// Bits 63 - 43: 21 highest bits of the hash
-const HASHCHECK_MASK: u64 = 0b1111111111111111111110000000000000000000000000000000000000000000;
+// Bits 63 - 44: 20 highest bits of the hash
+const HASHCHECK_MASK: u64 = 0b1111111111111111111100000000000000000000000000000000000000000000;
 
-// Bits 42 - 11: Move + Score
-const MOVE_BITSHIFT: u32 = 11;
+// Bits 43 - 12: Move + Score
+const MOVE_BITSHIFT: u32 = 12;
 const MOVE_MASK: u64 = 0b11111111111111111111111111111111;
 
-// Bits 10 - 9: Clock bits
-const CLOCK_BITSHIFT: u32 = 9;
+// Bits 11 - 10: Clock bits
+const CLOCK_BITSHIFT: u32 = 10;
 const CLOCK_MASK: u64 = 0b11;
 
-// Bits 8 - 7: Score Type
+// Bits 9 - 8: Score Type
 #[repr(u8)]
 #[derive(Clone, Copy)]
 pub enum ScoreType {
@@ -53,11 +53,11 @@ impl ScoreType {
     }
 }
 
-const SCORE_TYPE_BITSHIFT: u32 = 7;
+const SCORE_TYPE_BITSHIFT: u32 = 8;
 const SCORE_TYPE_MASK: u64 = 0b11;
 
-// Bits 6 - 0: Depth
-pub const MAX_DEPTH: usize = 127;
+// Bits 7 - 0: Depth
+pub const MAX_DEPTH: usize = 255;
 const DEPTH_MASK: u64 = 0b1111111;
 
 const EVAL_SCORE_MASK: u64 = 0b111111111111111;
