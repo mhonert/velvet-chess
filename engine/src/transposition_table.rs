@@ -59,7 +59,7 @@ const SCORE_TYPE_MASK: u64 = 0b11;
 
 // Bits 7 - 0: Depth
 pub const MAX_DEPTH: usize = 255;
-const DEPTH_MASK: u64 = 0b1111111;
+const DEPTH_MASK: u64 = 0b11111111;
 
 const EVAL_SCORE_MASK: u64 = 0b111111111111111;
 const EVAL_HASHCHECK_MASK: u64 = !EVAL_SCORE_MASK;
