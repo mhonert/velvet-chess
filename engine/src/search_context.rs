@@ -22,6 +22,7 @@ use crate::colors::Color;
 use crate::history_heuristics::{EMPTY_HISTORY, HistoryHeuristics, MoveHistory};
 use crate::move_gen::{MoveList};
 use crate::moves::{Move, NO_MOVE};
+use crate::slices::SliceElementAccess;
 use crate::transposition_table::MAX_DEPTH;
 use crate::zobrist::piece_zobrist_key;
 
@@ -85,13 +86,13 @@ impl SearchContext {
     }
 
     fn movelist_mut(&mut self) -> &mut MoveList {
-        &mut self.movelists[self.ml_idx]
+        self.movelists.el_mut(self.ml_idx)
     }
 
     fn movelist(&self) -> &MoveList {
-        &self.movelists[self.ml_idx]
+        self.movelists.el(self.ml_idx)
     }
-    
+
     pub fn set_root_move_randomization(&mut self, state: bool) {
         self.root_move_randomization = state;
     }
@@ -155,7 +156,11 @@ impl SearchContext {
     }
 
     fn ply_entry(&self, idx: usize) -> &PlyEntry {
-         &self.ply_entries[idx]
+        self.ply_entries.el(idx)
+    }
+
+    fn ply_entry_mut(&mut self, idx: usize) -> &mut PlyEntry {
+        self.ply_entries.el_mut(idx)
     }
 
     pub fn is_improving(&self) -> bool {
@@ -183,10 +188,6 @@ impl SearchContext {
 
     pub fn in_check(&self) -> bool {
         self.ply_entry(self.pe_idx).in_check
-    }
-
-    fn ply_entry_mut(&mut self, idx: usize) -> &mut PlyEntry {
-        &mut self.ply_entries[idx]
     }
 
     pub fn update_next_ply_entry(&mut self, opp_m: Move, gives_check: bool) {

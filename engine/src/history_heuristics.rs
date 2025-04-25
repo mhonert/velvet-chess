@@ -18,6 +18,7 @@
 use crate::board::PieceHashes;
 use crate::colors::{Color, BLACK, WHITE};
 use crate::moves::{Move, NO_MOVE};
+use crate::slices::SliceElementAccess;
 use crate::transposition_table::MAX_DEPTH;
 
 pub const MIN_HISTORY_SCORE: i16 = -128;
@@ -70,7 +71,7 @@ impl HistoryHeuristics {
 
     #[inline(always)]
     pub fn get_killer_moves(&self, ply: usize) -> (Move, Move) {
-        unsafe { *self.killers.get_unchecked(ply) }
+        self.killers[ply]
     }
 
     #[inline(always)]
@@ -78,7 +79,7 @@ impl HistoryHeuristics {
         if opp_m == NO_MOVE {
             return NO_MOVE;
         }
-        unsafe { *self.counters.get_unchecked(opp_m.calc_piece_end_index()) }
+        self.counters[opp_m.calc_piece_end_index()]
     }
 
     #[inline(always)]
@@ -98,7 +99,7 @@ impl HistoryHeuristics {
 
     #[inline(always)]
     fn update_killer_moves(&mut self, ply: usize, m: Move) {
-        let entry = unsafe { self.killers.get_unchecked_mut(ply) };
+        let entry = &mut self.killers[ply];
         if entry.0 != m {
             entry.1 = entry.0;
             entry.0 = m;
@@ -107,9 +108,9 @@ impl HistoryHeuristics {
 
     #[inline(always)]
     pub fn update_counter_move(&mut self, opp_m: Move, counter_m: Move) {
-        *unsafe { self.counters.get_unchecked_mut(opp_m.calc_piece_end_index()) } = counter_m;
+        self.counters[opp_m.calc_piece_end_index()] = counter_m;
     }
-
+    
     #[inline(always)]
     pub fn update_played_moves(&mut self, active_player: Color, move_history: MoveHistory, m: Move) {
         self.update_history(active_player, move_history, m, -1);
@@ -214,20 +215,12 @@ impl HistoryTable {
 
     #[inline(always)]
     fn entry_mut(&mut self, active_player: Color, rel_m: Move, m: Move) -> &mut (HistoryValue, HistoryValue) {
-        unsafe {
-            self.0.get_unchecked_mut(rel_m.calc_piece_end_index())
-                .get_unchecked_mut(active_player.idx())
-                .get_unchecked_mut(m.calc_piece_end_index())
-        }
+        self.0.el_mut(rel_m.calc_piece_end_index()).el_mut(active_player.idx()).el_mut(m.calc_piece_end_index())
     }
 
     #[inline(always)]
     fn entry(&self, active_player: Color, rel_m: Move, m: Move) -> &(HistoryValue, HistoryValue) {
-        unsafe {
-            self.0.get_unchecked(rel_m.calc_piece_end_index())
-                .get_unchecked(active_player.idx())
-                .get_unchecked(m.calc_piece_end_index())
-        }
+         self.0.el(rel_m.calc_piece_end_index()).el(active_player.idx()).el(m.calc_piece_end_index())
     }
 }
 

@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2024 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2025 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -15,6 +15,7 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+use crate::slices::SliceElementAccess;
 
 const PLAYER: u64 = 0x8000000000000001;
 const EP: u64 = 0x42a6344d1227098d;
@@ -38,7 +39,7 @@ pub fn castling_zobrist_key(castling_state: u8) -> u64 {
 
 #[inline(always)]
 pub fn piece_zobrist_key(piece: i8, pos: usize) -> u64 {
-    let piece_key = unsafe { *PIECE.get_unchecked((piece + 6) as usize) };
+    let piece_key = *PIECE.el((piece + 6) as usize);
     piece_key.rotate_left(pos as u32)
 }
 

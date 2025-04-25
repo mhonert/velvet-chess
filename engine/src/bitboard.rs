@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2024 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2025 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -19,6 +19,7 @@
 use crate::bitboard::Direction::{AntiDiagonal, Diagonal, Horizontal, Vertical};
 use crate::colors::{BLACK, Color, WHITE};
 use std::ops::Not;
+use crate::slices::SliceElementAccess;
 
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub struct BitBoard(pub u64);
@@ -148,12 +149,12 @@ const BY_COLOR: usize = 13;
 impl BitBoards {
     #[inline(always)]
     pub fn by_piece(&self, piece: i8) -> BitBoard {
-        BitBoard(unsafe { *self.0.get_unchecked((piece + 6) as usize) })
+        BitBoard(*self.0.el((piece + 6) as usize))
     }
 
     #[inline(always)]
     pub fn by_color(&self, color: Color) -> BitBoard {
-        BitBoard(unsafe { *self.0.get_unchecked(BY_COLOR + color.idx()) })
+        BitBoard(*self.0.el(BY_COLOR + color.idx()))
     }
 
     #[inline(always)]
@@ -164,19 +165,15 @@ impl BitBoards {
     #[inline(always)]
     pub fn flip(&mut self, color: Color, piece: i8, pos: u32) {
         let mask = 1u64 << pos;
-        unsafe {
-            *self.0.get_unchecked_mut((piece + 6) as usize) ^= mask;
-            *self.0.get_unchecked_mut(BY_COLOR + color.idx()) ^= mask;
-        }
+        *self.0.el_mut((piece + 6) as usize) ^= mask;
+        *self.0.el_mut(BY_COLOR + color.idx()) ^= mask;
     }
 
     #[inline(always)]
     pub fn flip2(&mut self, color: Color, piece: i8, start: u32, end: u32) {
         let mask = (1u64 << start) | (1u64 << end);
-        unsafe {
-            *self.0.get_unchecked_mut((piece + 6) as usize) ^= mask;
-            *self.0.get_unchecked_mut(BY_COLOR + color.idx()) ^= mask;
-        }
+        *self.0.el_mut((piece + 6) as usize) ^= mask;
+        *self.0.el_mut(BY_COLOR + color.idx()) ^= mask;
     }
 
     pub fn clear(&mut self) {
@@ -211,24 +208,24 @@ static LINE_MASKS: [LinePatterns; 64 * 4] = calc_line_patterns();
 
 #[inline]
 pub fn get_knight_attacks(pos: usize) -> BitBoard {
-    BitBoard(unsafe { *KNIGHT_ATTACKS.get_unchecked(pos) })
+    BitBoard(*KNIGHT_ATTACKS.el(pos))
 }
 
 #[inline]
 pub fn get_king_attacks(pos: usize) -> BitBoard {
-    BitBoard(unsafe { *KING_ATTACKS.get_unchecked(pos) })
+    BitBoard(*KING_ATTACKS.el(pos))
 }
 
 #[inline]
 pub fn gen_bishop_attacks(occupied: u64, pos: i32) -> u64 {
-    get_line_attacks(occupied, &LINE_MASKS[pos as usize + (Diagonal as usize * 64)])
-        | get_line_attacks(occupied, &LINE_MASKS[pos as usize + (AntiDiagonal as usize * 64)])
+    get_line_attacks(occupied, LINE_MASKS.el(pos as usize + (Diagonal as usize * 64)))
+        | get_line_attacks(occupied, LINE_MASKS.el(pos as usize + (AntiDiagonal as usize * 64)))
 }
 
 #[inline]
 pub fn gen_rook_attacks(occupied: u64, pos: i32) -> u64 {
-    get_line_attacks(occupied, &LINE_MASKS[pos as usize + (Horizontal as usize * 64)])
-        | get_line_attacks(occupied, &LINE_MASKS[pos as usize + (Vertical as usize * 64)])
+    get_line_attacks(occupied, LINE_MASKS.el(pos as usize + (Horizontal as usize * 64)))
+        | get_line_attacks(occupied, LINE_MASKS.el(pos as usize + (Vertical as usize * 64)))
 }
 
 #[inline]
@@ -342,7 +339,7 @@ const fn create_passed_pawn_mask(direction: i32) -> [u64; 64] {
 static PAWN_PATH_MASKS: [[u64; 64]; 2] = [create_passed_pawn_mask(1), create_passed_pawn_mask(-1)];
 
 pub fn is_passed_pawn(pos: usize, own_color: Color, opp_pawns: BitBoard) -> bool {
-    let mask = unsafe { *PAWN_PATH_MASKS.get_unchecked(own_color.idx()).get_unchecked(pos) };
+    let mask = *PAWN_PATH_MASKS.el(own_color.idx()).el(pos);
     (opp_pawns & mask).is_empty()
 }
 

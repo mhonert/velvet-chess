@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2024 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2025 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -28,6 +28,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::magics::{get_bishop_attacks, get_queen_attacks, get_rook_attacks};
 use crate::random::Random;
 use crate::scores::MAX_SCORE;
+use crate::slices::SliceElementAccess;
 
 const PRIMARY_KILLER_SCORE: i16 = -2200;
 const SECONDARY_KILLER_SCORE: i16 = -2250;
@@ -313,7 +314,7 @@ impl MoveList {
         }
 
         self.root_move_index += 1;
-        Some(unsafe { *self.moves.get_unchecked(self.root_move_index - 1) })
+        Some(*self.moves.el(self.root_move_index - 1))
     }
 
     #[inline(always)]
@@ -424,7 +425,7 @@ impl MoveList {
         self.add_pawn_quiet_moves(hh, target_bb, 8);
 
         // Double move
-        target_bb &= BitBoard(unsafe { *PAWN_DOUBLE_MOVE_LINES.get_unchecked(WHITE.idx()) });
+        target_bb &= BitBoard(*PAWN_DOUBLE_MOVE_LINES.el(WHITE.idx()));
         target_bb >>= BitBoard(8);
 
         target_bb &= empty_bb;
@@ -477,7 +478,7 @@ impl MoveList {
         self.add_pawn_quiet_moves(hh, target_bb, -8);
 
         // Double move
-        target_bb &= BitBoard(unsafe { *PAWN_DOUBLE_MOVE_LINES.get_unchecked(BLACK.idx()) });
+        target_bb &= BitBoard(*PAWN_DOUBLE_MOVE_LINES.el(BLACK.idx()));
         target_bb <<= BitBoard(8);
 
         target_bb &= empty_bb;
@@ -681,7 +682,7 @@ pub fn is_valid_move(board: &Board, active_player: Color, m: Move) -> bool {
 
             if active_player.is_white() {
                 let mut target_bb = (pawns >> 8) & empty_bb;
-                target_bb &= BitBoard(unsafe { *PAWN_DOUBLE_MOVE_LINES.get_unchecked(WHITE.idx()) });
+                target_bb &= BitBoard(*PAWN_DOUBLE_MOVE_LINES.el(WHITE.idx()));
                 target_bb >>= BitBoard(8);
                 target_bb &= empty_bb;
 
@@ -689,7 +690,7 @@ pub fn is_valid_move(board: &Board, active_player: Color, m: Move) -> bool {
 
             } else {
                 let mut target_bb = (pawns << 8) & empty_bb;
-                target_bb &= BitBoard(unsafe { *PAWN_DOUBLE_MOVE_LINES.get_unchecked(BLACK.idx()) });
+                target_bb &= BitBoard(*PAWN_DOUBLE_MOVE_LINES.el(BLACK.idx()));
                 target_bb <<= BitBoard(8);
                 target_bb &= empty_bb;
                 target_bb.is_set(end as usize)

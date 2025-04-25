@@ -22,6 +22,7 @@ use crate::scores::{is_mate_score, is_mated_score, sanitize_mate_score, sanitize
 use std::mem::transmute;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use crate::slices::SliceElementAccess;
 
 pub const MAX_HASH_SIZE_MB: i32 = 8192 * 1024;
 
@@ -105,7 +106,7 @@ impl TranspositionTable {
     // Important: mate scores must be stored relative to the current node, not relative to the root node
     pub fn write_entry(&self, hash: u64, ply: usize, new_depth: i32, m: Move, score: i16, typ: ScoreType, halfmove_clock: u8) {
         let index = self.calc_index(hash);
-        let segment = unsafe { self.segments.0.get_unchecked(index) };
+        let segment = self.segments.0.el(index);
         let hash_check = hash & HASHCHECK_MASK;
 
         let mut new_entry = hash_check;
@@ -116,7 +117,7 @@ impl TranspositionTable {
         let (slot_id, clock_bits) = calc_slot_id(hash, halfmove_clock);
         new_entry |= (clock_bits as u64) << CLOCK_BITSHIFT;
 
-        let slot = unsafe { segment.get_unchecked(slot_id as usize) };
+        let slot = segment.el(slot_id as usize);
         let entry = slot.load(Ordering::Relaxed);
         if entry & HASHCHECK_MASK == hash_check {
             if matches!(typ, ScoreType::Exact) || new_depth >= get_depth(entry) - 4 {
@@ -131,11 +132,11 @@ impl TranspositionTable {
     #[inline(always)]
     pub fn get_entry(&self, hash: u64, halfmove_clock: u8) -> Option<(u64, bool)> {
         let index = self.calc_index(hash);
-        let slots = unsafe { self.segments.0.get_unchecked(index) };
+        let slots = self.segments.0.el(index);
         let hash_check = hash & HASHCHECK_MASK;
 
         let (slot_id, clock_bits) = calc_slot_id(hash, halfmove_clock);
-        let slot = unsafe { slots.get_unchecked(slot_id as usize) };
+        let slot = slots.el(slot_id as usize);
         let entry = slot.load(Ordering::Relaxed);
         if entry & HASHCHECK_MASK == hash_check {
             return Some((entry, get_clock_bits(entry) == clock_bits));
@@ -146,7 +147,7 @@ impl TranspositionTable {
 
     pub fn get_or_calc_eval<E: FnOnce() -> i16>(&self, hash: u64, halfmove_clock: u8, calc_eval: E, corr_eval: i16) -> i16 {
         let index = self.calc_index(hash);
-        let slots = unsafe { self.segments.0.get_unchecked(index) };
+        let slots = self.segments.0.el(index);
         let hash_check = hash & EVAL_HASHCHECK_MASK;
         let slot = slots.first().unwrap();
         let entry = slot.load(Ordering::Relaxed);

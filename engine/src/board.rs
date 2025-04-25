@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2024 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2025 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -34,6 +34,7 @@ use crate::nn::eval::NeuralNetEval;
 use crate::pieces::{B, EMPTY, K, N, P, Q, R};
 use crate::pos_history::PositionHistory;
 use crate::scores::clock_scaled_eval;
+use crate::slices::SliceElementAccess;
 use crate::transposition_table::MAX_DEPTH;
 use crate::zobrist::{enpassant_zobrist_key, piece_zobrist_key, player_zobrist_key};
 
@@ -96,7 +97,7 @@ static SEE_PIECE_VALUES: [i16; 7] = [0, 98, 349, 350, 523, 1016, 8000];
 
 #[inline(always)]
 fn see_piece_value(piece: i8) -> i16 {
-    unsafe { *SEE_PIECE_VALUES.get_unchecked(piece.abs() as usize) }
+    *SEE_PIECE_VALUES.el(piece.unsigned_abs() as usize)
 }
 
 impl Board {
@@ -251,7 +252,7 @@ impl Board {
     }
 
     pub fn get_item(&self, pos: usize) -> i8 {
-        unsafe { *self.items.get_unchecked(pos) }
+        *self.items.el(pos)
     }
 
     pub fn get_hash(&self) -> u64 {
@@ -370,9 +371,9 @@ impl Board {
                 let own_piece = color.piece(target_piece_id);
                 self.move_piece(color, own_piece, move_start, move_end);
                 if self.castling_rules.is_ks_castling(color, move_start as i8) {
-                    self.set_rook_moved(KING_SIDE_CASTLING[color.idx()]);
+                    self.set_rook_moved(*KING_SIDE_CASTLING.el(color.idx()));
                 } else if self.castling_rules.is_qs_castling(color, move_start as i8) {
-                    self.set_rook_moved(QUEEN_SIDE_CASTLING[color.idx()]);
+                    self.set_rook_moved(*QUEEN_SIDE_CASTLING.el(color.idx()));
                 }
                 self.nn_eval.remove_add_piece(move_start, own_piece, move_end, own_piece);
                 (own_piece, EMPTY)
@@ -612,9 +613,7 @@ impl Board {
     }
 
     fn add_piece_without_inc_update(&mut self, color: Color, piece: i8, pos: usize) {
-        unsafe {
-            *self.items.get_unchecked_mut(pos) = piece;
-        }
+        *self.items.el_mut(pos) = piece;
 
         self.bitboards.flip(color, piece, pos as u32);
     }
@@ -622,9 +621,7 @@ impl Board {
     pub fn add_piece(&mut self, color: Color, piece_id: i8, pos: usize) {
         let piece = color.piece(piece_id);
 
-        unsafe {
-            *self.items.get_unchecked_mut(pos) = piece;
-        }
+        *self.items.el_mut(pos) = piece;
 
         self.update_piece_hashes(piece, piece_zobrist_key(piece, pos));
 
@@ -651,10 +648,8 @@ impl Board {
 
     #[inline(always)]
     fn move_piece(&mut self, color: Color, piece: i8, start: usize, end: usize) {
-        unsafe {
-            *self.items.get_unchecked_mut(start) = EMPTY;
-            *self.items.get_unchecked_mut(end) = piece;
-        }
+        *self.items.el_mut(start) = EMPTY;
+        *self.items.el_mut(end) = piece;
 
         self.update_piece_hashes(piece, piece_zobrist_key(piece, start));
         self.update_piece_hashes(piece, piece_zobrist_key(piece, end));
@@ -664,10 +659,8 @@ impl Board {
 
     #[inline]
     fn move_piece_without_state(&mut self, color: Color, piece: i8, start: usize, end: usize) {
-        unsafe {
-            *self.items.get_unchecked_mut(start) = EMPTY;
-            *self.items.get_unchecked_mut(end) = piece;
-        }
+        *self.items.el_mut(start) = EMPTY;
+        *self.items.el_mut(end) = piece;
 
         self.bitboards.flip2(color, piece, start as u32, end as u32);
     }
@@ -695,9 +688,9 @@ impl Board {
     fn update_rook_castling_state(&mut self, color: Color, piece_id: i8, pos: i8) {
         if piece_id == R {
             if self.castling_rules.is_ks_castling(color, pos) {
-                self.set_rook_moved(KING_SIDE_CASTLING[color.idx()]);
+                self.set_rook_moved(*KING_SIDE_CASTLING.el(color.idx()));
             } else if self.castling_rules.is_qs_castling(color, pos) {
-                self.set_rook_moved(QUEEN_SIDE_CASTLING[color.idx()]);
+                self.set_rook_moved(*QUEEN_SIDE_CASTLING.el(color.idx()));
             }
         }
     }
@@ -710,10 +703,8 @@ impl Board {
 
     #[inline]
     fn remove(&mut self, piece: i8, color: Color, pos: usize) -> i8 {
-        unsafe {
-            self.bitboards.flip(color, piece, pos as u32);
-            *self.items.get_unchecked_mut(pos) = EMPTY;
-        }
+        self.bitboards.flip(color, piece, pos as u32);
+        *self.items.el_mut(pos) = EMPTY;
 
         piece
     }
