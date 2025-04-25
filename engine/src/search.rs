@@ -1493,7 +1493,7 @@ impl Search {
     }
 
     fn effective_draw_score(&self) -> i16 {
-        -1 + (self.local_node_count & 2) as i16
+        -1 + (self.local_total_node_count & 2) as i16
     }
 
     fn tb_move(&self) -> Move {
