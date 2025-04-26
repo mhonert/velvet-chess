@@ -78,11 +78,11 @@ impl SearchContext {
     }
 
     pub fn max_qs_depth_reached(&self) -> bool {
-        self.ml_idx >= self.movelists.len() - 1 || self.pe_idx >= self.ply_entries.len() - 1
+        self.ply >= MAX_DEPTH || self.ml_idx >= self.movelists.len() - 1 || self.pe_idx >= self.ply_entries.len() - 1
     }
 
     pub fn max_search_depth_reached(&self) -> bool {
-        self.ml_idx >= (self.movelists.len() - (16 + 1)) || self.pe_idx >= self.ply_entries.len() - 1
+        self.ply >= MAX_DEPTH - 16 || self.ml_idx >= (self.movelists.len() - (16 + 1)) || self.pe_idx >= self.ply_entries.len() - (16 + 1)
     }
 
     fn movelist_mut(&mut self) -> &mut MoveList {
@@ -97,7 +97,8 @@ impl SearchContext {
         self.root_move_randomization = state;
     }
 
-    pub fn next_move(&mut self, ply: usize, hh: &HistoryHeuristics, board: &Board) -> Option<Move> {
+    pub fn next_move(&mut self, hh: &HistoryHeuristics, board: &Board) -> Option<Move> {
+        let ply = self.ply;
         self.movelist_mut().next_move(ply, hh, board)
     }
 
@@ -208,10 +209,10 @@ impl SearchContext {
         self.ply_entry(self.pe_idx).double_extensions
     }
 
-    pub fn has_any_legal_move(&mut self, active_player: Color, ply: usize, hh: &HistoryHeuristics, board: &mut Board) -> bool {
+    pub fn has_any_legal_move(&mut self, active_player: Color, hh: &HistoryHeuristics, board: &mut Board) -> bool {
         self.prepare_moves(active_player, NO_MOVE, EMPTY_HISTORY);
 
-        while let Some(m) = self.next_move(ply, hh, board) {
+        while let Some(m) = self.next_move(hh, board) {
             let (previous_piece, removed_piece_id) = board.perform_move(m);
             let is_legal = !board.is_in_check(active_player);
             board.undo_move(m, previous_piece, removed_piece_id);
@@ -233,6 +234,10 @@ impl SearchContext {
     
     pub fn next_ply_cutoff_count(&self) -> u32 {
         self.ply_entry(self.pe_idx + 1).cutoff_count
+    }
+    
+    pub fn ply(&self) -> usize {
+        self.ply
     }
 }
 

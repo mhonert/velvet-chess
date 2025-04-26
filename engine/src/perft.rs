@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2024 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2025 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -39,7 +39,7 @@ pub fn perft(ctx: &mut SearchContext, hh: &HistoryHeuristics, board: &mut Board,
 
     let in_check = board.is_in_check(active_player);
 
-    while let Some(m) = ctx.next_move(0, hh, board) {
+    while let Some(m) = ctx.next_move(hh, board) {
         let (previous_piece, removed_piece_id) = board.perform_move(m);
 
         if !board.is_left_in_check(active_player, in_check, m) {

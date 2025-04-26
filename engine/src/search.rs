@@ -247,7 +247,7 @@ impl Search {
         }
 
         let active_player = self.board.active_player();
-        let eval = same_ply!(self.ctx, self.qs::<false>(active_player, MIN_SCORE, MAX_SCORE, 1, self.board.is_in_check(active_player))).unwrap_or_default();
+        let eval = next_ply!(self.ctx, self.qs::<false>(active_player, MIN_SCORE, MAX_SCORE, self.board.is_in_check(active_player))).unwrap_or_default();
         if eval >= 2000 {
             self.limits.set_node_limit(self.limits.node_limit().max(200) * 4);
         }
@@ -304,11 +304,11 @@ impl Search {
         let active_player = self.board.active_player();
         let gives_check = self.board.is_in_check(active_player);
         let mut pv = PrincipalVariation::default();
-        let qs_score = -next_ply!(self.ctx, self.quiescence_search(active_player, MIN_SCORE, MAX_SCORE, 0, gives_check)).unwrap_or_default();
+        let qs_score = -same_ply!(self.ctx, self.quiescence_search(active_player, MIN_SCORE, MAX_SCORE, gives_check)).unwrap_or_default();
 
         self.ctx.update_next_ply_entry(m, gives_check);
         self.set_stopped(false);
-        let Some(result) = next_ply!(self.ctx, self.rec_find_best_move(None, MIN_SCORE, MAX_SCORE, 1, 1, &mut pv, false, NO_MOVE)) else {
+        let Some(result) = next_ply!(self.ctx, self.rec_find_best_move(None, MIN_SCORE, MAX_SCORE, 1, &mut pv, false, NO_MOVE)) else {
             self.board.undo_move(m, previous_piece, removed_piece_id);
             return (qs_score, false);
         };
@@ -570,7 +570,7 @@ impl Search {
             self.ctx.update_next_ply_entry(m, gives_check);
 
             local_pv.clear();
-            let Some(result) = next_ply!(self.ctx, self.rec_find_best_move(rx, a, -alpha, 1, depth - 1, &mut local_pv, false, NO_MOVE)) else {
+            let Some(result) = next_ply!(self.ctx, self.rec_find_best_move(rx, a, -alpha, depth - 1, &mut local_pv, false, NO_MOVE)) else {
                 self.board.undo_move(m, previous_piece, removed_piece_id);
                 return (true, NO_MOVE, None);
             };
@@ -579,7 +579,7 @@ impl Search {
             if score > alpha && a != -beta {
                 // Repeat search if it falls outside the search window
                 local_pv.clear();
-                let Some(result) = next_ply!(self.ctx, self.rec_find_best_move(rx, -beta, -alpha, 1, depth - 1, &mut local_pv, false, NO_MOVE)) else {
+                let Some(result) = next_ply!(self.ctx, self.rec_find_best_move(rx, -beta, -alpha, depth - 1, &mut local_pv, false, NO_MOVE)) else {
                     self.board.undo_move(m, previous_piece, removed_piece_id);
                     return (true, NO_MOVE, None);
                 };
@@ -637,7 +637,7 @@ impl Search {
     // Recursively calls itself with alternating player colors to
     // find the best possible move in response to the current board position.
     fn rec_find_best_move(
-        &mut self, rx: Option<&Receiver<Message>>, mut alpha: i16, mut beta: i16, ply: usize, mut depth: i32,
+        &mut self, rx: Option<&Receiver<Message>>, mut alpha: i16, mut beta: i16, mut depth: i32,
         pv: &mut PrincipalVariation, in_se_search: bool, se_move: Move
     ) -> Option<i16> {
         let in_check = self.ctx.in_check();
@@ -645,11 +645,11 @@ impl Search {
 
         // Quiescence search
         if depth <= 0 || self.ctx.max_search_depth_reached() {
-            let qs_score = same_ply!(self.ctx, self.quiescence_search(active_player, alpha, beta, ply, in_check))?;
+            let qs_score = same_ply!(self.ctx, self.quiescence_search(active_player, alpha, beta, in_check))?;
             return Some(qs_score);
         }
 
-        self.max_reached_depth = ply.max(self.max_reached_depth);
+        self.max_reached_depth = self.ctx.ply().max(self.max_reached_depth);
         self.inc_node_count();
 
         if let Some(rx) = rx {
@@ -666,7 +666,7 @@ impl Search {
             self.local_node_count = 0;
         }
         
-        if let Some(score) = self.check_draw(active_player, in_check, ply) {
+        if let Some(score) = self.check_draw(active_player, in_check) {
             return Some(score);
         }
 
@@ -680,8 +680,8 @@ impl Search {
         }
 
         // Mate distance pruning
-        let mut best_possible_score = MATE_SCORE - (ply as i16 + 1);
-        let mut worst_possible_score = MATED_SCORE + (ply as i16);
+        let mut best_possible_score = MATE_SCORE - (self.ctx.ply() as i16 + 1);
+        let mut worst_possible_score = MATED_SCORE + (self.ctx.ply() as i16);
 
         alpha = alpha.max(worst_possible_score);
         beta = beta.min(best_possible_score);
@@ -713,7 +713,7 @@ impl Search {
             // Check transposition table
             let mut is_tt_hit = false;
             if let Some((tt_entry, matching_clock)) = self.tt.get_entry(hash, self.board.halfmove_clock()) {
-                tt_move = get_tt_move(tt_entry, ply);
+                tt_move = get_tt_move(tt_entry, self.ctx.ply());
                 tt_score = tt_move.score();
 
                 let is_tb_move = if self.is_tb_move(tt_move) {
@@ -740,7 +740,7 @@ impl Search {
                             ScoreType::LowerBound => (!is_pv || depth <= 0) && tt_score >= beta
                         } {
                             if !tt_score_is_upper_bound && tt_move != NO_MOVE && !tt_move.is_capture() {
-                                self.hh.update(ply, active_player, move_history, tt_move, true);
+                                self.hh.update(self.ctx.ply(), active_player, move_history, tt_move, true);
                             }
                             return Some(tt_score);
                         }
@@ -787,7 +787,7 @@ impl Search {
 
                     match tb_result {
                         TBResult::Draw => {
-                            self.tt.write_entry(hash, ply, MAX_DEPTH as i32, self.tb_move(), 0, ScoreType::Exact, 100);
+                            self.tt.write_entry(hash, self.ctx.ply(), MAX_DEPTH as i32, self.tb_move(), 0, ScoreType::Exact, 100);
                             return Some(0);
                         },
                         TBResult::Win => {
@@ -804,11 +804,11 @@ impl Search {
                             }
                         },
                         TBResult::CursedWin => {
-                            self.tt.write_entry(hash, ply, MAX_DEPTH as i32, self.tb_move(), 1, ScoreType::Exact, 100);
+                            self.tt.write_entry(hash, self.ctx.ply(), MAX_DEPTH as i32, self.tb_move(), 1, ScoreType::Exact, 100);
                             return Some(0);
                         },
                         TBResult::BlessedLoss => {
-                            self.tt.write_entry(hash, ply, MAX_DEPTH as i32, self.tb_move(), -1, ScoreType::Exact, 100);
+                            self.tt.write_entry(hash, self.ctx.ply(), MAX_DEPTH as i32, self.tb_move(), -1, ScoreType::Exact, 100);
                             return Some(0);
                         }
                     }
@@ -839,7 +839,7 @@ impl Search {
 
         let unreduced_depth = depth;
         if !is_pv && !in_check {
-            if is(self.params.rfp_enabled()) && ply > 3 && depth <= 8 && !is_mate_or_mated_score(beta) && !is_mate_or_mated_score(ref_score) {
+            if is(self.params.rfp_enabled()) && self.ctx.ply() > 3 && depth <= 8 && !is_mate_or_mated_score(beta) && !is_mate_or_mated_score(ref_score) {
                 // Reverse futility pruning
                 let margin = self.params.rfp_margin_multiplier() * (depth as i16 - i16::from(improving));
                 if ref_score - margin >= beta {
@@ -847,9 +847,9 @@ impl Search {
                 }
             }
 
-            if is(self.params.razoring_enabled()) && !improving && ply > 3 && depth <= 4 && !is_mate_or_mated_score(alpha) && !is_mate_or_mated_score(ref_score) && ref_score + (1 << (depth - 1)) * self.params.razor_margin_multiplier() <= alpha {
+            if is(self.params.razoring_enabled()) && !improving && self.ctx.ply() > 3 && depth <= 4 && !is_mate_or_mated_score(alpha) && !is_mate_or_mated_score(ref_score) && ref_score + (1 << (depth - 1)) * self.params.razor_margin_multiplier() <= alpha {
                 // Razoring
-                let result = same_ply!(self.ctx, self.quiescence_search(active_player, alpha, beta, ply, in_check))?;
+                let result = same_ply!(self.ctx, self.quiescence_search(active_player, alpha, beta, in_check))?;
                 let score = clamp_score(result, worst_possible_score, best_possible_score);
                 if score <= alpha {
                     return Some(score);
@@ -865,7 +865,7 @@ impl Search {
 
                     self.ctx.update_next_ply_entry(NO_MOVE, false);
 
-                    let Some(result) = next_ply!(self.ctx, self.rec_find_best_move(rx, -beta, -beta + 1, ply + 1, reduced_depth, &mut PrincipalVariation::default(), in_se_search, NO_MOVE)) else {
+                    let Some(result) = next_ply!(self.ctx, self.rec_find_best_move(rx, -beta, -beta + 1, reduced_depth, &mut PrincipalVariation::default(), in_se_search, NO_MOVE)) else {
                         self.board.undo_null_move();
                         return None;
                     };
@@ -894,7 +894,7 @@ impl Search {
                     let gives_check = self.board.is_in_check(active_player.flip());
                     self.ctx.update_next_ply_entry(tt_move, gives_check);
             
-                    let Some(result) = next_ply!(self.ctx, self.rec_find_best_move(rx, -prob_cut_beta, -prob_cut_beta + 1, ply + 1, prob_cut_depth, &mut PrincipalVariation::default(), in_se_search, NO_MOVE)) else {
+                    let Some(result) = next_ply!(self.ctx, self.rec_find_best_move(rx, -prob_cut_beta, -prob_cut_beta + 1, prob_cut_depth, &mut PrincipalVariation::default(), in_se_search, NO_MOVE)) else {
                         self.board.undo_move(tt_move, previous_piece, removed_piece_id);
                         return None;
                     };
@@ -928,15 +928,15 @@ impl Search {
         let mut is_singular = false;
 
         let has_non_pawns = self.board.has_non_pawns(active_player);
-        let allow_lmp = !is_pv && !in_check && has_non_pawns && depth <= self.params.lmp_max_depth() as i32 && ply > 3;
+        let allow_lmp = !is_pv && !in_check && has_non_pawns && depth <= self.params.lmp_max_depth() as i32 && self.ctx.ply() > 3;
 
-        self.hh.clear_killers(ply + 1);
+        self.hh.clear_killers(self.ctx.ply() + 1);
         self.ctx.clear_cutoff_count();
 
         let mut score_type = ScoreType::UpperBound;
         let mut a = -beta;
         
-        while let Some(curr_move) = self.ctx.next_move(ply, &self.hh, &self.board) {
+        while let Some(curr_move) = self.ctx.next_move(&self.hh, &self.board) {
             if se_move == curr_move {
                 continue;
             }
@@ -958,7 +958,7 @@ impl Search {
             if is(self.params.se_enabled()) && check_se && !gives_check && curr_move == tt_move {
                 let se_beta = sanitize_score(tt_score - depth as i16);
                 self.board.undo_move(curr_move, previous_piece, removed_piece_id);
-                let result = same_ply!(self.ctx, self.rec_find_best_move(rx, se_beta - 1, se_beta, ply, depth / 2, &mut PrincipalVariation::default(), true, curr_move))?;
+                let result = same_ply!(self.ctx, self.rec_find_best_move(rx, se_beta - 1, se_beta, depth / 2, &mut PrincipalVariation::default(), true, curr_move))?;
 
                 if result < se_beta {
                     is_singular = true;
@@ -971,7 +971,7 @@ impl Search {
                 } else if se_beta >= beta {
                     // Multi-Cut Pruning
                     if !curr_move.is_capture() {
-                        self.hh.update(ply, active_player, move_history, curr_move, curr_move.score() > QUIET_BASE_SCORE);
+                        self.hh.update(self.ctx.ply(), active_player, move_history, curr_move, curr_move.score() > QUIET_BASE_SCORE);
                     }
 
                     return Some(clamp_score(se_beta, worst_possible_score, best_possible_score));
@@ -1069,7 +1069,7 @@ impl Search {
                 self.ctx.update_next_ply_entry(curr_move, gives_check);
 
                 let reduced_depth = depth + se_extension - reductions - 1;
-                let Some(result) = next_ply!(self.ctx, self.rec_find_best_move(rx, a, -alpha, ply + 1, reduced_depth, &mut local_pv, in_se_search, NO_MOVE)) else {
+                let Some(result) = next_ply!(self.ctx, self.rec_find_best_move(rx, a, -alpha, reduced_depth, &mut local_pv, in_se_search, NO_MOVE)) else {
                     self.board.undo_move(curr_move, previous_piece, removed_piece_id);
                     return None;
                 };
@@ -1080,7 +1080,7 @@ impl Search {
                     if score > alpha && (a != -beta || full_depth > reduced_depth) {
                         // Repeat search without reduction and with full window
                         local_pv.clear();
-                        let Some(result) = next_ply!(self.ctx, self.rec_find_best_move(rx, -beta, -alpha, ply + 1, full_depth, &mut local_pv, in_se_search, NO_MOVE)) else {
+                        let Some(result) = next_ply!(self.ctx, self.rec_find_best_move(rx, -beta, -alpha, full_depth, &mut local_pv, in_se_search, NO_MOVE)) else {
                             self.board.undo_move(curr_move, previous_piece, removed_piece_id);
                             return None;
                         };
@@ -1098,14 +1098,14 @@ impl Search {
                     if best_score >= beta {
                         depth = unreduced_depth;
                         if se_move == NO_MOVE {
-                            self.tt.write_entry(hash, ply, depth, best_move, best_score, ScoreType::LowerBound, self.board.halfmove_clock());
+                            self.tt.write_entry(hash, self.ctx.ply(), depth, best_move, best_score, ScoreType::LowerBound, self.board.halfmove_clock());
                             if !(in_check || best_move.is_capture() || is_mate_or_mated_score(best_score) || best_score <= self.ctx.eval()) {
                                 self.hh.update_corr_histories(active_player, depth, self.board.piece_hashes(), self.ctx.move_history_hash(), best_score - self.ctx.eval());
                             }
                         }
 
                         if !curr_move.is_capture() {
-                            self.hh.update(ply, active_player, move_history, best_move, curr_move.score() > QUIET_BASE_SCORE)
+                            self.hh.update(self.ctx.ply(), active_player, move_history, best_move, curr_move.score() > QUIET_BASE_SCORE)
                         }
 
                         if is_pv && !self.is_helper_thread {
@@ -1137,7 +1137,7 @@ impl Search {
             return if se_move != NO_MOVE {
                 Some(alpha)
             } else if in_check {
-                Some(MATED_SCORE + ply as i16) // Check mate
+                Some(MATED_SCORE + self.ctx.ply() as i16) // Check mate
             } else {
                 Some(self.effective_draw_score())
             }
@@ -1146,7 +1146,7 @@ impl Search {
         best_score = best_score.clamp(worst_possible_score, best_possible_score);
 
         if se_move == NO_MOVE {
-            self.tt.write_entry(hash, ply, depth, best_move, best_score, score_type, self.board.halfmove_clock());
+            self.tt.write_entry(hash, self.ctx.ply(), depth, best_move, best_score, score_type, self.board.halfmove_clock());
 
             if !(in_check || best_move.is_capture() || is_mate_or_mated_score(best_score) || matches!(score_type, ScoreType::UpperBound) && best_score >= self.ctx.eval()) {
                 self.hh.update_corr_histories(active_player, depth, self.board.piece_hashes(), self.ctx.move_history_hash(), best_score - self.ctx.eval());
@@ -1188,16 +1188,16 @@ impl Search {
         }
     }
 
-    pub fn quiescence_search(&mut self, active_player: Color, alpha: i16, beta: i16, ply: usize, in_check: bool) -> Option<i16> {
+    pub fn quiescence_search(&mut self, active_player: Color, alpha: i16, beta: i16, in_check: bool) -> Option<i16> {
         if self.is_helper_thread {
-            self.qs::<true>(active_player, alpha, beta, ply, in_check).map(sanitize_score)
+            self.qs::<true>(active_player, alpha, beta, in_check).map(sanitize_score)
         } else {
-            self.qs::<false>(active_player, alpha, beta, ply, in_check).map(sanitize_score)
+            self.qs::<false>(active_player, alpha, beta, in_check).map(sanitize_score)
         }
     }
 
-    fn qs<const HELPER_THREAD: bool>(&mut self, active_player: Color, mut alpha: i16, beta: i16, ply: usize, in_check: bool) -> Option<i16> {
-        self.max_reached_depth = ply.max(self.max_reached_depth);
+    fn qs<const HELPER_THREAD: bool>(&mut self, active_player: Color, mut alpha: i16, beta: i16, in_check: bool) -> Option<i16> {
+        self.max_reached_depth = self.ctx.ply().max(self.max_reached_depth);
         self.inc_node_count();
 
         if !HELPER_THREAD {
@@ -1208,7 +1208,7 @@ impl Search {
             return None;
         }
 
-        if let Some(score) = self.check_draw(active_player, in_check, ply) {
+        if let Some(score) = self.check_draw(active_player, in_check) {
             return Some(score);
         }
 
@@ -1219,7 +1219,7 @@ impl Search {
             }
         }
 
-        let mut position_score = if in_check { MATED_SCORE + ply as i16 } else {
+        let mut position_score = if in_check { MATED_SCORE + self.ctx.ply() as i16 } else {
             let corr_eval = self.hh.corr_eval(active_player, self.board.piece_hashes(), self.ctx.move_history_hash());
             self.tt.get_or_calc_eval(self.board.get_hash(), self.board.halfmove_clock(), || self.board.eval(), corr_eval)
         };
@@ -1231,7 +1231,7 @@ impl Search {
         let opp_player = active_player.flip();
         let mut search_evasions = in_check;
 
-        let (tt_move, score_type, is_tb_entry) = self.get_tt_move(ply);
+        let (tt_move, score_type, is_tb_entry) = self.get_tt_move(self.ctx.ply());
         if tt_move != NO_MOVE || is_tb_entry {
             let tt_score = tt_move.score();
             match score_type {
@@ -1268,7 +1268,7 @@ impl Search {
         let mut best_score = position_score;
 
         if tt_move != NO_MOVE {
-            if let Some(score) = self.check_qs_move::<HELPER_THREAD>(active_player, best_score, alpha, beta, ply, in_check, opp_player, tt_move) {
+            if let Some(score) = self.check_qs_move::<HELPER_THREAD>(active_player, best_score, alpha, beta, in_check, opp_player, tt_move) {
                 if score > best_score {
                     search_evasions = false;
                     best_score = score;
@@ -1282,16 +1282,16 @@ impl Search {
 
         self.ctx.prepare_moves(active_player, NO_MOVE, self.ctx.move_history());
         if search_evasions {
-            while let Some(m) = self.ctx.next_move(ply, &self.hh, &self.board) {
+            while let Some(m) = self.ctx.next_move(&self.hh, &self.board) {
                 if m == tt_move {
                     continue;
                 }
-                if let Some(score) = self.check_qs_move::<HELPER_THREAD>(active_player, best_score, alpha, beta, ply, in_check, opp_player, m) {
+                if let Some(score) = self.check_qs_move::<HELPER_THREAD>(active_player, best_score, alpha, beta,  in_check, opp_player, m) {
                     if score > best_score {
                         best_score = score;
                         alpha = alpha.max(score);
                         if alpha >= beta {
-                            self.tt.write_entry(self.board.get_hash(), ply, 0, m, alpha, ScoreType::LowerBound, self.board.halfmove_clock());
+                            self.tt.write_entry(self.board.get_hash(), self.ctx.ply(), 0, m, alpha, ScoreType::LowerBound, self.board.halfmove_clock());
                             return Some(alpha);
                         }
                         break;
@@ -1306,13 +1306,13 @@ impl Search {
             if m == tt_move {
                 continue;
             }
-            if let Some(score) = self.check_qs_move::<HELPER_THREAD>(active_player, best_score, alpha, beta, ply, in_check, opp_player, m) {
+            if let Some(score) = self.check_qs_move::<HELPER_THREAD>(active_player, best_score, alpha, beta, in_check, opp_player, m) {
                 if score > best_score {
                     best_score = score;
                     best_move = m;
                     alpha = alpha.max(score);
                     if alpha >= beta {
-                        self.tt.write_entry(self.board.get_hash(), ply, 0, m, alpha, ScoreType::LowerBound, self.board.halfmove_clock());
+                        self.tt.write_entry(self.board.get_hash(), self.ctx.ply(), 0, m, alpha, ScoreType::LowerBound, self.board.halfmove_clock());
                         return Some(alpha);
                     }
                 }
@@ -1320,14 +1320,14 @@ impl Search {
         }
         if best_move != NO_MOVE {
             let score_type = if best_score == alpha { ScoreType::Exact } else { ScoreType::UpperBound };
-            self.tt.write_entry(self.board.get_hash(), ply, 0, best_move, alpha, score_type, self.board.halfmove_clock());
+            self.tt.write_entry(self.board.get_hash(), self.ctx.ply(), 0, best_move, alpha, score_type, self.board.halfmove_clock());
         }
 
         Some(best_score)
     }
 
     #[inline(always)]
-    fn check_qs_move<const HELPER_THREAD: bool>(&mut self, active_player: Color, best_score: i16, alpha: i16, beta: i16, ply: usize, in_check: bool, opp_player: Color, m: Move) -> Option<i16> {
+    fn check_qs_move<const HELPER_THREAD: bool>(&mut self, active_player: Color, best_score: i16, alpha: i16, beta: i16, in_check: bool, opp_player: Color, m: Move) -> Option<i16> {
         let (previous_piece, captured_piece_id) = self.board.perform_move(m);
         self.tt.prefetch(self.board.get_hash());
         if self.board.is_left_in_check(active_player, in_check, m) {
@@ -1337,7 +1337,7 @@ impl Search {
 
         let gives_check = self.board.is_in_check(opp_player);
         self.ctx.update_next_ply_entry(m, gives_check);
-        let Some(result) = next_ply!(self.ctx, self.qs::<HELPER_THREAD>(opp_player, -beta, -alpha, ply + 1, gives_check)) else {
+        let Some(result) = next_ply!(self.ctx, self.qs::<HELPER_THREAD>(opp_player, -beta, -alpha, gives_check)) else {
             self.board.undo_move(m, previous_piece, captured_piece_id);
             return None;
         };
@@ -1351,14 +1351,14 @@ impl Search {
         }
     }
 
-    fn check_draw(&mut self, active_player: Color, in_check: bool, ply: usize) -> Option<i16> {
+    fn check_draw(&mut self, active_player: Color, in_check: bool) -> Option<i16> {
         if self.board.is_insufficient_material_draw() || self.board.is_repetition_draw() {
             return Some(self.effective_draw_score());
         }
 
         if self.board.is_fifty_move_draw() {
-            if in_check && !self.ctx.has_any_legal_move(active_player, ply, &self.hh, &mut self.board) {
-                return Some(MATED_SCORE + ply as i16); // Check mate
+            if in_check && !self.ctx.has_any_legal_move(active_player, &self.hh, &mut self.board) {
+                return Some(MATED_SCORE + self.ctx.ply() as i16); // Check mate
             }
             return Some(self.effective_draw_score());
         }
