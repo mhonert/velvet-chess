@@ -567,7 +567,6 @@ impl Search {
             let mut tree_size = self.local_total_node_count;
 
             // Use principal variation search
-            self.inc_node_count();
             self.ctx.update_next_ply_entry(m, gives_check);
 
             local_pv.clear();
@@ -634,14 +633,24 @@ impl Search {
         self.local_total_node_count += 1;
         self.local_node_count += 1;
     }
-
+    
     // Recursively calls itself with alternating player colors to
     // find the best possible move in response to the current board position.
     fn rec_find_best_move(
         &mut self, rx: Option<&Receiver<Message>>, mut alpha: i16, mut beta: i16, ply: usize, mut depth: i32,
         pv: &mut PrincipalVariation, in_se_search: bool, se_move: Move
     ) -> Option<i16> {
+        let in_check = self.ctx.in_check();
+        let active_player = self.board.active_player();
+
+        // Quiescence search
+        if depth <= 0 || self.ctx.max_search_depth_reached() {
+            let qs_score = same_ply!(self.ctx, self.quiescence_search(active_player, alpha, beta, ply, in_check))?;
+            return Some(qs_score);
+        }
+
         self.max_reached_depth = ply.max(self.max_reached_depth);
+        self.inc_node_count();
 
         if let Some(rx) = rx {
             self.check_search_limits(Some(rx))
@@ -656,17 +665,9 @@ impl Search {
             self.node_count.fetch_add(self.local_node_count, Ordering::Relaxed);
             self.local_node_count = 0;
         }
-
-        if self.board.is_insufficient_material_draw() || self.board.is_repetition_draw() {
-            return Some(self.effective_draw_score());
-        }
-
-        let in_check = self.ctx.in_check();
-        if self.board.is_fifty_move_draw() {
-            if in_check && !self.ctx.has_any_legal_move(self.board.active_player(), ply, &self.hh, &mut self.board) {
-                return Some(MATED_SCORE + ply as i16); // Check mate
-            }
-            return Some(self.effective_draw_score());
+        
+        if let Some(score) = self.check_draw(active_player, in_check, ply) {
+            return Some(score);
         }
 
         let is_pv = (alpha + 1) < beta; // in a principal variation search, non-PV nodes are searched with a zero-window
@@ -706,7 +707,6 @@ impl Search {
 
         let move_history = self.ctx.move_history();
 
-        let active_player = self.board.active_player();
         let mut tt_score_type = ScoreType::Exact;
         let mut tt_depth = 0;
         if se_move == NO_MOVE {
@@ -819,12 +819,6 @@ impl Search {
                 // Reduce nodes without move from transposition table
                 depth -= 1;
             }
-        }
-
-        // Quiescence search
-        if depth <= 0 || self.ctx.max_search_depth_reached() {
-            let qs_score = same_ply!(self.ctx, self.quiescence_search(active_player, alpha, beta, ply, in_check))?;
-            return Some(clamp_score(qs_score, worst_possible_score, best_possible_score));
         }
 
         self.ctx.set_eval(if in_check { MIN_SCORE } else {
@@ -1072,7 +1066,6 @@ impl Search {
 
                 let mut local_pv = PrincipalVariation::default();
 
-                self.inc_node_count();
                 self.ctx.update_next_ply_entry(curr_move, gives_check);
 
                 let reduced_depth = depth + se_extension - reductions - 1;
@@ -1204,12 +1197,19 @@ impl Search {
     }
 
     fn qs<const HELPER_THREAD: bool>(&mut self, active_player: Color, mut alpha: i16, beta: i16, ply: usize, in_check: bool) -> Option<i16> {
+        self.max_reached_depth = ply.max(self.max_reached_depth);
+        self.inc_node_count();
+
         if !HELPER_THREAD {
             self.check_search_limits(None)
         }
 
         if self.is_stopped() {
             return None;
+        }
+
+        if let Some(score) = self.check_draw(active_player, in_check, ply) {
+            return Some(score);
         }
 
         if alpha < 0 && self.board.has_upcoming_repetition() {
@@ -1334,19 +1334,14 @@ impl Search {
             self.board.undo_move(m, previous_piece, captured_piece_id);
             return None;
         }
-        self.inc_node_count();
 
-        let score = if self.board.is_insufficient_material_draw() || self.board.is_repetition_draw() || self.board.is_fifty_move_draw() {
-            -self.effective_draw_score()
-        } else {
-            let gives_check = self.board.is_in_check(opp_player);
-            self.ctx.update_next_ply_entry(m, gives_check);
-            let Some(result) = next_ply!(self.ctx, self.qs::<HELPER_THREAD>(opp_player, -beta, -alpha, ply + 1, gives_check)) else {
-                self.board.undo_move(m, previous_piece, captured_piece_id);
-                return None;
-            };
-            -result
+        let gives_check = self.board.is_in_check(opp_player);
+        self.ctx.update_next_ply_entry(m, gives_check);
+        let Some(result) = next_ply!(self.ctx, self.qs::<HELPER_THREAD>(opp_player, -beta, -alpha, ply + 1, gives_check)) else {
+            self.board.undo_move(m, previous_piece, captured_piece_id);
+            return None;
         };
+        let score = -result;
         self.board.undo_move(m, previous_piece, captured_piece_id);
 
         if score > best_score {
@@ -1354,6 +1349,21 @@ impl Search {
         } else {
             None
         }
+    }
+
+    fn check_draw(&mut self, active_player: Color, in_check: bool, ply: usize) -> Option<i16> {
+        if self.board.is_insufficient_material_draw() || self.board.is_repetition_draw() {
+            return Some(self.effective_draw_score());
+        }
+
+        if self.board.is_fifty_move_draw() {
+            if in_check && !self.ctx.has_any_legal_move(active_player, ply, &self.hh, &mut self.board) {
+                return Some(MATED_SCORE + ply as i16); // Check mate
+            }
+            return Some(self.effective_draw_score());
+        }
+
+        None
     }
 
     fn get_tt_move(&self, ply: usize) -> (Move, ScoreType, bool) {
