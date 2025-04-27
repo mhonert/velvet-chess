@@ -79,7 +79,6 @@ impl BitBoard {
         0
     }
 
-    #[inline]
     pub fn is_set(&self, pos: usize) -> bool {
         (self.0 & (1 << pos)) != 0
     }
@@ -147,29 +146,24 @@ pub struct BitBoards([u64; 15]);
 const BY_COLOR: usize = 13;
 
 impl BitBoards {
-    #[inline(always)]
     pub fn by_piece(&self, piece: i8) -> BitBoard {
         BitBoard(*self.0.el((piece + 6) as usize))
     }
 
-    #[inline(always)]
     pub fn by_color(&self, color: Color) -> BitBoard {
         BitBoard(*self.0.el(BY_COLOR + color.idx()))
     }
 
-    #[inline(always)]
     pub fn occupancy(&self) -> BitBoard {
         self.by_color(WHITE) | self.by_color(BLACK)
     }
 
-    #[inline(always)]
     pub fn flip(&mut self, color: Color, piece: i8, pos: u32) {
         let mask = 1u64 << pos;
         *self.0.el_mut((piece + 6) as usize) ^= mask;
         *self.0.el_mut(BY_COLOR + color.idx()) ^= mask;
     }
 
-    #[inline(always)]
     pub fn flip2(&mut self, color: Color, piece: i8, start: u32, end: u32) {
         let mask = (1u64 << start) | (1u64 << end);
         *self.0.el_mut((piece + 6) as usize) ^= mask;
@@ -206,34 +200,28 @@ static KING_ATTACKS: [u64; 64] = calculate_single_move_patterns([1, 10, -1, -10,
 
 static LINE_MASKS: [LinePatterns; 64 * 4] = calc_line_patterns();
 
-#[inline]
 pub fn get_knight_attacks(pos: usize) -> BitBoard {
     BitBoard(*KNIGHT_ATTACKS.el(pos))
 }
 
-#[inline]
 pub fn get_king_attacks(pos: usize) -> BitBoard {
     BitBoard(*KING_ATTACKS.el(pos))
 }
 
-#[inline]
 pub fn gen_bishop_attacks(occupied: u64, pos: i32) -> u64 {
     get_line_attacks(occupied, LINE_MASKS.el(pos as usize + (Diagonal as usize * 64)))
         | get_line_attacks(occupied, LINE_MASKS.el(pos as usize + (AntiDiagonal as usize * 64)))
 }
 
-#[inline]
 pub fn gen_rook_attacks(occupied: u64, pos: i32) -> u64 {
     get_line_attacks(occupied, LINE_MASKS.el(pos as usize + (Horizontal as usize * 64)))
         | get_line_attacks(occupied, LINE_MASKS.el(pos as usize + (Vertical as usize * 64)))
 }
 
-#[inline]
 pub fn get_column_mask(pos: i32) -> u64 {
     0b00000001_00000001_00000001_00000001_00000001_00000001_00000001_00000001 << (pos & 7) as u64
 }
 
-#[inline]
 /// Returns a mask where all bits from start to end positions (including start and end) are set
 pub fn get_from_to_mask(start: i8, end: i8) -> u64 {
     let s = 1u64 << start;
@@ -363,7 +351,6 @@ struct LinePatterns {
     combined: u64,
 }
 
-#[inline]
 const fn get_line_attacks(occupied: u64, patterns: &LinePatterns) -> u64 {
     // Uses the obstruction difference algorithm to determine line attacks
     // see the chess programming Wiki for a detailed explanation: https://www.chessprogramming.org/Obstruction_Difference

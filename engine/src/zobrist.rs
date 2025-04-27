@@ -22,22 +22,18 @@ const EP: u64 = 0x42a6344d1227098d;
 const CASTLING: u64 = 0xab28bc31b46cbb3c;
 static PIECE: [u64; 13] = [ 0x7eb5140a57a894c8, 0x467813d5c298de63, 0xc5c1f1e2594b941c, 0xf319da8df6cf96b4, 0xdc8b55eebfca3a40, 0x5418f15d4c08f4e2, 0x1d3350493f26ec1e, 0xd0c4b14bdb230807, 0x73ef23b69de88e14, 0xb9219d4683de93d9, 0xe8c0a3740dbb1c7a, 0x59fd9c7dc2c9298a, 0x1ffc53c9670efd27 ];
 
-#[inline(always)]
 pub fn player_zobrist_key() -> u64 {
     PLAYER
 }
 
-#[inline(always)]
 pub fn enpassant_zobrist_key(en_passant_state: u8) -> u64 {
     EP.rotate_left(en_passant_state as u32)
 }
 
-#[inline(always)]
 pub fn castling_zobrist_key(castling_state: u8) -> u64 {
     CASTLING.rotate_left(castling_state as u32)
 }
 
-#[inline(always)]
 pub fn piece_zobrist_key(piece: i8, pos: usize) -> u64 {
     let piece_key = *PIECE.el((piece + 6) as usize);
     piece_key.rotate_left(pos as u32)

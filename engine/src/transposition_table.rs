@@ -48,7 +48,6 @@ pub enum ScoreType {
 }
 
 impl ScoreType {
-    #[inline]
     pub fn from(code: u8) -> Self {
         unsafe { transmute(code) }
     }
@@ -129,7 +128,6 @@ impl TranspositionTable {
         slot.store(new_entry, Ordering::Relaxed);
     }
 
-    #[inline(always)]
     pub fn get_entry(&self, hash: u64, halfmove_clock: u8) -> Option<(u64, bool)> {
         let index = self.calc_index(hash);
         let slots = self.segments.0.el(index);
@@ -176,7 +174,6 @@ impl TranspositionTable {
         }
     }
 
-    #[inline(always)]
     #[allow(unused_variables)]
     pub fn prefetch(&self, hash: u64) {
         #[cfg(target_feature = "sse")]
@@ -243,7 +240,6 @@ pub fn get_tt_move(entry: u64, ply: usize) -> Move {
     m.with_score(score)
 }
 
-#[inline]
 // Convert current-node-relative mate scores to root-relative mate scores
 fn to_root_relative_score(ply: usize, score: i16) -> i16 {
     if is_mate_score(score) {
@@ -255,7 +251,6 @@ fn to_root_relative_score(ply: usize, score: i16) -> i16 {
     }
 }
 
-#[inline]
 // Convert root-relative mate scores to current-node-relative mate scores
 fn from_root_relative_score(ply: usize, score: i16) -> i16 {
     if is_mate_score(score) {
@@ -275,7 +270,6 @@ pub fn get_score_type(entry: u64) -> ScoreType {
     ScoreType::from(((entry >> SCORE_TYPE_BITSHIFT) & SCORE_TYPE_MASK) as u8)
 }
 
-#[inline(always)]
 fn calc_slot_id(hash: u64, clock: u8) -> (u8, u8) {
     let bits = (clock >> 2) & 0b11;
 

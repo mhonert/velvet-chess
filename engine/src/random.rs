@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2024 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2025 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -39,12 +39,10 @@ impl Random {
         random_value
     }
 
-    #[inline]
     pub fn rand64(&mut self) -> u64 {
         ((self.rand32() as u64) << 32) | (self.rand32() as u64)
     }
 
-    #[inline]
     pub fn rand128(&mut self) -> u128 {
         ((self.rand64() as u128) << 64) | (self.rand64() as u128)
     }

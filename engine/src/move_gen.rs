@@ -120,21 +120,18 @@ impl MoveList {
         self.moves.len()
     }
 
-    #[inline]
     pub fn add_moves(&mut self, hh: &HistoryHeuristics, typ: MoveType, pos: i8, target_bb: BitBoard) {
         for end in target_bb {
             self.add_move(hh, typ, pos, end as i8);
         }
     }
 
-    #[inline]
     pub fn add_move(&mut self, hh: &HistoryHeuristics, typ: MoveType, start: i8, end: i8) {
         let m = Move::new(typ, start, end);
         let score = QUIET_BASE_SCORE + hh.score(self.active_player, self.move_history, m) + i16::from(typ.is_queen_promotion());
         self.moves.push(m.with_initial_score(score));
     }
     
-    #[inline]
     pub fn add_promotion_move(&mut self, hh: &HistoryHeuristics, typ: MoveType, start: i8, end: i8, underpromotion: bool) {
         let m = Move::new(typ, start, end);
         let mut score = QUIET_BASE_SCORE + hh.score(self.active_player, self.move_history, m);
@@ -149,21 +146,18 @@ impl MoveList {
         self.moves[self.root_move_index - 1] = scored_move;
     }
 
-    #[inline]
     pub fn add_capture_moves(&mut self, board: &Board, typ: MoveType, pos: i8, target_bb: BitBoard) {
         for end in target_bb {
             self.add_capture_move(board, typ, pos, end as i8);
         }
     }
 
-    #[inline]
     pub fn add_capture_move(&mut self, board: &Board, typ: MoveType, start: i8, end: i8) {
         let m = Move::new(typ, start, end);
         let score = evaluate_capture_move_order(board, end, typ.piece_id());
         self.capture_moves.push(m.with_initial_score(score));
     }
 
-    #[inline]
     pub fn add_capture_promotion_move(&mut self, board: &Board, typ: MoveType, start: i8, end: i8, underpromotion: bool) {
         let m = Move::new(typ, start, end);
         let score = evaluate_capture_move_order(board, end, P) + typ.piece_id() as i16 * 128;
@@ -174,7 +168,6 @@ impl MoveList {
         }
     }
 
-    #[inline(always)]
     fn add_checked_priority_move(&mut self, m: Move) {
         for entry in self.checked_priority_moves.iter_mut() {
             if *entry == NO_MOVE {
@@ -184,7 +177,6 @@ impl MoveList {
         }
     }
 
-    #[inline(always)]
     pub fn next_move(&mut self, ply: usize, hh: &HistoryHeuristics, board: &Board) -> Option<Move> {
         loop {
             match self.stage {
@@ -317,7 +309,6 @@ impl MoveList {
         Some(*self.moves.el(self.root_move_index - 1))
     }
 
-    #[inline(always)]
     pub fn generate_qs_captures(&mut self, board: &Board) {
         if self.moves_generated {
             return;
@@ -326,7 +317,6 @@ impl MoveList {
         self.capture_moves.sort_unstable_by_key(Move::score);
     }
 
-    #[inline(always)]
     pub fn next_good_capture_move(&mut self, board: &Board) -> Option<Move> {
         while let Some(m) = self.capture_moves.pop() {
             if !is_bad_capture(m, board) {
@@ -435,7 +425,6 @@ impl MoveList {
         }
     }
 
-    #[inline(always)]
     fn gen_white_attack_pawn_moves<const MINOR_PROMOTIONS: bool>(&mut self, board: &Board, pawns: BitBoard, opponent_bb: BitBoard) {
         let mut left_attacks = pawns & 0xfefefefefefefefe; // mask right column
         left_attacks >>= BitBoard(9);
@@ -488,7 +477,6 @@ impl MoveList {
         }
     }
 
-    #[inline(always)]
     fn gen_black_attack_pawn_moves<const MINOR_PROMOTIONS: bool>(&mut self, board: &Board, pawns: BitBoard, opponent_bb: BitBoard) {
         let mut left_attacks = pawns & 0xfefefefefefefefe; // mask right column
         left_attacks <<= BitBoard(7);
@@ -584,7 +572,6 @@ impl MoveList {
 }
 
 // If the given move is a bad capture (i.e. has a negative SEE value), the search can be skipped for now and the move will be stored in a separate "bad capture" list
-#[inline(always)]
 fn is_bad_capture(m: Move, board: &Board) -> bool {
     if matches!(m.move_type(), MoveType::PawnEnPassant) {
         return false;
@@ -957,7 +944,6 @@ pub fn is_valid_move(board: &Board, active_player: Color, m: Move) -> bool {
 }
 
 // Evaluate score for capture move ordering
-#[inline(always)]
 fn evaluate_capture_move_order(board: &Board, end: i8, piece_id: i8) -> i16 {
     let captured_piece_id = board.get_item(end as usize).abs();
     let original_piece_id = piece_id;
@@ -965,7 +951,6 @@ fn evaluate_capture_move_order(board: &Board, end: i8, piece_id: i8) -> i16 {
     captured_piece_id as i16 * 16 - original_piece_id as i16
 }
 
-#[inline]
 pub fn is_killer(m: Move) -> bool {
     m.score() == PRIMARY_KILLER_SCORE || m.score() == SECONDARY_KILLER_SCORE
 }

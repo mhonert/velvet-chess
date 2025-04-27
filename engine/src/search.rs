@@ -1329,7 +1329,6 @@ impl Search {
         Some(best_score)
     }
 
-    #[inline(always)]
     fn check_qs_move<const HELPER_THREAD: bool>(&mut self, active_player: Color, best_score: i16, alpha: i16, beta: i16, in_check: bool, opp_player: Color, m: Move) -> Option<i16> {
         let (previous_piece, captured_piece_id) = self.board.perform_move(m);
         self.tt.prefetch(self.board.get_hash());
@@ -1514,7 +1513,6 @@ impl Search {
         Move::new(MoveType::TableBaseMarker, self.board.king_pos(active_player), self.board.king_pos(active_player.flip()))
     }
 
-    #[inline]
     fn is_tb_move(&self, m: Move) -> bool {
         if !matches!(m.move_type(), MoveType::TableBaseMarker) {
             return false;
@@ -1524,7 +1522,6 @@ impl Search {
         m.start() == self.board.king_pos(active_player) && m.end() == self.board.king_pos(active_player.flip())
     }
 
-    #[inline]
     fn null_move_reduction(&self, depth: i32) -> i32 {
         (self.params.nmp_base() as i32 + (depth * 256 * 256) / self.params.nmp_divider() as i32) / 256
     }
@@ -1534,7 +1531,6 @@ impl Search {
     }
 }
 
-#[inline(always)]
 fn is(value: i16) -> bool {
     value != 0
 }

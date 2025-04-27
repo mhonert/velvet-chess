@@ -24,7 +24,6 @@ use crate::zobrist::{piece_zobrist_key, player_zobrist_key};
 static mut CUCKOO_KEYS: [u64; 8192] = [0; 8192];
 static mut CUCKOO_MOVES: [u16; 8192] = [0; 8192];
 
-#[inline(always)]
 pub fn has_cycle_move(key: u64, occupancy: BitBoard) -> bool {
     let mut i = cuckoo_hash1(key);
     if key != get_cuckoo_key(i) {
@@ -91,7 +90,6 @@ pub fn init() {
     assert_eq!(count, 3668);
 }
 
-#[inline(always)]
 fn attacks(piece: i8, pos: usize) -> BitBoard {
     match piece {
         2 => get_knight_attacks(pos),

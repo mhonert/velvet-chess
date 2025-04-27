@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2024 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2025 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -38,7 +38,6 @@ macro_rules! tunable_params {
 
         impl SingleParams {
             $(
-            #[inline(always)]
             pub fn $name(&self) -> i16 { self.$name }
             )+
 
@@ -72,7 +71,6 @@ macro_rules! tunable_params {
 
         impl SingleParams {
             $(
-            #[inline(always)]
             pub fn $name(&self) -> i16 { $value }
             )+
 
@@ -110,7 +108,6 @@ macro_rules! derived_array_params {
             }
 
             $(
-            #[inline(always)]
             pub fn $name(&self, i: usize) -> i16 { self.$name[i] }
             )+
         }

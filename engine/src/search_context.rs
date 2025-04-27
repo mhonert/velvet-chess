@@ -135,7 +135,6 @@ impl SearchContext {
         self.movelist().root_move_count()
     }
     
-    #[inline(always)]
     fn pe_idx(&self) -> usize {
         self.ply + 4
     }
@@ -225,12 +224,10 @@ impl SearchContext {
     }
 }
 
-#[inline(always)]
 fn own_move_hash(m: Move) -> u64 {
     piece_zobrist_key(m.move_type().piece_id(), m.end() as usize)
 }
 
-#[inline(always)]
 fn opp_move_hash(m: Move) -> u64 {
     piece_zobrist_key(-m.move_type().piece_id(), m.end() as usize)
 }

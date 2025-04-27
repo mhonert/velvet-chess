@@ -69,12 +69,10 @@ impl HistoryHeuristics {
         }
     }
 
-    #[inline(always)]
     pub fn get_killer_moves(&self, ply: usize) -> (Move, Move) {
         self.killers[ply]
     }
 
-    #[inline(always)]
     pub fn get_counter_move(&self, opp_m: Move) -> Move {
         if opp_m == NO_MOVE {
             return NO_MOVE;
@@ -82,7 +80,6 @@ impl HistoryHeuristics {
         self.counters[opp_m.calc_piece_end_index()]
     }
 
-    #[inline(always)]
     pub fn update(&mut self, ply: usize, active_player: Color, move_history: MoveHistory, m: Move, has_positive_history: bool) {
         let bonus = if has_positive_history { 1 } else { 4 };
         self.update_history(active_player, move_history, m, bonus);
@@ -91,13 +88,11 @@ impl HistoryHeuristics {
         self.update_counter_move(move_history.last_opp, m);
     }
 
-    #[inline(always)]
     fn update_history(&mut self, active_player: Color, move_history: MoveHistory, m: Move, scale: i8) {
         self.history.update_follow_up(active_player, move_history.prev_own, m, scale);
         self.history.update_counter(active_player, move_history.last_opp, m, scale);
     }
 
-    #[inline(always)]
     fn update_killer_moves(&mut self, ply: usize, m: Move) {
         let entry = &mut self.killers[ply];
         if entry.0 != m {
@@ -106,17 +101,14 @@ impl HistoryHeuristics {
         }
     }
 
-    #[inline(always)]
     pub fn update_counter_move(&mut self, opp_m: Move, counter_m: Move) {
         self.counters[opp_m.calc_piece_end_index()] = counter_m;
     }
     
-    #[inline(always)]
     pub fn update_played_moves(&mut self, active_player: Color, move_history: MoveHistory, m: Move) {
         self.update_history(active_player, move_history, m, -1);
     }
     
-    #[inline(always)]
     pub fn update_corr_histories(&mut self, active_player: Color, depth: i32, hashes: PieceHashes, move_history_hash: u16, score_diff: i16) {
         self.pawn_corr_history[active_player.idx()][hashes.pawn as usize & (CORR_HISTORY_SIZE - 1)].update(score_diff, depth);
         self.non_pawn_corr_history[active_player.idx()][WHITE.idx()][hashes.white_non_pawn as usize & (CORR_HISTORY_SIZE - 1)].update(score_diff, depth);
@@ -124,7 +116,6 @@ impl HistoryHeuristics {
         self.move_corr_history[active_player.idx()][(move_history_hash as usize) & (CORR_HISTORY_SIZE - 1)].update(score_diff, depth);
     }
 
-    #[inline(always)]
     pub fn score(&self, active_player: Color, move_history: MoveHistory, m: Move) -> i16 {
         let follow_up_score = self.history.follow_up_score(active_player, move_history.prev_own, m);
         let counter_score = self.history.counter_score(active_player, move_history.last_opp, m);
@@ -132,7 +123,6 @@ impl HistoryHeuristics {
         follow_up_score + counter_score
     }
     
-    #[inline(always)]
     pub fn corr_eval(&self, active_player: Color, hashes: PieceHashes, move_history_hash: u16) -> i16 {
         let pawn_corr = self.pawn_corr_history[active_player.idx()][hashes.pawn as usize & (CORR_HISTORY_SIZE - 1)].score();
         let white_non_pawn_corr = self.non_pawn_corr_history[active_player.idx()][WHITE.idx()][hashes.white_non_pawn as usize & (CORR_HISTORY_SIZE - 1)].score();
@@ -147,12 +137,10 @@ impl HistoryHeuristics {
 struct HistoryValue(i8);
 
 impl HistoryValue {
-    #[inline(always)]
     fn update(&mut self, scale: i8) {
         self.0 = self.0.saturating_add(scale * 4 - self.0 / 32);
     }
 
-    #[inline(always)]
     fn score(&self) -> i16 {
         self.0 as i16
     }
@@ -166,14 +154,12 @@ const CORR_HISTORY_MAX_WEIGHT: i32 = MAX_DEPTH as i32 + 1;
 struct CorrHistoryValue(i16);
 
 impl CorrHistoryValue {
-    #[inline(always)]
     fn update(&mut self, diff: i16, depth: i32) {
         let weight = depth;
         let weighted_diff = diff as i32 * weight * CORR_HISTORY_GRAIN;
         self.0 = (((CORR_HISTORY_MAX_WEIGHT - weight) * self.0 as i32 + weighted_diff) / CORR_HISTORY_MAX_WEIGHT).clamp(-CORR_HISTORY_MAX, CORR_HISTORY_MAX) as i16;
     }
 
-    #[inline(always)]
     fn score(&self) -> i16 {
         self.0 / CORR_HISTORY_GRAIN as i16
     }
@@ -193,32 +179,26 @@ impl HistoryTable {
         self.0.fill([[(HistoryValue::default(), HistoryValue::default()); 512]; 2]);
     }
 
-    #[inline(always)]
     fn update_counter(&mut self, active_player: Color, rel_m: Move, m: Move, scale: i8) {
         self.entry_mut(active_player, rel_m, m).0.update(scale);
     }
 
-    #[inline(always)]
     fn update_follow_up(&mut self, active_player: Color, rel_m: Move, m: Move, scale: i8) {
         self.entry_mut(active_player, rel_m, m).1.update(scale);
     }
 
-    #[inline(always)]
     fn counter_score(&self, active_player: Color, rel_m: Move, m: Move) -> i16 {
         self.entry(active_player, rel_m, m).0.score()
     }
 
-    #[inline(always)]
     fn follow_up_score(&self, active_player: Color, rel_m: Move, m: Move) -> i16 {
         self.entry(active_player, rel_m, m).1.score()
     }
 
-    #[inline(always)]
     fn entry_mut(&mut self, active_player: Color, rel_m: Move, m: Move) -> &mut (HistoryValue, HistoryValue) {
         self.0.el_mut(rel_m.calc_piece_end_index()).el_mut(active_player.idx()).el_mut(m.calc_piece_end_index())
     }
 
-    #[inline(always)]
     fn entry(&self, active_player: Color, rel_m: Move, m: Move) -> &(HistoryValue, HistoryValue) {
          self.0.el(rel_m.calc_piece_end_index()).el(active_player.idx()).el(m.calc_piece_end_index())
     }

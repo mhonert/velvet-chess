@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2022 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2025 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -567,21 +567,18 @@ impl BitVec {
         BitVec(vec![0; (len + 64 - 1) / 64], 0, 0)
     }
 
-    #[inline]
     pub fn get(&self, index: usize) -> bool {
         let bit = index & 63;
         let element = index / 64;
         (self.0[element] & (1u64 << bit)) != 0
     }
 
-    #[inline]
     pub fn set(&mut self, index: usize) {
         let bit = index & 63;
         let element = index / 64;
         self.0[element] |= 1u64 << bit;
     }
 
-    #[inline]
     pub fn clear(&mut self) {
         self.0.fill(0);
         self.1 = 0;

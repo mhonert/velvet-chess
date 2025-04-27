@@ -95,7 +95,6 @@ impl PieceHashes {
 
 static SEE_PIECE_VALUES: [i16; 7] = [0, 98, 349, 350, 523, 1016, 8000];
 
-#[inline(always)]
 fn see_piece_value(piece: i8) -> i16 {
     *SEE_PIECE_VALUES.el(piece.unsigned_abs() as usize)
 }
@@ -602,7 +601,6 @@ impl Board {
         }
     }
 
-    #[inline(always)]
     pub fn piece_hashes(&self) -> PieceHashes {
         self.state.piece_hashes 
     }
@@ -628,7 +626,6 @@ impl Board {
         self.bitboards.flip(color, piece, pos as u32);
     }
 
-    #[inline(always)]
     fn update_piece_hashes(&mut self, piece: i8, key: u64) {
         self.state.hash ^= key;
 
@@ -646,7 +643,6 @@ impl Board {
         }
     }
 
-    #[inline(always)]
     fn move_piece(&mut self, color: Color, piece: i8, start: usize, end: usize) {
         *self.items.el_mut(start) = EMPTY;
         *self.items.el_mut(end) = piece;
@@ -657,7 +653,6 @@ impl Board {
         self.bitboards.flip2(color, piece, start as u32, end as u32);
     }
 
-    #[inline]
     fn move_piece_without_state(&mut self, color: Color, piece: i8, start: usize, end: usize) {
         *self.items.el_mut(start) = EMPTY;
         *self.items.el_mut(end) = piece;
@@ -674,7 +669,6 @@ impl Board {
         }
     }
 
-    #[inline(always)]
     pub fn remove_piece(&mut self, pos: usize) -> i8 {
         let piece = self.get_item(pos);
 
@@ -684,7 +678,6 @@ impl Board {
         self.remove(piece, color, pos)
     }
 
-    #[inline(always)]
     fn update_rook_castling_state(&mut self, color: Color, piece_id: i8, pos: i8) {
         if piece_id == R {
             if self.castling_rules.is_ks_castling(color, pos) {
@@ -701,7 +694,6 @@ impl Board {
         self.remove(piece, color, pos);
     }
 
-    #[inline]
     fn remove(&mut self, piece: i8, color: Color, pos: usize) -> i8 {
         self.bitboards.flip(color, piece, pos as u32);
         *self.items.el_mut(pos) = EMPTY;
@@ -725,12 +717,10 @@ impl Board {
         self.state = self.history.pop().unwrap();
     }
 
-    #[inline(always)]
     pub fn is_in_check(&self, color: Color) -> bool {
         self.is_attacked(color.flip(), self.king_pos(color) as usize)
     }
 
-    #[inline(always)]
     pub fn is_left_in_check(&self, color: Color, was_in_check: bool, m: Move) -> bool {
         if was_in_check || m.move_type().piece_id() == K || m.move_type().is_en_passant() {
             return self.is_in_check(color);
@@ -754,7 +744,6 @@ impl Board {
         self.bitboards.occupancy()
     }
 
-    #[inline(always)]
     pub fn is_attacked(&self, opp: Color, pos: usize) -> bool {
         let empty_bb = !self.occupancy_bb();
         let target_bb = BitBoard(1 << pos as u64);
@@ -822,7 +811,6 @@ impl Board {
         }
     }
 
-    #[inline]
     pub fn has_non_pawns(&self, player: Color) -> bool {
         (self.get_all_piece_bitboard(player) & !self.get_bitboard(player.piece(P))).piece_count() > 1
     }
@@ -888,7 +876,6 @@ impl Board {
         }
     }
 
-    #[inline(always)]
     fn find_attackers(&self, empty_bb: BitBoard, occupied_bb: BitBoard, pos: usize) -> BitBoard {
         let target_bb = BitBoard(1 << pos as u64);
         let mut attackers = self.find_ray_attackers(empty_bb, occupied_bb, pos);
@@ -912,7 +899,6 @@ impl Board {
         attackers
     }
 
-    #[inline(always)]
     fn find_ray_attackers(&self, empty_bb: BitBoard, occupied_bb: BitBoard, pos: usize) -> BitBoard {
         let bishop_attacks = get_bishop_attacks(empty_bb.0, pos);
         let rook_attacks = get_rook_attacks(empty_bb.0, pos);
@@ -924,7 +910,6 @@ impl Board {
         attackers & occupied_bb
     }
 
-    #[inline(always)]
     pub fn king_pos(&self, color: Color) -> i8 {
         self.get_bitboard(color.piece(K)).piece_pos() as i8
     }

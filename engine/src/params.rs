@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2024 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2025 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -97,7 +97,6 @@ fn calc_late_move_reductions(params: &SingleParams) -> [i16; MAX_LMR_MOVES] {
 }
 
 impl SingleParams {
-    #[inline]
     pub fn lmp(&self, improving: bool, depth: i32) -> i32 {
         if improving {
             (depth * depth + self.lmp_improving_base() as i32) * self.lmp_improving_multiplier() as i32 / 64

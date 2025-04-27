@@ -62,7 +62,6 @@ pub const fn piece_idx(piece_id: i8) -> u16 {
     (piece_id - 1) as u16
 }
 
-#[inline(always)]
 pub fn king_bucket(pos: u16) -> u16 {
     let row = pos / 8;
     let col = pos & 3;

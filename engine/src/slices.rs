@@ -24,7 +24,6 @@ pub trait SliceElementAccess<T> {
 }
 
 impl<T> SliceElementAccess<T> for [T] {
-    #[inline(always)]
     fn el(&self, idx: usize) -> &T {
         #[cfg(not(feature = "checked_slice_access"))]
         {
@@ -36,7 +35,6 @@ impl<T> SliceElementAccess<T> for [T] {
         }
     }
 
-    #[inline(always)]
     fn el_mut(&mut self, idx: usize) -> &mut T {
         #[cfg(not(feature = "checked_slice_access"))]
         {

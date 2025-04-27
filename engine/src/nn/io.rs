@@ -25,32 +25,26 @@ pub struct FastHasher(u64);
 const GOLDEN_RATIO: u64 = 0x9E3779B97F4A7C15;
 
 impl Hasher for FastHasher {
-    #[inline]
     fn finish(&self) -> u64 {
         self.0
     }
 
-    #[inline]
     fn write(&mut self, _: &[u8]) {
         panic!("write for &[u8] not implemented")
     }
 
-    #[inline]
     fn write_u8(&mut self, value: u8) {
         self.0 = (self.0 ^ value as u64).wrapping_mul(GOLDEN_RATIO);
     }
 
-    #[inline]
     fn write_u32(&mut self, value: u32) {
         self.0 = (self.0 ^ value as u64).wrapping_mul(GOLDEN_RATIO);
     }
 
-    #[inline]
     fn write_u64(&mut self, value: u64) {
         self.0 = (self.0 ^ value).wrapping_mul(GOLDEN_RATIO);
     }
 
-    #[inline]
     fn write_i16(&mut self, value: i16) {
         self.0 = (self.0 ^ value as u64).wrapping_mul(GOLDEN_RATIO);
     }

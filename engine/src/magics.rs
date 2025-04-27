@@ -27,7 +27,6 @@ pub fn get_bishop_attacks(empty_bb: u64, pos: usize) -> BitBoard {
     }
 }
 
-#[inline]
 pub fn get_rook_attacks(empty_bb: u64, pos: usize) -> BitBoard {
     unsafe {
         let magics_ptr = &raw const MAGICS.0;
@@ -38,7 +37,6 @@ pub fn get_rook_attacks(empty_bb: u64, pos: usize) -> BitBoard {
     }
 }
 
-#[inline]
 pub fn get_queen_attacks(empty_bb: u64, pos: usize) -> BitBoard {
     unsafe {
         let magics_ptr = &raw const MAGICS.0;
@@ -130,7 +128,6 @@ pub fn init() {
     init_ray_tables();
 }
 
-#[inline(always)]
 pub fn get_ray(idx: u16) -> BitBoard {
     unsafe {
         let ptr = &raw const RAYS.0;

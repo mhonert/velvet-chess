@@ -83,12 +83,10 @@ impl MoveType {
         unsafe { transmute(0b10_000 | piece_id as u8) }
     }
 
-    #[inline]
     pub fn piece_id(self) -> i8 {
         ((self as u8) & 0b111) as i8
     }
 
-    #[inline]
     pub fn is_capture(self) -> bool {
         matches!(self,
             MoveType::PawnCapture | MoveType::PawnEnPassant | MoveType::KnightCapture | MoveType::BishopCapture | MoveType::RookCapture |
@@ -97,7 +95,6 @@ impl MoveType {
         )
     }
 
-    #[inline]
     pub fn is_quiet(self) -> bool {
         matches!(self,
             MoveType::PawnQuiet | MoveType::PawnDoubleQuiet | MoveType::KnightQuiet | MoveType::BishopQuiet | MoveType::RookQuiet |
@@ -105,7 +102,6 @@ impl MoveType {
         )
     }
 
-    #[inline]
     pub fn is_promotion(self) -> bool {
         matches!(self,
             MoveType::KnightQuietPromotion | MoveType::KnightCapturePromotion |
@@ -115,17 +111,14 @@ impl MoveType {
         )
     }
 
-    #[inline]
     pub fn is_en_passant(self) -> bool {
         matches!(self, MoveType::PawnEnPassant)
     }
 
-    #[inline]
     pub fn is_queen_promotion(self) -> bool {
         matches!(self, MoveType::QueenQuietPromotion | MoveType::QueenCapturePromotion)
     }
 
-    #[inline]
     pub fn is_tb_move(self) -> bool {
         matches!(self, MoveType::TableBaseMarker)
     }
@@ -160,14 +153,12 @@ const MOVE_ONLY_MASK: u32 =  0b11111111111111111000000000000000;
 const SCORE_MASK: u32 = 0b111111111111111;
 
 impl Hash for Move {
-    #[inline]
     fn hash<H: Hasher>(&self, state: &mut H) {
         state.write_u32(self.without_score().0)
     }
 }
 
 impl PartialEq for Move {
-    #[inline]
     fn eq(&self, other: &Self) -> bool {
         self.is_same_move(*other)
     }
@@ -176,7 +167,6 @@ impl PartialEq for Move {
 impl Eq for Move {}
 
 impl Move {
-    #[inline]
     pub const fn new(typ: MoveType, start: i8, end: i8) -> Self {
         Move((typ as u32) << TYPE_SHIFT | (end as u32) << END_SHIFT | (start as u32) << START_SHIFT)
     }
@@ -185,7 +175,6 @@ impl Move {
         Move(value)
     }
 
-    #[inline]
     pub fn with_score(&self, score: i16) -> Move {
         if score < 0 {
             Move((self.0 & MOVE_ONLY_MASK) | (0b100000000000000 | (-score as u32)))
@@ -194,7 +183,6 @@ impl Move {
         }
     }
 
-    #[inline]
     // Same as with_score, but assumes that the score part of this move has not yet been set before
     // (saves clearing those bits)
     pub fn with_initial_score(&self, score: i16) -> Move {
@@ -205,7 +193,6 @@ impl Move {
         }
     }
 
-    #[inline]
     // Calculates an index in the range 0..512 based upon the (target) piece and the end position of the move
     pub fn calc_piece_end_index(&self) -> usize {
         ((self.0 >> END_SHIFT) & 0b111111111) as usize
@@ -219,43 +206,35 @@ impl Move {
         ((self.0 >> END_SHIFT) & END_MASK) as i8
     }
 
-    #[inline]
     pub fn without_score(&self) -> Move {
         Move(self.0 & MOVE_ONLY_MASK)
     }
 
-    #[inline]
     pub fn is_capture(&self) -> bool {
         self.move_type().is_capture()
     }
 
-    #[inline]
     pub fn is_quiet(&self) -> bool {
         self.move_type().is_quiet()
     }
 
-    #[inline]
     pub fn is_promotion(&self) -> bool {
         self.move_type().is_promotion()
     }
 
-    #[inline]
     pub fn move_type(&self) -> MoveType {
         unsafe { transmute(((self.0 >> TYPE_SHIFT) & TYPE_MASK) as u8) }
     }
 
-    #[inline]
     pub fn is_queen_promotion(&self) -> bool {
         self.move_type().is_queen_promotion()
     }
 
     /// Checks, whether the two moves are the same (except for the score)
-    #[inline]
     fn is_same_move(&self, m: Move) -> bool {
         (self.0 & MOVE_ONLY_MASK) == (m.0 & MOVE_ONLY_MASK)
     }
 
-    #[inline]
     pub fn score(&self) -> i16 {
         if self.0 & 0b100000000000000 != 0 {
             -((self.0 & 0b011111111111111) as i16)
@@ -264,7 +243,6 @@ impl Move {
         }
     }
 
-    #[inline]
     pub fn to_u32(&self) -> u32 {
         self.0
     }

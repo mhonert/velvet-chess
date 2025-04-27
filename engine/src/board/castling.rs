@@ -50,48 +50,39 @@ impl CastlingState {
 
     pub const ALL: CastlingState = CastlingState(Self::ALL_CASTLING);
 
-    #[inline]
     pub fn can_castle(&self, side: Castling) -> bool {
         (self.0 & side as u8) != 0
     }
 
-    #[inline]
     pub fn any_castling(&self) -> bool {
         self.0 != 0
     }
 
-    #[inline]
     pub fn can_castle_king_side(&self, color: Color) -> bool {
         self.can_castle(Self::king_side(color))
     }
 
-    #[inline]
     pub fn can_castle_queen_side(&self, color: Color) -> bool {
         self.can_castle(Self::queen_side(color))
     }
 
-    #[inline]
     pub fn set_has_castled(&mut self, color: Color) {
         let idx = color.idx();
         self.0 &= CLEAR_BY_COLOR[idx];
     }
 
-    #[inline]
     pub fn set_can_castle(&mut self, castling: Castling) {
         self.0 |= castling as u8;
     }
 
-    #[inline]
     pub fn clear(&mut self, color: Color) {
         self.0 &= CLEAR_BY_COLOR[color.idx()];
     }
 
-    #[inline]
     pub fn clear_side(&mut self, side: Castling) {
         self.0 ^= side as u8;
     }
 
-    #[inline]
     pub fn zobrist_key(&self) -> u64 {
         castling_zobrist_key(self.0)
     }
@@ -192,7 +183,6 @@ impl CastlingRules {
         *QS_ROOK_END.el(color.idx()) as i8
     }
 
-    #[inline(always)]
     pub fn is_ks_castling_valid(&self, color: Color, board: &Board, empty_bb: BitBoard) -> bool {
         let king_start = self.king_start(color);
         let king_end = Self::ks_king_end(color);
@@ -201,7 +191,6 @@ impl CastlingRules {
         Self::is_castling_valid(board, color.flip(), empty_bb, king_start, king_end, rook_start, rook_end)
     }
 
-    #[inline(always)]
     pub fn is_qs_castling_valid(&self, color: Color, board: &Board, empty_bb: BitBoard) -> bool {
         let king_start = self.king_start(color);
         let king_end = Self::qs_king_end(color);

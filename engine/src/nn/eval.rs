@@ -270,12 +270,10 @@ impl NeuralNetEval {
         sub_weights::<HL1_HALF_NODES>(self.hidden_nodes_black_mut(), &IN_TO_H1_WEIGHTS.0, black_pov_idx);
     }
 
-    #[inline(always)]
     fn hidden_nodes_black_mut(&mut self) -> &mut HiddenNodes {
         self.hidden_nodes_black.0.el_mut(self.black_bucket)
     }
 
-    #[inline(always)]
     fn hidden_nodes_white_mut(&mut self) -> &mut HiddenNodes {
         self.hidden_nodes_white.0.el_mut(self.white_bucket)
     }
@@ -299,12 +297,10 @@ impl NeuralNetEval {
         }
     }
 
-    #[inline(always)]
     fn calc_wpov_weight_start(&self, pos: usize, piece: i8) -> usize {
         self.calc_wpov_piece_offset(piece) + (pos ^ self.xor_white_pov)
     }
 
-    #[inline(always)]
     fn calc_wpov_piece_offset(&self, piece: i8) -> usize {
         let idx = piece_idx(piece.unsigned_abs() as i8);
 
@@ -318,12 +314,10 @@ impl NeuralNetEval {
         }
     }
 
-    #[inline(always)]
     fn calc_bpov_weight_start(&self, pos: usize, piece: i8) -> usize {
         self.calc_bpov_piece_offset(piece) + (pos ^ self.xor_black_pov)
     }
 
-    #[inline(always)]
     fn calc_bpov_piece_offset(&self, piece: i8) -> usize {
         let idx = piece_idx(piece.unsigned_abs() as i8);
 
@@ -593,7 +587,6 @@ fn calc_bucket_offsets(
     (w_bucket, b_bucket, xor_white_pov, xor_black_pov, white_offset, black_offset)
 }
 
-#[inline(always)]
 pub fn forward_pass(own_nodes: &[i16], opp_nodes: &[i16]) -> i32 {
     // H1 to ML
     let mut out_accum = zero();
@@ -605,7 +598,6 @@ pub fn forward_pass(own_nodes: &[i16], opp_nodes: &[i16]) -> i32 {
     horizontal_sum_32(out_accum)
 }
 
-#[inline(always)]
 pub fn calc_hidden_layer(accum: Accum, nodes: &[i16], i: usize, offset: usize) -> Accum {
     let h1 = load_i16(nodes, i);
     let h1_bias = load_i8(&H1_BIASES.0, i + offset);
@@ -614,7 +606,6 @@ pub fn calc_hidden_layer(accum: Accum, nodes: &[i16], i: usize, offset: usize) -
     multiply_add_epi16(accum, h1_relu, w)
 }
 
-#[inline(always)]
 pub fn add_weights<const N: usize>(nodes: &mut [i16], weights: &[i8], weight_idx: usize) {
     let weight_offset = weight_idx * N;
     for i in (0..N).step_by(WORDS_PER_REG) {
@@ -624,7 +615,6 @@ pub fn add_weights<const N: usize>(nodes: &mut [i16], weights: &[i8], weight_idx
     }
 }
 
-#[inline(always)]
 pub fn sub_weights<const N: usize>(nodes: &mut [i16], weights: &[i8], weight_idx: usize) {
     let weight_offset = weight_idx * N;
     for i in (0..N).step_by(WORDS_PER_REG) {
@@ -634,7 +624,6 @@ pub fn sub_weights<const N: usize>(nodes: &mut [i16], weights: &[i8], weight_idx
     }
 }
 
-#[inline(always)]
 pub fn sub_add_weights<const N: usize>(
     nodes: &mut [i16], weights: &[i8], sub_weight_idx: usize, add_weight_idx: usize,
 ) {
@@ -648,7 +637,6 @@ pub fn sub_add_weights<const N: usize>(
     }
 }
 
-#[inline(always)]
 pub fn sub_sub_add_weights<const N: usize>(
     nodes: &mut [i16], weights: &[i8], sub1_weight_idx: usize, sub2_weight_idx: usize, add_weight_idx: usize,
 ) {
@@ -664,7 +652,6 @@ pub fn sub_sub_add_weights<const N: usize>(
     }
 }
 
-#[inline(always)]
 pub fn sub_add_add_weights<const N: usize>(
     nodes: &mut [i16], weights: &[i8], sub_weight_idx: usize, add1_weight_idx: usize, add2_weight_idx: usize,
 ) {
@@ -694,12 +681,10 @@ mod base {
         unsafe { _mm512_setzero_si512() }
     }
 
-    #[inline(always)]
     pub fn horizontal_sum_32(v: __m512i) -> i32 {
         unsafe { _mm512_reduce_add_epi32(v) }
     }
 
-    #[inline(always)]
     pub fn multiply_add_epi16(accum: __m512i, factor1: __m512i, factor2: __m512i) -> __m512i {
         unsafe {
             let mul = _mm512_madd_epi16(factor1, factor2);
@@ -707,7 +692,6 @@ mod base {
         }
     }
 
-    #[inline(always)]
     pub fn clipped_relu(v: __m512i) -> __m512i {
         unsafe {
             let relu = _mm512_max_epi16(v, _mm512_setzero_si512());
@@ -715,7 +699,6 @@ mod base {
         }
     }
 
-    #[inline(always)]
     pub fn square(v: __m512i) -> __m512i {
         unsafe {
             let v_scaled =
@@ -724,27 +707,22 @@ mod base {
         }
     }
 
-    #[inline(always)]
     pub fn load_i16(data: &[i16], offset: usize) -> __m512i {
         unsafe { _mm512_load_si512(data.as_ptr().add(offset).cast()) }
     }
 
-    #[inline(always)]
     pub fn load_i8(data: &[i8], offset: usize) -> __m512i {
         unsafe { _mm512_cvtepi8_epi16(_mm256_load_si256(data.as_ptr().add(offset).cast())) }
     }
 
-    #[inline(always)]
     pub fn store_i16(data: &mut [i16], offset: usize, value: __m512i) {
         unsafe { _mm512_store_si512(data.as_mut_ptr().add(offset).cast(), value) }
     }
 
-    #[inline(always)]
     pub fn add_epi16(a: __m512i, b: __m512i) -> __m512i {
         unsafe { _mm512_add_epi16(a, b) }
     }
 
-    #[inline(always)]
     pub fn sub_epi16(a: __m512i, b: __m512i) -> __m512i {
         unsafe { _mm512_sub_epi16(a, b) }
     }
@@ -764,12 +742,10 @@ mod base {
 
     pub type Accum = __m256i;
 
-    #[inline(always)]
     pub fn zero() -> __m256i {
         unsafe { _mm256_setzero_si256() }
     }
 
-    #[inline(always)]
     pub fn horizontal_sum_32(v: __m256i) -> i32 {
         unsafe {
             let sum = _mm256_hadd_epi32(v, v);
@@ -782,7 +758,6 @@ mod base {
         unsafe { _mm256_add_epi32(accum, _mm256_madd_epi16(factor1, factor2)) }
     }
 
-    #[inline(always)]
     pub fn square(v: __m256i) -> __m256i {
         unsafe {
             let v_scaled =
@@ -791,7 +766,6 @@ mod base {
         }
     }
 
-    #[inline(always)]
     pub fn clipped_relu(v: __m256i) -> __m256i {
         unsafe {
             let relu = _mm256_max_epi16(v, _mm256_setzero_si256());
@@ -799,7 +773,6 @@ mod base {
         }
     }
 
-    #[inline(always)]
     pub fn load_i8(data: &[i8], offset: usize) -> __m256i {
         unsafe { _mm256_cvtepi8_epi16(_mm_load_si128(data.as_ptr().add(offset).cast())) }
     }
@@ -808,17 +781,14 @@ mod base {
         unsafe { _mm256_load_si256(data.as_ptr().add(offset).cast()) }
     }
 
-    #[inline(always)]
     pub fn store_i16(data: &mut [i16], offset: usize, value: __m256i) {
         unsafe { _mm256_store_si256(data.as_mut_ptr().add(offset).cast(), value) }
     }
 
-    #[inline(always)]
     pub fn add_epi16(a: __m256i, b: __m256i) -> __m256i {
         unsafe { _mm256_add_epi16(a, b) }
     }
 
-    #[inline(always)]
     pub fn sub_epi16(a: __m256i, b: __m256i) -> __m256i {
         unsafe { _mm256_sub_epi16(a, b) }
     }
@@ -838,17 +808,14 @@ mod base {
 
     pub const WORDS_PER_REG: usize = size_of::<__m128i>() / 2;
 
-    #[inline(always)]
     pub fn zero() -> __m128i {
         unsafe { _mm_setzero_si128() }
     }
 
-    #[inline(always)]
     pub fn multiply_add_epi16(accum: __m128i, factor1: __m128i, factor2: __m128i) -> __m128i {
         unsafe { _mm_add_epi32(accum, _mm_madd_epi16(factor1, factor2)) }
     }
 
-    #[inline(always)]
     pub fn clipped_relu(v: __m128i) -> __m128i {
         unsafe {
             let relu = _mm_max_epi16(v, _mm_setzero_si128());
@@ -856,7 +823,6 @@ mod base {
         }
     }
 
-    #[inline(always)]
     pub fn square(v: __m128i) -> __m128i {
         unsafe {
             let v_scaled =
@@ -865,7 +831,6 @@ mod base {
         }
     }
 
-    #[inline(always)]
     pub fn horizontal_sum_32(v: __m128i) -> i32 {
         unsafe {
             let sum = _mm_hadd_epi32(v, v);
@@ -873,27 +838,22 @@ mod base {
         }
     }
 
-    #[inline(always)]
     pub fn load_i8(data: &[i8], offset: usize) -> __m128i {
         unsafe { _mm_cvtepi8_epi16(_mm_loadl_epi64(data.as_ptr().add(offset).cast())) }
     }
 
-    #[inline(always)]
     pub fn load_i16(data: &[i16], offset: usize) -> __m128i {
         unsafe { _mm_load_si128(data.as_ptr().add(offset).cast()) }
     }
 
-    #[inline(always)]
     pub fn store_i16(data: &mut [i16], offset: usize, value: __m128i) {
         unsafe { _mm_store_si128(data.as_mut_ptr().add(offset).cast(), value) }
     }
 
-    #[inline(always)]
     pub fn add_epi16(a: __m128i, b: __m128i) -> __m128i {
         unsafe { _mm_add_epi16(a, b) }
     }
 
-    #[inline(always)]
     pub fn sub_epi16(a: __m128i, b: __m128i) -> __m128i {
         unsafe { _mm_sub_epi16(a, b) }
     }
@@ -909,12 +869,10 @@ mod base {
 
     pub const WORDS_PER_REG: usize = 8; // 128 bits / 16 bits = 8 i16 values per register
 
-    #[inline(always)]
     pub fn zero() -> int32x4_t {
         unsafe { vdupq_n_s32(0) }
     }
 
-    #[inline(always)]
     pub fn multiply_add_epi16(accum: int32x4_t, factor1: int16x8_t, factor2: int16x8_t) -> int32x4_t {
         unsafe {
             let accum = vmlal_s16(accum, vget_low_s16(factor1), vget_low_s16(factor2));
@@ -922,7 +880,6 @@ mod base {
         }
     }
 
-    #[inline(always)]
     pub fn clipped_relu(v: int16x8_t) -> int16x8_t {
         unsafe {
             let relu = vmaxq_s16(v, vdupq_n_s16(0));
@@ -930,7 +887,6 @@ mod base {
         }
     }
 
-    #[inline(always)]
     pub fn square(v: int16x8_t) -> int16x8_t {
         unsafe {
             let v_scaled =
@@ -939,34 +895,28 @@ mod base {
         }
     }
 
-    #[inline(always)]
     pub fn horizontal_sum_32(v: int32x4_t) -> i32 {
         unsafe {
             vaddvq_s32(v)
         }
     }
 
-    #[inline(always)]
     pub fn load_i8(data: &[i8], offset: usize) -> int16x8_t {
         unsafe { vmovl_s8(vld1_s8(data.as_ptr().add(offset))) }
     }
 
-    #[inline(always)]
     pub fn load_i16(data: &[i16], offset: usize) -> int16x8_t {
         unsafe { vld1q_s16(data.as_ptr().add(offset)) }
     }
 
-    #[inline(always)]
     pub fn store_i16(data: &mut [i16], offset: usize, value: int16x8_t) {
         unsafe { vst1q_s16(data.as_mut_ptr().add(offset), value) }
     }
 
-    #[inline(always)]
     pub fn add_epi16(a: int16x8_t, b: int16x8_t) -> int16x8_t {
         unsafe { vaddq_s16(a, b) }
     }
 
-    #[inline(always)]
     pub fn sub_epi16(a: int16x8_t, b: int16x8_t) -> int16x8_t {
         unsafe { vsubq_s16(a, b) }
     }
@@ -990,48 +940,39 @@ mod base {
         0
     }
 
-    #[inline(always)]
     pub fn horizontal_sum_32(v: i32) -> i32 {
         v
     }
 
-    #[inline(always)]
     pub fn multiply_add_epi16(accum: i32, factor1: i16, factor2: i16) -> i32 {
         accum.wrapping_add((factor1 as i32).wrapping_mul(factor2 as i32))
     }
 
-    #[inline(always)]
     pub fn clipped_relu(v: i16) -> i16 {
         v.clamp(0, FP_MAX_RELU as i16)
     }
 
-    #[inline(always)]
     pub fn square(v: i16) -> i16 {
         let v_scaled = (v << ((FP_OUT_PRECISION_BITS as i32 + 16) / 2 - FP_IN_PRECISION_BITS as i32)) as i32;
         v_scaled.wrapping_pow(2).wrapping_shr(16) as i16
     }
 
-    #[inline(always)]
     pub fn load_i8(data: &[i8], offset: usize) -> i16 {
         unsafe { *data.get_unchecked(offset) as i16 }
     }
 
-    #[inline(always)]
     pub fn load_i16(data: &[i16], offset: usize) -> i16 {
         unsafe { *data.get_unchecked(offset) }
     }
 
-    #[inline(always)]
     pub fn store_i16(data: &mut [i16], offset: usize, value: i16) {
         unsafe { *data.get_unchecked_mut(offset) = value }
     }
 
-    #[inline(always)]
     pub fn add_epi16(a: i16, b: i16) -> i16 {
         a.wrapping_add(b)
     }
 
-    #[inline(always)]
     pub fn sub_epi16(a: i16, b: i16) -> i16 {
         a.wrapping_sub(b)
     }
