@@ -11,7 +11,7 @@ jobs:
       matrix:
         include:
           - exec_postfix: "x86_64-avx512"
-            add_rustflags: "-Ctarget-feature=+crt-static,-bmi2 -Ctarget-cpu=x86-64-v4"
+            add_rustflags: "-Ctarget-feature=+crt-static -Ctarget-cpu=x86-64-v4 -Cprofile-use=./pgo/merged_avx512_linux.profdata"
             toolchain: "x86_64-unknown-linux-musl"
             cflags: "-march=x86-64-v4"
           - exec_postfix: "x86_64-avx2"
@@ -30,12 +30,9 @@ jobs:
         run: |
           sudo apt-get install -y musl-tools
           if [ "${{ matrix.exec_postfix }}" == "x86_64-avx512" ]; then
-            rustup toolchain install nightly-2025-04-05
-            rustup override set nightly-2025-04-05
+            rustup override set nightly-2025-04-07
             rustup target add ${{ matrix.toolchain }}
-            export CARGO_OPTS="--target ${{ matrix.toolchain }} --bin velvet --features=fathomrs,avx512"
-            RUSTFLAGS= make pgo-init
-            make pgo-build
+            cargo build --release --target ${{ matrix.toolchain }} --bin velvet --features=fathomrs,avx512
           else
             rustup override set 1.86.0
             rustup target add ${{ matrix.toolchain }}
