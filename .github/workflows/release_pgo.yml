@@ -5,20 +5,66 @@ on:
     branches: ["dev9"]
 
 jobs:
-  build-linux:
-    runs-on: ubuntu-latest
+#  build-linux:
+#    runs-on: ubuntu-latest
+#    strategy:
+#      matrix:
+#        include:
+#          - exec_postfix: "x86_64-avx512"
+#            add_rustflags: "-Ctarget-feature=+crt-static -Ctarget-cpu=x86-64-v4 -Cprofile-use=./pgo/merged_avx512_linux.profdata"
+#            toolchain: "x86_64-unknown-linux-musl"
+#            cflags: "-march=x86-64-v4"
+#          - exec_postfix: "x86_64-avx2"
+#            add_rustflags: "-Ctarget-feature=+crt-static,-bmi2 -Ctarget-cpu=x86-64-v3"
+#            toolchain: "x86_64-unknown-linux-musl"
+#            cflags: "-march=x86-64-v3"
+#
+#    steps:
+#      - name: Checkout code
+#        uses: actions/checkout@v4
+#
+#      - name: Build
+#        env:
+#          RUSTFLAGS: '${{ matrix.add_rustflags }}'
+#          CFLAGS: '${{ matrix.cflags }}'
+#        run: |
+#          sudo apt-get install -y musl-tools
+#          if [ "${{ matrix.exec_postfix }}" == "x86_64-avx512" ]; then
+#            rustup override set nightly-2025-04-27
+#            rustup target add ${{ matrix.toolchain }}
+#            cargo build --release --target ${{ matrix.toolchain }} --bin velvet --features=fathomrs,avx512
+#          else
+#            rustup override set 1.86.0
+#            rustup target add ${{ matrix.toolchain }}
+#            export CARGO_OPTS="--target ${{ matrix.toolchain }} --bin velvet --features=fathomrs"
+#            RUSTFLAGS= make pgo-init
+#            make pgo-build
+#          fi
+#          mv target/${{ matrix.toolchain }}/release/velvet velvet-linux-${{ matrix.exec_postfix }}
+#
+#      - name: Upload artifacts
+#        uses: actions/upload-artifact@v4
+#        with:
+#          name: velvet-linux-${{ matrix.exec_postfix }}
+#          path: velvet-linux-${{ matrix.exec_postfix }}
+
+  build-windows:
+    runs-on: windows-latest
     strategy:
       matrix:
         include:
-          - exec_postfix: "x86_64-avx512"
-            add_rustflags: "-Ctarget-feature=+crt-static -Ctarget-cpu=x86-64-v4 -Cprofile-use=./pgo/merged_avx512_linux.profdata"
-            toolchain: "x86_64-unknown-linux-musl"
-            cflags: "-march=x86-64-v4"
-          - exec_postfix: "x86_64-avx2"
+          - exec_postfix: "avx2"
             add_rustflags: "-Ctarget-feature=+crt-static,-bmi2 -Ctarget-cpu=x86-64-v3"
-            toolchain: "x86_64-unknown-linux-musl"
             cflags: "-march=x86-64-v3"
-
+#          - exec_postfix: "sse4-popcnt"
+#            add_rustflags: "-Ctarget-feature=+crt-static -Ctarget-cpu=x86-64-v2"
+#            cflags: "-march=x86-64-v2"
+#          - exec_postfix: "nopopcnt"
+#            add_rustflags: "-Ctarget-feature=+crt-static"
+#            cflags: "-march=x86-64 -DTB_CUSTOM_POP_COUNT"
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -28,23 +74,19 @@ jobs:
           RUSTFLAGS: '${{ matrix.add_rustflags }}'
           CFLAGS: '${{ matrix.cflags }}'
         run: |
-          sudo apt-get install -y musl-tools
           if [ "${{ matrix.exec_postfix }}" == "x86_64-avx512" ]; then
-            rustup override set nightly-2025-04-07
-            rustup target add ${{ matrix.toolchain }}
-            cargo build --release --target ${{ matrix.toolchain }} --bin velvet --features=fathomrs,avx512
+            rustup override set nightly-2025-04-27
+            cargo build --release --bin velvet --features=fathomrs,avx512
           else
             rustup override set 1.86.0
-            rustup target add ${{ matrix.toolchain }}
-            export CARGO_OPTS="--target ${{ matrix.toolchain }} --bin velvet --features=fathomrs"
+            export CARGO_OPTS="--bin velvet --features=fathomrs"
             RUSTFLAGS= make pgo-init
             make pgo-build
           fi
-          mv target/${{ matrix.toolchain }}/release/velvet velvet-linux-${{ matrix.exec_postfix }}
+          mv ./target/release/velvet.exe velvet-windows-x86_64-${{ matrix.exec_postfix }}.exe
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: velvet-linux-${{ matrix.exec_postfix }}
-          path: velvet-linux-${{ matrix.exec_postfix }}
-
+          name: velvet-windows-${{ matrix.exec_postfix }}
+          path: velvet-windows-x86_64-${{ matrix.exec_postfix }}.exe
