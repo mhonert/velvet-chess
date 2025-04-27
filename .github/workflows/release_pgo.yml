@@ -71,7 +71,6 @@ jobs:
           rustup override set 1.86.0
           cargo install cargo-pgo
           rustup component add llvm-tools-preview
-          cargo pgo info
 
       - name: Build
         env:
