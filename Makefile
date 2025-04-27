@@ -26,7 +26,7 @@ pgo-optimize:
 # Install cargo sub command for Profile Guided Optimization
 pgo-init:
 	cargo install cargo-pgo
-	rustup component add llvm-tools
+	rustup component add llvm-tools-preview
 	cargo pgo info || echo "... but BOLT is not used here, so it is OK, if [llvm-bolt] and [merge-fdata] are not available."
 
 # Run tests

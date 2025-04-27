@@ -34,13 +34,13 @@ jobs:
             rustup override set nightly-2025-04-05
             rustup target add ${{ matrix.toolchain }}
             export CARGO_OPTS="--target ${{ matrix.toolchain }} --bin velvet --features=fathomrs,avx512"
-            make pgo-init
+            RUSTFLAGS= make pgo-init
             make pgo-build
           else
             rustup override set 1.86.0
             rustup target add ${{ matrix.toolchain }}
             export CARGO_OPTS="--target ${{ matrix.toolchain }} --bin velvet --features=fathomrs"
-            make pgo-init
+            RUSTFLAGS= make pgo-init
             make pgo-build
           fi
           mv target/${{ matrix.toolchain }}/release/velvet velvet-linux-${{ matrix.exec_postfix }}
