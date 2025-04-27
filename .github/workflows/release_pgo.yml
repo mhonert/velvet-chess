@@ -48,14 +48,14 @@ jobs:
 #          name: velvet-linux-${{ matrix.exec_postfix }}
 #          path: velvet-linux-${{ matrix.exec_postfix }}
 
-  build-windows:
-    runs-on: windows-latest
-    strategy:
-      matrix:
-        include:
-          - exec_postfix: "avx2"
-            add_rustflags: "-Ctarget-feature=+crt-static,-bmi2 -Ctarget-cpu=x86-64-v3"
-            cflags: "-march=x86-64-v3"
+#  build-windows:
+#    runs-on: windows-latest
+#    strategy:
+#      matrix:
+#        include:
+#          - exec_postfix: "avx2"
+#            add_rustflags: "-Ctarget-feature=+crt-static,-bmi2 -Ctarget-cpu=x86-64-v3"
+#            cflags: "-march=x86-64-v3"
 #          - exec_postfix: "sse4-popcnt"
 #            add_rustflags: "-Ctarget-feature=+crt-static -Ctarget-cpu=x86-64-v2"
 #            cflags: "-march=x86-64-v2"
