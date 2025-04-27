@@ -29,68 +29,47 @@ use crate::zobrist::piece_zobrist_key;
 pub struct SearchContext {
     ply: usize,
 
-    ml_idx: usize,
-    movelists: [MoveList; MAX_DEPTH + 2],
-
-    pe_idx: usize,
-    ply_entries: [PlyEntry; MAX_DEPTH + 4],
+    movelists: [MoveList; MAX_DEPTH + 1],
+    ply_entries: [PlyEntry; MAX_DEPTH + 4 + 2 + 1],
     
     root_move_randomization: bool,
-}
-
-impl SearchContext {
 }
 
 impl Default for SearchContext {
     fn default() -> Self {
         SearchContext{
             ply: 0,
-            ml_idx: 0,
-            pe_idx: 4, // start with 4 to remove the need for bounds checks when accessing the ply entries
             movelists: array::from_fn(|_| MoveList::default()),
-            ply_entries: [PlyEntry::default(); MAX_DEPTH + 4],
+            ply_entries: [PlyEntry::default(); MAX_DEPTH + 4 + 2 + 1],
             root_move_randomization: false,
         }
     }
 }
 
 impl SearchContext {
-
     pub fn enter_ply(&mut self) {
         self.ply += 1;
-        self.ml_idx += 1;
-        self.pe_idx += 1;
-        self.ply_entry_mut(self.pe_idx).double_extensions = self.ply_entry(self.pe_idx - 1).double_extensions;
+        self.ply_entry_mut(self.pe_idx()).double_extensions = self.ply_entry(self.pe_idx() - 1).double_extensions;
     }
 
     pub fn leave_ply(&mut self) {
         self.ply -= 1;
-        self.ml_idx -= 1;
-        self.pe_idx -= 1;
-    }
-
-    pub fn enter_same_ply(&mut self) {
-        self.ml_idx += 1;
-    }
-
-    pub fn leave_same_ply(&mut self) {
-        self.ml_idx -= 1;
     }
 
     pub fn max_qs_depth_reached(&self) -> bool {
-        self.ply >= MAX_DEPTH || self.ml_idx >= self.movelists.len() - 1 || self.pe_idx >= self.ply_entries.len() - 1
+        self.ply >= MAX_DEPTH
     }
 
     pub fn max_search_depth_reached(&self) -> bool {
-        self.ply >= MAX_DEPTH - 16 || self.ml_idx >= (self.movelists.len() - (16 + 1)) || self.pe_idx >= self.ply_entries.len() - (16 + 1)
+        self.ply >= MAX_DEPTH - 16
     }
 
     fn movelist_mut(&mut self) -> &mut MoveList {
-        self.movelists.el_mut(self.ml_idx)
+        self.movelists.el_mut(self.ply)
     }
 
     fn movelist(&self) -> &MoveList {
-        self.movelists.el(self.ml_idx)
+        self.movelists.el(self.ply)
     }
 
     pub fn set_root_move_randomization(&mut self, state: bool) {
@@ -136,8 +115,8 @@ impl SearchContext {
     }
 
     pub fn move_history(&self) -> MoveHistory {
-        let curr = self.ply_entry(self.pe_idx);
-        let prev_opp = self.ply_entry(self.pe_idx - 1);
+        let curr = self.ply_entry(self.pe_idx());
+        let prev_opp = self.ply_entry(self.pe_idx() - 1);
 
         MoveHistory {
             last_opp: curr.opp_move,
@@ -146,14 +125,19 @@ impl SearchContext {
     }
     
     pub fn move_history_hash(&self) -> u16 {
-        let curr = self.ply_entry(self.pe_idx);
-        let prev_opp = self.ply_entry(self.pe_idx - 1);
+        let curr = self.ply_entry(self.pe_idx());
+        let prev_opp = self.ply_entry(self.pe_idx() - 1);
 
         ((opp_move_hash(curr.opp_move) ^ own_move_hash(prev_opp.opp_move)) & 0xFFFF) as u16
     }
 
     pub fn root_move_count(&self) -> usize {
         self.movelist().root_move_count()
+    }
+    
+    #[inline(always)]
+    fn pe_idx(&self) -> usize {
+        self.ply + 4
     }
 
     fn ply_entry(&self, idx: usize) -> &PlyEntry {
@@ -165,17 +149,17 @@ impl SearchContext {
     }
 
     pub fn is_improving(&self) -> bool {
-        let curr_ply = self.ply_entry(self.pe_idx);
+        let curr_ply = self.ply_entry(self.pe_idx());
 
         if curr_ply.in_check {
             return false;
         }
-        let prev_own_ply = self.ply_entry(self.pe_idx - 2);
+        let prev_own_ply = self.ply_entry(self.pe_idx() - 2);
         if self.ply >= 2 && !prev_own_ply.in_check {
             return prev_own_ply.eval < curr_ply.eval;
         }
 
-        let prev_prev_own_ply = self.ply_entry(self.pe_idx - 4);
+        let prev_prev_own_ply = self.ply_entry(self.pe_idx() - 4);
         if self.ply >= 4 && !prev_prev_own_ply.in_check {
             return prev_prev_own_ply.eval < curr_ply.eval;
         }
@@ -184,29 +168,29 @@ impl SearchContext {
     }
 
     pub fn eval(&self) -> i16 {
-        self.ply_entry(self.pe_idx).eval
+        self.ply_entry(self.pe_idx()).eval
     }
 
     pub fn in_check(&self) -> bool {
-        self.ply_entry(self.pe_idx).in_check
+        self.ply_entry(self.pe_idx()).in_check
     }
 
     pub fn update_next_ply_entry(&mut self, opp_m: Move, gives_check: bool) {
-        let entry = self.ply_entry_mut(self.pe_idx + 1);
+        let entry = self.ply_entry_mut(self.pe_idx() + 1);
         entry.opp_move = opp_m;
         entry.in_check = gives_check;
     }
 
     pub fn set_eval(&mut self, score: i16) {
-        self.ply_entry_mut(self.pe_idx).eval = score;
+        self.ply_entry_mut(self.pe_idx()).eval = score;
     }
 
     pub fn inc_double_extensions(&mut self) {
-        self.ply_entry_mut(self.pe_idx).double_extensions += 1;
+        self.ply_entry_mut(self.pe_idx()).double_extensions += 1;
     }
 
     pub fn double_extensions(&self) -> i16 {
-        self.ply_entry(self.pe_idx).double_extensions
+        self.ply_entry(self.pe_idx()).double_extensions
     }
 
     pub fn has_any_legal_move(&mut self, active_player: Color, hh: &HistoryHeuristics, board: &mut Board) -> bool {
@@ -225,15 +209,15 @@ impl SearchContext {
     }
     
     pub fn clear_cutoff_count(&mut self) {
-        self.ply_entry_mut(self.pe_idx + 2).cutoff_count = 0;
+        self.ply_entry_mut(self.pe_idx() + 2).cutoff_count = 0;
     }
     
     pub fn inc_cutoff_count(&mut self) {
-        self.ply_entry_mut(self.pe_idx).cutoff_count += 1;
+        self.ply_entry_mut(self.pe_idx()).cutoff_count += 1;
     }
     
     pub fn next_ply_cutoff_count(&self) -> u32 {
-        self.ply_entry(self.pe_idx + 1).cutoff_count
+        self.ply_entry(self.pe_idx() + 1).cutoff_count
     }
     
     pub fn ply(&self) -> usize {
@@ -267,18 +251,6 @@ macro_rules! next_ply {
             $ctx.enter_ply();
             let result = $func_call;
             $ctx.leave_ply();
-            result
-        }
-    };
-}
-
-#[macro_export]
-macro_rules! same_ply {
-    ($ctx:expr, $func_call:expr) => {
-        {
-            $ctx.enter_same_ply();
-            let result = $func_call;
-            $ctx.leave_same_ply();
             result
         }
     };

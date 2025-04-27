@@ -40,7 +40,7 @@ use std::thread;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 use LogLevel::Info;
-use crate::{next_ply, same_ply};
+use crate::{next_ply};
 use crate::nn::io::FastHasher;
 use crate::params::{lmr_idx, DerivedArrayParams, SingleParams};
 use crate::search_context::{SearchContext};
@@ -247,7 +247,7 @@ impl Search {
         }
 
         let active_player = self.board.active_player();
-        let eval = next_ply!(self.ctx, self.qs::<false>(active_player, MIN_SCORE, MAX_SCORE, self.board.is_in_check(active_player))).unwrap_or_default();
+        let eval = next_ply!(self.ctx, self.qs::<false>(active_player, MIN_SCORE, MAX_SCORE, self.board.is_in_check(active_player))).unwrap_or(MATED_SCORE);
         if eval >= 2000 {
             self.limits.set_node_limit(self.limits.node_limit().max(200) * 4);
         }
@@ -304,7 +304,7 @@ impl Search {
         let active_player = self.board.active_player();
         let gives_check = self.board.is_in_check(active_player);
         let mut pv = PrincipalVariation::default();
-        let qs_score = -same_ply!(self.ctx, self.quiescence_search(active_player, MIN_SCORE, MAX_SCORE, gives_check)).unwrap_or_default();
+        let qs_score = self.quiescence_search(active_player, MIN_SCORE, MAX_SCORE, gives_check).unwrap_or(MATED_SCORE);
 
         self.ctx.update_next_ply_entry(m, gives_check);
         self.set_stopped(false);
@@ -645,8 +645,7 @@ impl Search {
 
         // Quiescence search
         if depth <= 0 || self.ctx.max_search_depth_reached() {
-            let qs_score = same_ply!(self.ctx, self.quiescence_search(active_player, alpha, beta, in_check))?;
-            return Some(qs_score);
+            return self.quiescence_search(active_player, alpha, beta, in_check);
         }
 
         self.max_reached_depth = self.ctx.ply().max(self.max_reached_depth);
@@ -849,7 +848,7 @@ impl Search {
 
             if is(self.params.razoring_enabled()) && !improving && self.ctx.ply() > 3 && depth <= 4 && !is_mate_or_mated_score(alpha) && !is_mate_or_mated_score(ref_score) && ref_score + (1 << (depth - 1)) * self.params.razor_margin_multiplier() <= alpha {
                 // Razoring
-                let result = same_ply!(self.ctx, self.quiescence_search(active_player, alpha, beta, in_check))?;
+                let result = self.quiescence_search(active_player, alpha, beta, in_check)?;
                 let score = clamp_score(result, worst_possible_score, best_possible_score);
                 if score <= alpha {
                     return Some(score);
@@ -958,7 +957,7 @@ impl Search {
             if is(self.params.se_enabled()) && check_se && !gives_check && curr_move == tt_move {
                 let se_beta = sanitize_score(tt_score - depth as i16);
                 self.board.undo_move(curr_move, previous_piece, removed_piece_id);
-                let result = same_ply!(self.ctx, self.rec_find_best_move(rx, se_beta - 1, se_beta, depth / 2, &mut PrincipalVariation::default(), true, curr_move))?;
+                let result = self.rec_find_best_move(rx, se_beta - 1, se_beta, depth / 2, &mut PrincipalVariation::default(), true, curr_move).unwrap_or(MATED_SCORE);
 
                 if result < se_beta {
                     is_singular = true;
@@ -978,6 +977,10 @@ impl Search {
                 } else if tt_score <= alpha || tt_score >= beta {
                     se_extension = -1;
                 }
+
+                self.ctx.prepare_moves(active_player, tt_move, move_history);
+                self.ctx.next_move(&self.hh, &self.board);
+
                 self.board.perform_move(curr_move);
             };
 
