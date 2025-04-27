@@ -62,6 +62,53 @@ jobs:
 #          - exec_postfix: "nopopcnt"
 #            add_rustflags: "-Ctarget-feature=+crt-static"
 #            cflags: "-march=x86-64 -DTB_CUSTOM_POP_COUNT"
+#    steps:
+#      - name: Checkout code
+#        uses: actions/checkout@v4
+#
+#      - name: Prepare
+#        run: |
+#          rustup override set 1.86.0
+#          cargo install cargo-pgo
+#          rustup component add llvm-tools-preview
+#
+#      - name: Build
+#        env:
+#          RUSTFLAGS: '${{ matrix.add_rustflags }}'
+#          CFLAGS: '${{ matrix.cflags }}'
+#        run: |
+#          cargo pgo run -- --bin velvet --features=fathomrs -- multibench
+#          cargo pgo optimize build -- --bin velvet --features=fathomrs
+#          mv ./target/release/velvet.exe velvet-windows-x86_64-${{ matrix.exec_postfix }}.exe
+#
+#      - name: Upload artifacts
+#        uses: actions/upload-artifact@v4
+#        with:
+#          name: velvet-windows-${{ matrix.exec_postfix }}
+#          path: velvet-windows-x86_64-${{ matrix.exec_postfix }}.exe
+
+  build-macos:
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        include:
+#          - exec_postfix: "avx2"
+#            toolchain: x86_64-apple-darwin
+#            add_rustflags: "-Ctarget-feature=+crt-static,-bmi2 -Ctarget-cpu=x86-64-v3"
+#            cflags: "-march=x86-64-v3"
+#          - exec_postfix: "sse4-popcnt"
+#            toolchain: x86_64-apple-darwin
+#            add_rustflags: "-Ctarget-feature=+crt-static -Ctarget-cpu=x86-64-v2"
+#            cflags: "-march=x86-64-v2"
+#          - exec_postfix: "nopopcnt"
+#            toolchain: x86_64-apple-darwin
+#            add_rustflags: "-Ctarget-feature=+crt-static"
+#            cflags: "-march=x86-64 -DTB_CUSTOM_POP_COUNT"
+          - exec_postfix: "apple-silicon"
+            toolchain: aarch64-apple-darwin
+            add_rustflags: "-Ctarget-feature=+crt-static"
+            cflags: ""
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -69,6 +116,7 @@ jobs:
       - name: Prepare
         run: |
           rustup override set 1.86.0
+          rustup target add ${{ matrix.toolchain }}
           cargo install cargo-pgo
           rustup component add llvm-tools-preview
 
@@ -77,12 +125,12 @@ jobs:
           RUSTFLAGS: '${{ matrix.add_rustflags }}'
           CFLAGS: '${{ matrix.cflags }}'
         run: |
-          cargo pgo run -- --bin velvet --features=fathomrs -- multibench
-          cargo pgo optimize build -- --bin velvet --features=fathomrs
-          mv ./target/release/velvet.exe velvet-windows-x86_64-${{ matrix.exec_postfix }}.exe
+          cargo pgo run -- --target ${{ matrix.toolchain }} --bin velvet --features=fathomrs -- multibench
+          cargo pgo optimize build -- --target ${{ matrix.toolchain }} --bin velvet --features=fathomrs
+          mv target/${{ matrix.toolchain }}/release/velvet velvet-macOS-${{ matrix.exec_postfix }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: velvet-windows-${{ matrix.exec_postfix }}
-          path: velvet-windows-x86_64-${{ matrix.exec_postfix }}.exe
+          name: velvet-macOS-${{ matrix.exec_postfix }}
+          path: velvet-macOS-${{ matrix.exec_postfix }}
