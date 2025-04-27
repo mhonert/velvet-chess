@@ -62,27 +62,24 @@ jobs:
 #          - exec_postfix: "nopopcnt"
 #            add_rustflags: "-Ctarget-feature=+crt-static"
 #            cflags: "-march=x86-64 -DTB_CUSTOM_POP_COUNT"
-    defaults:
-      run:
-        shell: bash
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Prepare
+        run: |
+          rustup override set 1.86.0
+          cargo install cargo-pgo
+          rustup component add llvm-tools-preview
+          cargo pgo info
 
       - name: Build
         env:
           RUSTFLAGS: '${{ matrix.add_rustflags }}'
           CFLAGS: '${{ matrix.cflags }}'
         run: |
-          if [ "${{ matrix.exec_postfix }}" == "x86_64-avx512" ]; then
-            rustup override set nightly-2025-04-27
-            cargo build --release --bin velvet --features=fathomrs,avx512
-          else
-            rustup override set 1.86.0
-            export CARGO_OPTS="--bin velvet --features=fathomrs"
-            RUSTFLAGS= make pgo-init
-            make pgo-build
-          fi
+          cargo pgo run -- --bin velvet --features=fathomrs -- multibench
+          cargo pgo optimize build -- --bin velvet --features=fathomrs
           mv ./target/release/velvet.exe velvet-windows-x86_64-${{ matrix.exec_postfix }}.exe
 
       - name: Upload artifacts
