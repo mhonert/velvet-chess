@@ -542,9 +542,12 @@ impl Search {
         let active_player = self.board.active_player();
 
         let mut tree_scale = 0;
+        let allow_lmr = self.current_depth >= 7 && depth > 2;
 
         self.ctx.reset_root_moves();
         let mut local_pv = PrincipalVariation::default();
+        let mut quiet_move_count = 0;
+        let occupied_bb = self.board.occupancy_bb();
         while let Some(m) = self.ctx.next_root_move(&self.hh, &mut self.board) {
             if skipped_moves.contains(&m.without_score()) {
                 continue;
@@ -564,19 +567,33 @@ impl Search {
 
             let gives_check = self.board.is_in_check(active_player.flip());
 
+            let mut reductions = 0;
+            if allow_lmr && quiet_move_count > 3 && m.is_quiet() {
+                reductions += self.derived_params.lmr(lmr_idx(quiet_move_count)) as i32;
+
+                let target_piece_id = m.move_type().piece_id();
+                if self.board.has_negative_see(active_player.flip(), m.start() as usize, m.end() as usize, target_piece_id, EMPTY, occupied_bb) {
+                    reductions += 1;
+                }
+
+                if target_piece_id == P && is_passed_pawn(m.end() as usize, active_player, self.board.get_bitboard(active_player.flip().piece(P))) {
+                    reductions -= 1;
+                }
+            }
+
             let mut tree_size = self.local_total_node_count;
 
             // Use principal variation search
             self.ctx.update_next_ply_entry(m, gives_check);
 
             local_pv.clear();
-            let Some(result) = next_ply!(self.ctx, self.rec_find_best_move(rx, a, -alpha, depth - 1, &mut local_pv, false, NO_MOVE)) else {
+            let Some(result) = next_ply!(self.ctx, self.rec_find_best_move(rx, a, -alpha, depth - (reductions + 1), &mut local_pv, false, NO_MOVE)) else {
                 self.board.undo_move(m, previous_piece, removed_piece_id);
                 return (true, NO_MOVE, None);
             };
             let mut score = -result;
 
-            if score > alpha && a != -beta {
+            if score > alpha && (a != -beta || reductions > 0) {
                 // Repeat search if it falls outside the search window
                 local_pv.clear();
                 let Some(result) = next_ply!(self.ctx, self.rec_find_best_move(rx, -beta, -alpha, depth - 1, &mut local_pv, false, NO_MOVE)) else {
@@ -614,6 +631,10 @@ impl Search {
                 tree_scale = 13.max(64 - tree_size.leading_zeros()) - 13;
             }
             self.ctx.update_root_move(m.with_score((MAX_SCORE as i32).min((tree_size >> tree_scale) as i32) as i16));
+
+            if m.is_quiet() {
+                quiet_move_count += 1;
+            }
         }
 
         self.ctx.reorder_root_moves(best_move, self.is_helper_thread);
