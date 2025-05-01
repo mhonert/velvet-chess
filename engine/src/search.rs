@@ -811,15 +811,14 @@ impl Search {
                             return Some(0);
                         },
                         TBResult::Win => {
-                            worst_possible_score = 300;
-                            if worst_possible_score >= beta {
+                            worst_possible_score = 400 - (self.ctx.ply() as i16 / 4);
+                            if !is_pv && worst_possible_score >= beta {
                                 return Some(worst_possible_score);
                             }
-                        }
+                        },
                         TBResult::Loss => {
-                            best_possible_score = -300;
-                            
-                            if best_possible_score <= alpha {
+                            best_possible_score = -400 + (self.ctx.ply() as i16 / 4);
+                            if !is_pv && best_possible_score <= alpha {
                                 return Some(best_possible_score);
                             }
                         },
