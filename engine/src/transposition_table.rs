@@ -165,7 +165,7 @@ impl TranspositionTable {
     }
 
     pub fn clear(&self, thread_no: usize, total_threads: usize) {
-        let chunk_size = (self.segments.0.len() + total_threads - 1) / total_threads;
+        let chunk_size = self.segments.0.len().div_ceil(total_threads);
 
         for segment in self.segments.0.chunks(chunk_size).skip(thread_no).take(1).last().unwrap().iter() {
             for entry in segment.iter() {
