@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2024 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2025 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -33,7 +33,7 @@ pub struct FenError {
 }
 
 pub struct FenParseResult {
-    pub pieces: Vec<i8>,
+    pub pieces: [i8; 64],
     pub active_player: Color,
     castling_rules: CastlingRules,
     pub castling_state: CastlingState,
@@ -71,7 +71,7 @@ pub fn read_fen(board: &mut Board, fen: &str) -> Result<(), FenError> {
                 fullmove_num,
                 castling_rules,
             );
-            Result::Ok(())
+            Ok(())
         }
     }
 }
@@ -81,18 +81,18 @@ pub fn parse_fen(fen: &str) -> Result<FenParseResult, FenError> {
 
     let (pieces, white_king, black_king) = match fen_parts.next().and_then(read_pieces) {
         Some((pieces, white_king, black_king)) => (pieces, white_king, black_king),
-        None => return Result::Err(FenError { msg: format!("Error in piece part: {}", fen) }),
+        None => return Err(FenError { msg: format!("Error in piece part: {fen}") }),
     };
 
     let active_player = match fen_parts.next().and_then(read_color) {
         Some(color) => color,
-        None => return Result::Err(FenError { msg: format!("Error in active player part: {}", fen) }),
+        None => return Err(FenError { msg: format!("Error in active player part: {fen}") }),
     };
 
     let (castling_rules, castling_state) =
         match fen_parts.next().and_then(|castling| read_castling(castling, white_king & 7, black_king & 7)) {
             Some((castling_rules, castling_state)) => (castling_rules, castling_state),
-            None => return Result::Err(FenError { msg: format!("Error in castling part: {}", fen) }),
+            None => return Err(FenError { msg: format!("Error in castling part: {fen}") }),
         };
 
     let enpassant_target = fen_parts.next().and_then(read_enpassant);
@@ -107,7 +107,7 @@ pub fn parse_fen(fen: &str) -> Result<FenParseResult, FenError> {
         None => 0,
     };
 
-    Result::Ok(FenParseResult {
+    Ok(FenParseResult {
         pieces,
         active_player,
         castling_rules,
@@ -120,8 +120,8 @@ pub fn parse_fen(fen: &str) -> Result<FenParseResult, FenError> {
 
 pub fn create_from_fen(fen: &str) -> Board {
     let mut items: [i8; 64] = [0; 64];
-    items[4] = -K;
-    items[60] = K;
+    items[4] = K;
+    items[60] = -K;
     let mut board = Board::new(&items, WHITE, CastlingState::default(), None, 0, 1, CastlingRules::default());
     match read_fen(&mut board, fen) {
         Ok(_) => board,
@@ -136,21 +136,21 @@ pub fn create_from_fen(fen: &str) -> Board {
 // add 6 to get the index to the FEN character for the piece:
 const PIECE_FEN_CHARS: &str = "kqrbnp/PNBRQK";
 
-fn read_pieces(piece_placements: &str) -> Option<(Vec<i8>, i8, i8)> {
-    let mut pieces: Vec<i8> = Vec::new();
+fn read_pieces(piece_placements: &str) -> Option<([i8; 64], i8, i8)> {
+    let mut pieces: [i8; 64] = [0; 64];
     let mut white_king = 0;
     let mut black_king = 0;
 
+    let mut idx = 64 + 8;
     for piece_row in piece_placements.split('/') {
+        idx -= 16;
         for piece in piece_row.chars() {
             if ('1'..='8').contains(&piece) {
-                let empty_squares = match piece.to_digit(10) {
-                    Some(chars) => chars,
-                    None => return None,
-                };
+                let empty_squares = piece.to_digit(10)?;
 
                 for _ in 1..=empty_squares {
-                    pieces.push(0)
+                    pieces[idx] = pieces::EMPTY;
+                    idx += 1;
                 }
                 continue;
             }
@@ -159,12 +159,13 @@ fn read_pieces(piece_placements: &str) -> Option<(Vec<i8>, i8, i8)> {
                 Some(piece) => piece as i8 - 6,
                 None => return None,
             };
-            pieces.push(piece_id);
+            pieces[idx] = piece_id;
+            idx += 1;
 
             if piece_id == K {
-                white_king = (pieces.len() - 1) as i8;
+                white_king = (idx - 1) as i8;
             } else if piece_id == -K {
-                black_king = (pieces.len() - 1) as i8;
+                black_king = (idx - 1) as i8;
             }
         }
     }
@@ -230,11 +231,11 @@ fn read_castling(castling: &str, w_king_col: i8, b_king_col: i8) -> Option<(Cast
         CastlingRules::new(
             true,
             w_start_king_col,
-            w_king_side_rook_col as i8,
-            w_queen_side_rook_col as i8,
+            w_king_side_rook_col,
+            w_queen_side_rook_col,
             b_start_king_col,
-            b_king_side_rook_col as i8,
-            b_queen_side_rook_col as i8,
+            b_king_side_rook_col,
+            b_queen_side_rook_col,
         )
     } else {
         CastlingRules::default()
@@ -258,8 +259,8 @@ fn read_enpassant(en_passant: &str) -> Option<i8> {
     let col_offset = (col_char.wrapping_sub(b'a')) as i8;
 
     Some(match row_char {
-        b'3' => BlackBoardPos::EnPassantLineStart as i8 + col_offset,
         b'6' => WhiteBoardPos::EnPassantLineStart as i8 + col_offset,
+        b'3' => BlackBoardPos::EnPassantLineStart as i8 + col_offset,
         _ => return None,
     })
 }
@@ -283,7 +284,7 @@ fn write_pieces(board: &Board) -> String {
 
     let mut empty_count = 0;
     for pos in 0..64 {
-        let item = board.get_item(pos);
+        let item = board.get_item(pos ^ 56);
         if item == pieces::EMPTY {
             empty_count += 1;
             if pos % 8 == 7 {
@@ -308,7 +309,7 @@ fn write_pieces(board: &Board) -> String {
             pieces::R => "R",
             pieces::Q => "Q",
             pieces::K => "K",
-            _ => panic!("Unexpected piece ID {}", item),
+            _ => panic!("Unexpected piece ID {item}"),
         };
 
         if item < 0 {
@@ -384,7 +385,7 @@ fn write_enpassant(board: &Board) -> String {
         let col_letter = b'a' + col;
         let col_str = String::from_utf8(vec![col_letter]).expect("Could not convert columm letter");
         
-        let row_str = if en_passant <= WhiteBoardPos::EnPassantLineEnd as u8 { "6" } else { "3" };
+        let row_str = if en_passant <= BlackBoardPos::EnPassantLineEnd as u8 { "3" } else { "6" };
         return col_str + row_str;
     }
 
@@ -432,16 +433,16 @@ mod tests {
 
     #[test]
     fn read_write_black_en_passant() {
-        test_fen("rnbqkbnr/p1pppppp/8/8/Pp6/8/1PPPPPPP/RNBQKBNR b KQkq a3 0 1");
-        test_fen("rnbqkbnr/p1pppppp/8/8/Pp6/8/1PPPPPPP/RNBQKBNR b KQkq b3 0 1");
-        test_fen("rnbqkbnr/p1pppppp/8/8/Pp6/8/1PPPPPPP/RNBQKBNR b KQkq h3 0 1");
+        test_fen_with_en_passant("rnbqkbnr/p1pppppp/8/8/Pp6/8/1PPPPPPP/RNBQKBNR b KQkq a3 0 1", 16);
+        test_fen_with_en_passant("rnbqkbnr/p1pppppp/8/8/Pp6/8/1PPPPPPP/RNBQKBNR b KQkq b3 0 1", 17);
+        test_fen_with_en_passant("rnbqkbnr/p1pppppp/8/8/Pp6/8/1PPPPPPP/RNBQKBNR b KQkq h3 0 1", 23);
     }
 
     #[test]
     fn read_write_white_en_passant() {
-        test_fen("rnbqkbnr/ppppppp1/8/6Pp/8/8/PPPPPP1P/RNBQKBNR w KQkq a6 0 1");
-        test_fen("rnbqkbnr/p1pppppp/8/8/Pp6/8/1PPPPPPP/RNBQKBNR w KQkq g6 0 1");
-        test_fen("rnbqkbnr/ppppppp1/8/6Pp/8/8/PPPPPP1P/RNBQKBNR w KQkq h6 0 1");
+        test_fen_with_en_passant("rnbqkbnr/ppppppp1/8/6Pp/8/8/PPPPPP1P/RNBQKBNR w KQkq a6 0 1", 40);
+        test_fen_with_en_passant("rnbqkbnr/p1pppppp/8/8/Pp6/8/1PPPPPPP/RNBQKBNR w KQkq g6 0 1", 46);
+        test_fen_with_en_passant("rnbqkbnr/ppppppp1/8/6Pp/8/8/PPPPPP1P/RNBQKBNR w KQkq h6 0 1", 47);
     }
 
     #[test]
@@ -470,5 +471,11 @@ mod tests {
 
     fn test_fen(fen: &str) {
         assert_eq!(write_fen(&create_from_fen(fen)), fen);
+    }
+
+    fn test_fen_with_en_passant(fen: &str, expected_en_passant_state: u8) {
+        let board = create_from_fen(fen);
+        assert_eq!(write_fen(&board), fen);
+        assert_eq!(board.enpassant_target(), expected_en_passant_state);
     }
 }

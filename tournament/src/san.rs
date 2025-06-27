@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2024 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2025 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -104,7 +104,7 @@ fn determine_required_disambiguation(m: Move, all_moves: &[Move]) -> (bool, bool
 }
 
 fn get_file_rank(pos: i8) -> (i8, i8) {
-    (pos % 8, 7 - pos / 8)
+    (pos % 8, pos / 8)
 }
 
 #[cfg(test)]
@@ -116,6 +116,8 @@ mod tests {
     fn test_move_to_san_pawn_move() {
         let m = Move::new(MoveType::PawnDoubleQuiet, pos("e2"), pos("e4"));
         let all_moves = vec![m];
+        assert_eq!(m.start(), 12);
+        assert_eq!(m.end(), 28);
 
         assert_eq!(move_to_san(m, &all_moves, false), "e4");
     }
@@ -225,6 +227,6 @@ mod tests {
         let file = file_rank.chars().next().unwrap();
         let rank = file_rank.chars().nth(1).unwrap();
 
-        (8 - rank.to_digit(10).unwrap() as i8) * 8 + (file as i8 - 'a' as i8)
+        (rank.to_digit(10).unwrap() as i8 - 1) * 8 + (file as i8 - 'a' as i8)
     }
 }

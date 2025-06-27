@@ -17,32 +17,25 @@
  */
 
 use crate::align::A64;
-use crate::bitboard::{v_mirror_i8, BitBoards};
+use crate::bitboard::{BitBoards};
 use crate::colors::Color;
-use crate::nn::eval::base::{add_epi16, horizontal_sum_32, load_i8, load_i16, multiply_add_epi16, square, store_i16, sub_epi16, zero, Accum, WORDS_PER_REG, clipped_relu};
-use crate::nn::{king_bucket, piece_idx, BUCKETS, BUCKET_SIZE, FP_OUT_MULTIPLIER, H1_BIASES, H1_TO_OUT_WEIGHTS, HL1_HALF_NODES, IN_TO_H1_WEIGHTS, OUT_BIASES, SCORE_SCALE};
-use crate::pieces::P;
+use crate::nn::eval::base::{add_epi16, load_i8, load_i16, store_i16, sub_epi16, VALUES_PER_REG, forward_pass};
+use crate::nn::{king_bucket, piece_idx, BUCKETS, BUCKET_SIZE, FP_OUT_MULTIPLIER, HL1_NODES, IN_TO_H1_WEIGHTS, OUT_BIASES, SCORE_SCALE};
 use crate::scores::{sanitize_eval_score, MAX_EVAL, MIN_EVAL};
 use crate::slices::SliceElementAccess;
 
-type HiddenNodes = [i16; HL1_HALF_NODES];
+type HiddenNodes = [i16; HL1_NODES];
 
 #[derive(Clone)]
 pub struct NeuralNetEval {
-    hidden_nodes_white: A64<[HiddenNodes; BUCKETS]>, // white perspective
-    hidden_nodes_black: A64<[HiddenNodes; BUCKETS]>, // black perspective
+    hidden_nodes_white: A64<[HiddenNodes; BUCKETS * 2]>, // white perspective
+    hidden_nodes_black: A64<[HiddenNodes; BUCKETS * 2]>, // black perspective
 
-    bb_white: [BitBoards; BUCKETS],
-    bb_black: [BitBoards; BUCKETS],
+    bb_white: [BitBoards; BUCKETS * 2],
+    bb_black: [BitBoards; BUCKETS * 2],
 
-    white_offsets: [usize; BUCKETS],
-    black_offsets: [usize; BUCKETS],
-
-    white_xor: [usize; BUCKETS],
-    black_xor: [usize; BUCKETS],
-
-    white_bucket: usize,
-    black_bucket: usize,
+    white_acc_bucket: usize,
+    black_acc_bucket: usize,
 
     white_offset: usize,
     black_offset: usize,
@@ -67,20 +60,14 @@ enum UpdateAction {
 impl NeuralNetEval {
     pub fn new() -> Box<Self> {
         Box::new(NeuralNetEval {
-            hidden_nodes_white: A64([[0; HL1_HALF_NODES]; BUCKETS]),
-            hidden_nodes_black: A64([[0; HL1_HALF_NODES]; BUCKETS]),
+            hidden_nodes_white: A64([[0; HL1_NODES]; BUCKETS * 2]),
+            hidden_nodes_black: A64([[0; HL1_NODES]; BUCKETS * 2]),
 
-            bb_white: [BitBoards::default(); BUCKETS],
-            bb_black: [BitBoards::default(); BUCKETS],
+            bb_white: [BitBoards::default(); BUCKETS * 2],
+            bb_black: [BitBoards::default(); BUCKETS * 2],
 
-            white_offsets: [0; BUCKETS],
-            black_offsets: [0; BUCKETS],
-
-            white_xor: [0; BUCKETS],
-            black_xor: [0; BUCKETS],
-
-            white_bucket: 0,
-            black_bucket: 0,
+            white_acc_bucket: 0,
+            black_acc_bucket: 0,
 
             white_offset: 0,
             black_offset: 0,
@@ -98,92 +85,125 @@ impl NeuralNetEval {
 
     pub fn init_pos(&mut self, bitboards: &BitBoards, white_king: i8, black_king: i8) {
         self.updates.clear();
-        for buckets in 0..BUCKETS {
+        for buckets in 0..(BUCKETS * 2) {
             self.hidden_nodes_white.0[buckets].fill(0);
             self.hidden_nodes_black.0[buckets].fill(0);
             self.bb_white[buckets] = BitBoards::default();
             self.bb_black[buckets] = BitBoards::default();
         }
 
-        let (white_bucket, black_bucket, xor_white_pov, xor_black_pov, white_offset, black_offset) =
-            calc_bucket_offsets(bitboards, white_king, black_king);
+        let (white_acc_bucket, black_acc_bucket, xor_white_pov, xor_black_pov, white_offset, black_offset) =
+            calc_bucket_offsets(white_king, black_king);
 
-        self.update_white_pov(bitboards, white_bucket, xor_white_pov, white_offset);
-        self.update_black_pov(bitboards, black_bucket, xor_black_pov, black_offset);
+        self.update_white_pov(bitboards, white_acc_bucket, xor_white_pov, white_offset);
+        self.update_black_pov(bitboards, black_acc_bucket, xor_black_pov, black_offset);
     }
 
     fn update_white_pov(
-        &mut self, bitboards: &BitBoards, white_bucket: usize, xor_white_pov: usize, white_offset: usize,
+        &mut self, bitboards: &BitBoards, white_acc_bucket: usize, xor_white_pov: usize, white_offset: usize,
     ) {
-        if self.white_offsets[white_bucket] != white_offset || self.white_xor[white_bucket] != xor_white_pov {
-            self.hidden_nodes_white.0[white_bucket].fill(0);
-            self.bb_white[white_bucket] = BitBoards::default();
-        }
-
-        self.white_offsets[white_bucket] = white_offset;
-        self.white_xor[white_bucket] = xor_white_pov;
-        self.white_bucket = white_bucket;
+        self.white_acc_bucket = white_acc_bucket;
         self.xor_white_pov = xor_white_pov;
         self.white_offset = white_offset;
 
-        for piece in 1..=6 {
-            let now = bitboards.by_piece(piece);
-            let prev = self.bb_white.el(white_bucket).by_piece(piece);
-            let piece_offset = self.calc_wpov_piece_offset(piece);
-            for pos in prev & !now {
-                self.remove_piece_now_wpov(pos as usize, piece_offset);
-            }
-            for pos in now & !prev {
-                self.add_piece_now_wpov(pos as usize, piece_offset);
-            }
+        let full_refresh_cost = bitboards.occupancy().piece_count();
+        let delta_sub = self.bb_white[white_acc_bucket].occupancy() & !bitboards.occupancy();
+        let delta_add = bitboards.occupancy() & !self.bb_white[white_acc_bucket].occupancy();
+        let delta_cost = delta_sub.piece_count() + delta_add.piece_count();
 
-            let now = bitboards.by_piece(-piece);
-            let prev = self.bb_white.el(white_bucket).by_piece(-piece);
-            let piece_offset = self.calc_wpov_piece_offset(-piece);
-            for pos in prev & !now {
-                self.remove_piece_now_wpov(pos as usize, piece_offset);
+        if delta_cost < full_refresh_cost {
+            for piece in 1..=6 {
+                let now = bitboards.by_piece(piece);
+                let prev = self.bb_white.el(white_acc_bucket).by_piece(piece);
+                let piece_offset = self.calc_wpov_piece_offset(piece);
+                for pos in prev & !now {
+                    self.remove_piece_now_wpov(pos as usize, piece_offset);
+                }
+                for pos in now & !prev {
+                    self.add_piece_now_wpov(pos as usize, piece_offset);
+                }
+
+                let now = bitboards.by_piece(-piece);
+                let prev = self.bb_white.el(white_acc_bucket).by_piece(-piece);
+                let piece_offset = self.calc_wpov_piece_offset(-piece);
+                for pos in prev & !now {
+                    self.remove_piece_now_wpov(pos as usize, piece_offset);
+                }
+                for pos in now & !prev {
+                    self.add_piece_now_wpov(pos as usize, piece_offset);
+                }
             }
-            for pos in now & !prev {
-                self.add_piece_now_wpov(pos as usize, piece_offset);
+        } else {
+            self.hidden_nodes_white.0[white_acc_bucket].fill(0);
+            for piece in 1..=6 {
+                let now = bitboards.by_piece(piece);
+                let piece_offset = self.calc_wpov_piece_offset(piece);
+                for pos in now {
+                    self.add_piece_now_wpov(pos as usize, piece_offset);
+                }
+
+                let now = bitboards.by_piece(-piece);
+                let piece_offset = self.calc_wpov_piece_offset(-piece);
+                for pos in now {
+                    self.add_piece_now_wpov(pos as usize, piece_offset);
+                }
             }
         }
+
+        self.bb_white[white_acc_bucket] = *bitboards;
     }
 
     fn update_black_pov(
-        &mut self, bitboards: &BitBoards, black_bucket: usize, xor_black_pov: usize, black_offset: usize,
+        &mut self, bitboards: &BitBoards, black_acc_bucket: usize, xor_black_pov: usize, black_offset: usize,
     ) {
-        if self.black_xor[black_bucket] != xor_black_pov || self.black_offsets[black_bucket] != black_offset {
-            self.hidden_nodes_black.0[black_bucket].fill(0);
-            self.bb_black[black_bucket] = BitBoards::default();
-        }
-
-        self.black_offsets[black_bucket] = black_offset;
-        self.black_xor[black_bucket] = xor_black_pov;
-        self.black_bucket = black_bucket;
+        self.black_acc_bucket = black_acc_bucket;
         self.xor_black_pov = xor_black_pov;
         self.black_offset = black_offset;
 
-        for piece in 1..=6 {
-            let now = bitboards.by_piece(piece);
-            let prev = self.bb_black.el(black_bucket).by_piece(piece);
-            let piece_offset = self.calc_bpov_piece_offset(piece);
-            for pos in prev & !now {
-                self.remove_piece_now_bpov(pos as usize, piece_offset);
-            }
-            for pos in now & !prev {
-                self.add_piece_now_bpov(pos as usize, piece_offset);
-            }
+        let full_refresh_cost = bitboards.occupancy().piece_count();
+        let delta_sub = self.bb_black[black_acc_bucket].occupancy() & !bitboards.occupancy();
+        let delta_add = bitboards.occupancy() & !self.bb_black[black_acc_bucket].occupancy();
+        let delta_cost = delta_sub.piece_count() + delta_add.piece_count();
 
-            let now = bitboards.by_piece(-piece);
-            let prev = self.bb_black.el(black_bucket).by_piece(-piece);
-            let piece_offset = self.calc_bpov_piece_offset(-piece);
-            for pos in prev & !now {
-                self.remove_piece_now_bpov(pos as usize, piece_offset);
+        if delta_cost < full_refresh_cost {
+            for piece in 1..=6 {
+                let now = bitboards.by_piece(piece);
+                let prev = self.bb_black.el(black_acc_bucket).by_piece(piece);
+                let piece_offset = self.calc_bpov_piece_offset(piece);
+                for pos in prev & !now {
+                    self.remove_piece_now_bpov(pos as usize, piece_offset);
+                }
+                for pos in now & !prev {
+                    self.add_piece_now_bpov(pos as usize, piece_offset);
+                }
+
+                let now = bitboards.by_piece(-piece);
+                let prev = self.bb_black.el(black_acc_bucket).by_piece(-piece);
+                let piece_offset = self.calc_bpov_piece_offset(-piece);
+                for pos in prev & !now {
+                    self.remove_piece_now_bpov(pos as usize, piece_offset);
+                }
+                for pos in now & !prev {
+                    self.add_piece_now_bpov(pos as usize, piece_offset);
+                }
             }
-            for pos in now & !prev {
-                self.add_piece_now_bpov(pos as usize, piece_offset);
+        } else {
+            self.hidden_nodes_black.0[black_acc_bucket].fill(0);
+            for piece in 1..=6 {
+                let now = bitboards.by_piece(piece);
+                let piece_offset = self.calc_bpov_piece_offset(piece);
+                for pos in now {
+                    self.add_piece_now_bpov(pos as usize, piece_offset);
+                }
+                let now = bitboards.by_piece(-piece);
+                let piece_offset = self.calc_bpov_piece_offset(-piece);
+                for pos in now {
+                    self.add_piece_now_bpov(pos as usize, piece_offset);
+                }
             }
         }
+
+        self.bb_black[black_acc_bucket] = *bitboards;
     }
 
     pub fn start_move(&mut self) {
@@ -252,30 +272,30 @@ impl NeuralNetEval {
 
     fn add_piece_now_wpov(&mut self, pos: usize, piece_offset: usize) {
         let white_pov_idx = piece_offset + (pos ^ self.xor_white_pov);
-        add_weights::<HL1_HALF_NODES>(self.hidden_nodes_white_mut(), &IN_TO_H1_WEIGHTS.0, white_pov_idx);
+        add_weights::<HL1_NODES>(self.hidden_nodes_white_mut(), &IN_TO_H1_WEIGHTS.0, white_pov_idx);
     }
 
     fn add_piece_now_bpov(&mut self, pos: usize, piece_offset: usize) {
         let black_pov_idx = piece_offset + (pos ^ self.xor_black_pov);
-        add_weights::<HL1_HALF_NODES>(self.hidden_nodes_black_mut(), &IN_TO_H1_WEIGHTS.0, black_pov_idx);
+        add_weights::<HL1_NODES>(self.hidden_nodes_black_mut(), &IN_TO_H1_WEIGHTS.0, black_pov_idx);
     }
 
     fn remove_piece_now_wpov(&mut self, pos: usize, piece_offset: usize) {
         let white_pov_idx = piece_offset + (pos ^ self.xor_white_pov);
-        sub_weights::<HL1_HALF_NODES>(self.hidden_nodes_white_mut(), &IN_TO_H1_WEIGHTS.0, white_pov_idx);
+        sub_weights::<HL1_NODES>(self.hidden_nodes_white_mut(), &IN_TO_H1_WEIGHTS.0, white_pov_idx);
     }
 
     fn remove_piece_now_bpov(&mut self, pos: usize, piece_offset: usize) {
         let black_pov_idx = piece_offset + (pos ^ self.xor_black_pov);
-        sub_weights::<HL1_HALF_NODES>(self.hidden_nodes_black_mut(), &IN_TO_H1_WEIGHTS.0, black_pov_idx);
+        sub_weights::<HL1_NODES>(self.hidden_nodes_black_mut(), &IN_TO_H1_WEIGHTS.0, black_pov_idx);
     }
 
     fn hidden_nodes_black_mut(&mut self) -> &mut HiddenNodes {
-        self.hidden_nodes_black.0.el_mut(self.black_bucket)
+        self.hidden_nodes_black.0.el_mut(self.black_acc_bucket)
     }
 
     fn hidden_nodes_white_mut(&mut self) -> &mut HiddenNodes {
-        self.hidden_nodes_white.0.el_mut(self.white_bucket)
+        self.hidden_nodes_white.0.el_mut(self.white_acc_bucket)
     }
 
     fn calc_pov_weight_start(&self, pos: usize, piece: i8) -> (usize, usize) {
@@ -335,36 +355,32 @@ impl NeuralNetEval {
         self.apply_updates(bitboards, white_king, black_king);
 
         let (own_hidden_nodes, opp_hidden_nodes) = if active_player.is_white() {
-            (&self.hidden_nodes_white.0[self.white_bucket], &self.hidden_nodes_black.0[self.black_bucket])
+            (&self.hidden_nodes_white.0[self.white_acc_bucket], &self.hidden_nodes_black.0[self.black_acc_bucket])
         } else {
-            (&self.hidden_nodes_black.0[self.black_bucket], &self.hidden_nodes_white.0[self.white_bucket])
+            (&self.hidden_nodes_black.0[self.black_acc_bucket], &self.hidden_nodes_white.0[self.white_acc_bucket])
         };
 
         let raw_output = forward_pass(own_hidden_nodes, opp_hidden_nodes) as i64;
         let output = (raw_output
-            + (*OUT_BIASES.0.el(0) as i64 * FP_OUT_MULTIPLIER))
-            / (FP_OUT_MULTIPLIER * FP_OUT_MULTIPLIER / SCORE_SCALE as i64);
+            + (*OUT_BIASES.0.el(0) as i64 * FP_OUT_MULTIPLIER * FP_OUT_MULTIPLIER))
+            / (FP_OUT_MULTIPLIER * FP_OUT_MULTIPLIER * FP_OUT_MULTIPLIER / SCORE_SCALE as i64);
 
         scale_eval(output as i32)
     }
 
     fn apply_updates(&mut self, bitboards: &BitBoards, white_king: i8, black_king: i8) {
-        let (white_bucket, black_bucket, xor_white_pov, xor_black_pov, white_offset, black_offset) =
-            calc_bucket_offsets(bitboards, white_king, black_king);
+        let (white_acc_bucket, black_acc_bucket, xor_white_pov, xor_black_pov, white_offset, black_offset) =
+            calc_bucket_offsets(white_king, black_king);
 
-        let refresh_wpov = white_bucket != self.white_bucket
-            || xor_white_pov != self.xor_white_pov
-            || white_offset != self.white_offset;
-        let refresh_bpov = black_bucket != self.black_bucket
-            || xor_black_pov != self.xor_black_pov
-            || black_offset != self.black_offset;
+        let refresh_wpov = white_acc_bucket != self.white_acc_bucket;
+        let refresh_bpov = black_acc_bucket != self.black_acc_bucket;
 
         if refresh_wpov {
-            self.update_white_pov(bitboards, white_bucket, xor_white_pov, white_offset);
+            self.update_white_pov(bitboards, white_acc_bucket, xor_white_pov, white_offset);
         }
 
         if refresh_bpov {
-            self.update_black_pov(bitboards, black_bucket, xor_black_pov, black_offset);
+            self.update_black_pov(bitboards, black_acc_bucket, xor_black_pov, black_offset);
         }
 
         if !refresh_wpov && !refresh_bpov {
@@ -374,14 +390,15 @@ impl NeuralNetEval {
                         let (rem_white_pov_idx, rem_black_pov_idx) = self.calc_pov_weight_start(rem_pos, rem_piece);
                         let (add_white_pov_idx, add_black_pov_idx) = self.calc_pov_weight_start(add_pos, add_piece);
 
-                        sub_add_weights::<HL1_HALF_NODES>(
-                            self.hidden_nodes_white.0.el_mut(self.white_bucket),
+                        sub_add_weights::<HL1_NODES>(
+                            self.hidden_nodes_white.0.el_mut(self.white_acc_bucket),
                             &IN_TO_H1_WEIGHTS.0,
                             rem_white_pov_idx,
                             add_white_pov_idx,
                         );
-                        sub_add_weights::<HL1_HALF_NODES>(
-                            self.hidden_nodes_black.0.el_mut(self.black_bucket),
+
+                        sub_add_weights::<HL1_NODES>(
+                            self.hidden_nodes_black.0.el_mut(self.black_acc_bucket),
                             &IN_TO_H1_WEIGHTS.0,
                             rem_black_pov_idx,
                             add_black_pov_idx,
@@ -393,15 +410,16 @@ impl NeuralNetEval {
                         let (rem2_white_pov_idx, rem2_black_pov_idx) = self.calc_pov_weight_start(rem2_pos, rem2_piece);
                         let (add_white_pov_idx, add_black_pov_idx) = self.calc_pov_weight_start(add_pos, add_piece);
 
-                        sub_sub_add_weights::<HL1_HALF_NODES>(
-                            self.hidden_nodes_white.0.el_mut(self.white_bucket),
+                        sub_sub_add_weights::<HL1_NODES>(
+                            self.hidden_nodes_white.0.el_mut(self.white_acc_bucket),
                             &IN_TO_H1_WEIGHTS.0,
                             rem1_white_pov_idx,
                             rem2_white_pov_idx,
                             add_white_pov_idx,
                         );
-                        sub_sub_add_weights::<HL1_HALF_NODES>(
-                            self.hidden_nodes_black.0.el_mut(self.black_bucket),
+
+                        sub_sub_add_weights::<HL1_NODES>(
+                            self.hidden_nodes_black.0.el_mut(self.black_acc_bucket),
                             &IN_TO_H1_WEIGHTS.0,
                             rem1_black_pov_idx,
                             rem2_black_pov_idx,
@@ -414,15 +432,16 @@ impl NeuralNetEval {
                         let (add1_white_pov_idx, add1_black_pov_idx) = self.calc_pov_weight_start(add1_pos, add1_piece);
                         let (add2_white_pov_idx, add2_black_pov_idx) = self.calc_pov_weight_start(add2_pos, add2_piece);
 
-                        sub_add_add_weights::<HL1_HALF_NODES>(
-                            self.hidden_nodes_white.0.el_mut(self.white_bucket),
+                        sub_add_add_weights::<HL1_NODES>(
+                            self.hidden_nodes_white.0.el_mut(self.white_acc_bucket),
                             &IN_TO_H1_WEIGHTS.0,
                             rem_white_pov_idx,
                             add1_white_pov_idx,
                             add2_white_pov_idx,
                         );
-                        sub_add_add_weights::<HL1_HALF_NODES>(
-                            self.hidden_nodes_black.0.el_mut(self.black_bucket),
+
+                        sub_add_add_weights::<HL1_NODES>(
+                            self.hidden_nodes_black.0.el_mut(self.black_acc_bucket),
                             &IN_TO_H1_WEIGHTS.0,
                             rem_black_pov_idx,
                             add1_black_pov_idx,
@@ -438,8 +457,8 @@ impl NeuralNetEval {
                         let rem_white_pov_idx = self.calc_wpov_weight_start(rem_pos, rem_piece);
                         let add_white_pov_idx = self.calc_wpov_weight_start(add_pos, add_piece);
 
-                        sub_add_weights::<HL1_HALF_NODES>(
-                            self.hidden_nodes_white.0.el_mut(self.white_bucket),
+                        sub_add_weights::<HL1_NODES>(
+                            self.hidden_nodes_white.0.el_mut(self.white_acc_bucket),
                             &IN_TO_H1_WEIGHTS.0,
                             rem_white_pov_idx,
                             add_white_pov_idx,
@@ -451,8 +470,8 @@ impl NeuralNetEval {
                         let rem2_white_pov_idx = self.calc_wpov_weight_start(rem2_pos, rem2_piece);
                         let add_white_pov_idx = self.calc_wpov_weight_start(add_pos, add_piece);
 
-                        sub_sub_add_weights::<HL1_HALF_NODES>(
-                            self.hidden_nodes_white.0.el_mut(self.white_bucket),
+                        sub_sub_add_weights::<HL1_NODES>(
+                            self.hidden_nodes_white.0.el_mut(self.white_acc_bucket),
                             &IN_TO_H1_WEIGHTS.0,
                             rem1_white_pov_idx,
                             rem2_white_pov_idx,
@@ -465,8 +484,8 @@ impl NeuralNetEval {
                         let add1_white_pov_idx = self.calc_wpov_weight_start(add1_pos, add1_piece);
                         let add2_white_pov_idx = self.calc_wpov_weight_start(add2_pos, add2_piece);
 
-                        sub_add_add_weights::<HL1_HALF_NODES>(
-                            self.hidden_nodes_white.0.el_mut(self.white_bucket),
+                        sub_add_add_weights::<HL1_NODES>(
+                            self.hidden_nodes_white.0.el_mut(self.white_acc_bucket),
                             &IN_TO_H1_WEIGHTS.0,
                             rem_white_pov_idx,
                             add1_white_pov_idx,
@@ -482,8 +501,8 @@ impl NeuralNetEval {
                         let rem_black_pov_idx = self.calc_bpov_weight_start(rem_pos, rem_piece);
                         let add_black_pov_idx = self.calc_bpov_weight_start(add_pos, add_piece);
 
-                        sub_add_weights::<HL1_HALF_NODES>(
-                            self.hidden_nodes_black.0.el_mut(self.black_bucket),
+                        sub_add_weights::<HL1_NODES>(
+                            self.hidden_nodes_black.0.el_mut(self.black_acc_bucket),
                             &IN_TO_H1_WEIGHTS.0,
                             rem_black_pov_idx,
                             add_black_pov_idx,
@@ -495,8 +514,8 @@ impl NeuralNetEval {
                         let rem2_black_pov_idx = self.calc_bpov_weight_start(rem2_pos, rem2_piece);
                         let add_black_pov_idx = self.calc_bpov_weight_start(add_pos, add_piece);
 
-                        sub_sub_add_weights::<HL1_HALF_NODES>(
-                            self.hidden_nodes_black.0.el_mut(self.black_bucket),
+                        sub_sub_add_weights::<HL1_NODES>(
+                            self.hidden_nodes_black.0.el_mut(self.black_acc_bucket),
                             &IN_TO_H1_WEIGHTS.0,
                             rem1_black_pov_idx,
                             rem2_black_pov_idx,
@@ -509,8 +528,8 @@ impl NeuralNetEval {
                         let add1_black_pov_idx = self.calc_bpov_weight_start(add1_pos, add1_piece);
                         let add2_black_pov_idx = self.calc_bpov_weight_start(add2_pos, add2_piece);
 
-                        sub_add_add_weights::<HL1_HALF_NODES>(
-                            self.hidden_nodes_black.0.el_mut(self.black_bucket),
+                        sub_add_add_weights::<HL1_NODES>(
+                            self.hidden_nodes_black.0.el_mut(self.black_acc_bucket),
                             &IN_TO_H1_WEIGHTS.0,
                             rem_black_pov_idx,
                             add1_black_pov_idx,
@@ -520,8 +539,8 @@ impl NeuralNetEval {
                 }
             }
         }
-        self.bb_white[self.white_bucket] = *bitboards;
-        self.bb_black[self.black_bucket] = *bitboards;
+        self.bb_white[self.white_acc_bucket] = *bitboards;
+        self.bb_black[self.black_acc_bucket] = *bitboards;
         self.updates.clear();
         self.fast_undo = false;
         self.move_id = 0;
@@ -546,69 +565,44 @@ fn scale_eval(mut score: i32) -> i16 {
     sanitize_eval_score(score) as i16
 }
 
-fn calc_bucket_offsets(
-    bitboards: &BitBoards, mut white_king: i8, mut black_king: i8,
-) -> (usize, usize, usize, usize, usize, usize) {
+fn calc_bucket_offsets(mut white_king: i8, mut black_king: i8) -> ( usize, usize, usize, usize, usize, usize) {
     let white_king_col = white_king & 7;
     let black_king_col = black_king & 7;
 
     let mirror_white_pov = white_king_col > 3;
     let mirror_black_pov = black_king_col > 3;
 
-    let no_pawns = (bitboards.by_piece(P) | bitboards.by_piece(-P)).is_empty();
-    let v_mirror_white_pov = no_pawns && (white_king / 8) > 3;
-    let v_mirror_black_pov = no_pawns && (v_mirror_i8(black_king)) / 8 > 3;
-
     let mut xor_white_pov = 0;
-    let mut xor_black_pov = 0;
+    let mut xor_black_pov = 56;
+    let mut w_acc_bucket = 0;
+    let mut b_acc_bucket = 0;
     if mirror_white_pov {
         xor_white_pov |= 7;
-    }
-    if v_mirror_white_pov {
-        xor_white_pov |= 56;
+        w_acc_bucket = BUCKETS;
     }
 
     if mirror_black_pov {
         xor_black_pov |= 7;
-    }
-
-    if !v_mirror_black_pov {
-        xor_black_pov |= 56;
+        b_acc_bucket = BUCKETS;
     }
 
     white_king ^= xor_white_pov as i8;
     black_king ^= xor_black_pov as i8;
 
-    let w_bucket = king_bucket(white_king as u16) as usize;
-    let b_bucket = king_bucket(black_king as u16) as usize;
+    let w_nn_bucket = king_bucket(white_king as u16) as usize;
+    let b_nn_bucket = king_bucket(black_king as u16) as usize;
+
+    w_acc_bucket += w_nn_bucket;
+    b_acc_bucket += b_nn_bucket;
     const BASE_OFFSET: usize = 0;
-    let (white_offset, black_offset) = (BASE_OFFSET + w_bucket * BUCKET_SIZE, BASE_OFFSET + b_bucket * BUCKET_SIZE);
+    let (white_offset, black_offset) = (BASE_OFFSET + w_nn_bucket * BUCKET_SIZE, BASE_OFFSET + b_nn_bucket * BUCKET_SIZE);
 
-    (w_bucket, b_bucket, xor_white_pov, xor_black_pov, white_offset, black_offset)
-}
-
-pub fn forward_pass(own_nodes: &[i16], opp_nodes: &[i16]) -> i32 {
-    // H1 to ML
-    let mut out_accum = zero();
-    for i in (0..HL1_HALF_NODES).step_by(WORDS_PER_REG) {
-        out_accum = calc_hidden_layer(out_accum, own_nodes, i, 0);
-        out_accum = calc_hidden_layer(out_accum, opp_nodes, i, HL1_HALF_NODES);
-    }
-
-    horizontal_sum_32(out_accum)
-}
-
-pub fn calc_hidden_layer(accum: Accum, nodes: &[i16], i: usize, offset: usize) -> Accum {
-    let h1 = load_i16(nodes, i);
-    let h1_bias = load_i8(&H1_BIASES.0, i + offset);
-    let h1_relu = square(clipped_relu(add_epi16(h1, h1_bias)));
-    let w = load_i16(&H1_TO_OUT_WEIGHTS.0, i + offset);
-    multiply_add_epi16(accum, h1_relu, w)
+    (w_acc_bucket, b_acc_bucket, xor_white_pov, xor_black_pov, white_offset, black_offset)
 }
 
 pub fn add_weights<const N: usize>(nodes: &mut [i16], weights: &[i8], weight_idx: usize) {
     let weight_offset = weight_idx * N;
-    for i in (0..N).step_by(WORDS_PER_REG) {
+    for i in (0..N).step_by(VALUES_PER_REG) {
         let w = load_i8(weights, weight_offset + i);
         let n = load_i16(nodes, i);
         store_i16(nodes, i, add_epi16(n, w));
@@ -617,7 +611,7 @@ pub fn add_weights<const N: usize>(nodes: &mut [i16], weights: &[i8], weight_idx
 
 pub fn sub_weights<const N: usize>(nodes: &mut [i16], weights: &[i8], weight_idx: usize) {
     let weight_offset = weight_idx * N;
-    for i in (0..N).step_by(WORDS_PER_REG) {
+    for i in (0..N).step_by(VALUES_PER_REG) {
         let w = load_i8(weights, weight_offset + i);
         let n = load_i16(nodes, i);
         store_i16(nodes, i, sub_epi16(n, w));
@@ -629,7 +623,7 @@ pub fn sub_add_weights<const N: usize>(
 ) {
     let sub_weight_offset = sub_weight_idx * N;
     let add_weight_offset = add_weight_idx * N;
-    for i in (0..N).step_by(WORDS_PER_REG) {
+    for i in (0..N).step_by(VALUES_PER_REG) {
         let sub_w = load_i8(weights, sub_weight_offset + i);
         let add_w = load_i8(weights, add_weight_offset + i);
         let n = load_i16(nodes, i);
@@ -643,7 +637,7 @@ pub fn sub_sub_add_weights<const N: usize>(
     let sub1_weight_offset = sub1_weight_idx * N;
     let sub2_weight_offset = sub2_weight_idx * N;
     let add_weight_offset = add_weight_idx * N;
-    for i in (0..N).step_by(WORDS_PER_REG) {
+    for i in (0..N).step_by(VALUES_PER_REG) {
         let sub1_w = load_i8(weights, sub1_weight_offset + i);
         let sub2_w = load_i8(weights, sub2_weight_offset + i);
         let add_w = load_i8(weights, add_weight_offset + i);
@@ -658,7 +652,7 @@ pub fn sub_add_add_weights<const N: usize>(
     let sub_weight_offset = sub_weight_idx * N;
     let add1_weight_offset = add1_weight_idx * N;
     let add2_weight_offset = add2_weight_idx * N;
-    for i in (0..N).step_by(WORDS_PER_REG) {
+    for i in (0..N).step_by(VALUES_PER_REG) {
         let sub_w = load_i8(weights, sub_weight_offset + i);
         let add1_w = load_i8(weights, add1_weight_offset + i);
         let add2_w = load_i8(weights, add2_weight_offset + i);
@@ -670,42 +664,60 @@ pub fn sub_add_add_weights<const N: usize>(
 // AVX-512
 #[cfg(all(target_arch = "x86_64", target_feature = "avx512f", feature="avx512"))]
 mod base {
-    use crate::nn::{FP_IN_PRECISION_BITS, FP_MAX_RELU, FP_OUT_PRECISION_BITS};
     use core::arch::x86_64::*;
+    use crate::nn::{H1_BIASES, H1_TO_OUT_WEIGHTS, HL1_HALF_NODES, HL1_NODES};
 
-    pub const WORDS_PER_REG: usize = size_of::<__m512i>() / 2;
+    pub const VALUES_PER_REG: usize = size_of::<__m512i>() / 2;
 
-    pub type Accum = __m512i;
-
-    pub fn zero() -> __m512i {
+    fn zero() -> __m512i {
         unsafe { _mm512_setzero_si512() }
     }
 
-    pub fn horizontal_sum_32(v: __m512i) -> i32 {
+    pub fn forward_pass(own_nodes: &[i16], opp_nodes: &[i16]) -> i32 {
+        let mut out_accum = zero();
+        let mut wi = 0;
+        for ni in (0..HL1_NODES).step_by(VALUES_PER_REG * 2) {
+            let v = add_epi32(
+                calc_hidden_layer(own_nodes, ni, wi, 0),
+                calc_hidden_layer(opp_nodes, ni, wi + HL1_HALF_NODES, HL1_NODES),
+            );
+            out_accum = add_epi32(out_accum, v);
+            wi += VALUES_PER_REG;
+        }
+
+        horizontal_sum_32(out_accum)
+    }
+
+    #[inline(always)]
+    fn calc_hidden_layer(nodes: &[i16], ni: usize, wi: usize, offset: usize) -> __m512i {
+        let h1a = load_i16(nodes, ni);
+        let h1b = load_i16(nodes, ni + VALUES_PER_REG);
+
+        let h1a_bias = load_i8(&H1_BIASES.0, ni + offset);
+        let h1b_bias = load_i8(&H1_BIASES.0, ni + offset + VALUES_PER_REG);
+
+        let w1 = load_i8(&H1_TO_OUT_WEIGHTS.0, wi);
+
+        let h1a_relu = clipped_relu::<255>(add_epi16(h1a, h1a_bias));
+        let h1b_relu = clipped_relu::<255>(add_epi16(h1b, h1b_bias));
+
+        let w1_x_h1a = unsafe { _mm512_mullo_epi16(w1, h1a_relu) };
+
+        madd_epi16(w1_x_h1a, h1b_relu)
+    }
+
+    #[inline(always)]
+    fn clipped_relu<const C: i16>(v: __m512i) -> __m512i {
+        unsafe {
+            let relu = _mm512_max_epi16(v, _mm512_setzero_si512());
+            _mm512_min_epu16(relu, _mm512_set1_epi16(C))
+        }
+    }
+
+    fn horizontal_sum_32(v: __m512i) -> i32 {
         unsafe { _mm512_reduce_add_epi32(v) }
     }
 
-    pub fn multiply_add_epi16(accum: __m512i, factor1: __m512i, factor2: __m512i) -> __m512i {
-        unsafe {
-            let mul = _mm512_madd_epi16(factor1, factor2);
-            _mm512_add_epi32(accum, mul)
-        }
-    }
-
-    pub fn clipped_relu(v: __m512i) -> __m512i {
-        unsafe {
-            let relu = _mm512_max_epi16(v, _mm512_setzero_si512());
-            _mm512_min_epu16(relu, _mm512_set1_epi16(FP_MAX_RELU))
-        }
-    }
-
-    pub fn square(v: __m512i) -> __m512i {
-        unsafe {
-            let v_scaled =
-                _mm512_slli_epi16::<{ (FP_OUT_PRECISION_BITS as u32 + 16) / 2 - FP_IN_PRECISION_BITS as u32 }>(v);
-            _mm512_mulhi_epu16(v_scaled, v_scaled)
-        }
-    }
 
     pub fn load_i16(data: &[i16], offset: usize) -> __m512i {
         unsafe { _mm512_load_si512(data.as_ptr().add(offset).cast()) }
@@ -726,6 +738,14 @@ mod base {
     pub fn sub_epi16(a: __m512i, b: __m512i) -> __m512i {
         unsafe { _mm512_sub_epi16(a, b) }
     }
+
+    fn add_epi32(a: __m512i, b: __m512i) -> __m512i {
+        unsafe { _mm512_add_epi32(a, b) }
+    }
+
+    fn madd_epi16(a: __m512i, b: __m512i) -> __m512i {
+        unsafe { _mm512_madd_epi16(a, b) }
+    }
 }
 
 // AVX-2
@@ -735,18 +755,57 @@ mod base {
     not(any(all(target_feature = "avx512f", feature="avx512"), target_feature = "neon"))
 ))]
 mod base {
-    use crate::nn::{FP_IN_PRECISION_BITS, FP_MAX_RELU, FP_OUT_PRECISION_BITS};
+    use crate::nn::{H1_BIASES, H1_TO_OUT_WEIGHTS, HL1_HALF_NODES, HL1_NODES};
     use core::arch::x86_64::*;
 
-    pub const WORDS_PER_REG: usize = size_of::<__m256i>() / 2;
+    pub const VALUES_PER_REG: usize = size_of::<__m256i>() / 2;
 
-    pub type Accum = __m256i;
+    pub fn forward_pass(own_nodes: &[i16], opp_nodes: &[i16]) -> i32 {
+        let mut out_accum = zero();
+        let mut wi = 0;
+        for ni in (0..HL1_NODES).step_by(VALUES_PER_REG * 4) {
+            let v = add_epi32(
+                calc_hidden_layer(own_nodes, ni, wi, 0),
+                calc_hidden_layer(opp_nodes, ni, wi + HL1_HALF_NODES, HL1_NODES),
+            );
+            out_accum = add_epi32(out_accum, v);
+            wi += VALUES_PER_REG * 2;
+        }
 
-    pub fn zero() -> __m256i {
-        unsafe { _mm256_setzero_si256() }
+        horizontal_sum_32(out_accum)
     }
 
-    pub fn horizontal_sum_32(v: __m256i) -> i32 {
+    #[inline(always)]
+    fn calc_hidden_layer(nodes: &[i16], ni: usize, wi: usize, offset: usize) -> __m256i {
+        let h1a = load_i16(nodes, ni);
+        let h2a = load_i16(nodes, ni + VALUES_PER_REG);
+        let h1b = load_i16(nodes, ni + VALUES_PER_REG * 2);
+        let h2b = load_i16(nodes, ni + VALUES_PER_REG * 3);
+
+        let h1a_bias = load_i8(&H1_BIASES.0, ni + offset);
+        let h2a_bias = load_i8(&H1_BIASES.0, ni + offset + VALUES_PER_REG);
+        let h1b_bias = load_i8(&H1_BIASES.0, ni + offset + VALUES_PER_REG * 2);
+        let h2b_bias = load_i8(&H1_BIASES.0, ni + offset + VALUES_PER_REG * 3);
+
+        let w1 = load_i8(&H1_TO_OUT_WEIGHTS.0, wi);
+        let w2 = load_i8(&H1_TO_OUT_WEIGHTS.0, wi + VALUES_PER_REG);
+
+        let h1a_relu = clipped_relu::<255>(add_epi16(h1a, h1a_bias));
+        let h2a_relu = clipped_relu::<255>(add_epi16(h2a, h2a_bias));
+
+        let h1b_relu = clipped_relu::<255>(add_epi16(h1b, h1b_bias));
+        let h2b_relu = clipped_relu::<255>(add_epi16(h2b, h2b_bias));
+
+        let w1_x_h1a = unsafe { _mm256_mullo_epi16(w1, h1a_relu) };
+        let w2_x_h2a = unsafe { _mm256_mullo_epi16(w2, h2a_relu) };
+
+        add_epi32(
+            madd_epi16(w1_x_h1a, h1b_relu),
+            madd_epi16(w2_x_h2a, h2b_relu),
+        )
+    }
+
+    fn horizontal_sum_32(v: __m256i) -> i32 {
         unsafe {
             let sum = _mm256_hadd_epi32(v, v);
             let sum = _mm256_hadd_epi32(sum, sum);
@@ -754,25 +813,17 @@ mod base {
         }
     }
 
-    pub fn multiply_add_epi16(accum: __m256i, factor1: __m256i, factor2: __m256i) -> __m256i {
-        unsafe { _mm256_add_epi32(accum, _mm256_madd_epi16(factor1, factor2)) }
+    fn zero() -> __m256i {
+        unsafe { _mm256_setzero_si256() }
     }
 
-    pub fn square(v: __m256i) -> __m256i {
-        unsafe {
-            let v_scaled =
-                _mm256_slli_epi16::<{ (FP_OUT_PRECISION_BITS as i32 + 16) / 2 - FP_IN_PRECISION_BITS as i32 }>(v);
-            _mm256_mulhi_epu16(v_scaled, v_scaled)
-        }
-    }
-
-    pub fn clipped_relu(v: __m256i) -> __m256i {
+    fn clipped_relu<const C: i16>(v: __m256i) -> __m256i {
         unsafe {
             let relu = _mm256_max_epi16(v, _mm256_setzero_si256());
-            _mm256_min_epu16(relu, _mm256_set1_epi16(FP_MAX_RELU))
+            _mm256_min_epu16(relu, _mm256_set1_epi16(C))
         }
     }
-
+    
     pub fn load_i8(data: &[i8], offset: usize) -> __m256i {
         unsafe { _mm256_cvtepi8_epi16(_mm_load_si128(data.as_ptr().add(offset).cast())) }
     }
@@ -792,6 +843,14 @@ mod base {
     pub fn sub_epi16(a: __m256i, b: __m256i) -> __m256i {
         unsafe { _mm256_sub_epi16(a, b) }
     }
+
+    fn add_epi32(a: __m256i, b: __m256i) -> __m256i {
+        unsafe { _mm256_add_epi32(a, b) }
+    }
+
+    fn madd_epi16(a: __m256i, b: __m256i) -> __m256i {
+        unsafe { _mm256_madd_epi16(a, b) }
+    }
 }
 
 // SSE-4.1
@@ -801,37 +860,90 @@ mod base {
     not(any(target_feature = "avx2", target_feature = "avx512f", target_feature = "neon"))
 ))]
 mod base {
-    use crate::nn::{FP_IN_PRECISION_BITS, FP_MAX_RELU, FP_OUT_PRECISION_BITS};
+    use crate::nn::{H1_BIASES, H1_TO_OUT_WEIGHTS, HL1_HALF_NODES, HL1_NODES};
     use core::arch::x86_64::*;
 
-    pub type Accum = __m128i;
+    pub const VALUES_PER_REG: usize = size_of::<__m128i>() / 2;
 
-    pub const WORDS_PER_REG: usize = size_of::<__m128i>() / 2;
-
-    pub fn zero() -> __m128i {
+    fn zero() -> __m128i {
         unsafe { _mm_setzero_si128() }
     }
 
-    pub fn multiply_add_epi16(accum: __m128i, factor1: __m128i, factor2: __m128i) -> __m128i {
-        unsafe { _mm_add_epi32(accum, _mm_madd_epi16(factor1, factor2)) }
+    pub fn forward_pass(own_nodes: &[i16], opp_nodes: &[i16]) -> i32 {
+        let mut out_accum = zero();
+        let mut wi = 0;
+        for ni in (0..HL1_NODES).step_by(VALUES_PER_REG * 8) {
+            let v = add_epi32(
+                calc_hidden_layer(own_nodes, ni, wi, 0),
+                calc_hidden_layer(opp_nodes, ni, wi + HL1_HALF_NODES, HL1_NODES),
+            );
+            out_accum = add_epi32(out_accum, v);
+            wi += VALUES_PER_REG * 4;
+        }
+
+        horizontal_sum_32(out_accum)
     }
 
-    pub fn clipped_relu(v: __m128i) -> __m128i {
+    #[inline(always)]
+    fn calc_hidden_layer(nodes: &[i16], ni: usize, wi: usize, offset: usize) -> __m128i {
+        let h1a = load_i16(nodes, ni);
+        let h2a = load_i16(nodes, ni + VALUES_PER_REG);
+        let h3a = load_i16(nodes, ni + VALUES_PER_REG * 2);
+        let h4a = load_i16(nodes, ni + VALUES_PER_REG * 3);
+        let h1b = load_i16(nodes, ni + VALUES_PER_REG * 4);
+        let h2b = load_i16(nodes, ni + VALUES_PER_REG * 5);
+        let h3b = load_i16(nodes, ni + VALUES_PER_REG * 6);
+        let h4b = load_i16(nodes, ni + VALUES_PER_REG * 7);
+
+        let h1a_bias = load_i8(&H1_BIASES.0, ni + offset);
+        let h2a_bias = load_i8(&H1_BIASES.0, ni + offset + VALUES_PER_REG);
+        let h3a_bias = load_i8(&H1_BIASES.0, ni + offset + VALUES_PER_REG * 2);
+        let h4a_bias = load_i8(&H1_BIASES.0, ni + offset + VALUES_PER_REG * 3);
+        let h1b_bias = load_i8(&H1_BIASES.0, ni + offset + VALUES_PER_REG * 4);
+        let h2b_bias = load_i8(&H1_BIASES.0, ni + offset + VALUES_PER_REG * 5);
+        let h3b_bias = load_i8(&H1_BIASES.0, ni + offset + VALUES_PER_REG * 6);
+        let h4b_bias = load_i8(&H1_BIASES.0, ni + offset + VALUES_PER_REG * 7);
+
+        let w1 = load_i8(&H1_TO_OUT_WEIGHTS.0, wi);
+        let w2 = load_i8(&H1_TO_OUT_WEIGHTS.0, wi + VALUES_PER_REG);
+        let w3 = load_i8(&H1_TO_OUT_WEIGHTS.0, wi + VALUES_PER_REG * 2);
+        let w4 = load_i8(&H1_TO_OUT_WEIGHTS.0, wi + VALUES_PER_REG * 3);
+
+        let h1a_relu = clipped_relu::<255>(add_epi16(h1a, h1a_bias));
+        let h2a_relu = clipped_relu::<255>(add_epi16(h2a, h2a_bias));
+        let h3a_relu = clipped_relu::<255>(add_epi16(h3a, h3a_bias));
+        let h4a_relu = clipped_relu::<255>(add_epi16(h4a, h4a_bias));
+
+        let h1b_relu = clipped_relu::<255>(add_epi16(h1b, h1b_bias));
+        let h2b_relu = clipped_relu::<255>(add_epi16(h2b, h2b_bias));
+        let h3b_relu = clipped_relu::<255>(add_epi16(h3b, h3b_bias));
+        let h4b_relu = clipped_relu::<255>(add_epi16(h4b, h4b_bias));
+
+        let w1_x_h1a = unsafe { _mm_mullo_epi16(w1, h1a_relu) };
+        let w2_x_h2a = unsafe { _mm_mullo_epi16(w2, h2a_relu) };
+        let w3_x_h3a = unsafe { _mm_mullo_epi16(w3, h3a_relu) };
+        let w4_x_h4a = unsafe { _mm_mullo_epi16(w4, h4a_relu) };
+
+        add_epi32(
+            add_epi32(
+                madd_epi16(w1_x_h1a, h1b_relu),
+                madd_epi16(w2_x_h2a, h2b_relu),
+            ),
+            add_epi32(
+                madd_epi16(w3_x_h3a, h3b_relu),
+                madd_epi16(w4_x_h4a, h4b_relu),
+            ),
+        )
+    }
+
+    fn clipped_relu<const C: i16>(v: __m128i) -> __m128i {
         unsafe {
             let relu = _mm_max_epi16(v, _mm_setzero_si128());
-            _mm_min_epu16(relu, _mm_set1_epi16(FP_MAX_RELU))
+            _mm_min_epu16(relu, _mm_set1_epi16(C))
         }
     }
 
-    pub fn square(v: __m128i) -> __m128i {
-        unsafe {
-            let v_scaled =
-                _mm_slli_epi16::<{ (FP_OUT_PRECISION_BITS as i32 + 16) / 2 - FP_IN_PRECISION_BITS as i32 }>(v);
-            _mm_mulhi_epu16(v_scaled, v_scaled)
-        }
-    }
-
-    pub fn horizontal_sum_32(v: __m128i) -> i32 {
+    fn horizontal_sum_32(v: __m128i) -> i32 {
         unsafe {
             let sum = _mm_hadd_epi32(v, v);
             _mm_extract_epi32::<0>(sum) + _mm_extract_epi32::<1>(sum)
@@ -857,41 +969,99 @@ mod base {
     pub fn sub_epi16(a: __m128i, b: __m128i) -> __m128i {
         unsafe { _mm_sub_epi16(a, b) }
     }
+
+    fn add_epi32(a: __m128i, b: __m128i) -> __m128i {
+        unsafe { _mm_add_epi32(a, b) }
+    }
+
+    fn madd_epi16(a: __m128i, b: __m128i) -> __m128i {
+        unsafe { _mm_madd_epi16(a, b) }
+    }
 }
 
 // NEON
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 mod base {
-    use crate::nn::{FP_IN_PRECISION_BITS, FP_MAX_RELU, FP_OUT_PRECISION_BITS};
     use core::arch::aarch64::*;
+    use crate::nn::{H1_BIASES, H1_TO_OUT_WEIGHTS, HL1_HALF_NODES, HL1_NODES};
 
-    pub type Accum = int32x4_t;
+    pub const VALUES_PER_REG: usize = 8; // 128 bits / 16 bits = 8 i16 values per register
 
-    pub const WORDS_PER_REG: usize = 8; // 128 bits / 16 bits = 8 i16 values per register
-
-    pub fn zero() -> int32x4_t {
+    fn zero() -> int32x4_t {
         unsafe { vdupq_n_s32(0) }
     }
 
-    pub fn multiply_add_epi16(accum: int32x4_t, factor1: int16x8_t, factor2: int16x8_t) -> int32x4_t {
-        unsafe {
-            let accum = vmlal_s16(accum, vget_low_s16(factor1), vget_low_s16(factor2));
-            vmlal_s16(accum, vget_high_s16(factor1), vget_high_s16(factor2))
+    pub fn forward_pass(own_nodes: &[i16], opp_nodes: &[i16]) -> i32 {
+        let mut out_accum = zero();
+        let mut wi = 0;
+        for ni in (0..HL1_NODES).step_by(VALUES_PER_REG * 8) {
+            let v = add_epi32(
+                calc_hidden_layer(own_nodes, ni, wi, 0),
+                calc_hidden_layer(opp_nodes, ni, wi + HL1_HALF_NODES, HL1_NODES),
+            );
+            out_accum = add_epi32(out_accum, v);
+            wi += VALUES_PER_REG * 4;
         }
+
+        horizontal_sum_32(out_accum)
     }
 
-    pub fn clipped_relu(v: int16x8_t) -> int16x8_t {
+    #[inline(always)]
+    fn calc_hidden_layer(nodes: &[i16], ni: usize, wi: usize, offset: usize) -> int32x4_t {
+        let h1a = load_i16(nodes, ni);
+        let h2a = load_i16(nodes, ni + VALUES_PER_REG);
+        let h3a = load_i16(nodes, ni + VALUES_PER_REG * 2);
+        let h4a = load_i16(nodes, ni + VALUES_PER_REG * 3);
+        let h1b = load_i16(nodes, ni + VALUES_PER_REG * 4);
+        let h2b = load_i16(nodes, ni + VALUES_PER_REG * 5);
+        let h3b = load_i16(nodes, ni + VALUES_PER_REG * 6);
+        let h4b = load_i16(nodes, ni + VALUES_PER_REG * 7);
+
+        let h1a_bias = load_i8(&H1_BIASES.0, ni + offset);
+        let h2a_bias = load_i8(&H1_BIASES.0, ni + offset + VALUES_PER_REG);
+        let h3a_bias = load_i8(&H1_BIASES.0, ni + offset + VALUES_PER_REG * 2);
+        let h4a_bias = load_i8(&H1_BIASES.0, ni + offset + VALUES_PER_REG * 3);
+        let h1b_bias = load_i8(&H1_BIASES.0, ni + offset + VALUES_PER_REG * 4);
+        let h2b_bias = load_i8(&H1_BIASES.0, ni + offset + VALUES_PER_REG * 5);
+        let h3b_bias = load_i8(&H1_BIASES.0, ni + offset + VALUES_PER_REG * 6);
+        let h4b_bias = load_i8(&H1_BIASES.0, ni + offset + VALUES_PER_REG * 7);
+
+        let w1 = load_i8(&H1_TO_OUT_WEIGHTS.0, wi);
+        let w2 = load_i8(&H1_TO_OUT_WEIGHTS.0, wi + VALUES_PER_REG);
+        let w3 = load_i8(&H1_TO_OUT_WEIGHTS.0, wi + VALUES_PER_REG * 2);
+        let w4 = load_i8(&H1_TO_OUT_WEIGHTS.0, wi + VALUES_PER_REG * 3);
+
+        let h1a_relu = clipped_relu::<255>(add_epi16(h1a, h1a_bias));
+        let h2a_relu = clipped_relu::<255>(add_epi16(h2a, h2a_bias));
+        let h3a_relu = clipped_relu::<255>(add_epi16(h3a, h3a_bias));
+        let h4a_relu = clipped_relu::<255>(add_epi16(h4a, h4a_bias));
+
+        let h1b_relu = clipped_relu::<255>(add_epi16(h1b, h1b_bias));
+        let h2b_relu = clipped_relu::<255>(add_epi16(h2b, h2b_bias));
+        let h3b_relu = clipped_relu::<255>(add_epi16(h3b, h3b_bias));
+        let h4b_relu = clipped_relu::<255>(add_epi16(h4b, h4b_bias));
+
+        let w1_x_h1a = unsafe { vmulq_s16(w1, h1a_relu) };
+        let w2_x_h2a = unsafe { vmulq_s16(w2, h2a_relu) };
+        let w3_x_h3a = unsafe { vmulq_s16(w3, h3a_relu) };
+        let w4_x_h4a = unsafe { vmulq_s16(w4, h4a_relu) };
+
+        add_epi32(
+            add_epi32(
+                madd_epi16(w1_x_h1a, h1b_relu),
+                madd_epi16(w2_x_h2a, h2b_relu),
+            ),
+            add_epi32(
+                madd_epi16(w3_x_h3a, h3b_relu),
+                madd_epi16(w4_x_h4a, h4b_relu),
+            ),
+        )
+    }
+
+    fn clipped_relu<const C: i16>(v: int16x8_t) -> int16x8_t {
         unsafe {
             let relu = vmaxq_s16(v, vdupq_n_s16(0));
-            vminq_s16(relu, vdupq_n_s16(FP_MAX_RELU))
-        }
-    }
-
-    pub fn square(v: int16x8_t) -> int16x8_t {
-        unsafe {
-            let v_scaled =
-                vshlq_n_s16(v, ((FP_OUT_PRECISION_BITS as i32 + 16) / 2 - FP_IN_PRECISION_BITS as i32) as i32);
-            vshrq_n_s16(vqdmulhq_s16(v_scaled, v_scaled), 1)
+            vminq_s16(relu, vdupq_n_s16(C))
         }
     }
 
@@ -920,60 +1090,16 @@ mod base {
     pub fn sub_epi16(a: int16x8_t, b: int16x8_t) -> int16x8_t {
         unsafe { vsubq_s16(a, b) }
     }
-}
 
-// Fallback
-#[cfg(not(any(
-    target_feature = "sse4.1",
-    target_feature = "avx2",
-    target_feature = "neon",
-    all(feature = "avx512", target_feature = "avx512f")
-)))]
-mod base {
-    use crate::nn::{FP_IN_PRECISION_BITS, FP_MAX_RELU, FP_OUT_PRECISION_BITS};
-
-    pub type Accum = i32;
-
-    pub const WORDS_PER_REG: usize = 1;
-
-    pub fn zero() -> i32 {
-        0
+    fn add_epi32(a: int32x4_t, b: int32x4_t) -> int32x4_t {
+        unsafe { vaddq_s32(a, b) }
     }
 
-    pub fn horizontal_sum_32(v: i32) -> i32 {
-        v
-    }
-
-    pub fn multiply_add_epi16(accum: i32, factor1: i16, factor2: i16) -> i32 {
-        accum.wrapping_add((factor1 as i32).wrapping_mul(factor2 as i32))
-    }
-
-    pub fn clipped_relu(v: i16) -> i16 {
-        v.clamp(0, FP_MAX_RELU as i16)
-    }
-
-    pub fn square(v: i16) -> i16 {
-        let v_scaled = (v << ((FP_OUT_PRECISION_BITS as i32 + 16) / 2 - FP_IN_PRECISION_BITS as i32)) as i32;
-        v_scaled.wrapping_pow(2).wrapping_shr(16) as i16
-    }
-
-    pub fn load_i8(data: &[i8], offset: usize) -> i16 {
-        unsafe { *data.get_unchecked(offset) as i16 }
-    }
-
-    pub fn load_i16(data: &[i16], offset: usize) -> i16 {
-        unsafe { *data.get_unchecked(offset) }
-    }
-
-    pub fn store_i16(data: &mut [i16], offset: usize, value: i16) {
-        unsafe { *data.get_unchecked_mut(offset) = value }
-    }
-
-    pub fn add_epi16(a: i16, b: i16) -> i16 {
-        a.wrapping_add(b)
-    }
-
-    pub fn sub_epi16(a: i16, b: i16) -> i16 {
-        a.wrapping_sub(b)
+    fn madd_epi16(a: int16x8_t, b: int16x8_t) -> int32x4_t {
+        unsafe {
+            let lo = vmull_s16(vget_low_s16(a), vget_low_s16(b));
+            let hi = vmull_s16(vget_high_s16(a), vget_high_s16(b));
+            vpaddq_s32(lo, hi)
+        }
     }
 }

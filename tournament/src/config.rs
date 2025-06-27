@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2024 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2025 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -73,6 +73,9 @@ pub struct TournamentConfig {
     
     #[serde(skip)]
     pub inc: f32,
+
+    #[serde(default)]
+    pub nodes: Option<i32>,
 
     #[serde(default)]
     pub engine_threads: u32,

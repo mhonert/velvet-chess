@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2024 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2025 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -66,11 +66,11 @@ impl UCIMove {
 
         let start_col = bytes[0] - b'a';
         let start_row = b'8' - bytes[1];
-        let start = (start_row * 8 + start_col) as i8;
+        let start = ((7 - start_row) * 8 + start_col) as i8;
 
         let end_col = bytes[2] - b'a';
         let end_row = b'8' - bytes[3];
-        let end = (end_row * 8 + end_col) as i8;
+        let end = ((7 - end_row) * 8 + end_col) as i8;
 
         let promotion = if bytes.len() == 5 {
             match bytes[4] {
@@ -79,7 +79,7 @@ impl UCIMove {
                 b'b' => B,
                 b'n' => N,
                 _ => {
-                    eprintln!("Invalid promotion piece in UCI notation: '{}'", uci);
+                    eprintln!("Invalid promotion piece in UCI notation: '{uci}'");
                     return None;
                 }
             }
@@ -169,14 +169,14 @@ fn uci_col(col: i8) -> char {
 
 fn uci_row(row: i8) -> char {
     match row {
-        0 => '8',
-        1 => '7',
-        2 => '6',
-        3 => '5',
-        4 => '4',
-        5 => '3',
-        6 => '2',
-        7 => '1',
+        0 => '1',
+        1 => '2',
+        2 => '3',
+        3 => '4',
+        4 => '5',
+        5 => '6',
+        6 => '7',
+        7 => '8',
         _ => ' ',
     }
 }
@@ -202,7 +202,7 @@ mod tests {
     #[test]
     fn write_standard_move() {
         let board = create_from_fen(START_POS);
-        let m = UCIMove::new(52, 36, EMPTY);
+        let m = UCIMove::new(12, 28, EMPTY);
 
         assert_eq!("e2e4", UCIMove::from_move(&board, m.to_move(&board)));
     }
@@ -211,19 +211,19 @@ mod tests {
     fn write_promotion_move() {
         #[rustfmt::skip]
         let items: [i8; 64] = [
-            0,  0,  0, -K,  0,  0,  0,  0,
-            P,  0,  0, -P,  0,  0,  0,  0,
-            0,  0,  0,  0,  0,  0,  0,  0,
-            0,  0,  0,  0,  0,  0,  0,  0,
-            0,  0,  0,  P,  0,  0,  0,  0,
-            0,  0,  0,  0,  0,  0,  0,  0,
-            0,  0,  0,  0,  0,  0,  0,  0,
             0,  0,  0,  K,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0, -P,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,
+            P,  0,  0, -P,  0,  0,  0,  0,
+            0,  0,  0, -K,  0,  0,  0,  0,
         ];
 
         let board = Board::new(&items, WHITE, CastlingState::default(), None, 0, 1, CastlingRules::default());
 
-        let m = UCIMove::new(8, 0, Q);
+        let m = UCIMove::new(48, 56, Q);
         assert_eq!("a7a8q", UCIMove::from_move(&board, m.to_move(&board)));
     }
 
@@ -231,19 +231,19 @@ mod tests {
     fn write_castling_move() {
         #[rustfmt::skip]
         let items: [i8; 64] = [
-            0,  0,  0, -K,  0,  0,  0,  0,
-            0,  0,  0, -P,  0,  0,  0,  0,
+            0,  0,  0,  0,  K,  0,  0,  R,
             0,  0,  0,  0,  0,  0,  0,  0,
             0,  0,  0,  0,  0,  0,  0,  0,
             0,  0,  0,  P,  0,  0,  0,  0,
             0,  0,  0,  0,  0,  0,  0,  0,
             0,  0,  0,  0,  0,  0,  0,  0,
-            0,  0,  0,  0,  K,  0,  0,  R,
+            0,  0,  0, -P,  0,  0,  0,  0,
+            0,  0,  0, -K,  0,  0,  0,  0,
         ];
 
         let board = Board::new(&items, WHITE, CastlingState::ALL, None, 0, 1, CastlingRules::default());
 
-        let uci_move = UCIMove::from_move(&board, Move::new(MoveType::KingKSCastling, 60, 63));
+        let uci_move = UCIMove::from_move(&board, Move::new(MoveType::KingKSCastling, 4, 7));
         assert_eq!("e1g1", uci_move);
     }
 
@@ -251,20 +251,20 @@ mod tests {
     fn write_castling_move_chess960() {
         #[rustfmt::skip]
         let items: [i8; 64] = [
-            0,  0,  0, -K,  0,  0,  0,  0,
-            0,  0,  0, -P,  0,  0,  0,  0,
+            0,  0,  0,  0,  K,  0,  0,  R,
             0,  0,  0,  0,  0,  0,  0,  0,
             0,  0,  0,  0,  0,  0,  0,  0,
             0,  0,  0,  P,  0,  0,  0,  0,
             0,  0,  0,  0,  0,  0,  0,  0,
             0,  0,  0,  0,  0,  0,  0,  0,
-            0,  0,  0,  0,  K,  0,  0,  R,
+            0,  0,  0, -P,  0,  0,  0,  0,
+            0,  0,  0, -K,  0,  0,  0,  0,
         ];
 
         let board =
             Board::new(&items, WHITE, CastlingState::ALL, None, 0, 1, CastlingRules::new(true, 4, 7, 0, 4, 7, 0));
 
-        let uci_move = UCIMove::from_move(&board, Move::new(MoveType::KingKSCastling, 60, 63));
+        let uci_move = UCIMove::from_move(&board, Move::new(MoveType::KingKSCastling, 4, 7));
         assert_eq!("e1h1", uci_move);
     }
 
@@ -272,14 +272,14 @@ mod tests {
     fn read_castling_move_chess960() {
         #[rustfmt::skip]
         let items: [i8; 64] = [
-            0,  0,  0, -K,  0,  0,  0,  0,
-            0,  0,  0, -P,  0,  0,  0,  0,
+            0,  0,  0,  0,  K,  0,  0,  R,
             0,  0,  0,  0,  0,  0,  0,  0,
             0,  0,  0,  0,  0,  0,  0,  0,
             0,  0,  0,  P,  0,  0,  0,  0,
             0,  0,  0,  0,  0,  0,  0,  0,
             0,  0,  0,  0,  0,  0,  0,  0,
-            0,  0,  0,  0,  K,  0,  0,  R,
+            0,  0,  0, -P,  0,  0,  0,  0,
+            0,  0,  0, -K,  0,  0,  0,  0,
         ];
 
         let board =
@@ -293,16 +293,16 @@ mod tests {
     #[test]
     fn read_standard_move() {
         let m = UCIMove::from_uci("e2e4").unwrap();
-        assert_eq!(52, m.start);
-        assert_eq!(36, m.end);
+        assert_eq!(12, m.start);
+        assert_eq!(28, m.end);
         assert_eq!(EMPTY, m.promotion);
     }
 
     #[test]
     fn read_promotion_move() {
         let m = UCIMove::from_uci("a7a8q").unwrap();
-        assert_eq!(8, m.start);
-        assert_eq!(0, m.end);
+        assert_eq!(48, m.start);
+        assert_eq!(56, m.end);
         assert_eq!(Q, m.promotion);
     }
 }

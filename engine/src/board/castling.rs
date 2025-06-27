@@ -38,15 +38,15 @@ pub struct CastlingState(u8);
 static CLEAR_BY_COLOR: [u8; 2] =
     [!(WhiteQueenSide as u8 | WhiteKingSide as u8), !(BlackQueenSide as u8 | BlackKingSide as u8)];
 
-pub static KING_SIDE_CASTLING: [Castling; 2] = [Castling::WhiteKingSide, Castling::BlackKingSide];
+pub static KING_SIDE_CASTLING: [Castling; 2] = [WhiteKingSide, BlackKingSide];
 
-pub static QUEEN_SIDE_CASTLING: [Castling; 2] = [Castling::WhiteQueenSide, Castling::BlackQueenSide];
+pub static QUEEN_SIDE_CASTLING: [Castling; 2] = [WhiteQueenSide, BlackQueenSide];
 
 impl CastlingState {
-    const ALL_CASTLING: u8 = Castling::WhiteKingSide as u8
-        | Castling::WhiteQueenSide as u8
-        | Castling::BlackKingSide as u8
-        | Castling::BlackQueenSide as u8;
+    const ALL_CASTLING: u8 = WhiteKingSide as u8
+        | WhiteQueenSide as u8
+        | BlackKingSide as u8
+        | BlackQueenSide as u8;
 
     pub const ALL: CastlingState = CastlingState(Self::ALL_CASTLING);
 
@@ -111,11 +111,11 @@ impl Default for CastlingRules {
     }
 }
 
-static KS_KING_END: [u8; 2] = [63 - 1, 7 - 1];
-static KS_ROOK_END: [u8; 2] = [63 - 2, 7 - 2];
+static KS_KING_END: [u8; 2] = [7 - 1, 63 - 1];
+static KS_ROOK_END: [u8; 2] = [7 - 2, 63 - 2];
 
-static QS_KING_END: [u8; 2] = [56 + 2, 2];
-static QS_ROOK_END: [u8; 2] = [56 + 3, 3];
+static QS_KING_END: [u8; 2] = [2, 56 + 2];
+static QS_ROOK_END: [u8; 2] = [3, 56 + 3];
 
 impl CastlingRules {
 
@@ -123,13 +123,13 @@ impl CastlingRules {
         chess960: bool, w_king_start_col: i8, w_king_side_rook_col: i8, w_queen_side_rook_col: i8,
         b_king_start_col: i8, b_king_side_rook_col: i8, b_queen_side_rook_col: i8,
     ) -> Self {
-        let w_king_start = 56 + w_king_start_col;
-        let w_king_side_rook = 56 + w_king_side_rook_col;
-        let w_queen_side_rook = 56 + w_queen_side_rook_col;
+        let w_king_start = w_king_start_col;
+        let w_king_side_rook = w_king_side_rook_col;
+        let w_queen_side_rook = w_queen_side_rook_col;
 
-        let b_king_start = b_king_start_col;
-        let b_king_side_rook = b_king_side_rook_col;
-        let b_queen_side_rook = b_queen_side_rook_col;
+        let b_king_start = 56 + b_king_start_col;
+        let b_king_side_rook = 56 + b_king_side_rook_col;
+        let b_queen_side_rook = 56 + b_queen_side_rook_col;
 
         CastlingRules {
             chess960,

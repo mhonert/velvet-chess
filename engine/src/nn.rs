@@ -26,21 +26,22 @@ pub const BUCKET_SIZE: usize = 6 * 64 * 2;
 pub const INPUTS: usize = BUCKET_SIZE * BUCKETS;
 
 pub const HL1_NODES: usize = 2 * HL1_HALF_NODES;
-pub const HL1_HALF_NODES: usize = 1536;
+pub const HL1_HALF_NODES: usize = 768;
 
-pub const MAX_RELU: f32 = 2.499;
+pub const MAX_RELU: f32 = 255.0 / 64.0;
 pub const FP_MAX_RELU: i16 = (MAX_RELU * FP_IN_MULTIPLIER as f32) as i16;
+pub const FP_MAX_RELU_H: i16 = (MAX_RELU * FP_OUT_MULTIPLIER as f32) as i16;
 
-pub const INPUT_WEIGHT_COUNT: usize = INPUTS * HL1_HALF_NODES;
+pub const INPUT_WEIGHT_COUNT: usize = INPUTS * HL1_NODES;
 
 // Fixed point number precision
 pub const FP_IN_PRECISION_BITS: u8 = 6;
 pub const FP_IN_MULTIPLIER: i64 = 1 << FP_IN_PRECISION_BITS;
 
-pub const FP_OUT_PRECISION_BITS: u8 = 10; // must be an even number
+pub const FP_OUT_PRECISION_BITS: u8 = 6; // must be an even number
 pub const FP_OUT_MULTIPLIER: i64 = 1 << FP_OUT_PRECISION_BITS;
 
-pub const SCORE_SCALE: i16 = 1024;
+pub const SCORE_SCALE: i16 = 256;
 
 macro_rules! include_layer {
     ($file:expr, $T:ty, $S:expr) => {{
@@ -52,11 +53,11 @@ macro_rules! include_layer {
 
 pub static IN_TO_H1_WEIGHTS: A64<[i8; INPUT_WEIGHT_COUNT]> = include_layer!("../nets/velvet_layer_in_weights.qnn", i8, INPUT_WEIGHT_COUNT);
 
-pub static H1_BIASES: A64<[i8; HL1_NODES]> = include_layer!("../nets/velvet_layer_in_bias.qnn", i8, HL1_NODES);
+pub static H1_BIASES: A64<[i8; HL1_NODES * 2]> = include_layer!("../nets/velvet_layer_in_bias.qnn", i8, HL1_NODES * 2);
 
-pub static H1_TO_OUT_WEIGHTS: A64<[i16; HL1_NODES]> = include_layer!("../nets/velvet_layer_out_weights.qnn", i16, HL1_NODES);
+pub static H1_TO_OUT_WEIGHTS: A64<[i8; HL1_NODES]> = include_layer!("../nets/velvet_layer_out_weights.qnn", i8, HL1_NODES);
 
-pub static OUT_BIASES: A64<[i16; 1]> = include_layer!("../nets/velvet_layer_out_bias.qnn", i16, 1);
+pub static OUT_BIASES: A64<[i8; 1]> = include_layer!("../nets/velvet_layer_out_bias.qnn", i8, 1);
 
 pub const fn piece_idx(piece_id: i8) -> u16 {
     (piece_id - 1) as u16

@@ -20,7 +20,6 @@ use crate::history_heuristics::{EMPTY_HISTORY, HistoryHeuristics};
 use crate::moves::NO_MOVE;
 use crate::next_ply;
 use crate::search_context::SearchContext;
-
 /* Perft (performance test, move path enumeration) test helper function to verify the move generator.
   It generates all possible moves up to the specified depth and counts the number of leaf nodes.
   This number can then be compared to precalculated numbers that are known to be correct

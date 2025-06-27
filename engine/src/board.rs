@@ -40,18 +40,14 @@ use crate::zobrist::{enpassant_zobrist_key, piece_zobrist_key, player_zobrist_ke
 
 #[repr(u8)]
 pub enum WhiteBoardPos {
-    PawnLineStart = 48,
-    PawnLineEnd = 55,
-    EnPassantLineStart = 16,
-    EnPassantLineEnd = 23,
+    EnPassantLineStart = 40,
+    EnPassantLineEnd = 47,
 }
 
 #[repr(u8)]
 pub enum BlackBoardPos {
-    PawnLineStart = 8,
-    PawnLineEnd = 15,
-    EnPassantLineStart = 40,
-    EnPassantLineEnd = 47,
+    EnPassantLineStart = 16,
+    EnPassantLineEnd = 23,
 }
 
 #[derive(Clone)]
@@ -329,32 +325,32 @@ impl Board {
                 self.nn_eval.remove_add_piece(move_start, own_piece, move_end, own_piece);
                 self.reset_half_move_clock();
 
-                self.set_enpassant(move_start as i8 + if color.is_white() { -8 } else { 8 } );
+                self.set_enpassant(move_start as i8 + if color.is_white() { 8 } else { -8 } );
                 (own_piece, EMPTY)
             }
             MoveType::PawnEnPassant => {
                 let own_piece = self.remove_piece(move_start);
                 self.reset_half_move_clock();
                 self.add_piece(color, target_piece_id, move_end);
-                if own_piece == P {
+                if own_piece == -P {
                     // Special en passant handling
                     if move_start - move_end == 7 {
-                        self.nn_eval.remove_remove_add_piece(move_start + 1, -P, move_start, own_piece, move_end, own_piece);
+                        self.nn_eval.remove_remove_add_piece(move_start + 1, P, move_start, own_piece, move_end, own_piece);
                         self.remove_piece(move_start + 1);
                         (own_piece, P)
                     } else {
-                        self.nn_eval.remove_remove_add_piece(move_start - 1, -P, move_start, own_piece, move_end, own_piece);
+                        self.nn_eval.remove_remove_add_piece(move_start - 1, P, move_start, own_piece, move_end, own_piece);
                         self.remove_piece(move_start - 1);
                         (own_piece, P)
                     }
                 } else {
                     // Special en passant handling
                     if (move_start as i64) - (move_end as i64) == -7 {
-                        self.nn_eval.remove_remove_add_piece(move_start - 1, P, move_start , own_piece, move_end, own_piece);
+                        self.nn_eval.remove_remove_add_piece(move_start - 1, -P, move_start , own_piece, move_end, own_piece);
                         self.remove_piece(move_start - 1);
                         (own_piece, P)
                     } else {
-                        self.nn_eval.remove_remove_add_piece(move_start + 1, P, move_start, own_piece, move_end, own_piece);
+                        self.nn_eval.remove_remove_add_piece(move_start + 1, -P, move_start, own_piece, move_end, own_piece);
                         self.remove_piece(move_start + 1);
                         (own_piece, P)
                     }
@@ -546,11 +542,11 @@ impl Board {
                 self.remove_piece_without_inc_update(move_end );
                 self.add_piece_without_inc_update(color, piece, move_start);
                 if (move_start as i32 - move_end as i32).abs() == 7 {
-                    let capture_pos = if color.is_white() { move_start + 1 } else { move_start - 1 };
+                    let capture_pos = if color.is_white() { move_start - 1 } else { move_start + 1 };
                     self.nn_eval.remove_add_add_piece( move_end , piece, move_start , piece, capture_pos, color.flip().piece(P));
                     self.add_piece_without_inc_update(color.flip(), color.flip().piece(P), capture_pos);
                 } else {
-                    let capture_pos = if color.is_white() { move_start - 1 } else { move_start + 1 };
+                    let capture_pos = if color.is_white() { move_start + 1 } else { move_start - 1 };
                     self.nn_eval.remove_add_add_piece( move_end , piece, move_start , piece, capture_pos, color.flip().piece(P));
                     self.add_piece_without_inc_update(color.flip(), color.flip().piece(P), capture_pos);
                 }
@@ -727,11 +723,11 @@ impl Board {
         }
 
         let opp = color.flip();
-        let empty_bb = !self.occupancy_bb();
+        let occupied_bb = self.occupancy_bb();
         let queens = self.get_bitboard(opp.piece(Q));
         let king_pos = self.king_pos(color) as usize;
-        let diagonal_attacks = (self.get_bitboard(opp.piece(B)) | queens) & get_bishop_attacks(empty_bb.0, king_pos);
-        let orthogonal_attacks = (self.get_bitboard(opp.piece(R)) | queens) & get_rook_attacks(empty_bb.0, king_pos);
+        let diagonal_attacks = (self.get_bitboard(opp.piece(B)) | queens) & get_bishop_attacks(occupied_bb.0, king_pos);
+        let orthogonal_attacks = (self.get_bitboard(opp.piece(R)) | queens) & get_rook_attacks(occupied_bb.0, king_pos);
 
         (diagonal_attacks | orthogonal_attacks).is_occupied()
     }
@@ -745,15 +741,15 @@ impl Board {
     }
 
     pub fn is_attacked(&self, opp: Color, pos: usize) -> bool {
-        let empty_bb = !self.occupancy_bb();
+        let occupied_bb = self.occupancy_bb();
         let target_bb = BitBoard(1 << pos as u64);
 
         let knight_attacks = self.get_bitboard(opp.piece(N)) & get_knight_attacks(pos);
 
         let queens = self.get_bitboard(opp.piece(Q));
-        let diagonal_attacks = (self.get_bitboard(opp.piece(B)) | queens) & get_bishop_attacks(empty_bb.0, pos);
+        let diagonal_attacks = (self.get_bitboard(opp.piece(B)) | queens) & get_bishop_attacks(occupied_bb.0, pos);
 
-        let orthogonal_attacks = (self.get_bitboard(opp.piece(R)) | queens) & get_rook_attacks(empty_bb.0, pos);
+        let orthogonal_attacks = (self.get_bitboard(opp.piece(R)) | queens) & get_rook_attacks(occupied_bb.0, pos);
 
         let pawns = self.get_bitboard(opp.piece(P));
         let pawn_attacks = get_pawn_attacks(pawns, opp) & target_bb;
@@ -766,7 +762,7 @@ impl Board {
         self.bitboards.by_piece(piece)
     }
 
-    pub fn is_legal_move(&mut self, color: Color, m: Move) -> bool {
+    pub fn check_legal_move(&mut self, color: Color, m: Move) -> bool {
         let (previous_piece, move_state) = self.perform_move(m);
         let is_legal = !self.is_in_check(color);
         self.undo_move(m, previous_piece, move_state);
@@ -825,7 +821,7 @@ impl Board {
         occupied = occupied & !(1 << start as u64);
         let mut potential_gain = see_piece_value(own_piece_id);
 
-        let mut attackers = self.find_attackers(!occupied, occupied, end);
+        let mut attackers = self.find_attackers(occupied, end);
         let all_bishops = self.get_bitboard(B) | self.get_bitboard(-B);
         let all_rooks = self.get_bitboard(R) | self.get_bitboard(-R);
         let all_queens = self.get_bitboard(Q) | self.get_bitboard(-Q);
@@ -861,8 +857,8 @@ impl Board {
             attackers ^= attacker_bb;
             
             // Add new revealed attackers
-            attackers |= occupied & all_diagonal & get_bishop_attacks((!occupied).0, end);
-            attackers |= occupied & all_orthogonal & get_rook_attacks((!occupied).0, end);
+            attackers |= occupied & all_diagonal & get_bishop_attacks(occupied.0, end);
+            attackers |= occupied & all_orthogonal & get_rook_attacks(occupied.0, end);
 
             own_turn = !own_turn;
             score = -score;
@@ -876,9 +872,9 @@ impl Board {
         }
     }
 
-    fn find_attackers(&self, empty_bb: BitBoard, occupied_bb: BitBoard, pos: usize) -> BitBoard {
+    fn find_attackers(&self, occupied_bb: BitBoard, pos: usize) -> BitBoard {
         let target_bb = BitBoard(1 << pos as u64);
-        let mut attackers = self.find_ray_attackers(empty_bb, occupied_bb, pos);
+        let mut attackers = self.find_ray_attackers(occupied_bb, pos);
 
         let white_pawns = self.get_bitboard(P);
         attackers |= white_pawns & (black_left_pawn_attacks(target_bb));
@@ -899,9 +895,9 @@ impl Board {
         attackers
     }
 
-    fn find_ray_attackers(&self, empty_bb: BitBoard, occupied_bb: BitBoard, pos: usize) -> BitBoard {
-        let bishop_attacks = get_bishop_attacks(empty_bb.0, pos);
-        let rook_attacks = get_rook_attacks(empty_bb.0, pos);
+    fn find_ray_attackers(&self, occupied_bb: BitBoard, pos: usize) -> BitBoard {
+        let bishop_attacks = get_bishop_attacks(occupied_bb.0, pos);
+        let rook_attacks = get_rook_attacks(occupied_bb.0, pos);
 
         let attackers = ((self.get_bitboard(B) | self.get_bitboard(-B)) & bishop_attacks) |
                                  ((self.get_bitboard(R) | self.get_bitboard(-R)) & rook_attacks) |
@@ -943,7 +939,7 @@ mod tests {
     fn update_hash_when_piece_moves() {
         init();
         #[rustfmt::skip]
-            let items: [i8; 64] = [
+            let items: [i8; 64] = v_mirror([
             0,  0,  0, -K,  0,  0,  0,  0,
             0,  0,  0,  0,  0,  0,  0,  0,
             0,  0,  0,  0,  0,  0,  0,  0,
@@ -952,7 +948,7 @@ mod tests {
             0,  0,  0,  0,  0,  0,  0,  0,
             0,  0,  0,  0,  0,  0,  0,  0,
             0,  0,  0,  K,  0,  0,  0,  0,
-        ];
+        ]);
 
         let mut board = Board::new(&items, WHITE, CastlingState::default(), None, 0, 1, CastlingRules::default());
 
@@ -973,7 +969,7 @@ mod tests {
     fn incrementally_updates_hash() {
         init();
         #[rustfmt::skip]
-        let items: [i8; 64] = [
+        let items: [i8; 64] = v_mirror([
             0,  0,  0, -K,  0,  0,  0,  0,
             0,  0,  0,  0,  0,  0,  0,  0,
             0,  0,  0,  0,  0,  0,  0,  0,
@@ -982,7 +978,7 @@ mod tests {
             0,  0,  0,  0,  0,  0,  0,  0,
             0,  0,  0,  0,  0,  0,  0,  0,
             0,  0,  0,  K,  0,  0,  0,  0,
-        ];
+        ]);
 
         let mut board = Board::new(&items, WHITE, CastlingState::default(), None, 0, 1, CastlingRules::default());
         board.recalculate_hash();
@@ -1003,7 +999,7 @@ mod tests {
     fn performs_and_undos_white_castling_moves() {
         init();
         #[rustfmt::skip]
-        let items: [i8; 64] = [
+        let items: [i8; 64] = v_mirror([
             -R,  0,  0,  0, -K,  0,  0, -R,
             -P, -P, -P, -P, -P, -P, -P, -P,
             0,  0,  0,  0,  0,  0,  0,  0,
@@ -1012,7 +1008,7 @@ mod tests {
             0,  0,  0,  0,  0,  0,  0,  0,
             P,  P,  P,  P,  P,  P,  P,  P,
             R,  0,  0,  0,  K,  0,  0,  R,
-        ];
+        ]);
 
         let mut board = Board::new(&items, WHITE, CastlingState::ALL, None, 0, 1, CastlingRules::default());
 
@@ -1042,7 +1038,7 @@ mod tests {
     fn performs_and_undos_black_castling_moves() {
         init();
         #[rustfmt::skip]
-        let items: [i8; 64] = [
+        let items: [i8; 64] = v_mirror([
             -R,  0,  0,  0, -K,  0,  0, -R,
             -P, -P, -P, -P, -P, -P, -P, -P,
              0,  0,  0,  0,  0,  0,  0,  0,
@@ -1051,7 +1047,7 @@ mod tests {
              0,  0,  0,  0,  0,  0,  0,  0,
              P,  P,  P,  P,  P,  P,  P,  P,
              R,  N,  B,  Q,  K,  B,  N,  R,
-        ];
+        ]);
 
         let mut board = Board::new(&items, BLACK, CastlingState::ALL, None, 0, 1, CastlingRules::default());
 
@@ -1082,7 +1078,7 @@ mod tests {
     fn recognizes_white_in_check() {
         init();
         #[rustfmt::skip]
-        let items: [i8; 64] = [
+        let items: [i8; 64] = v_mirror([
             0,  0,  0, -K,  0,  0,  0,  0,
             0,  0,  0,  0,  0,  0,  0,  0,
             0,  0,  0,  0,  0,  0,  0,  0,
@@ -1091,7 +1087,7 @@ mod tests {
             0,  0,  0,  0,  0,  0,  0,  0,
             0,  0,  0,  0,  0,  0,  0,  0,
             0,  0,  0,  0,  0,  0,  0,  0,
-        ];
+        ]);
 
         let board = Board::new(&items, WHITE, CastlingState::default(), None, 0, 1, CastlingRules::default());
         assert!(board.is_in_check(WHITE));
@@ -1102,7 +1098,7 @@ mod tests {
     fn recognizes_black_in_check() {
         init();
         #[rustfmt::skip]
-        let items: [i8; 64] = [
+        let items: [i8; 64] = v_mirror([
             0,  0,  0, -K,  0,  0,  0,  0,
             0,  0,  0,  0,  0,  0,  0,  0,
             0,  0,  0,  0,  0,  Q,  0,  0,
@@ -1111,7 +1107,7 @@ mod tests {
             0,  0,  0,  0,  0,  0,  0,  0,
             0,  0,  0,  0,  0,  0,  0,  0,
             0,  0,  0,  0,  0,  0,  0,  0,
-        ];
+        ]);
 
         let board = Board::new(&items, WHITE, CastlingState::default(), None, 0, 1, CastlingRules::default());
         assert!(board.is_in_check(BLACK));
@@ -1122,7 +1118,7 @@ mod tests {
     fn see_white_discovered_attacks() {
         init();
         #[rustfmt::skip]
-        let items: [i8; 64] = [
+        let items: [i8; 64] = v_mirror([
             0,  0,  0,  0,  0,  0, -K,  0,
             0,  0,  0,  0,  0,  0,  0,  0,
             0,  K,  0,  0,  0,  0,  0,  0,
@@ -1131,7 +1127,7 @@ mod tests {
             0,  0,  0,  0, -P,  0,  0,  0,
             0,  0,  0,  0,  R,  0,  0,  0,
             0,  0,  0,  0,  R,  0,  0,  0,
-        ];
+        ]);
 
         let board = Board::new(&items, WHITE, CastlingState::default(), None, 0, 1, CastlingRules::default());
         assert!(!board.has_negative_see(BLACK, 52, 44, R, P, board.occupancy_bb()));
@@ -1141,7 +1137,7 @@ mod tests {
     fn see_black_discovered_attacks() {
         init();
         #[rustfmt::skip]
-        let items: [i8; 64] = [
+        let items: [i8; 64] = v_mirror([
             0,  0,  0,  0,  0,  0, -K,  0,
             0,  0,  0,  0,  0,  0,  0,  0,
             0,  K,  0,  0,  0,  0,  0,  0,
@@ -1150,7 +1146,7 @@ mod tests {
             0,  0,  0,  0,  P,  0,  0,  0,
             0,  0,  0,  0, -R,  0,  0,  0,
             0,  0,  0,  0, -R,  0,  0,  0,
-        ];
+        ]);
 
         let board = Board::new(&items, BLACK, CastlingState::default(), None, 0, 1, CastlingRules::default());
         assert!(!board.has_negative_see(WHITE, 52, 44, R, P, board.occupancy_bb()));
@@ -1160,7 +1156,7 @@ mod tests {
     fn updates_hash_for_piece_movements() {
         init();
         #[rustfmt::skip]
-            let items: [i8; 64] = [
+            let items: [i8; 64] = v_mirror([
             0,  0,  0, -K,  0,  0,  0,  0,
             0,  0,  0,  0,  0,  0,  0,  0,
             0,  0,  0,  0,  0,  0,  0,  0,
@@ -1169,7 +1165,7 @@ mod tests {
             0,  0,  0,  0,  0,  0,  0,  0,
             0,  0,  0,  0,  0,  0,  0,  0,
             0,  0,  0,  K,  0,  0,  0,  0,
-        ];
+        ]);
 
         let mut board = Board::new(&items, BLACK, CastlingState::default(), None, 0, 1, CastlingRules::default());
         let initial_hash = board.get_hash();
@@ -1189,7 +1185,7 @@ mod tests {
     fn updates_hash_for_en_passant_changes() {
         init();
         #[rustfmt::skip]
-            let items: [i8; 64] = [
+            let items: [i8; 64] = v_mirror([
             0,  0,  0, -K,  0,  0,  0,  0,
             0,  0,  0, -P,  0,  0,  0,  0,
             0,  0,  0,  0,  0,  0,  0,  0,
@@ -1198,7 +1194,7 @@ mod tests {
             0,  0,  0,  0,  0,  0,  0,  0,
             0,  0,  0,  0,  0,  0,  0,  0,
             0,  0,  0,  K,  0,  0,  0,  0,
-        ];
+        ]);
 
         let mut board = Board::new(&items, BLACK, CastlingState::default(), None, 0, 1, CastlingRules::default());
         let initial_hash = board.get_hash();
@@ -1209,5 +1205,13 @@ mod tests {
 
         board.clear_en_passant();
         assert_eq!(initial_hash, board.get_hash(), "hash must be eq to initial hash if en passant flag is cleared");
+    }
+
+    fn v_mirror(items: [i8; 64]) -> [i8; 64] {
+        let mut flipped = [0; 64];
+        for i in 0..64 {
+            flipped[i ^ 56] = items[i];
+        }
+        flipped
     }
 }

@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2024 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2025 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -69,7 +69,11 @@ fn main() {
     std::fs::create_dir(&tournament_path).expect("Could not create tournament directory");
 
     println!("Velvet Tournament Tool");
-    println!(" - Starting tournament {} with TC {}+{} ", tournament_id, tournament_config.tc, tournament_config.inc);
+    if let Some(nodes) = tournament_config.nodes {
+        println!(" - Starting tournament {} with fixed nodes {}", tournament_id, nodes);
+    } else {
+        println!(" - Starting tournament {} with TC {}+{}", tournament_id, tournament_config.tc, tournament_config.inc);
+    }
 
     let mut core_ids = core_affinity::get_core_ids().expect("Could not retrieve CPU core IDs");
     core_ids.sort();
@@ -92,6 +96,7 @@ fn main() {
 
     // assert!(core_affinity::set_for_current(reserved_core_ids[0]), "could not set CPU core affinity");
 
+    let nodes = tournament_config.nodes;
     let time = (tournament_config.tc * 1000.0) as i32;
     let inc = (tournament_config.inc * 1000.0) as i32;
     let state = TournamentState::new(&tournament_config, &engine_configs).expect("Could not create tournament state");
@@ -113,7 +118,7 @@ fn main() {
                 if let Err(e) = result {
                     eprintln!("Could not set thread priority for worker thread running on {:?}: {}", ids, e);
                 }
-                run_thread(&ids, thread_state, thread_tournament_path.clone(), thread_openings, thread_challenger, time, inc);
+                run_thread(&ids, thread_state, thread_tournament_path.clone(), thread_openings, thread_challenger, time, inc, nodes);
             })
             .expect("could not spawn thread")
     }).collect();
@@ -123,7 +128,7 @@ fn main() {
     }
 }
 
-fn run_thread(ids: &[CoreId], state: Arc<TournamentState>, tournament_path: String, openings: Arc<OpeningBook>, challenger_cfg: EngineConfig, time: i32, inc: i32) {
+fn run_thread(ids: &[CoreId], state: Arc<TournamentState>, tournament_path: String, openings: Arc<OpeningBook>, challenger_cfg: EngineConfig, time: i32, inc: i32, nodes: Option<i32>) {
     pin_thread(ids).expect("Could not set CPU core affinity for worker thread");
 
     let mut challenger = UciEngine::start(&challenger_cfg).unwrap_or_else(|_| panic!("Could not start challenger engine: {}", challenger_cfg.name));
@@ -157,12 +162,12 @@ fn run_thread(ids: &[CoreId], state: Arc<TournamentState>, tournament_path: Stri
         read_fen(&mut board, &opening).expect("Could not read FEN");
         let start_move_count = board.fullmove_count();
         let mut pgn1 = PgnGame::new(challenger_cfg.name.clone(), opponent_cfg.name.clone(), time, inc, round, opening.clone(), start_move_count);
-        let first_result = controller.play(&mut board, &mut pgn1, &opening, &mut [&mut challenger, opponent], time, inc).expect("Could not play UCI match");
+        let first_result = controller.play(&mut board, &mut pgn1, &opening, &mut [&mut challenger, opponent], time, inc, nodes).expect("Could not play UCI match");
         pgn1.set_result(first_result);
 
         read_fen(&mut board, &opening).expect("Could not read FEN");
         let mut pgn2 = PgnGame::new(opponent_cfg.name.clone(), challenger_cfg.name.clone(), time, inc, round, opening.clone(), start_move_count);
-        let second_result = controller.play(&mut board, &mut pgn2, &opening, &mut [opponent, &mut challenger], time, inc).expect("Could not play UCI match");
+        let second_result = controller.play(&mut board, &mut pgn2, &opening, &mut [opponent, &mut challenger], time, inc, nodes).expect("Could not play UCI match");
         pgn2.set_result(second_result);
 
         pgn_writer.write_game(pgn1).expect("Could not write PGN game");
@@ -185,7 +190,7 @@ struct MatchController {
 }
 
 impl MatchController {
-    pub fn play(&mut self, board: &mut Board, pgn: &mut PgnGame, opening: &str, engines: &mut [&mut UciEngine; 2], time: i32, inc: i32) -> anyhow::Result<Outcome> {
+    pub fn play(&mut self, board: &mut Board, pgn: &mut PgnGame, opening: &str, engines: &mut [&mut UciEngine; 2], time: i32, inc: i32, nodes: Option<i32>) -> anyhow::Result<Outcome> {
         for engine in engines.iter_mut() {
             engine.uci_newgame().expect("Could not start new game in engine");
             engine.ready().expect("Could not ready engine");
@@ -203,7 +208,7 @@ impl MatchController {
             }
 
             let start = std::time::Instant::now();
-            let bm = engines[i].go(opening, remaining_time[0], remaining_time[1], inc, &moves)?;
+            let bm = engines[i].go(opening, remaining_time[0], remaining_time[1], inc, &moves, nodes)?;
             if bm == "0000" {
                 println!(" - Engine {} returned bestmove 0000", engines[i].name());
                 return Ok(if i == 0 { Outcome::Loss } else { Outcome::Win });
@@ -215,7 +220,7 @@ impl MatchController {
             let next_remaining_time = remaining_time[time_idx] - duration;
             if next_remaining_time >= 0 {
                 remaining_time[time_idx] = next_remaining_time + inc;
-            } else {
+            } else if nodes.is_none() {
                 println!(" - Engine {} ran out of time by {}ms", engines[i].name(), -next_remaining_time);
                 return Ok(if i == 0 { Outcome::Loss } else { Outcome::Win });
             }

@@ -246,7 +246,7 @@ const fn calculate_single_move_patterns(directions: [i32; 8]) -> [u64; 64] {
         let mut dir_index = 0;
         while dir_index < directions.len() {
             let dir = directions[dir_index];
-            let target_pos = board_pos + dir as i32;
+            let target_pos = board_pos + dir;
             if !is_border(target_pos) {
                 let row = (target_pos - 21) / 10;
                 let col = (target_pos - 21) % 10;
@@ -309,7 +309,7 @@ const fn create_passed_pawn_mask(direction: i32) -> [u64; 64] {
             row += direction;
             pattern |= 1 << ((row * 8 + col) as u64);
 
-            if col - 1 >= 0 {
+            if col > 0 {
                 pattern |= 1 << ((row * 8 + (col - 1)) as u64);
             }
 
@@ -430,30 +430,30 @@ pub fn get_pawn_attacks(pawns: BitBoard, color: Color) -> BitBoard {
 }
 
 pub fn white_left_pawn_attacks(pawns: BitBoard) -> BitBoard {
-    (pawns & BitBoard(0xfefefefefefefefe)) >> 9 // mask right column
-}
-
-pub fn white_right_pawn_attacks(pawns: BitBoard) -> BitBoard {
-    (pawns & BitBoard(0x7f7f7f7f7f7f7f7f)) >> 7 // mask right column
-}
-
-pub fn black_left_pawn_attacks(pawns: BitBoard) -> BitBoard {
     (pawns & BitBoard(0xfefefefefefefefe)) << 7 // mask right column
 }
 
-pub fn black_right_pawn_attacks(pawns: BitBoard) -> BitBoard {
+pub fn white_right_pawn_attacks(pawns: BitBoard) -> BitBoard {
     (pawns & BitBoard(0x7f7f7f7f7f7f7f7f)) << 9 // mask right column
+}
+
+pub fn black_left_pawn_attacks(pawns: BitBoard) -> BitBoard {
+    (pawns & BitBoard(0xfefefefefefefefe)) >> 9 // mask right column
+}
+
+pub fn black_right_pawn_attacks(pawns: BitBoard) -> BitBoard {
+    (pawns & BitBoard(0x7f7f7f7f7f7f7f7f)) >> 7 // mask right column
 }
 
 // Positions where pawns may move two squares
 pub static PAWN_DOUBLE_MOVE_LINES: [u64; 2] = [
-    0b0000000000000000111111110000000000000000000000000000000000000000,
     0b0000000000000000000000000000000000000000111111110000000000000000,
+    0b0000000000000000111111110000000000000000000000000000000000000000,
 ];
 
 // Patterns to check, whether a piece is on a light or dark field
-pub const LIGHT_COLORED_FIELD_PATTERN: u64 = 0b10101010_01010101_10101010_01010101_10101010_01010101_10101010_01010101;
-pub const DARK_COLORED_FIELD_PATTERN: u64 =  0b01010101_10101010_01010101_10101010_01010101_10101010_01010101_10101010;
+pub const LIGHT_COLORED_FIELD_PATTERN: u64 =  0b01010101_10101010_01010101_10101010_01010101_10101010_01010101_10101010;
+pub const DARK_COLORED_FIELD_PATTERN: u64 = 0b10101010_01010101_10101010_01010101_10101010_01010101_10101010_01010101;
 
 #[cfg(test)]
 mod tests {

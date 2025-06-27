@@ -1,6 +1,6 @@
 /*
  * Velvet Chess Engine
- * Copyright (C) 2024 mhonert (https://github.com/mhonert)
+ * Copyright (C) 2025 mhonert (https://github.com/mhonert)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -70,7 +70,7 @@ impl UciEngine {
 
         anyhow::Ok(())
     }
-    pub fn go(&mut self, opening: &str, wtime: i32, btime: i32, inc: i32, moves: &String) -> anyhow::Result<String> {
+    pub fn go(&mut self, opening: &str, wtime: i32, btime: i32, inc: i32, moves: &String, nodes: Option<i32>) -> anyhow::Result<String> {
         let position = if moves.is_empty() {
             format!("position fen {}", opening)
         } else {
@@ -78,7 +78,11 @@ impl UciEngine {
         };
 
         self.send_command(&position)?;
-        self.send_command(&format!("go wtime {} winc {} btime {} binc {}", wtime, inc, btime, inc))?;
+        if let Some(nodes) = nodes {
+            self.send_command(&format!("go nodes {nodes}"))?;
+        } else {
+            self.send_command(&format!("go wtime {wtime} winc {inc} btime {btime} binc {inc}"))?;
+        }
 
         let response = self.expect_response("bestmove")?;
 

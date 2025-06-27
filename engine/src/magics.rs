@@ -18,33 +18,33 @@
 use crate::align::A64;
 use crate::bitboard::{BitBoard, create_blocker_permutations, gen_bishop_attacks, gen_rook_attacks, mask_without_outline};
 
-pub fn get_bishop_attacks(empty_bb: u64, pos: usize) -> BitBoard {
+pub fn get_bishop_attacks(occupied_bb: u64, pos: usize) -> BitBoard {
     unsafe {
         let magics_ptr = &raw const MAGICS.0;
         let &Magic { b_offset, b_mask, b_number, .. } = (*magics_ptr).get_unchecked(pos);
         let attacks_ptr = &raw const ATTACKS.0;
-        BitBoard(*(*attacks_ptr).get_unchecked(b_offset + ((empty_bb | b_mask).wrapping_mul(b_number) >> (64 - 9)) as usize))
+        BitBoard(*(*attacks_ptr).get_unchecked(b_offset + ((occupied_bb | b_mask).wrapping_mul(b_number) >> (64 - 9)) as usize))
     }
 }
 
-pub fn get_rook_attacks(empty_bb: u64, pos: usize) -> BitBoard {
+pub fn get_rook_attacks(occupied_bb: u64, pos: usize) -> BitBoard {
     unsafe {
         let magics_ptr = &raw const MAGICS.0;
         let &Magic { r_offset, r_mask, r_number, .. } = (*magics_ptr).get_unchecked(pos);
         let attacks_ptr = &raw const ATTACKS.0;
         
-        BitBoard(*(*attacks_ptr).get_unchecked(r_offset + ((empty_bb | r_mask).wrapping_mul(r_number) >> (64 - 12)) as usize))
+        BitBoard(*(*attacks_ptr).get_unchecked(r_offset + ((occupied_bb | r_mask).wrapping_mul(r_number) >> (64 - 12)) as usize))
     }
 }
 
-pub fn get_queen_attacks(empty_bb: u64, pos: usize) -> BitBoard {
+pub fn get_queen_attacks(occupied_bb: u64, pos: usize) -> BitBoard {
     unsafe {
         let magics_ptr = &raw const MAGICS.0;
         let &Magic { b_offset, r_offset, r_mask, b_mask, r_number, b_number } = (*magics_ptr).get_unchecked(pos);
         let attacks_ptr = &raw const ATTACKS.0;
         
-        BitBoard(*(*attacks_ptr).get_unchecked(b_offset + ((empty_bb | b_mask).wrapping_mul(b_number) >> (64 - 9)) as usize)
-            | *(*attacks_ptr).get_unchecked(r_offset  + ((empty_bb | r_mask).wrapping_mul(r_number) >> (64 - 12)) as usize))
+        BitBoard(*(*attacks_ptr).get_unchecked(b_offset + ((occupied_bb | b_mask).wrapping_mul(b_number) >> (64 - 9)) as usize)
+            | *(*attacks_ptr).get_unchecked(r_offset  + ((occupied_bb | r_mask).wrapping_mul(r_number) >> (64 - 12)) as usize))
     }
 }
 
@@ -59,65 +59,74 @@ struct Magic {
 
 const EMPTY_MAGIC: Magic = Magic { r_mask: 0, r_number: 0, r_offset: 0, b_mask: 0, b_number: 0, b_offset: 0 };
 
+
+// 2025: replaced own (black) magic numbers with more compact ones from
+// http://talkchess.com/forum/viewtopic.php?t=64790
 #[rustfmt::skip]
 static ROOK_MAGIC_NUMS: [u64; 64] = [
-    0x0380051082e14004, 0x0018000c00060018, 0x020004200a008010, 0x0040080004004002,
-    0x0040020040040001, 0x0020008020010202, 0x0018007900002040, 0x0600040253002582,
-    0x0002001042008020, 0x0000100008040010, 0x0000080401020008, 0x0000200400200200,
-    0x0000200200010020, 0x0000200100008020, 0x087fe80040800020, 0x0002000041008024,
-    0x34cf0018010c0004, 0x0008001000040010, 0x0001000804020008, 0x0004002002002004,
-    0x0002001001008010, 0xc001002000802001, 0x0000004040008001, 0x0000802000400020,
-    0x0040200010080010, 0x0000080010040010, 0x0004010008020008, 0x0000020020040020,
-    0x0000020020010020, 0x0000010020200080, 0x0000400040008001, 0x200fc00040000080,
-    0x0040001000200020, 0x0000080400100010, 0x040401ff00080008, 0x0000200200200400,
-    0x0000200200200100, 0x0000200100200080, 0x0000200080200040, 0x0000802000200040,
-    0x31cf00010c001800, 0x0010080201000400, 0x09003dc008004010, 0x0002002004002002,
-    0x0001002002002001, 0x0008400100004002, 0x0000400080004001, 0x0008001058005802,
-    0x0019000808370010, 0x000c00030086000c, 0x023f880000408028, 0x000a000125032e00,
-    0x210e7000708f8010, 0x0000200080010020, 0x200f980004080068, 0x0008001262300030,
-    0x000e000242248412, 0x0000401009002202, 0x0000080411002001, 0x024e0000830a4806,
-    0x000500080001c401, 0x0002000084011002, 0x0001000082000041, 0x020e0007684824e2
+    0x80280013ff84ffff, 0x5ffbfefdfef67fff, 0xffeffaffeffdffff, 0x003000900300008a,
+    0x0050028010500023, 0x0020012120a00020, 0x0030006000c00030, 0x0058005806b00002,
+    0x7fbff7fbfbeafffc, 0x0000140081050002, 0x0000180043800048, 0x7fffe800021fffb8,
+    0xffffcffe7fcfffaf, 0x00001800c0180060, 0x4f8018005fd00018, 0x0000180030620018,
+    0x00300018010c0003, 0x0003000c0085ffff, 0xfffdfff7fbfefff7, 0x7fc1ffdffc001fff,
+    0xfffeffdffdffdfff, 0x7c108007befff81f, 0x20408007bfe00810, 0x0400800558604100,
+    0x0040200010080008, 0x0010020008040004, 0xfffdfefff7fbfff7, 0xfebf7dfff8fefff9,
+    0xc00000ffe001ffe0, 0x4af01f00078007c3, 0xbffbfafffb683f7f, 0x0807f67ffa102040,
+    0x200008e800300030, 0x0000008780180018, 0x0000010300180018, 0x4000008180180018,
+    0x008080310005fffa, 0x4000188100060006, 0xffffff7fffbfbfff, 0x0000802000200040,
+    0x20000202ec002800, 0xfffff9ff7cfff3ff, 0x000000404b801800, 0x2000002fe03fd000,
+    0xffffff6ffe7fcffd, 0xbff7efffbfc00fff, 0x000000100800a804, 0x6054000a58005805,
+    0x0829000101150028, 0x00000085008a0014, 0x8000002b00408028, 0x4000002040790028,
+    0x7800002010288028, 0x0000001800e08018, 0xa3a80003f3a40048, 0x2003d80000500028,
+    0xfffff37eefefdfbe, 0x40000280090013c1, 0xbf7ffeffbffaf71f, 0xfffdffff777b7d6e,
+    0x48300007e8080c02, 0xafe0000fff780402, 0xee73fffbffbb77fe, 0x0002000308482882,
 ];
 
 #[rustfmt::skip]
 static ROOK_MAGIC_OFFSETS: [u32; 64] = [
-    0, 27478, 23381, 13144, 65447, 11094, 2022, 63395, 38375, 44182, 49063, 25430, 28501,
-    4939, 78782, 73777, 40019, 77746, 19285, 15188, 3045, 87095, 17236, 46231, 86077, 5963,
-    53160, 14164, 50087, 74801, 43031, 69681, 42011, 55208, 54184, 81331, 52135, 67633, 9036,
-    8012, 80319, 24407, 66609, 48038, 75825, 18260, 51111, 92609, 83000, 47014, 76727, 90184,
-    91061, 16212, 4011, 30199, 59289, 38391, 34279, 59308, 34295, 73761, 23365, 90158
+    10890, 50579, 62020, 67322, 80251, 58503, 51175, 83130,
+    50430, 21613, 72625, 80755, 69753, 26973, 84972, 31958,
+    69272, 48372, 65477, 43972, 57154, 53521, 30534, 16548,
+    46407, 11841, 21112, 44214, 57925, 29574, 17309, 40143,
+    64659, 70469, 62917, 60997, 18554, 14385,     0, 38091,
+    25122, 60083, 72209, 67875, 56290, 43807, 73365, 76398,
+    20024,  9513, 24324, 22996, 23213, 56002, 22809, 44545,
+    36072,  4750,  6014, 36054, 78538, 28745,  8555,  1009,
 ];
 
 #[rustfmt::skip]
 static BISHOP_MAGIC_NUMS: [u64; 64] = [
-    0x407f40a0106003d2, 0x087fdfdfdfdc0001, 0x107f400818002000, 0x02007ff810000000,
-    0x14603bfe54000000, 0x10401efeff700000, 0x0800101f3fff8000, 0x100020101e3fff80,
-    0x1000023fdfbfeffe, 0x8040003f3fe7e801, 0x007f008048100020, 0x0482007fe0040000,
-    0x1040003c01800000, 0x0480401fff008000, 0x100000101effff80, 0x080000082fbfffc0,
-    0x407f007f40a0a004, 0xfd4060003f3fd002, 0x20018000c00f3fff, 0x0040100101002000,
-    0x0060200100080000, 0x104010001e001000, 0x08000807efe0bffe, 0x0400040007e05fff,
-    0x0000808000420080, 0x0000420000401040, 0x140ffe0204002008, 0x0841004004040001,
-    0x0144040000410020, 0x20002038001c7ff0, 0x0840300c07efa008, 0x0840080e0007c004,
-    0x207f4000607e7fa0, 0x0070010030010040, 0x0070008180030018, 0x046020031b880080,
-    0x0001010400020020, 0x0000404040008010, 0x08604007c1002010, 0x204007c40303f010,
-    0x00704002004800c0, 0x087fc00040a10040, 0x2078003e81010080, 0x0070000080fc4080,
-    0x0e40003c80180030, 0x0c7a0004000c0018, 0x10007fffc7dc8008, 0x107f50000bfc080a,
-    0x00f8100080ffa000, 0x00fc2000203fc200, 0x07fc40000f808000, 0x1001000007ffc060,
-    0x087a007f001fe026, 0x02007fffa0a00a00, 0xfe807fffbfe7dc20, 0x04011fffd8080204,
-    0x107fd800203e8080, 0x05ff00000fa04024, 0x087c4000000f8080, 0x080090000007ffc1,
-    0x0830000001001fe2, 0x104000003e80300c, 0xfc01fffee0200812, 0x207f8000304013d9
+    0xa7020080601803d8, 0x13802040400801f1, 0x0a0080181001f60c, 0x1840802004238008, 
+    0xc03fe00100000000, 0x24c00bffff400000, 0x0808101f40007f04, 0x100808201ec00080, 
+    0xffa2feffbfefb7ff, 0x083e3ee040080801, 0xc0800080181001f8, 0x0440007fe0031000,
+    0x2010007ffc000000, 0x1079ffe000ff8000, 0x3c0708101f400080, 0x080614080fa00040, 
+    0x7ffe7fff817fcff9, 0x7ffebfffa01027fd, 0x53018080c00f4001, 0x407e0001000ffb8a, 
+    0x201fe000fff80010, 0xffdfefffde39ffef, 0xcc8808000fbf8002, 0x7ff7fbfff8203fff,
+    0x8800013e8300c030, 0x0420009701806018, 0x7ffeff7f7f01f7fd, 0x8700303010c0c006, 
+    0xc800181810606000, 0x20002038001c8010, 0x087ff038000fc001, 0x00080c0c00083007, 
+    0x00000080fc82c040, 0x000000407e416020, 0x00600203f8008020, 0xd003fefe04404080,
+    0xa00020c018003088, 0x7fbffe700bffe800, 0x107ff00fe4000f90, 0x7f8fffcff1d007f8, 
+    0x0000004100f88080, 0x00000020807c4040, 0x00000041018700c0, 0x0010000080fc4080, 
+    0x1000003c80180030, 0xc10000df80280050, 0xffffffbfeff80fdc, 0x000000101003f812,
+    0x0800001f40808200, 0x084000101f3fd208, 0x080000000f808081, 0x0004000008003f80, 
+    0x08000001001fe040, 0x72dd000040900a00, 0xfffffeffbfeff81d, 0xcd8000200febf209, 
+    0x100000101ec10082, 0x7fbaffffefe0c02f, 0x7f83fffffff07f7f, 0xfff1fffffff7ffc1,
+    0x0878040000ffe01f, 0x945e388000801012, 0x0840800080200fda, 0x100000c05f582008, 
 ];
 
 #[rustfmt::skip]
 static BISHOP_MAGIC_OFFSETS: [u32; 64] = [
-    98493, 85776, 79931, 5024, 98308, 98894, 4349, 85759, 82124, 99300, 4890, 81457, 99198,
-    4483, 5260, 99231, 3986, 5988, 79905, 98842, 98518, 98684, 4767, 4222, 4613, 3616, 46742,
-    96807, 29526, 99343, 3739, 99364, 5416, 81585, 96295, 97398, 98132, 97525, 81970, 81883,
-    99118, 99435, 96903, 97620, 98248, 99018, 99104, 99159, 99041, 79941, 3998, 93866, 82230,
-    4634, 86288, 99385, 98561, 98906, 98715, 94602, 81722, 99426, 82578, 98388
+    60984, 66046, 32910, 16369, 42115,   835, 18910, 25911, 
+    63301, 16063, 17481, 59361, 18735, 61249, 68938, 61791, 
+    21893, 62068, 19829, 26091, 15815, 16419, 59777, 16288,
+    33235, 15459, 15863, 75555, 79445, 15917,  8512, 73069, 
+    16078, 19168, 11056, 62544, 80477, 75049, 32947, 59172, 
+    55845, 61806, 73601, 15546, 45243, 20333, 33402, 25917,
+    32875,  4639, 17077, 62324, 18159, 61436, 57073, 61025, 
+    81259, 64083, 56114, 57058, 58912, 22194, 70880, 11140
 ];
 
-static mut ATTACKS: A64<[u64; 99947]> = A64([0; 99947]);
+static mut ATTACKS: A64<[u64; 87988]> = A64([0; 87988]);
 
 static mut MAGICS: A64<[Magic; 64]> = A64([EMPTY_MAGIC; 64]);
 
@@ -140,24 +149,21 @@ fn init_attack_tables() {
         // Rook
         let r_move_mask = gen_rook_attacks(0, pos);
         let r_block_mask = mask_without_outline(r_move_mask, pos as u32);
-
         let r_blocker_count = r_block_mask.count_ones();
 
         let mut r_permutations: Vec<u64> = Vec::with_capacity(1 << r_blocker_count);
         create_blocker_permutations(&mut r_permutations, 0, r_block_mask);
 
         let r_magic_num = ROOK_MAGIC_NUMS[pos as usize];
-
         let r_magic_offset = ROOK_MAGIC_OFFSETS[pos as usize];
 
+        let r_inv_block_mask = !r_block_mask;
         for &p in r_permutations.iter() {
             let move_targets = gen_rook_attacks(p, pos);
 
-            let index = ((!p).wrapping_mul(r_magic_num)) >> (64 - 12);
+            let index = ((p | r_inv_block_mask).wrapping_mul(r_magic_num)) >> (64 - 12);
             unsafe { ATTACKS.0[index as usize + r_magic_offset as usize] = move_targets }
         }
-
-        let r_inv_block_mask = !r_block_mask;
 
         // Bishop
         let b_move_mask = gen_bishop_attacks(0, pos);
@@ -172,14 +178,13 @@ fn init_attack_tables() {
 
         let b_magic_offset = BISHOP_MAGIC_OFFSETS[pos as usize];
 
+        let b_inv_block_mask = !b_block_mask;
         for &p in b_permutations.iter() {
             let move_targets = gen_bishop_attacks(p, pos);
 
-            let index = ((!p).wrapping_mul(b_magic_num)) >> (64 - 9);
+            let index = ((p | b_inv_block_mask).wrapping_mul(b_magic_num)) >> (64 - 9);
             unsafe { ATTACKS.0[index as usize + b_magic_offset as usize] = move_targets }
         }
-
-        let b_inv_block_mask = !b_block_mask;
 
         unsafe {
             MAGICS.0[pos as usize] = Magic {
@@ -198,14 +203,13 @@ fn init_ray_tables() {
     for start in 0..64 {
         for end in 0..64 {
             let idx = (start << 6) | end;
-            if get_bishop_attacks(!0, start).is_set(end) {
-                let ray = get_bishop_attacks(!(1 << end), start).0 & get_bishop_attacks(!(1 << start), end).0;
+            if get_bishop_attacks(0, start).is_set(end) {
+                let ray = get_bishop_attacks(1 << end, start).0 & get_bishop_attacks(1 << start, end).0;
                 unsafe { RAYS.0[idx] = ray }
-            } else if get_rook_attacks(!0, start).is_set(end) {
-                let ray = get_rook_attacks(!(1 << end), start).0 & get_rook_attacks(!(1 << start), end).0; 
+            } else if get_rook_attacks(0, start).is_set(end) {
+                let ray = get_rook_attacks(1 << end, start).0 & get_rook_attacks(1 << start, end).0; 
                 unsafe { RAYS.0[idx] = ray }
             }
         }
     }
 }
-

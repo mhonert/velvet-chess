@@ -286,7 +286,7 @@ impl MoveList {
             self.gen_quiet_moves(hh, board);
 
             let active_player = board.active_player();
-            self.moves.retain(|&m| board.is_legal_move(active_player, m));
+            self.moves.retain(|&m| board.check_legal_move(active_player, m));
             if randomize {
                 for m in self.moves.iter_mut() {
                     let r = (self.rnd.rand32() % 30) as i16 - 15;
@@ -342,7 +342,7 @@ impl MoveList {
         }
 
         for pos in board.get_bitboard(active_player.piece(B)) {
-            let attacks = get_bishop_attacks(empty_bb.0, pos as usize);
+            let attacks = get_bishop_attacks(occupied.0, pos as usize);
             self.add_moves(hh, MoveType::BishopQuiet,  pos as i8, attacks & empty_bb);
         }
 
@@ -352,12 +352,12 @@ impl MoveList {
         }
 
         for pos in board.get_bitboard(active_player.piece(R)) {
-            let attacks = get_rook_attacks(empty_bb.0, pos as usize);
+            let attacks = get_rook_attacks(occupied.0, pos as usize);
             self.add_moves(hh, MoveType::RookQuiet,  pos as i8, attacks & empty_bb);
         }
 
         for pos in board.get_bitboard(active_player.piece(Q)) {
-            let attacks = get_queen_attacks(empty_bb.0, pos as usize);
+            let attacks = get_queen_attacks(occupied.0, pos as usize);
             self.add_moves(hh, MoveType::QueenQuiet,  pos as i8, attacks & empty_bb);
         }
 
@@ -372,7 +372,6 @@ impl MoveList {
 
         let opponent_bb = board.get_all_piece_bitboard(active_player.flip());
         let occupied = opponent_bb | board.get_all_piece_bitboard(active_player);
-        let empty_bb = !occupied;
 
         if active_player.is_white() {
             let pawns = board.get_bitboard(P);
@@ -390,17 +389,17 @@ impl MoveList {
         }
 
         for pos in board.get_bitboard(active_player.piece(B)) {
-            let attacks = get_bishop_attacks(empty_bb.0, pos as usize);
+            let attacks = get_bishop_attacks(occupied.0, pos as usize);
             self.add_capture_moves(board, MoveType::BishopCapture, pos as i8, attacks & opponent_bb);
         }
 
         for pos in board.get_bitboard(active_player.piece(R)) {
-            let attacks = get_rook_attacks(empty_bb.0, pos as usize);
+            let attacks = get_rook_attacks(occupied.0, pos as usize);
             self.add_capture_moves(board, MoveType::RookCapture, pos as i8, attacks & opponent_bb);
         }
 
         for pos in board.get_bitboard(active_player.piece(Q)) {
-            let attacks = get_queen_attacks(empty_bb.0, pos as usize);
+            let attacks = get_queen_attacks(occupied.0, pos as usize);
             self.add_capture_moves(board, MoveType::QueenCapture, pos as i8, attacks & opponent_bb);
         }
 
@@ -409,13 +408,13 @@ impl MoveList {
         self.add_capture_moves(board, MoveType::KingCapture, king_pos, king_targets & opponent_bb);
     }
 
-    fn gen_white_straight_pawn_moves(&mut self, hh: &HistoryHeuristics, pawns: BitBoard, empty_bb: BitBoard) {
+    fn gen_black_straight_pawn_moves(&mut self, hh: &HistoryHeuristics, pawns: BitBoard, empty_bb: BitBoard) {
         // Single move
         let mut target_bb = (pawns >> 8) & empty_bb;
-        self.add_pawn_quiet_moves(hh, target_bb, 8);
+        self.add_pawn_quiet_moves(hh, target_bb, -8);
 
         // Double move
-        target_bb &= BitBoard(*PAWN_DOUBLE_MOVE_LINES.el(WHITE.idx()));
+        target_bb &= BitBoard(*PAWN_DOUBLE_MOVE_LINES.el(BLACK.idx()));
         target_bb >>= BitBoard(8);
 
         target_bb &= empty_bb;
@@ -425,35 +424,35 @@ impl MoveList {
         }
     }
 
-    fn gen_white_attack_pawn_moves<const MINOR_PROMOTIONS: bool>(&mut self, board: &Board, pawns: BitBoard, opponent_bb: BitBoard) {
+    fn gen_black_attack_pawn_moves<const MINOR_PROMOTIONS: bool>(&mut self, board: &Board, pawns: BitBoard, opponent_bb: BitBoard) {
         let mut left_attacks = pawns & 0xfefefefefefefefe; // mask right column
         left_attacks >>= BitBoard(9);
 
         left_attacks &= opponent_bb;
-        self.add_pawn_capture_moves::<MINOR_PROMOTIONS>(board, left_attacks, 9);
+        self.add_pawn_capture_moves::<MINOR_PROMOTIONS>(board, left_attacks, -9);
 
         let mut right_attacks = pawns & 0x7f7f7f7f7f7f7f7f; // mask left column
         right_attacks >>= BitBoard(7);
 
         right_attacks &= opponent_bb;
-        self.add_pawn_capture_moves::<MINOR_PROMOTIONS>(board, right_attacks, 7);
+        self.add_pawn_capture_moves::<MINOR_PROMOTIONS>(board, right_attacks, -7);
     }
 
-    fn gen_white_en_passant_moves(&mut self, board: &Board, pawns: BitBoard) {
+    fn gen_black_en_passant_moves(&mut self, board: &Board, pawns: BitBoard) {
         let en_passant = board.enpassant_target();
-        if en_passant < WhiteBoardPos::EnPassantLineStart as u8 || en_passant > WhiteBoardPos::EnPassantLineEnd as u8  {
+        if en_passant < BlackBoardPos::EnPassantLineStart as u8 || en_passant > BlackBoardPos::EnPassantLineEnd as u8  {
             return;
         }
 
         let end = en_passant as i8;
-        if en_passant != WhiteBoardPos::EnPassantLineEnd as u8 {
+        if en_passant != BlackBoardPos::EnPassantLineEnd as u8 {
             let start = end + 9;
             if (pawns & (1 << start)).is_occupied() {
                 self.add_capture_move(board, MoveType::PawnEnPassant, start, end);
             }
         }
 
-        if en_passant != WhiteBoardPos::EnPassantLineStart as u8 {
+        if en_passant != BlackBoardPos::EnPassantLineStart as u8 {
             let start = end + 7;
             if (pawns & (1 << start)).is_occupied() {
                 self.add_capture_move(board, MoveType::PawnEnPassant, start, end);
@@ -461,13 +460,13 @@ impl MoveList {
         }
     }
 
-    fn gen_black_straight_pawn_moves(&mut self, hh: &HistoryHeuristics, pawns: BitBoard, empty_bb: BitBoard) {
+    fn gen_white_straight_pawn_moves(&mut self, hh: &HistoryHeuristics, pawns: BitBoard, empty_bb: BitBoard) {
         // Single move
         let mut target_bb = (pawns << 8) & empty_bb;
-        self.add_pawn_quiet_moves(hh, target_bb, -8);
+        self.add_pawn_quiet_moves(hh, target_bb, 8);
 
         // Double move
-        target_bb &= BitBoard(*PAWN_DOUBLE_MOVE_LINES.el(BLACK.idx()));
+        target_bb &= BitBoard(*PAWN_DOUBLE_MOVE_LINES.el(WHITE.idx()));
         target_bb <<= BitBoard(8);
 
         target_bb &= empty_bb;
@@ -477,35 +476,35 @@ impl MoveList {
         }
     }
 
-    fn gen_black_attack_pawn_moves<const MINOR_PROMOTIONS: bool>(&mut self, board: &Board, pawns: BitBoard, opponent_bb: BitBoard) {
+    fn gen_white_attack_pawn_moves<const MINOR_PROMOTIONS: bool>(&mut self, board: &Board, pawns: BitBoard, opponent_bb: BitBoard) {
         let mut left_attacks = pawns & 0xfefefefefefefefe; // mask right column
         left_attacks <<= BitBoard(7);
 
         left_attacks &= opponent_bb;
-        self.add_pawn_capture_moves::<MINOR_PROMOTIONS>(board, left_attacks, -7);
+        self.add_pawn_capture_moves::<MINOR_PROMOTIONS>(board, left_attacks, 7);
 
         let mut right_attacks = pawns & 0x7f7f7f7f7f7f7f7f; // mask left column
         right_attacks <<= BitBoard(9);
 
         right_attacks &= opponent_bb;
-        self.add_pawn_capture_moves::<MINOR_PROMOTIONS>(board, right_attacks, -9);
+        self.add_pawn_capture_moves::<MINOR_PROMOTIONS>(board, right_attacks, 9);
     }
 
-    fn gen_black_en_passant_moves(&mut self, board: &Board, pawns: BitBoard) {
+    fn gen_white_en_passant_moves(&mut self, board: &Board, pawns: BitBoard) {
         let en_passant = board.enpassant_target();
-        if en_passant < BlackBoardPos::EnPassantLineStart as u8 || en_passant > BlackBoardPos::EnPassantLineEnd as u8 {
+        if en_passant < WhiteBoardPos::EnPassantLineStart as u8 || en_passant > WhiteBoardPos::EnPassantLineEnd as u8 {
             return;
         }
 
         let end = en_passant as i8;
-        if en_passant != BlackBoardPos::EnPassantLineStart as u8 {
+        if en_passant != WhiteBoardPos::EnPassantLineStart as u8 {
             let start = end - 9;
             if (pawns & (1 << start)).is_occupied() {
                 self.add_capture_move(board, MoveType::PawnEnPassant, start, end);
             }
         }
 
-        if en_passant != BlackBoardPos::EnPassantLineEnd as u8 {
+        if en_passant != WhiteBoardPos::EnPassantLineEnd as u8 {
             let start = end - 7;
             if (pawns & (1 << start)).is_occupied() {
                 self.add_capture_move(board, MoveType::PawnEnPassant, start, end);
@@ -516,7 +515,7 @@ impl MoveList {
     fn add_pawn_quiet_moves(&mut self, hh: &HistoryHeuristics, target_bb: BitBoard, direction: i8) {
         // Promotions
         for end in target_bb & 0xFF000000000000FF {
-            let start = end as i8 + direction;
+            let start = end as i8 - direction;
             self.add_promotion_move(hh, MoveType::QueenQuietPromotion, start, end as i8, false);
             self.add_promotion_move(hh, MoveType::KnightQuietPromotion, start, end as i8, true);
             self.add_promotion_move(hh, MoveType::RookQuietPromotion, start, end as i8, true);
@@ -525,7 +524,7 @@ impl MoveList {
 
         // Normal quiet moves
         for end in target_bb & !0xFF000000000000FF {
-            let start = end as i8 + direction;
+            let start = end as i8 - direction;
             self.add_move(hh, MoveType::PawnQuiet, start, end as i8);
         }
     }
@@ -533,7 +532,7 @@ impl MoveList {
     fn add_pawn_capture_moves<const MINOR_PROMOTIONS: bool>(&mut self, board: &Board, target_bb: BitBoard, direction: i8) {
         // Promotions
         for end in target_bb & 0xFF000000000000FF {
-            let start = end as i8 + direction;
+            let start = end as i8 - direction;
             self.add_capture_promotion_move(board, MoveType::QueenCapturePromotion, start, end as i8, false);
             if MINOR_PROMOTIONS {
                 self.add_capture_promotion_move(board, MoveType::KnightCapturePromotion, start, end as i8, true);
@@ -544,7 +543,7 @@ impl MoveList {
 
         // Normal captures
         for end in target_bb & !0xFF000000000000FF {
-            let start = end as i8 + direction;
+            let start = end as i8 - direction;
             self.add_capture_move(board, MoveType::PawnCapture, start, end as i8);
         }
     }
@@ -608,7 +607,7 @@ pub fn is_valid_move(board: &Board, active_player: Color, m: Move) -> bool {
                 return false;
             }
 
-            if active_player.is_white() {
+            if active_player.is_black() {
                 let target_bb = (pawns >> 8) & empty_bb;
                 target_bb.is_set(end as usize)
 
@@ -623,7 +622,7 @@ pub fn is_valid_move(board: &Board, active_player: Color, m: Move) -> bool {
                 return false;
             }
 
-            if active_player.is_white() {
+            if active_player.is_black() {
                 let mut left_attacks = pawns & 0xfefefefefefefefe;
                 left_attacks >>= BitBoard(9);
                 left_attacks &= opponent_bb;
@@ -667,9 +666,9 @@ pub fn is_valid_move(board: &Board, active_player: Color, m: Move) -> bool {
                 return false;
             }
 
-            if active_player.is_white() {
+            if active_player.is_black() {
                 let mut target_bb = (pawns >> 8) & empty_bb;
-                target_bb &= BitBoard(*PAWN_DOUBLE_MOVE_LINES.el(WHITE.idx()));
+                target_bb &= BitBoard(*PAWN_DOUBLE_MOVE_LINES.el(BLACK.idx()));
                 target_bb >>= BitBoard(8);
                 target_bb &= empty_bb;
 
@@ -677,7 +676,7 @@ pub fn is_valid_move(board: &Board, active_player: Color, m: Move) -> bool {
 
             } else {
                 let mut target_bb = (pawns << 8) & empty_bb;
-                target_bb &= BitBoard(*PAWN_DOUBLE_MOVE_LINES.el(BLACK.idx()));
+                target_bb &= BitBoard(*PAWN_DOUBLE_MOVE_LINES.el(WHITE.idx()));
                 target_bb <<= BitBoard(8);
                 target_bb &= empty_bb;
                 target_bb.is_set(end as usize)
@@ -689,7 +688,7 @@ pub fn is_valid_move(board: &Board, active_player: Color, m: Move) -> bool {
                 return false;
             }
 
-            if active_player.is_white() {
+            if active_player.is_black() {
                 let en_passant = board.enpassant_target();
                 if en_passant == 0 {
                     return false;
@@ -699,14 +698,14 @@ pub fn is_valid_move(board: &Board, active_player: Color, m: Move) -> bool {
                     return false;
                 }
 
-                if en_passant != WhiteBoardPos::EnPassantLineEnd as u8 {
+                if en_passant != BlackBoardPos::EnPassantLineEnd as u8 {
                     let start = calc_end + 9;
                     if (pawns & (1 << start)).is_occupied() {
                         return true;
                     }
                 }
 
-                if en_passant != WhiteBoardPos::EnPassantLineStart as u8 {
+                if en_passant != BlackBoardPos::EnPassantLineStart as u8 {
                     let start = calc_end + 7;
                     if (pawns & (1 << start)).is_occupied() {
                         return true;
@@ -724,14 +723,14 @@ pub fn is_valid_move(board: &Board, active_player: Color, m: Move) -> bool {
                 if calc_end != end {
                     return false;
                 }
-                if en_passant != BlackBoardPos::EnPassantLineStart as u8 {
+                if en_passant != WhiteBoardPos::EnPassantLineStart as u8 {
                     let start = calc_end - 9;
                     if (pawns & (1 << start)).is_occupied() {
                         return true;
                     }
                 }
 
-                if en_passant != BlackBoardPos::EnPassantLineEnd as u8 {
+                if en_passant != WhiteBoardPos::EnPassantLineEnd as u8 {
                     let start = calc_end - 7;
                     if (pawns & (1 << start)).is_occupied() {
                         return true;
@@ -766,7 +765,7 @@ pub fn is_valid_move(board: &Board, active_player: Color, m: Move) -> bool {
         }
         MoveType::KnightQuietPromotion | MoveType::BishopQuietPromotion | MoveType::RookQuietPromotion | MoveType::QueenQuietPromotion => {
             let direction = end - start;
-            if direction.signum() != active_player.piece(-1) {
+            if direction.signum() == active_player.piece(-1) {
                 return false;
             }
 
@@ -790,7 +789,7 @@ pub fn is_valid_move(board: &Board, active_player: Color, m: Move) -> bool {
         }
         MoveType::KnightCapturePromotion | MoveType::BishopCapturePromotion | MoveType::RookCapturePromotion | MoveType::QueenCapturePromotion => {
             let direction = end - start;
-            if direction.signum() != active_player.piece(-1) {
+            if direction.signum() == active_player.piece(-1) {
                 return false;
             }
 
@@ -817,7 +816,7 @@ pub fn is_valid_move(board: &Board, active_player: Color, m: Move) -> bool {
                 return false;
             }
 
-            let attacks = get_bishop_attacks(empty_bb.0, start as usize) & empty_bb;
+            let attacks = get_bishop_attacks(occupied.0, start as usize) & empty_bb;
             if !attacks.is_set(end as usize) {
                 return false;
             }
@@ -829,7 +828,7 @@ pub fn is_valid_move(board: &Board, active_player: Color, m: Move) -> bool {
                 return false;
             }
 
-            let attacks = get_bishop_attacks(empty_bb.0, start as usize) & opponent_bb;
+            let attacks = get_bishop_attacks(occupied.0, start as usize) & opponent_bb;
             if !attacks.is_set(end as usize) {
                 return false;
             }
@@ -841,7 +840,7 @@ pub fn is_valid_move(board: &Board, active_player: Color, m: Move) -> bool {
                 return false;
             }
 
-            let attacks = get_rook_attacks(empty_bb.0, start as usize) & empty_bb;
+            let attacks = get_rook_attacks(occupied.0, start as usize) & empty_bb;
             if !attacks.is_set(end as usize) {
                 return false;
             }
@@ -853,7 +852,7 @@ pub fn is_valid_move(board: &Board, active_player: Color, m: Move) -> bool {
                 return false;
             }
 
-            let attacks = get_rook_attacks(empty_bb.0, start as usize) & opponent_bb;
+            let attacks = get_rook_attacks(occupied.0, start as usize) & opponent_bb;
             if !attacks.is_set(end as usize) {
                 return false;
             }
@@ -865,7 +864,7 @@ pub fn is_valid_move(board: &Board, active_player: Color, m: Move) -> bool {
                 return false;
             }
 
-            let attacks = get_queen_attacks(empty_bb.0, start as usize) & empty_bb;
+            let attacks = get_queen_attacks(occupied.0, start as usize) & empty_bb;
             if !attacks.is_set(end as usize) {
                 return false;
             }
@@ -877,7 +876,7 @@ pub fn is_valid_move(board: &Board, active_player: Color, m: Move) -> bool {
                 return false;
             }
 
-            let attacks = get_queen_attacks(empty_bb.0, start as usize) & opponent_bb;
+            let attacks = get_queen_attacks(occupied.0, start as usize) & opponent_bb;
             if !attacks.is_set(end as usize) {
                 return false;
             }
@@ -965,43 +964,43 @@ mod tests {
 
     #[rustfmt::skip]
     const ONLY_KINGS: [i8; 64] = [
-        0, 0, 0, 0, 0, 0, -K, 0, // 0 - 7
+        0, 0, 0, 0, 0, 0, K, 0, // 0 - 7
         0, 0, 0, 0, 0, 0, 0, 0, // 8 - 15
         0, 0, 0, 0, 0, 0, 0, 0, // 16 - 23
         0, 0, 0, 0, 0, 0, 0, 0, // 24 - 31
         0, 0, 0, 0, 0, 0, 0, 0, // 32 - 39
         0, 0, 0, 0, 0, 0, 0, 0, // 40 - 47
         0, 0, 0, 0, 0, 0, 0, 0, // 48 - 55
-        0, 0, 0, 0, 0, 0, K, 0, // 56 - 63
+        0, 0, 0, 0, 0, 0, -K, 0, // 56 - 63
     ];
 
     #[test]
     pub fn white_pawn_moves_blocked() {
-        let mut board = setup(WHITE, P, 52);
-        board.add_piece(WHITE, P, 44);
+        let mut board = setup(WHITE, P, 12);
+        board.add_piece(WHITE, P, 20);
 
-        let moves = generate_moves_for_pos(&mut board, WHITE, 52);
+        let moves = generate_moves_for_pos(&mut board, WHITE, 12);
         assert_eq!(0, moves.len());
     }
 
     #[test]
     pub fn white_queen_moves() {
-        let mut board = setup(WHITE, Q, 28);
+        let mut board = setup(WHITE, Q, 36);
 
-        let moves = generate_moves_for_pos(&mut board, WHITE, 28);
+        let moves = generate_moves_for_pos(&mut board, WHITE, 36);
 
         assert_eq!(27, moves.len());
     }
 
     #[test]
     pub fn exclude_illegal_moves() {
-        let mut board = setup(WHITE, Q, 52);
-        board.perform_move(Move::new(MoveType::KingQuiet, board.king_pos(WHITE), 53));
-        board.add_piece(BLACK, R, 51);
+        let mut board = setup(WHITE, Q, 12);
+        board.perform_move(Move::new(MoveType::KingQuiet, board.king_pos(WHITE), 13));
+        board.add_piece(BLACK, R, 11);
 
         board.perform_null_move(); // so WHITE is the active player
 
-        let moves = generate_moves_for_pos(&mut board, WHITE, 52);
+        let moves = generate_moves_for_pos(&mut board, WHITE, 12);
         assert_eq!(1, moves.len(), "There must be only one legal move for the white queen");
     }
 
@@ -1032,7 +1031,7 @@ mod tests {
 
         moves.into_iter()
             .filter(|&m| m.start() == pos as i8)
-            .filter(|&m| board.is_legal_move(color, m))
+            .filter(|&m| board.check_legal_move(color, m))
             .collect()
     }
 }

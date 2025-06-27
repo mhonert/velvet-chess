@@ -32,12 +32,12 @@ pub fn has_cycle_move(key: u64, occupancy: BitBoard) -> bool {
             return false;
         }
     }
-
+    
     let m = get_cuckoo_move(i);
     if (occupancy & get_ray(m)).is_occupied() {
         return false
     }
-
+    
     true
 }
 
@@ -75,7 +75,7 @@ pub fn init() {
                     }
                     let mut m = (start << 6 | end) as u16;
                     let mut hash = piece_zobrist_key(player.piece(piece), start) ^ piece_zobrist_key(player.piece(piece), end) ^ player_zobrist_key();
-
+    
                     let mut i = cuckoo_hash1(hash);
                     while m != 0 {
                         swap(unsafe { &mut CUCKOO_KEYS[i] }, &mut hash);
@@ -93,9 +93,9 @@ pub fn init() {
 fn attacks(piece: i8, pos: usize) -> BitBoard {
     match piece {
         2 => get_knight_attacks(pos),
-        3 => get_bishop_attacks(!0, pos),
-        4 => get_rook_attacks(!0, pos),
-        5 => get_queen_attacks(!0, pos),
+        3 => get_bishop_attacks(0, pos),
+        4 => get_rook_attacks(0, pos),
+        5 => get_queen_attacks(0, pos),
         6 => get_king_attacks(pos),
         _ => unreachable!()
     }
