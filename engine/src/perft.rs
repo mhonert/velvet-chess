@@ -17,6 +17,7 @@
  */
 use crate::board::Board;
 use crate::history_heuristics::{EMPTY_HISTORY, HistoryHeuristics};
+use crate::move_gen::is_valid_move;
 use crate::moves::NO_MOVE;
 use crate::next_ply;
 use crate::search_context::SearchContext;
@@ -46,6 +47,7 @@ pub fn perft(ctx: &mut SearchContext, hh: &HistoryHeuristics, board: &mut Board,
         }
 
         board.undo_move(m, previous_piece, removed_piece_id);
+        debug_assert!(is_valid_move(board, active_player, m));
     }
 
     nodes

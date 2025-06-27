@@ -765,19 +765,12 @@ pub fn is_valid_move(board: &Board, active_player: Color, m: Move) -> bool {
         }
         MoveType::KnightQuietPromotion | MoveType::BishopQuietPromotion | MoveType::RookQuietPromotion | MoveType::QueenQuietPromotion => {
             let direction = end - start;
-            if direction.signum() == active_player.piece(-1) {
+            if (active_player.is_white() && (direction != 8 || end <= 55)) ||
+                (active_player.is_black() && (direction != -8 || end >= 8)) {
                 return false;
             }
 
             if !board.get_bitboard(active_player.piece(P)).is_set(start as usize) {
-                return false;
-            }
-
-            if (start - end).abs() != 8 {
-                return false;
-            }
-
-            if (8..=55).contains(&end) {
                 return false;
             }
 
@@ -789,23 +782,16 @@ pub fn is_valid_move(board: &Board, active_player: Color, m: Move) -> bool {
         }
         MoveType::KnightCapturePromotion | MoveType::BishopCapturePromotion | MoveType::RookCapturePromotion | MoveType::QueenCapturePromotion => {
             let direction = end - start;
-            if direction.signum() == active_player.piece(-1) {
-                return false;
-            }
-
-            if (start - end).abs() != 9 && (start - end).abs() != 7 {
-                return false;
-            }
-
-            if (8..=55).contains(&end) {
-                return false;
-            }
-
-            if !opponent_bb.is_set(end as usize) {
+            if (active_player.is_white() && (![7, 9].contains(&direction) || end <= 55)) ||
+                (active_player.is_black() && (![-7, -9].contains(&direction) || end >= 8)) {
                 return false;
             }
 
             if !board.get_bitboard(active_player.piece(P)).is_set(start as usize) {
+                return false;
+            }
+
+            if !opponent_bb.is_set(end as usize) {
                 return false;
             }
 
