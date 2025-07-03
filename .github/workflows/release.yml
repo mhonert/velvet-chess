@@ -18,14 +18,14 @@ jobs:
             add_rustflags: "-Ctarget-feature=+crt-static,-bmi2 -Ctarget-cpu=x86-64-v3"
             toolchain: "x86_64-unknown-linux-musl"
             cflags: "-march=x86-64-v3"
-          - exec_postfix: "x86_64-sse4-popcnt"
-            add_rustflags: "-Ctarget-feature=+crt-static -Ctarget-cpu=x86-64-v2"
-            toolchain: "x86_64-unknown-linux-musl"
-            cflags: "-march=x86-64-v2"
-          - exec_postfix: "x86_64-nopopcnt"
-            add_rustflags: "-Ctarget-feature=+crt-static"
-            toolchain: "x86_64-unknown-linux-musl"
-            cflags: "-march=x86-64 -DTB_CUSTOM_POP_COUNT"
+#          - exec_postfix: "x86_64-sse4-popcnt"
+#            add_rustflags: "-Ctarget-feature=+crt-static -Ctarget-cpu=x86-64-v2"
+#            toolchain: "x86_64-unknown-linux-musl"
+#            cflags: "-march=x86-64-v2"
+#          - exec_postfix: "x86_64-nopopcnt"
+#            add_rustflags: "-Ctarget-feature=+crt-static"
+#            toolchain: "x86_64-unknown-linux-musl"
+#            cflags: "-march=x86-64 -DTB_CUSTOM_POP_COUNT"
 
     steps:
       - name: Checkout code
@@ -35,6 +35,7 @@ jobs:
         env:
           RUSTFLAGS: '${{ matrix.add_rustflags }}'
           CFLAGS: '${{ matrix.cflags }}'
+          CARGO_OPTS: '--target ${{ matrix.toolchain }} --bin velvet --features=fathomrs'
         run: |
           sudo apt-get install -y musl-tools
           if [ "${{ matrix.exec_postfix }}" == "x86_64-avx512" ]; then
@@ -56,91 +57,91 @@ jobs:
           name: velvet-linux-${{ matrix.exec_postfix }}
           path: velvet-linux-${{ matrix.exec_postfix }}
 
-  build-windows:
-    runs-on: windows-latest
-    strategy:
-      matrix:
-        include:
-          - exec_postfix: "avx2"
-            add_rustflags: "-Ctarget-feature=+crt-static,-bmi2 -Ctarget-cpu=x86-64-v3"
-            cflags: "-march=x86-64-v3"
-          - exec_postfix: "sse4-popcnt"
-            add_rustflags: "-Ctarget-feature=+crt-static -Ctarget-cpu=x86-64-v2"
-            cflags: "-march=x86-64-v2"
-          - exec_postfix: "nopopcnt"
-            add_rustflags: "-Ctarget-feature=+crt-static"
-            cflags: "-march=x86-64 -DTB_CUSTOM_POP_COUNT"
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Build
-        env:
-          RUSTFLAGS: '${{ matrix.add_rustflags }}'
-          CFLAGS: '${{ matrix.cflags }}'
-        run: |
-          if ("${{ matrix.exec_postfix }}" -match "avx512") {
-            rustup toolchain install 1.89.0-beta.3
-            rustup override set 1.89.0-beta.3
-            cargo build --release --bin velvet --features=fathomrs,avx512
-          } else {
-            rustup override set 1.88.0
-            cargo build --release --bin velvet
-          }
-          mv .\target\release\velvet.exe velvet-windows-x86_64-${{ matrix.exec_postfix }}.exe
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: velvet-windows-${{ matrix.exec_postfix }}
-          path: velvet-windows-x86_64-${{ matrix.exec_postfix }}.exe
-
-  build-macos:
-    runs-on: macos-latest
-    strategy:
-      matrix:
-        include:
-          - exec_postfix: "avx2"
-            toolchain: x86_64-apple-darwin
-            add_rustflags: "-Ctarget-feature=+crt-static,-bmi2 -Ctarget-cpu=x86-64-v3"
-            cflags: "-march=x86-64-v3"
-          - exec_postfix: "sse4-popcnt"
-            toolchain: x86_64-apple-darwin
-            add_rustflags: "-Ctarget-feature=+crt-static -Ctarget-cpu=x86-64-v2"
-            cflags: "-march=x86-64-v2"
-          - exec_postfix: "nopopcnt"
-            toolchain: x86_64-apple-darwin
-            add_rustflags: "-Ctarget-feature=+crt-static"
-            cflags: "-march=x86-64 -DTB_CUSTOM_POP_COUNT"
-          - exec_postfix: "apple-silicon"
-            toolchain: aarch64-apple-darwin
-            add_rustflags: "-Ctarget-feature=+crt-static"
-            cflags: ""
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Build
-        env:
-          RUSTFLAGS: '${{ matrix.add_rustflags }}'
-          CFLAGS: '${{ matrix.cflags }}'
-        run: |
-          rustup override set 1.88.0
-          rustup target add ${{ matrix.toolchain }}
-          cargo build --release --target ${{ matrix.toolchain }} --bin velvet
-          mv target/${{ matrix.toolchain }}/release/velvet velvet-macOS-${{ matrix.exec_postfix }}
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: velvet-macOS-${{ matrix.exec_postfix }}
-          path: velvet-macOS-${{ matrix.exec_postfix }}
+#  build-windows:
+#    runs-on: windows-latest
+#    strategy:
+#      matrix:
+#        include:
+#          - exec_postfix: "avx2"
+#            add_rustflags: "-Ctarget-feature=+crt-static,-bmi2 -Ctarget-cpu=x86-64-v3"
+#            cflags: "-march=x86-64-v3"
+#          - exec_postfix: "sse4-popcnt"
+#            add_rustflags: "-Ctarget-feature=+crt-static -Ctarget-cpu=x86-64-v2"
+#            cflags: "-march=x86-64-v2"
+#          - exec_postfix: "nopopcnt"
+#            add_rustflags: "-Ctarget-feature=+crt-static"
+#            cflags: "-march=x86-64 -DTB_CUSTOM_POP_COUNT"
+#
+#    steps:
+#      - name: Checkout code
+#        uses: actions/checkout@v4
+#
+#      - name: Build
+#        env:
+#          RUSTFLAGS: '${{ matrix.add_rustflags }}'
+#          CFLAGS: '${{ matrix.cflags }}'
+#        run: |
+#          if ("${{ matrix.exec_postfix }}" -match "avx512") {
+#            rustup toolchain install 1.89.0-beta.3
+#            rustup override set 1.89.0-beta.3
+#            cargo build --release --bin velvet --features=fathomrs,avx512
+#          } else {
+#            rustup override set 1.88.0
+#            cargo build --release --bin velvet
+#          }
+#          mv .\target\release\velvet.exe velvet-windows-x86_64-${{ matrix.exec_postfix }}.exe
+#
+#      - name: Upload artifacts
+#        uses: actions/upload-artifact@v4
+#        with:
+#          name: velvet-windows-${{ matrix.exec_postfix }}
+#          path: velvet-windows-x86_64-${{ matrix.exec_postfix }}.exe
+#
+#  build-macos:
+#    runs-on: macos-latest
+#    strategy:
+#      matrix:
+#        include:
+#          - exec_postfix: "avx2"
+#            toolchain: x86_64-apple-darwin
+#            add_rustflags: "-Ctarget-feature=+crt-static,-bmi2 -Ctarget-cpu=x86-64-v3"
+#            cflags: "-march=x86-64-v3"
+#          - exec_postfix: "sse4-popcnt"
+#            toolchain: x86_64-apple-darwin
+#            add_rustflags: "-Ctarget-feature=+crt-static -Ctarget-cpu=x86-64-v2"
+#            cflags: "-march=x86-64-v2"
+#          - exec_postfix: "nopopcnt"
+#            toolchain: x86_64-apple-darwin
+#            add_rustflags: "-Ctarget-feature=+crt-static"
+#            cflags: "-march=x86-64 -DTB_CUSTOM_POP_COUNT"
+#          - exec_postfix: "apple-silicon"
+#            toolchain: aarch64-apple-darwin
+#            add_rustflags: "-Ctarget-feature=+crt-static"
+#            cflags: ""
+#
+#    steps:
+#      - name: Checkout code
+#        uses: actions/checkout@v4
+#
+#      - name: Build
+#        env:
+#          RUSTFLAGS: '${{ matrix.add_rustflags }}'
+#          CFLAGS: '${{ matrix.cflags }}'
+#        run: |
+#          rustup override set 1.88.0
+#          rustup target add ${{ matrix.toolchain }}
+#          cargo build --release --target ${{ matrix.toolchain }} --bin velvet
+#          mv target/${{ matrix.toolchain }}/release/velvet velvet-macOS-${{ matrix.exec_postfix }}
+#
+#      - name: Upload artifacts
+#        uses: actions/upload-artifact@v4
+#        with:
+#          name: velvet-macOS-${{ matrix.exec_postfix }}
+#          path: velvet-macOS-${{ matrix.exec_postfix }}
 
   release:
     if: github.repository == 'mhonert/velvet-chess'
-    needs: [build-linux, build-windows]
+    needs: [build-linux]
     name: Publish release
     runs-on: ubuntu-latest
     steps:
@@ -152,15 +153,15 @@ jobs:
           pattern: velvet-linux-*
           merge-multiple: true
 
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: velvet-windows-*
-          merge-multiple: true
-
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: velvet-macOS-*
-          merge-multiple: true
+#      - uses: actions/download-artifact@v4
+#        with:
+#          pattern: velvet-windows-*
+#          merge-multiple: true
+#
+#      - uses: actions/download-artifact@v4
+#        with:
+#          pattern: velvet-macOS-*
+#          merge-multiple: true
 
       - name: Create Release
         env:
@@ -170,30 +171,30 @@ jobs:
           ls -l
           chmod +x velvet-linux-x86_64*
           chmod +x velvet-macOS*
-          mv velvet-windows-x86_64-avx2.exe velvet-${tag_name}-x86_64-avx2.exe
-          mv velvet-windows-x86_64-sse4-popcnt.exe velvet-${tag_name}-x86_64-sse4-popcnt.exe
-          mv velvet-windows-x86_64-nopopcnt.exe velvet-${tag_name}-x86_64-nopopcnt.exe
+#          mv velvet-windows-x86_64-avx2.exe velvet-${tag_name}-x86_64-avx2.exe
+#          mv velvet-windows-x86_64-sse4-popcnt.exe velvet-${tag_name}-x86_64-sse4-popcnt.exe
+#          mv velvet-windows-x86_64-nopopcnt.exe velvet-${tag_name}-x86_64-nopopcnt.exe
           mv velvet-linux-x86_64-avx512 velvet-${tag_name}-x86_64-avx512
           mv velvet-linux-x86_64-avx2 velvet-${tag_name}-x86_64-avx2
-          mv velvet-linux-x86_64-sse4-popcnt velvet-${tag_name}-x86_64-sse4-popcnt
-          mv velvet-linux-x86_64-nopopcnt velvet-${tag_name}-x86_64-nopopcnt
-          mv velvet-macOS-avx2 velvet-${tag_name}-macOS-x86_64-avx2
-          mv velvet-macOS-sse4-popcnt velvet-${tag_name}-macOS-x86_64-sse4-popcnt
-          mv velvet-macOS-nopopcnt velvet-${tag_name}-macOS-x86_64-nopopcnt
-          mv velvet-macOS-apple-silicon velvet-${tag_name}-macOS-apple-silicon
+#          mv velvet-linux-x86_64-sse4-popcnt velvet-${tag_name}-x86_64-sse4-popcnt
+#          mv velvet-linux-x86_64-nopopcnt velvet-${tag_name}-x86_64-nopopcnt
+#          mv velvet-macOS-avx2 velvet-${tag_name}-macOS-x86_64-avx2
+#          mv velvet-macOS-sse4-popcnt velvet-${tag_name}-macOS-x86_64-sse4-popcnt
+#          mv velvet-macOS-nopopcnt velvet-${tag_name}-macOS-x86_64-nopopcnt
+#          mv velvet-macOS-apple-silicon velvet-${tag_name}-macOS-apple-silicon
           sha256sum velvet-* > checksums.txt
           gh release create "$tag_name" --draft \
                              --title "$tag_name" \
                              --notes-file artifacts/release_notes.md \
                              "checksums.txt#Checksums" \
-                             "velvet-${tag_name}-x86_64-avx2.exe#Velvet - Windows (x86_64 - AVX2)" \
-                             "velvet-${tag_name}-x86_64-sse4-popcnt.exe#Velvet - Windows (x86_64 - SSE4.2+POPCNT)" \
+#                             "velvet-${tag_name}-x86_64-avx2.exe#Velvet - Windows (x86_64 - AVX2)" \
+#                             "velvet-${tag_name}-x86_64-sse4-popcnt.exe#Velvet - Windows (x86_64 - SSE4.2+POPCNT)" \
                              "velvet-${tag_name}-x86_64-nopopcnt.exe#Velvet - Windows (x86_64 - No POPCNT)" \
                              "velvet-${tag_name}-x86_64-avx512#Velvet - Linux (x86_64 - AVX512)" \
-                             "velvet-${tag_name}-x86_64-avx2#Velvet - Linux (x86_64 - AVX2)" \
-                             "velvet-${tag_name}-x86_64-sse4-popcnt#Velvet - Linux (x86_64 - SSE4.2+POPCNT)" \
-                             "velvet-${tag_name}-x86_64-nopopcnt#Velvet - Linux (x86_64 - No POPCNT)" \
-                             "velvet-${tag_name}-macOS-apple-silicon#Velvet - macOS (Apple Silicon)" \
-                             "velvet-${tag_name}-macOS-x86_64-avx2#Velvet - macOS (x86_64 - AVX2)" \
-                             "velvet-${tag_name}-macOS-x86_64-sse4-popcnt#Velvet - macOS (x86_64 - SSE4.2+POPCNT)" \
-                             "velvet-${tag_name}-macOS-x86_64-nopopcnt#Velvet - macOS (x86_64 - No POPCNT)"
+                             "velvet-${tag_name}-x86_64-avx2#Velvet - Linux (x86_64 - AVX2)"
+#                             "velvet-${tag_name}-x86_64-sse4-popcnt#Velvet - Linux (x86_64 - SSE4.2+POPCNT)" \
+#                             "velvet-${tag_name}-x86_64-nopopcnt#Velvet - Linux (x86_64 - No POPCNT)" \
+#                             "velvet-${tag_name}-macOS-apple-silicon#Velvet - macOS (Apple Silicon)" \
+#                             "velvet-${tag_name}-macOS-x86_64-avx2#Velvet - macOS (x86_64 - AVX2)" \
+#                             "velvet-${tag_name}-macOS-x86_64-sse4-popcnt#Velvet - macOS (x86_64 - SSE4.2+POPCNT)" \
+#                             "velvet-${tag_name}-macOS-x86_64-nopopcnt#Velvet - macOS (x86_64 - No POPCNT)"
