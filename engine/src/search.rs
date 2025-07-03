@@ -1992,7 +1992,7 @@ mod tests {
         let fen = to_fen(WHITE, &items);
 
         let tt = TranspositionTable::new(1);
-        let limits = SearchLimits::default();
+        let limits = SearchLimits::nodes(10000);
         let mut board = create_from_fen(fen.as_str());
 
         let m1 = search(tt.clone(), limits, board.clone());
@@ -2034,7 +2034,8 @@ mod tests {
     }
 
     fn search(tt: Arc<TranspositionTable>, limits: SearchLimits, board: Board) -> Move {
-        let mut search = new_search(tt, limits, board);
+        let mut search = new_search(tt, limits, board.clone());
+        search.update(&board, limits, false);
         let (m, _) = search.find_best_move(None, &[]);
         m
     }

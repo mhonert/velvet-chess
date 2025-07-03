@@ -16,8 +16,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#![cfg_attr(feature = "avx512", feature(stdarch_x86_avx512))]
-
 pub mod align;
 pub mod bitboard;
 pub mod board;

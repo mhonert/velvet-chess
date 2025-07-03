@@ -1,8 +1,12 @@
 Preview release for TCEC - not intended for rating lists
+Next official release will probably be released in August (2025).
 
 ## Changes
 
-- Bugfix for movelists out of bound access, which caused segfault in TCEC test game
+- Optimizations
+- New neural network
+- Mirrored board representation (e.g. to avoid having to mirror the board at runtime when probing TBs)
+- Minor search improvements
 
 ## Notes
 
