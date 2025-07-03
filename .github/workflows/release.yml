@@ -70,7 +70,6 @@ jobs:
           tag_name="${GITHUB_REF##*/}"
           ls -l
           chmod +x velvet-linux-x86_64*
-          chmod +x velvet-macOS*
           mv velvet-linux-x86_64-avx512 velvet-${tag_name}-x86_64-avx512
           mv velvet-linux-x86_64-avx2 velvet-${tag_name}-x86_64-avx2
           sha256sum velvet-* > checksums.txt
